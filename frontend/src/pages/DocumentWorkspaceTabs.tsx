@@ -8,6 +8,8 @@
  * components to keep this file under 300 lines.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import DocumentDateEditor from "../components/pipeline/DocumentDateEditor";
+import DocumentPhaseEditor from "../components/pipeline/DocumentPhaseEditor";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { API_BASE_URL } from "../services/api";
@@ -178,6 +180,12 @@ const DocumentWorkspaceTabs: React.FC = () => {
         <span>Type: {doc.document_type}</span>
         <span>ID: {doc.id}</span>
         <span>Updated: {new Date(doc.updated_at).toLocaleDateString()}</span>
+        {/* DOCUMENT_PHASE. Both facts about the document itself, beside its type
+            and id rather than buried in a settings panel. They live HERE, on the
+            routed page — the date control had been built on DocumentWorkspace.tsx,
+            which nothing routes, so it had never reached a screen. */}
+        <DocumentDateEditor documentId={doc.id} />
+        <DocumentPhaseEditor documentId={doc.id} phase={doc.phase} onSaved={loadData} />
         {isAdmin && (
           <button
             style={{

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import UploadDialog from "../components/pipeline/UploadDialog";
 import BatchProgressHeader from "../components/documents/BatchProgressHeader";
-import DocumentCard from "../components/documents/DocumentCard";
+import DocumentRow from "../components/documents/DocumentRow";
+import { getPhaseOptions, PhaseOption } from "../services/casePhases";
 import {
   fetchPipelineDocuments, fetchMetrics, fetchErrors,
   PipelineDocument, EstimatesData,
@@ -29,6 +30,31 @@ const pageTitle: React.CSSProperties = {
 };
 const subtitle: React.CSSProperties = {
   fontSize: "0.84rem", color: "var(--text-muted)", marginBottom: "1.25rem",
+};
+const chipRow: React.CSSProperties = {
+  display: "flex", gap: "0.4rem", alignItems: "center", flexWrap: "wrap",
+  marginBottom: "0.75rem",
+};
+const chipBase: React.CSSProperties = {
+  padding: "0.25rem 0.7rem", fontSize: "0.76rem", fontWeight: 600,
+  border: "1px solid var(--border-default)", borderRadius: "999px",
+  backgroundColor: "var(--bg-surface)", color: "var(--text-muted)",
+  cursor: "pointer", fontFamily: "inherit",
+};
+const chipActive: React.CSSProperties = {
+  ...chipBase,
+  backgroundColor: "var(--accent-primary)", color: "var(--bg-surface)",
+  borderColor: "var(--accent-primary)",
+};
+const tableStyle: React.CSSProperties = {
+  width: "100%", borderCollapse: "collapse", backgroundColor: "var(--bg-surface)",
+  border: "1px solid var(--border-default)", borderRadius: "8px", overflow: "hidden",
+};
+const th: React.CSSProperties = {
+  textAlign: "left", padding: "0.5rem 0.6rem", fontSize: "0.72rem",
+  fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em",
+  color: "var(--text-muted)", borderBottom: "2px solid var(--border-default)",
+  whiteSpace: "nowrap",
 };
 const filtersRow: React.CSSProperties = {
   display: "flex", gap: "0.75rem", marginBottom: "1.25rem", flexWrap: "wrap",
@@ -81,6 +107,10 @@ const DocumentsPage: React.FC = () => {
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all");
+  // DOCUMENT_PHASE: "all" plus the four slugs, driven by the chip row.
+  const [phaseFilter, setPhaseFilter] = useState("all");
+  const [phases, setPhases] = useState<PhaseOption[]>([]);
+  const [phaseError, setPhaseError] = useState<string | null>(null);
   const [typeFilter, setTypeFilter] = useState("all");
   const [sortBy, setSortBy] = useState("recent");
   const [search, setSearch] = useState("");
@@ -102,11 +132,33 @@ const DocumentsPage: React.FC = () => {
     // Fetch estimates and errors in background (non-blocking)
     fetchMetrics()
       .then((m) => setEstimates(m.estimates))
-      .catch(() => { /* metrics are optional */ });
+      .catch((e: unknown) => {
+        // Pre-existing silent catch, flagged by the rules gate. These two are
+        // genuinely optional decorations on this page — the document list
+        // renders fully without either — but "optional" is not "invisible":
+        // a failing endpoint must leave a trace someone can find.
+        console.warn("Documents page: cost estimates unavailable", e);
+      });
     fetchErrors()
       .then((e) => setErrorCount(e.total_errors))
-      .catch(() => { /* errors are optional */ });
+      .catch((e: unknown) => {
+        console.warn("Documents page: error count unavailable", e);
+      });
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // DOCUMENT_PHASE: the chip row and every row's Phase cell read their labels
+  // from /data/timeline.json. Loaded once here and passed down rather than
+  // fetched per row.
+  useEffect(() => {
+    let cancelled = false;
+    getPhaseOptions()
+      .then((opts) => { if (!cancelled) setPhases(opts); })
+      .catch((e: unknown) => {
+        if (cancelled) return;
+        setPhaseError(e instanceof Error ? e.message : "Could not load the case phases");
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Poll when documents are processing
   useEffect(() => {
@@ -125,6 +177,7 @@ const DocumentsPage: React.FC = () => {
     let result = documents;
     if (statusFilter !== "all") result = result.filter(d => d.status_group === statusFilter);
     if (typeFilter !== "all") result = result.filter(d => d.document_type === typeFilter);
+    if (phaseFilter !== "all") result = result.filter(d => (d.phase ?? "") === phaseFilter);
     if (search.trim()) {
       const q = search.toLowerCase();
       result = result.filter(d => d.title.toLowerCase().includes(q));
@@ -141,7 +194,7 @@ const DocumentsPage: React.FC = () => {
       }
       default: return copy;
     }
-  }, [documents, statusFilter, typeFilter, search, sortBy]);
+  }, [documents, statusFilter, typeFilter, phaseFilter, search, sortBy]);
 
   const counts = useMemo(() => ({
     total: documents.length,
@@ -238,7 +291,31 @@ const DocumentsPage: React.FC = () => {
         />
       </div>
 
-      {/* Document cards */}
+      {/* Phase filter chips — All plus the four, in the case's order. */}
+      <div style={chipRow}>
+        <button
+          style={phaseFilter === "all" ? chipActive : chipBase}
+          onClick={() => setPhaseFilter("all")}
+        >
+          All
+        </button>
+        {phases.map((p) => (
+          <button
+            key={p.slug}
+            style={phaseFilter === p.slug ? chipActive : chipBase}
+            onClick={() => setPhaseFilter(p.slug)}
+          >
+            {p.label}
+          </button>
+        ))}
+        {phaseError !== null && (
+          <span style={{ fontSize: "0.72rem", color: "var(--status-dropped-text)" }}>
+            Phases unavailable ({phaseError})
+          </span>
+        )}
+      </div>
+
+      {/* One compact table */}
       {filtered.length === 0 ? (
         <div style={emptyState}>
           {documents.length === 0
@@ -246,14 +323,29 @@ const DocumentsPage: React.FC = () => {
             : "No documents match the current filters."}
         </div>
       ) : (
-        filtered.map((doc) => (
-          <DocumentCard
-            key={doc.id}
-            doc={doc}
-            isAdmin={isAdmin}
-            onRefresh={loadData}
-          />
-        ))
+        <table style={tableStyle}>
+          <thead>
+            <tr>
+              <th style={th}>Document</th>
+              <th style={th}>Type</th>
+              <th style={th}>Phase</th>
+              <th style={th}>Status</th>
+              <th style={th}>Detail</th>
+              <th style={th}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map((doc) => (
+              <DocumentRow
+                key={doc.id}
+                doc={doc}
+                isAdmin={isAdmin}
+                phases={phases}
+                onRefresh={loadData}
+              />
+            ))}
+          </tbody>
+        </table>
       )}
 
       {/* Summary footer */}

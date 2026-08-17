@@ -605,6 +605,7 @@ mod tests {
             error_message: None,
             error_suggestion: None,
             is_cancelled: false,
+            phase: None,
             entities_written: None,
             entities_flagged: None,
             relationships_written: None,

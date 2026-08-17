@@ -36,6 +36,7 @@ use axum::extract::{Path, State};
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
+use crate::auth::{require_admin, AuthUser};
 use crate::domain::date_precision::{
     validate, DatePrecision, DatePrecisionError, ALL_DATE_PRECISIONS,
 };
@@ -170,10 +171,19 @@ pub struct StoredDocumentDate {
 
 /// `PUT /documents/:id/date` — record or correct a document's own date.
 pub async fn set_document_date(
+    user: AuthUser,
     State(state): State<AppState>,
     Path(document_id): Path<String>,
     Json(body): Json<SetDocumentDateRequest>,
 ) -> Result<Json<DocumentDateResponse>, AppError> {
+    // This handler shipped with no authorization at all, while every sibling
+    // write in the same router (`process`, `cancel`, `reprocess`, the phase
+    // write beside it) gates on `require_admin`. There is no router-level admin
+    // layer — `api/mod.rs` nests the pipeline router with no `route_layer` — so
+    // per-handler is the only gate there is, and this one had none. Found while
+    // adding the audit row the observability gate asked for (DOCUMENT_PHASE §7.5).
+    require_admin(&user)?;
+
     let (date, precision) = validate(body.document_date.as_deref(), &body.date_precision)
         .map_err(|e| to_app_error(&document_id, e))?;
 
@@ -218,10 +228,25 @@ pub async fn set_document_date(
     // that nothing else would ever notice.
     mirror_to_graph(&state, &document_id, date.as_deref(), precision).await;
 
+    // Same curatorial reasoning as the phase write beside it: "who dated this
+    // document, and when?" must be answerable from `admin_audit_log`.
+    crate::repositories::audit_repository::log_admin_action(
+        &state.audit_repo,
+        &user.username,
+        "pipeline.document.set_date",
+        Some("document"),
+        Some(&document_id),
+        Some(serde_json::json!({
+            "document_date": date, "date_precision": precision.as_str(),
+        })),
+    )
+    .await;
+
     tracing::info!(
         document_id = %document_id,
         date = ?date,
         precision = precision.as_str(),
+        user = %user.username,
         "document date recorded"
     );
     Ok(Json(DocumentDateResponse {

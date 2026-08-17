@@ -22,6 +22,7 @@
 pub mod actor_role;
 pub mod billing_class;
 pub mod card_language;
+pub mod case_phase;
 pub mod case_state;
 pub mod confidence_band;
 pub mod date_precision;

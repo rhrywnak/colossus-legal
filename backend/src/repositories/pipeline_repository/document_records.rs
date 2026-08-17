@@ -68,6 +68,11 @@ pub struct DocumentRecord {
     pub error_suggestion: Option<String>,
     // ── Cancellation ────────────────────────────────────────────
     pub is_cancelled: bool,
+    /// Which phase of the case this document belongs to — the slug, never a
+    /// label (`domain::case_phase`). `None` means nobody has said yet; the field
+    /// is never required.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub phase: Option<String>,
     // ── Auto-write tracking ─────────────────────────────────────
     pub entities_written: Option<i32>,
     pub entities_flagged: Option<i32>,
@@ -233,6 +238,27 @@ pub async fn set_document_date(
     Ok(result.rows_affected())
 }
 
+/// Record or clear a document's phase.
+///
+/// `phase` is the SLUG (`domain::case_phase::CasePhase::slug`), never a label —
+/// see that module for why the labels live in `timeline.json` instead. `None`
+/// clears the field, which is a legitimate answer: the phase is never required.
+///
+/// Returns the number of rows changed, so a caller can tell "stored" from "no
+/// such document" — which an `Ok(())` could not (Standing Rule 1).
+pub async fn set_document_phase(
+    pool: &PgPool,
+    document_id: &str,
+    phase: Option<&str>,
+) -> Result<u64, PipelineRepoError> {
+    let result = sqlx::query("UPDATE documents SET phase = $2, updated_at = NOW() WHERE id = $1")
+        .bind(document_id)
+        .bind(phase)
+        .execute(pool)
+        .await?;
+    Ok(result.rows_affected())
+}
+
 /// Read one document's own date.
 ///
 /// Returns `None` when there is no such document — distinct from a document that
@@ -379,7 +405,8 @@ pub async fn list_all_documents(pool: &PgPool) -> Result<Vec<DocumentRecord>, Pi
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
                 d.pages_needing_ocr, d.total_chars,
                 d.mime_type, d.original_format,
-                d.restate_invocation_id
+                d.restate_invocation_id,
+                d.phase
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd
@@ -430,7 +457,8 @@ pub async fn get_document(
                 d.content_type, d.page_count, d.text_pages, d.scanned_pages,
                 d.pages_needing_ocr, d.total_chars,
                 d.mime_type, d.original_format,
-                d.restate_invocation_id
+                d.restate_invocation_id,
+                d.phase
          FROM documents d
          LEFT JOIN (
              SELECT document_id, SUM(cost_usd::float8) AS total_cost_usd

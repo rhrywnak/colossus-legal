@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchSchemas, uploadDocument, SchemaInfo } from "../../services/pipelineApi";
+import PhaseField from "./PhaseField";
+import { setDocumentPhase } from "../../services/documentPhase";
 import DocumentDateField, {
   DocumentDateValue,
   isDocumentDateComplete,
@@ -85,6 +87,8 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
   // precision select starts empty on purpose: mandatory-with-override means the
   // question must be ANSWERED, and "No date on the document" is one of the
   // answers rather than a way of skipping it.
+  // No pre-selection: a phase is never required (chronology design R4).
+  const [phase, setPhase] = useState<string>("");
   const [documentDate, setDocumentDateValue] = useState<DocumentDateValue>({
     date: null,
     precision: "",
@@ -116,6 +120,7 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
       setFile(null);
       setSchema("");
       setDocumentDateValue({ date: null, precision: "" });
+      setPhase("");
       setError(null);
     }
   }, [open]);
@@ -179,6 +184,26 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
         );
         onSuccess();
         return;
+      }
+
+      // The phase is a third call for the same reason the date is a second one:
+      // it is the SAME endpoint the document page uses to correct it later, so
+      // the vocabulary is validated in exactly one place. Skipped entirely when
+      // no phase was chosen — the column already defaults to NULL, and writing
+      // NULL over NULL would be a request that says nothing.
+      if (phase !== "") {
+        try {
+          await setDocumentPhase(doc.id, phase);
+        } catch (phaseError) {
+          setUploading(false);
+          setError(
+            `The file uploaded, but its phase was not saved: ${
+              phaseError instanceof Error ? phaseError.message : "unknown error"
+            }. Set it on the document page.`,
+          );
+          onSuccess();
+          return;
+        }
       }
 
       setUploading(false);
@@ -249,6 +274,8 @@ const UploadDialog: React.FC<Props> = ({ open, onClose, onSuccess }) => {
           onChange={setDocumentDateValue}
           disabled={uploading}
         />
+
+        <PhaseField value={phase} onChange={setPhase} disabled={uploading} />
 
         {error && (
           <div style={{ padding: "0.5rem 0.75rem", backgroundColor: "var(--state-danger-bg-soft)", border: "1px solid var(--state-danger-border)", borderRadius: "6px", color: "var(--status-dropped-text)", fontSize: "0.76rem", marginBottom: "0.75rem" }}>
