@@ -17,6 +17,16 @@ Thumbs.db
 # Environment
 *.env
 .env
+# Every .env VARIANT, not just the two spellings above. `*.env` only matches a
+# name ENDING in ".env", so `.env.dev-remote` — which holds live DEV Postgres and
+# Neo4j credentials — was tracked-eligible until this line. Suffixed variants are
+# the normal shape here (.env.local, .env.dev-remote), so the pattern has to lead
+# with the dot, not end with it (Standing Rule 2 / CLAUDE.md §22, §26).
+.env.*
+# The two committed templates are the deliberate exception: they carry key NAMES
+# and no values, and new environments are bootstrapped from them.
+!.env.example
+!*.env.example
 
 # Generated artifacts
 uploads/
