@@ -90,6 +90,9 @@ COPY migrations/ migrations/
 COPY pipeline_migrations/ pipeline_migrations/
 COPY extraction_schemas/ extraction_schemas/
 COPY extraction_templates/ extraction_templates/
+# The seeded practice decks — read by the seed_practice_deck one-shot, which is
+# run from inside the container against DEV.
+COPY practice_decks/ practice_decks/
 COPY config/ config/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
@@ -129,6 +132,7 @@ COPY --from=builder /build/target/release/colossus-legal-backend ./colossus-lega
 COPY --from=builder /build/pipeline_migrations/ ./pipeline_migrations/
 COPY --from=builder /build/extraction_schemas/ ./extraction_schemas/
 COPY --from=builder /build/extraction_templates/ ./extraction_templates/
+COPY --from=builder /build/practice_decks/ ./practice_decks/
 COPY --from=builder /build/config/ ./config/
 
 # Create document storage directory

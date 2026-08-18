@@ -1,0 +1,254 @@
+# =============================================================================
+# practice_decks/S-5.yaml — the seeded practice deck for scenario S-5
+# =============================================================================
+#
+# "Marie refused to divide the property amicably."
+#
+# Ten questions, VERBATIM from PRACTICE_MOCKUP_v2_2026-08-17.html's data block
+# (CC_TASK_PRACTICE_SESSION_V0_v1 §3). Nothing here was drafted by a model: the
+# five George questions are the five ruled S-5 instances turned into cross by the
+# architect, the five Chuck questions are his direct, and Roman reviews and edits
+# them on the page in v1.
+#
+# ## Why the deck is a FILE and not Rust literals
+#
+# Rule 2. "at each other's throats" is case-specific text about a named person; a
+# shared crate that carried it could not be used by another Colossus project, and
+# a wording change would need a rebuild. The binary reads this file; the file is
+# the deck.
+#
+# ## How source_index binds a question to the record
+#
+# `source_kind: instance` + `source_index: 1` means "the FIRST of this scenario's
+# ruled accusation instances, in the order they were ruled". The seed resolves
+# that to the instance's real graph node id at apply time and writes it into
+# `source_ref`. Node ids are NOT written here on purpose: an id in this file
+# would be a DEV-shaped constant in the repo, and it would silently rot the day
+# a re-ingest re-keys the node — which is exactly the stale-pointer defect of
+# 2026-08-14. If the scenario has fewer instances than an index names, the seed
+# REFUSES and writes nothing.
+#
+# `source_kind: point` + `source_index: 2` is the same rule over the scenario's
+# talking points (`response_items.item_index + 1`).
+#
+# Verified against DEV on 2026-08-17: S-5 carries exactly five ruled instances
+# and three talking points, and the instances are in the order these five
+# questions assume (hearing p. 34 · p. 33 · p. 31 · Phillips discovery p. 5 ·
+# Court of Appeals p. 11).
+
+scenario_code: S-5
+
+# ── The receipts under her three points ──────────────────────────────────────
+#
+# Ruled by Roman on 2026-08-17 night: seed them with the deck, verbatim from
+# mockup v2, so the reveal prints "Backed by: your certified letter, 16 Nov 2009"
+# under point 1 rather than the named-absence line. The pairing editor that would
+# author them properly is v1.
+#
+# `position` is the point's PRINTED number (`response_items.item_index + 1`), and
+# the seed refuses a position the scenario has no point for. The text carries NO
+# "Backed by:" — that word is wording, it lives in the settings store, and the
+# renderer joins the two.
+#
+# These are a STAND-IN and they lose to a real pairing: once
+# `response_item_fact_refs.note` holds a receipt for a point, that is what the
+# screen shows. Nothing here has to be migrated when the editor arrives.
+
+points:
+  - position: 1
+    text: your certified letter, 16 Nov 2009
+  - position: 2
+    text: CFS Interrogatory Response, p. 10
+  - position: 3
+    text: CFS Interrogatory Response, p. 14
+
+questions:
+  # ── George's side (cross) — one per ruled instance ────────────────────────
+  - side: george
+    source_kind: instance
+    source_index: 1
+    tactic: 4          # false premise
+    text: >-
+      Isn't it true that you and your sisters were at each other's throats — that
+      none of you would accommodate each other on your father's property?
+    receipt: >-
+      Built from what Phillips told the court: “These parties won't accommodate
+      each other. We can't accommodate them… they're at each other's throats.” —
+      Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
+    pair_said: >-
+      “These parties won't accommodate each other… they're at each other's
+      throats.” — Phillips, hearing, p. 34
+    pair_admitted: >-
+      “Correspondence was received from Marie Awad… there was a desire to divide
+      the property…” — Phillips, sworn discovery answer, p. 9
+    watch_for: >-
+      WATCH FOR — the characterization inside the question. Don't defend it,
+      don't argue it: correct it once. “That's not true. I asked in writing to
+      divide the property.” Stop.
+    stronger: >-
+      That's not true. I asked in writing to divide the property — my letter of
+      November 16, 2009.
+    stronger_lean: leans on point 1
+
+  - side: george
+    source_kind: instance
+    source_index: 2
+    tactic: 6          # authority borrow
+    text: >-
+      Mr. Phillips told the court the parties were not going to be able to
+      accommodate each other. He was right about that, wasn't he?
+    receipt: >-
+      Built from: “Yeah — we're not going to be able to accommodate these
+      parties.” — Hearing, 15 Dec 2009, p. 33
+    pair_said: >-
+      “We're not going to be able to accommodate these parties.” — Phillips,
+      hearing, p. 33
+    pair_admitted: >-
+      “There was a request to divide the property… a decision was made to sell
+      the property.” — CFS, sworn interrogatory answer, p. 10
+    watch_for: >-
+      WATCH FOR — agreeing with a conclusion. You don't have to say whether he
+      was right. Say what you did: “I asked in writing to divide it. They chose
+      the auction.”
+    stronger: I asked in writing to divide it. They chose the auction.
+    stronger_lean: leans on points 1 and 3
+
+  - side: george
+    source_kind: instance
+    source_index: 3
+    tactic: 2          # half-truth
+    text: >-
+      You never came into court and stipulated to a division of the property, did
+      you?
+    receipt: >-
+      Built from: “If the parties would all come in and stipulate, that would be
+      fine. But they've—” — Hearing, 15 Dec 2009, p. 31
+    pair_said: >-
+      “If the parties would all come in and stipulate, that would be fine…” —
+      Phillips, hearing, p. 31
+    pair_admitted: >-
+      “Catholic Family Service is unaware of who exactly brought that to the
+      attention of Catholic Family Service or when that statement was
+      specifically made.” — CFS, sworn interrogatory answer, p. 6
+    watch_for: >-
+      WATCH FOR — a true-sounding “never” about a procedure you weren't in charge
+      of. Answer only what you know: “I put my request in writing to Mr.
+      Phillips. Nobody asked me to come in.”
+    stronger: >-
+      I put my request in writing to Mr. Phillips. Nobody asked me to come in.
+    stronger_lean: leans on point 1
+
+  - side: george
+    source_kind: instance
+    source_index: 4
+    tactic: 5          # compound
+    text: >-
+      There were multiple contacts among you and your sisters about wrongdoing
+      and personal conflicts — that's why nothing could be divided, correct?
+    receipt: >-
+      Built from: “…multiple contacts between the interested parties… regarding
+      allegations of wrongdoing, personal conflicts…” — Phillips, Response to
+      Discovery, p. 5
+    pair_said: >-
+      “…multiple contacts… regarding allegations of wrongdoing, personal
+      conflicts…” — Phillips, discovery response, p. 5
+    pair_admitted: >-
+      “To the best of staff's recollection, there were no such conversations on
+      that matter with interested parties.” — CFS, sworn interrogatory answer,
+      p. 5
+    watch_for: >-
+      WATCH FOR — two things braided: were there conflicts (maybe) and is that
+      why the property wasn't divided (no). Answer the second: “Nothing stopped
+      them from dividing it. I asked in writing.”
+    stronger: >-
+      Nothing stopped them from dividing it — I asked in writing, and they've
+      admitted they got my letter.
+    stronger_lean: leans on points 1 and 2
+
+  - side: george
+    source_kind: instance
+    source_index: 5
+    tactic: 5          # compound · braid
+    braid_rows: Barrage rows 1 (S-5) · 2 (S-6) · 5 (the courts)
+    text: >-
+      Isn't it true you were difficult, your objections ran up the fees, and the
+      Court of Appeals itself said the record belies your claims?
+    receipt: >-
+      A braid — Barrage rows 1 + 2 + 5. Last strand built from: “…the record
+      belies these claims.” — Court of Appeals, 12 Jan 2012, p. 11
+    pair_said: >-
+      “…the record belies these claims.” — Court of Appeals ruling, p. 11
+    pair_admitted: >-
+      “There was a request to divide the property however there was also an
+      indication that it could not be divided amicably…” — CFS, sworn
+      interrogatory answer, p. 10
+    watch_for: >-
+      WATCH FOR — the compound question. Name the strands, answer one: “That's
+      three different things. Which one are you asking me about?” Never argue
+      with a judge on the stand — that's Chuck's job.
+    stronger: That's three different things. Which one are you asking me about?
+    stronger_lean: >-
+      routing drill — name the strands, answer one; the fees strand is S-6, the
+      courts strand is Chuck's
+
+  # ── Chuck (direct) — one per talking point, plus the admission ────────────
+  - side: chuck
+    source_kind: point
+    source_index: 1
+    text: >-
+      Marie, did you ever ask, in writing, to divide your father's things with
+      your sisters?
+    receipt: >-
+      Chuck's direct — establishes point 1 (the certified letter, 16 Nov 2009).
+    watch_for: >-
+      Short. Yes — and one sentence about the letter. Chuck will hand it up.
+    stronger: >-
+      Yes. I sent Mr. Phillips a certified letter on November 16, 2009 asking to
+      divide Dad's things with my sisters.
+    stronger_lean: leans on point 1
+
+  - side: chuck
+    source_kind: point
+    source_index: 1
+    text: What did you ask for in that letter?
+    receipt: Chuck's direct — the letter's own words, in yours.
+    watch_for: Plain words. What you wanted, not what they did wrong.
+    stronger: >-
+      To divide my father's personal property among the three of us, without an
+      auction.
+    stronger_lean: leans on point 1
+
+  - side: chuck
+    source_kind: point
+    source_index: 2
+    text: Did Mr. Phillips's office receive your letter?
+    receipt: >-
+      Chuck's direct — establishes point 2. Their sworn answer: “Correspondence
+      was received from Marie Awad…” (Response to Discovery, p. 9); CFS: “There
+      was a request to divide the property…” (p. 10).
+    watch_for: >-
+      “Yes — they've said so under oath.” Then stop; Chuck reads the admission.
+    stronger: Yes. Their own sworn answers say the request was received.
+    stronger_lean: leans on point 2
+
+  - side: chuck
+    source_kind: point
+    source_index: 3
+    text: Did you ever refuse to divide the property?
+    receipt: Chuck's direct — point 3.
+    watch_for: >-
+      “No.” One word is a complete answer. If Chuck wants more, he'll ask.
+    stronger: "No."
+    stronger_lean: leans on point 3
+
+  - side: chuck
+    source_kind: point
+    source_index: 3
+    text: Who decided to hold the auction?
+    receipt: >-
+      Chuck's direct — point 3, the choice was theirs (CFS Interrogatory
+      Response, p. 14).
+    watch_for: >-
+      “They did.” Don't add motive — that's Chuck's closing, not your testimony.
+    stronger: They did — Catholic Family Service.
+    stronger_lean: leans on point 3

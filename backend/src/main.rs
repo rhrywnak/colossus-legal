@@ -37,7 +37,7 @@ use colossus_legal_backend::{
     pipeline::context::{AppContext, AppContextDeps},
     pipeline::registry::PipelineRegistry,
     prompt_loader, restate_endpoint,
-    services::{settings_boot, settings_template_file::assert_scan_prompt_deployed},
+    services::{settings_boot, settings_template_file::assert_prompts_deployed},
     state::{AppState, EntityTypeInfo, RelationshipTypeInfo, SchemaMetadata},
 };
 
@@ -211,7 +211,10 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // it needs BOTH halves: the filename from the settings snapshot, and the
     // template directory from the registry. It ENDS THE PROCESS when the file is
     // missing — see the function for why that is the proportionate answer.
-    assert_scan_prompt_deployed(&settings.current().theme_scan_prompt_file, &registry);
+    // BOOT PRECONDITION: every prompt the settings store names is on disk, or the
+    // process does not start. The list lives beside the write-path check that
+    // guards the same rows — see `settings_template_file`.
+    assert_prompts_deployed(&settings.current(), &registry);
 
     // --- Build AppContext for pipeline step execution ---
     //

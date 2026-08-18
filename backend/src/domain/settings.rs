@@ -25,12 +25,15 @@
 use std::fmt;
 
 use crate::domain::evidence_tier::EvidenceTierMap;
+use crate::domain::practice_params::PracticeReadParams;
 use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_card_grammar::CardGrammarWording;
 use crate::domain::wording_matrix::MatrixWording;
 use crate::domain::wording_model_params::ModelParamsWording;
+use crate::domain::wording_practice::PracticeWording;
+use crate::domain::wording_practice_report::PracticeReportWording;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_rehearsal_chrome::RehearsalChromeWording;
 use crate::domain::wording_scan::ScanWording;
@@ -222,6 +225,22 @@ pub struct Settings {
     /// An eleventh nested block, carrying the R2 §3 rows that batch ruled and
     /// never migrated — see `domain::wording_war_room` for the measurement.
     pub war_room_wording: WarRoomWording,
+    /// The thirty-four strings the practice DRILL speaks — the start card, the
+    /// question, and its named gaps (CC_TASK_PRACTICE_SESSION_V0_v1, 2026-08-17).
+    ///
+    /// A block of its own for the reason every sibling gives: these are the words
+    /// ONE surface speaks, and this one's reader is the witness herself.
+    pub practice_wording: PracticeWording,
+    /// The forty-six strings the REVEAL and Chuck's sheet speak.
+    ///
+    /// Split from the block above under Rule 17 — see `wording_practice`'s header
+    /// for why the seam falls between what she answers into and what answers her
+    /// back.
+    pub practice_report_wording: PracticeReportWording,
+    /// What the one-sentence read is told, by which model, and what it may say
+    /// back. Nested for the reason the wording blocks are — see
+    /// `domain::practice_params`.
+    pub practice_read: PracticeReadParams,
     /// Which `(statement_type, evidence_strength)` pairs count as strong,
     /// hedged, or other proof (task 396, P1).
     ///
@@ -295,6 +314,9 @@ impl Settings {
             model_params_wording: ModelParamsWording::for_test(),
             matrix_wording: MatrixWording::for_test(),
             war_room_wording: WarRoomWording::for_test(),
+            practice_wording: PracticeWording::for_test(),
+            practice_report_wording: PracticeReportWording::for_test(),
+            practice_read: PracticeReadParams::for_test(),
             evidence_tier_map: EvidenceTierMap::for_test(),
             card_question_truncate_chars: 110,
             card_element_chips_visible_k: 2,

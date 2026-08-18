@@ -14,6 +14,7 @@ import RehearsalPage from "./pages/RehearsalPage";
 import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
+import PracticePage from "./pages/PracticePage";
 import BiasExplorer from "./pages/BiasExplorer";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
@@ -83,6 +84,11 @@ const App: React.FC = () => {
               <Route path="/cases/:slug/rehearsal/:code" element={<RehearsalPage />} />
               <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
               <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
+              {/* PRACTICE v0: Marie's drill for one scenario. A longer path than
+                  the scenario page's, so React Router's specificity ranking
+                  cannot confuse the two — `practice` is a literal segment where
+                  that route has `:scenarioId`, and this one has an id after it. */}
+              <Route path="/cases/:slug/trial-prep/practice/:scenarioId" element={<PracticePage />} />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/explorer" element={<EvidenceExplorerPage />} />
               <Route path="/bias-explorer" element={<BiasExplorer />} />

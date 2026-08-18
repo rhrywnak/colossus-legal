@@ -16,12 +16,15 @@
 
 use sqlx::PgPool;
 
+use crate::domain::practice_params::PRACTICE_PARAM_KEYS;
 use crate::domain::settings::Settings;
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
+use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
@@ -67,6 +70,9 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         model_params_wording = MODEL_PARAMS_WORDING_KEYS.len(),
         matrix_wording = MATRIX_WORDING_KEYS.len(),
         war_room_wording = WAR_ROOM_WORDING_KEYS.len(),
+        practice_params = PRACTICE_PARAM_KEYS.len(),
+        practice_wording = PRACTICE_WORDING_KEYS.len(),
+        practice_report_wording = PRACTICE_REPORT_WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -98,6 +104,9 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 scenario_authoring_strings = SCENARIO_AUTHORING_WORDING_KEYS.len(),
                 matrix_strings = MATRIX_WORDING_KEYS.len(),
                 war_room_strings = WAR_ROOM_WORDING_KEYS.len(),
+                practice_parameters = PRACTICE_PARAM_KEYS.len(),
+                practice_strings = PRACTICE_WORDING_KEYS.len(),
+                practice_report_strings = PRACTICE_REPORT_WORDING_KEYS.len(),
                 // The tier map is not a string count — it is how many
                 // (statement_type, evidence_strength) pairs the Proof Matrix can
                 // rank. A boot log showing `evidence_tier_pairs=0` names a store

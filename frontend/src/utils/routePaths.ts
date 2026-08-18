@@ -122,3 +122,34 @@ export function rehearsalPath(slug: string): string {
 export function rehearsalScenarioPath(slug: string, code: string): string {
   return `/cases/${encodeURIComponent(slug)}/rehearsal/${encodeURIComponent(code)}`;
 }
+
+/**
+ * Marie's practice drill for one scenario.
+ *
+ * Declared in `App.tsx` as `/cases/:slug/trial-prep/practice/:scenarioId`.
+ *
+ * ## Why the address is case-scoped when the task wrote it shorter
+ *
+ * CC_TASK_PRACTICE_SESSION_V0_v1 names the route `/trial-prep/practice/:scenarioId`.
+ * Every other trial-prep address in this app carries the case (`/cases/:slug/…`),
+ * and for a reason the .382 defect made concrete: the page it is reached FROM
+ * knows the slug, the backend fences every scenario read by it, and a bare
+ * `/trial-prep/...` would be the one address in the family that could not say
+ * which case it belonged to. So the task's path is preserved verbatim as the
+ * tail, under the prefix the rest of the family uses.
+ *
+ * ## Domain note: the UUID, not the code
+ *
+ * Unlike `rehearsalScenarioPath`, this takes the id. The drill is reached by
+ * CLICKING from the scenario page rather than by being typed or read aloud, and
+ * the page it lands on addresses the backend by id.
+ *
+ * @param slug the case slug, escaped here
+ * @param scenarioId the scenario's UUID, escaped here
+ */
+export function practicePath(slug: string, scenarioId: string): string {
+  return (
+    `/cases/${encodeURIComponent(slug)}/trial-prep/practice/` +
+    `${encodeURIComponent(scenarioId)}`
+  );
+}

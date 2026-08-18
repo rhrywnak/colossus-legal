@@ -6,7 +6,7 @@
 //
 //   eyebrow   SCENARIO
 //   left      S-2 · name · direction chip · [status segmented control]
-//   right     ✎ Edit · Rehearsal view → · | · Delete
+//   right     ✎ Edit · Rehearsal view → · Practice ▸ · | · Delete
 //
 // ## What changed from 1.7C
 //
@@ -39,7 +39,7 @@ import { chipStyle, ghostButtonStyle } from "./scenarioSectionStyles";
 import { statusMeta } from "../pages/trialPrepHelpers";
 import type { ScenarioStatus } from "../pages/trialPrepData";
 import { fillSlots } from "../services/evidenceLinks";
-import { rehearsalScenarioPath } from "../utils/routePaths";
+import { practicePath, rehearsalScenarioPath } from "../utils/routePaths";
 
 /** Mockup `.eyebrow`: 11px/600, .1em tracking, uppercase, --text-3. */
 const eyebrowStyle: React.CSSProperties = {
@@ -175,6 +175,15 @@ interface Props {
    * page's own augmentation-failure notice is what says why it is missing.
    */
   rehearsalBlockedTemplate: string | null;
+  /**
+   * The stored label on the practice control — or `null` while the identity
+   * payload has not loaded, which withdraws the control entirely.
+   *
+   * The same honest-gap rule its neighbour follows: there is no literal to fall
+   * back to (v2 §2b), and a control whose own name this build had to invent is
+   * one Roman cannot rename in Settings.
+   */
+  practiceLabel: string | null;
 }
 
 const ScenarioHeaderTiers: React.FC<Props> = ({
@@ -188,6 +197,7 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
   onDelete,
   onReadyChanged,
   rehearsalBlockedTemplate,
+  practiceLabel,
 }) => {
   const header = headerDescriptor({ code, name, direction, status });
 
@@ -303,6 +313,33 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
           <span style={{ fontSize: "12px", color: "var(--text-muted)", maxWidth: "22rem" }}>
             {blockedReason}
           </span>
+        )}
+
+        {/* PRACTICE v0 (2026-08-17): the way into Marie's drill, in the
+            rehearsal area of the header where the task placed it.
+
+            ## Why this control is NOT gated on Ready, when its neighbour is
+
+            "Rehearsal view →" is inert on a drafted scenario because rehearsal is
+            the surface a witness is TAKEN TO — showing her a scenario nobody
+            declared finished is the defect that ruling closed. The drill is the
+            opposite kind of destination: it is where Roman and Chuck find out
+            whether a deck is any good, on scenarios that are still being built,
+            and the page it opens says in the store's own words when a scenario
+            has no deck yet. Gating it would hide the only screen that can report
+            that state.
+
+            The label's ▸ is the mockup's, and it is a right-pointing triangle
+            rather than an arrow because the drill OPENS rather than navigates
+            away — four screens live behind it. */}
+        {practiceLabel !== null && (
+          <Link
+            to={practicePath(slug, scenarioId)}
+            style={linkStyle}
+            title="Twenty minutes, one accusation — Marie answers, and Chuck gets the sheet"
+          >
+            {practiceLabel}
+          </Link>
         )}
 
         {/* DELETE, VISIBLE (Roman overruled D7 for Delete on 2026-08-07).

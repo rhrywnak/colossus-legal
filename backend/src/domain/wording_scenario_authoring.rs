@@ -117,6 +117,14 @@ pub struct ScenarioAuthoringWording {
     /// control looked alive on every scenario and, clicked on a Draft one,
     /// silently delivered a different scenario's rehearsal.
     pub rehearsal_link_blocked_reason: String,
+    /// The label on the control that opens Marie's practice drill.
+    ///
+    /// Its neighbour, [`Self::rehearsal_link_blocked_reason`], exists because the
+    /// rehearsal link can be INERT. This one has no such row: the drill is never
+    /// gated, because it is the surface that reports a scenario has no deck yet,
+    /// and a control that hid itself for the un-seeded case would hide the only
+    /// screen able to say so.
+    pub practice_link_label: String,
 
     // ── The unified identity vocabulary (task R2, Roman 2026-08-10) ─────────
     //
@@ -171,6 +179,14 @@ pub(crate) const KEY_IDENTITY_MOTIVATION_LABEL: &str = "scenario_identity_motiva
 pub(crate) const KEY_IDENTITY_MOTIVATION_ABSENT: &str = "scenario_identity_motivation_absent";
 pub(crate) const KEY_IDENTITY_BEARS_ON_LABEL: &str = "scenario_identity_bears_on_label";
 pub(crate) const KEY_IDENTITY_BEARS_ON_ABSENT: &str = "scenario_identity_bears_on_absent";
+/// PRACTICE v0: the control that opens Marie's drill.
+///
+/// In THIS block and not the practice one because a wording block belongs to the
+/// surface that SPEAKS it, and the surface here is the scenario page — which
+/// already fetches this block. The alternative measured worse in the obvious
+/// way: the page would have fetched a whole practice deck payload to learn one
+/// word, with a failure path of its own to surface.
+pub(crate) const KEY_PRACTICE_LINK_LABEL: &str = "scenario_practice_link_label";
 
 /// Every scenario-authoring key this build reads, so a missing one is caught at
 /// boot BY NAME rather than as a blank label in front of a human mid-sentence.
@@ -191,6 +207,7 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_TARGET_NEEDS_ATTACK_TEXT,
     KEY_MEANING_NEEDS_ATTACK_TEXT,
     KEY_REHEARSAL_LINK_BLOCKED,
+    KEY_PRACTICE_LINK_LABEL,
     KEY_IDENTITY_ATTACK_LABEL,
     KEY_IDENTITY_ATTACK_ABSENT,
     KEY_IDENTITY_THEME_LABEL,
@@ -238,6 +255,7 @@ pub fn build_scenario_authoring_wording<E>(
         identity_target_needs_attack_text: read(KEY_TARGET_NEEDS_ATTACK_TEXT)?,
         identity_meaning_needs_attack_text: read(KEY_MEANING_NEEDS_ATTACK_TEXT)?,
         rehearsal_link_blocked_reason: read(KEY_REHEARSAL_LINK_BLOCKED)?,
+        practice_link_label: read(KEY_PRACTICE_LINK_LABEL)?,
         identity_attack_label: read(KEY_IDENTITY_ATTACK_LABEL)?,
         identity_attack_absent: read(KEY_IDENTITY_ATTACK_ABSENT)?,
         identity_theme_label: read(KEY_IDENTITY_THEME_LABEL)?,

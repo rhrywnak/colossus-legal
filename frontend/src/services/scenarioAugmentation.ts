@@ -113,6 +113,14 @@ export type ScenarioIdentityWording = {
   /** Why the header's "Rehearsal view" control is inert on a scenario that is
    *  not Ready. Carries `{status}`, filled from the status already on screen. */
   rehearsal_link_blocked_reason: string;
+  /**
+   * The label on the control that opens Marie's practice drill (PRACTICE v0).
+   *
+   * Rides this block rather than the drill's own because the SCENARIO page is
+   * what speaks it, and this page already fetches this block — the alternative
+   * was a whole practice-deck request to learn one word.
+   */
+  practice_link_label: string;
 
   // The unified identity vocabulary (task R2). ONE row per idea, rendered by the
   // read-only block AND the editor — so the two surfaces cannot call one column

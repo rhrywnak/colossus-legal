@@ -14,12 +14,18 @@ use super::*;
 // The three key LISTS moved with the boot loader (task 2.11 B2 split); this
 // module still counts them, because the count is what proves the seed and the
 // code describe the same store.
+use crate::domain::practice_params::{
+    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
+    KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, PRACTICE_PARAM_KEYS,
+};
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
+use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
@@ -93,6 +99,8 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_model_params::ModelParamsWording::for_test_values())
         .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
         .chain(crate::domain::wording_war_room::WarRoomWording::for_test_values())
+        .chain(crate::domain::wording_practice::PracticeWording::for_test_values())
+        .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -122,6 +130,25 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             (
                 "matrix_tier_other_pairs",
                 MATRIX_TIER_OTHER_PAIRS.to_string(),
+            ),
+            // PRACTICE v0: three more TEXT rows that are not wording — one names
+            // a prompt file, one names a model, one carries the seven-card
+            // vocabulary. Same reason as their neighbours above: nobody reads
+            // them on a screen.
+            (
+                "practice_read_prompt_file",
+                "practice_read_prompt_v1.md".to_string(),
+            ),
+            ("practice_read_model", "claude-opus-5".to_string()),
+            // The OK word, coupled to the prompt file. Text, and not wording:
+            // nobody reads it on a screen — the model writes it and the parser
+            // recognises it.
+            ("practice_read_fine_token", "Fine.".to_string()),
+            (
+                "practice_tactic_names",
+                "broad generalization,half-truth,character jab,false premise,compound,\
+                 authority borrow,echo"
+                    .to_string(),
             ),
         ]);
     for (key, value) in text_rows {
@@ -230,6 +257,35 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(256.0),
             Some(64000.0),
+        ),
+        // PRACTICE v0: the one-sentence read's output cap. Bounds 64..=8192 —
+        // the floor is well above one sentence, the ceiling stays under every
+        // active model's `max_output_tokens` (including the two 2048-token vLLM
+        // rows) because `constrain` REFUSES a cap above the ceiling rather than
+        // clamping it.
+        row(
+            KEY_PRACTICE_READ_MAX_TOKENS,
+            "1024",
+            ValueKind::Count,
+            Some(64.0),
+            Some(8192.0),
+        ),
+        // PRACTICE v0: the read's two word caps. They REFUSE a longer reply
+        // rather than shortening it, so the floors are above one useful sentence
+        // and the ceilings are well below a paragraph.
+        row(
+            KEY_PRACTICE_READ_MAX_WORDS,
+            "25",
+            ValueKind::Count,
+            Some(5.0),
+            Some(60.0),
+        ),
+        row(
+            KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE,
+            "6",
+            ValueKind::Count,
+            Some(0.0),
+            Some(30.0),
         ),
     ])
 }
@@ -436,7 +492,7 @@ fn a_cap_too_large_for_the_wire_is_refused_rather_than_wrapped() {
 /// Every required parameter is required. No exceptions, no defaults.
 #[test]
 fn any_missing_parameter_refuses_the_whole_snapshot() {
-    for key in REQUIRED_KEYS {
+    for key in REQUIRED_KEYS.iter().chain(PRACTICE_PARAM_KEYS) {
         let mut rows = seeded();
         rows.remove(*key);
 
@@ -456,8 +512,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // would not be checked at boot, and would fail later as a missing-key error
     // at whatever moment it happened to be read.
     assert_eq!(
-        REQUIRED_KEYS.len(),
-        20,
+        REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
+        27,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -465,7 +521,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          the judge's token budget (a constant until 2026-08-09), R2's scan \
          default model — a decision that used to be made by list order — and \
          .396's three tier-map rows, which carry extraction vocabulary rather \
-         than sentences and so are parameters, not wording"
+         than sentences and so are parameters, not wording, and PRACTICE v0's \
+         seven — the read's prompt file, its model, its token cap, its two word \
+         caps, the word it reserves for \"fine\", and the seven tactic-card names"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -499,7 +557,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        25,
+        26,
         "2026-08-07: the create form's two new fields, the identity modal's \
          target control, and the no-target notice — plus 2.15's never-scanned \
          notice, its sibling, R1's two (the second definition-loss refusal and \
@@ -542,8 +600,21 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          metric tile labels"
     );
     assert_eq!(
+        PRACTICE_WORDING_KEYS.len(),
+        33,
+        "PRACTICE v0, the drill: mockup v2's start card and question screen, \
+         plus the named gaps, the way in, and the braid suffix on a tactic tag"
+    );
+    assert_eq!(
+        PRACTICE_REPORT_WORDING_KEYS.len(),
+        48,
+        "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
+         surfaces that answer her back"
+    );
+    assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len()
+            + PRACTICE_PARAM_KEYS.len()
             + WORDING_KEYS.len()
             + ACCUSATION_WORDING_KEYS.len()
             + REHEARSAL_WORDING_KEYS.len()
@@ -554,8 +625,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + CARD_GRAMMAR_WORDING_KEYS.len()
             + MODEL_PARAMS_WORDING_KEYS.len()
             + MATRIX_WORDING_KEYS.len()
-            + WAR_ROOM_WORDING_KEYS.len(),
-        "the seed and the twelve required lists must describe the same store"
+            + WAR_ROOM_WORDING_KEYS.len()
+            + PRACTICE_WORDING_KEYS.len()
+            + PRACTICE_REPORT_WORDING_KEYS.len(),
+        "the seed and the fourteen required lists must describe the same store"
     );
 }
 
@@ -965,6 +1038,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // fifteenth not-wording parameters, and the first that carry extraction
         // vocabulary rather than a number or a name.
         "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
+        // PRACTICE v0: the read's prompt file, its model, its token cap and the
+        // seven-card vocabulary — the sixteenth through nineteenth not-wording
+        // parameters, arriving with the surface that reads them.
+        "pipeline_migrations/20260817213319_practice_session_v0.sql",
     ]
     .iter()
     .map(|relative| {
@@ -977,7 +1054,7 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
     let fixture = seeded();
     let mut checked = 0usize;
 
-    for key in REQUIRED_KEYS {
+    for key in REQUIRED_KEYS.iter().chain(PRACTICE_PARAM_KEYS) {
         let seeded_value = seeded_value_in(&sql, key)
             .unwrap_or_else(|| panic!("{key} is not seeded by the migration"));
 
@@ -999,9 +1076,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
     // make this test pass while comparing nothing.
     assert_eq!(
         checked,
-        REQUIRED_KEYS.len(),
+        REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
         "every not-wording parameter must be compared against the migration — \
-         counted from the list itself so adding a key cannot quietly skip it"
+         counted from BOTH lists, so adding a key to either cannot quietly skip it"
     );
 }
 
