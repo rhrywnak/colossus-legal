@@ -159,6 +159,19 @@ export interface ExtractionItem {
   verbatim_quote: string | null;
   grounding_status: string | null;
   grounded_page: number | null;
+  /**
+   * How the page was arrived at, when it took more than an ordinary match.
+   *
+   * `verified_without_stray_numerals` — matched once the page's footnote and
+   * gutter numerals were removed. `verified_with_gap` — matched in two halves
+   * around one interruption, typically a footnote body spliced into the
+   * sentence by the PDF's text layer. `quote_is_only_numerals` — the stored
+   * quote is nothing but markers, so there was nothing to search for.
+   *
+   * Shown rather than hidden: a page number that came the harder way must not
+   * present itself as an ordinary one.
+   */
+  verification_reason?: string | null;
   review_status: string | null;
   reviewed_by: string | null;
   reviewed_at: string | null;
@@ -563,9 +576,6 @@ export interface ReverifySyncResponse {
     derived_invalid: number;
     unverified: number;
     changed: number;
-  };
-  auto_approve_results: {
-    newly_approved: number;
   };
   ingest_delta_results?: {
     written_to_graph: number;

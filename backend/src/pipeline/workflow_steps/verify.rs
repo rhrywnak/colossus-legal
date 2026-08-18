@@ -52,7 +52,7 @@ pub async fn step_verify(app: &Arc<AppContext>, doc_id: &str) -> Result<String, 
 }
 
 /// Body of [`step_verify`]. Returns the success-path
-/// [`StepOutcome`] (11-key audit JSON matching the legacy
+/// [`StepOutcome`] (15-key audit JSON extending the legacy
 /// `progress.set_step_result(...)` shape at
 /// `pipeline/steps/verify.rs:160`), or a classified `HandlerError`.
 #[tracing::instrument(skip(app), fields(doc_id = %doc_id))]
@@ -118,8 +118,11 @@ async fn step_verify_body(
     })
 }
 
-/// Build the 11-key `result_summary` JSON for verify, matching
-/// `pipeline/steps/verify.rs:160` byte-for-byte.
+/// Build the `result_summary` JSON for verify.
+///
+/// The first eleven keys match the legacy shape byte-for-byte; four more were
+/// added 2026-08-17 (`manual_preserved` and the three gap thresholds) so the
+/// row records what the run skipped and what thresholds it ran under.
 ///
 /// Two keys are derived at JSON-build time (not direct struct-field
 /// reads): `grounded = exact + normalized` and
@@ -143,6 +146,14 @@ fn build_result_summary(
         "unverified": result.unverified,
         "missing_quote": result.missing_quote,
         "grounding_pct": result.grounding_pct,
+        // Added 2026-08-17. Not part of the byte-identical legacy shape above:
+        // a skipped write is an outcome, and the thresholds decide whether an
+        // item grounds at all, so both belong in the durable record rather than
+        // only in a log line that rotates away.
+        "manual_preserved": result.manual_preserved,
+        "gap_max_chars": result.gap_policy.max_gap_chars,
+        "gap_min_half_fraction": result.gap_policy.min_half_fraction,
+        "gap_min_half_words": result.gap_policy.min_half_words,
     })
 }
 
@@ -249,7 +260,7 @@ mod tests {
     // ── `build_result_summary` shape + derived-field contracts ──
 
     #[test]
-    fn build_result_summary_emits_11_keys_with_derived_fields() {
+    fn build_result_summary_emits_every_key_with_derived_fields() {
         // Construct a VerifyResult with distinct values per counter
         // so a swap-in-place bug (e.g., `derived` accidentally
         // mapped to `derived_invalid`) is observable.
@@ -263,6 +274,12 @@ mod tests {
             unverified: 12,
             missing_quote: 10,
             grounding_pct: 60.0,
+            manual_preserved: 7,
+            gap_policy: crate::domain::quote_gap::GapPolicy {
+                max_gap_chars: 240,
+                min_half_fraction: 0.05,
+                min_half_words: 3,
+            },
         };
         let summary = super::build_result_summary(&result);
 
@@ -276,6 +293,13 @@ mod tests {
         assert_eq!(summary["unverified"], serde_json::json!(12));
         assert_eq!(summary["missing_quote"], serde_json::json!(10));
         assert_eq!(summary["grounding_pct"], serde_json::json!(60.0));
+
+        // The four added 2026-08-17: what the run skipped, and under which
+        // thresholds it ran. Distinct values so a mis-mapping is observable.
+        assert_eq!(summary["manual_preserved"], serde_json::json!(7));
+        assert_eq!(summary["gap_max_chars"], serde_json::json!(240));
+        assert_eq!(summary["gap_min_half_fraction"], serde_json::json!(0.05));
+        assert_eq!(summary["gap_min_half_words"], serde_json::json!(3));
 
         // Derived computations — pinning the addition contract.
         assert_eq!(
@@ -302,10 +326,12 @@ mod tests {
         let obj = summary
             .as_object()
             .expect("result_summary must be a JSON object");
+        // Exact count, not "at least": a key added without a deliberate
+        // decision is a key nothing downstream knows how to read.
         assert_eq!(
             obj.len(),
-            11,
-            "result_summary must contain exactly 11 keys, got {obj:?}"
+            15,
+            "result_summary must contain exactly 15 keys, got {obj:?}"
         );
     }
 

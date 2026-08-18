@@ -11,7 +11,10 @@
 //! The `mod.rs` file re-exports the public items so callers don't change.
 
 mod cancel;
-pub(crate) mod canonical_verifier;
+// `pub` (not `pub(crate)`) so the `verify_gap_matcher` proof bin can call the
+// SHIPPED matcher rather than a copy of it — same reason `evidence_key` and
+// `party_alias` are public.
+pub mod canonical_verifier;
 pub(crate) mod completeness;
 pub(crate) mod completeness_helpers;
 pub mod completeness_validation;

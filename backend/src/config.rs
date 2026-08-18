@@ -1,3 +1,4 @@
+use crate::domain::quote_gap::GapPolicy;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -63,6 +64,29 @@ pub struct AppConfig {
     /// infrastructure addresses live in configuration, never in code
     /// (Standing Rule 2).
     pub restate_admin_url: Option<String>,
+    /// Thresholds for the verifier's second-chance (one-gap) match.
+    ///
+    /// `VERIFY_MAX_GAP_CHARS` (default 240) · `VERIFY_MIN_HALF_FRACTION`
+    /// (default 0.05) · `VERIFY_MIN_HALF_WORDS` (default 3).
+    ///
+    /// Configuration and not literals because these are thresholds a human
+    /// tunes against real documents. Measured on the Phillips default motion,
+    /// the six footnote-interrupted quotes needed gaps of 44–169 characters.
+    ///
+    /// The fraction was ruled on 2026-08-17. The obvious value is 0.40, and it
+    /// was the first proposal; measured against those same six failures it
+    /// recovers 2, because their gaps fall near an end (short halves of 5%,
+    /// 29%, 16%, 6%). 0.05 recovers 5. Nothing is weakened by the change: the
+    /// two halves ARE the whole quote, so a match still means every word is
+    /// present, in order, separated by one gap no larger than the maximum
+    /// above. Setting `VERIFY_MIN_HALF_FRACTION=0.40` reverts it with no code
+    /// change and no rebuild.
+    ///
+    /// The absolute word floor is what refuses item 9402, whose "head" is the
+    /// single word "For" — a common word matching by coincidence 99 characters
+    /// before the rest of the quote. A fraction alone cannot express that: 1
+    /// word of 22 is 4.5%, and so is 3 words of 66.
+    pub verify_gap_policy: GapPolicy,
 
     /// Restate ingress endpoint base URL (e.g. `http://10.10.100.220:8080`
     /// on DEV).
@@ -149,6 +173,113 @@ pub struct AppConfig {
     // never set, so the compiled default silently decided which prompt judged
     // every scan, which is the invisibility the row removes. No Ansible template
     // change is owed for the same reason: there was nothing to remove there.
+}
+
+/// Read an optional numeric env var, failing loudly on a malformed value.
+///
+/// ## Rust Learning: generic over `T: FromStr`
+///
+/// The bound says "any type that knows how to parse itself from a string" —
+/// `usize` and `f64` both do, so one helper serves both. `T::Err: Display` is
+/// the second half of it: without knowing the error type can be printed, the
+/// message below could not include *why* the parse failed.
+///
+/// The three states stay distinct, which is the whole point: unset → the
+/// documented default; set and valid → that value; set and invalid → a startup
+/// error naming the key and the offending text.
+/// The verifier's gap thresholds, from the environment, with
+/// [`GapPolicy::default`] filling every value the operator did not set.
+///
+/// The ONE reader. Both startup paths call it — `AppConfig::from_env` for the
+/// HTTP verify path and `AppContext::from_deps_and_env` for the pipeline step —
+/// so the two can neither disagree about a default nor disagree about what
+/// counts as a malformed value.
+pub(crate) fn verify_gap_policy_from_env() -> Result<GapPolicy, String> {
+    let d = GapPolicy::default();
+    Ok(GapPolicy {
+        max_gap_chars: parse_env_or("VERIFY_MAX_GAP_CHARS", d.max_gap_chars)?,
+        min_half_fraction: parse_env_or("VERIFY_MIN_HALF_FRACTION", d.min_half_fraction)?,
+        min_half_words: parse_env_or("VERIFY_MIN_HALF_WORDS", d.min_half_words)?,
+    })
+}
+
+pub(crate) fn parse_env_or<T>(key: &str, default: T) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    // best-effort: env-var-unset → None is the documented default path here;
+    // `parse_or` below turns None into the default and a malformed value into an
+    // error, so the three states stay distinct.
+    parse_or(std::env::var(key).ok().as_deref(), key, default)
+}
+
+/// The decision [`parse_env_or`] makes, without touching the environment.
+///
+/// Split out so it is testable: a test that called `set_var` would race every
+/// other test in the binary, because the environment is process-global. This
+/// takes the raw value as an argument instead, and the one-line wrapper above
+/// is the only code that reads the real environment.
+fn parse_or<T>(raw: Option<&str>, key: &str, default: T) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    match raw {
+        None => Ok(default),
+        Some(raw) => raw
+            .trim()
+            .parse::<T>()
+            .map_err(|e| format!("Invalid env var {key}=\"{raw}\": {e}")),
+    }
+}
+
+#[cfg(test)]
+mod parse_or_tests {
+    use super::parse_or;
+
+    #[test]
+    fn an_unset_var_takes_the_documented_default() {
+        assert_eq!(
+            parse_or::<usize>(None, "VERIFY_MAX_GAP_CHARS", 240),
+            Ok(240)
+        );
+        assert_eq!(
+            parse_or::<f64>(None, "VERIFY_MIN_HALF_FRACTION", 0.05),
+            Ok(0.05)
+        );
+    }
+
+    #[test]
+    fn a_set_var_wins_over_the_default() {
+        assert_eq!(
+            parse_or::<usize>(Some("400"), "VERIFY_MAX_GAP_CHARS", 240),
+            Ok(400)
+        );
+        // Surrounding whitespace from a .env file is not an operator error.
+        assert_eq!(
+            parse_or::<f64>(Some(" 0.40 "), "VERIFY_MIN_HALF_FRACTION", 0.05),
+            Ok(0.40)
+        );
+    }
+
+    #[test]
+    fn a_malformed_var_is_a_startup_error_naming_the_key_and_the_value() {
+        // The letter O typed for a zero — the exact mistake that a silent
+        // fallback would hide, leaving the operator convinced they had raised
+        // the cap when they had not.
+        let err = parse_or::<usize>(Some("24O"), "VERIFY_MAX_GAP_CHARS", 240)
+            .expect_err("a malformed value must not fall back to the default");
+        assert!(err.contains("VERIFY_MAX_GAP_CHARS"), "message was: {err}");
+        assert!(err.contains("24O"), "message was: {err}");
+    }
+
+    #[test]
+    fn an_empty_var_is_an_error_not_a_default() {
+        // `VERIFY_MIN_HALF_WORDS=` in a .env file is a half-finished edit, and
+        // it must not look identical to never having written the line.
+        assert!(parse_or::<usize>(Some(""), "VERIFY_MIN_HALF_WORDS", 3).is_err());
+    }
 }
 
 impl AppConfig {
@@ -246,6 +377,12 @@ impl AppConfig {
         // best-effort: env-var-unset → None is the documented success path here
         let restate_admin_url = std::env::var("RESTATE_ADMIN_URL").ok();
 
+        // The verifier's second-chance thresholds. A value that is PRESENT but
+        // unparseable is a startup error, not a silent fall back to the default
+        // (Standing Rule 1): an operator who typed `VERIFY_MAX_GAP_CHARS=24O`
+        // must be told, not quietly given 240.
+        let verify_gap_policy = verify_gap_policy_from_env()?;
+
         // RESTATE_INGRESS_URL is read here as Option<String>; the handler
         // layer (process::process_handler) enforces presence at use time
         // and returns HTTP 503 when None. The read here is intentionally
@@ -312,6 +449,7 @@ impl AppConfig {
             prompts_dir,
             environment,
             restate_admin_url,
+            verify_gap_policy,
             restate_ingress_url,
             case_default_subject_name,
             case_slug,

@@ -19,6 +19,9 @@
 //! If the schema cannot be loaded, all items fall back to Verbatim behavior
 //! for backward compatibility.
 
+use crate::repositories::pipeline_repository::review_grounding::{
+    manually_grounded_ids, preserve_manual_grounding,
+};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -47,7 +50,9 @@ pub(crate) struct EntityVerificationConfig {
     pub provenance_required: bool,
 }
 
-use super::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
+use super::canonical_verifier::{
+    find_in_canonical_text_with_policy, grounding_write_for, is_grounded, GroundingTally,
+};
 use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::models::document_status::{STATUS_EXTRACTED, STATUS_VERIFIED};
@@ -154,6 +159,18 @@ pub(crate) async fn run_verify(
         .map(|row| (row.page_number as u32, row.text_content))
         .collect();
 
+    // ── Manual grounding is a human's answer and outranks the machine's ──
+    //
+    // `grounding_status = 'manual'` means a reviewer opened the item, read the
+    // page, and typed the page number in. Re-verify exists to APPLY verifier
+    // improvements, not to overrule a person who has already looked — and now
+    // that the second chance can produce a page for these very items, the
+    // overwrite would be silent and would look like an improvement.
+    //
+    // So: compute for them (the counts stay honest, and the log records what
+    // the matcher would have said), write for none of them.
+    let manually_grounded = manually_grounded_ids(&items);
+
     // 6. Categorize items by grounding mode using the extracted pure function.
     //    Then build combined snippets for PageGrounder.
     let categorization = categorize_items_for_grounding(&items, &grounding_config)
@@ -188,52 +205,53 @@ pub(crate) async fn run_verify(
     }
 
     // 7. Search each snippet against canonical text and update DB
-    let (mut exact, mut normalized, mut not_found) = (0usize, 0usize, 0usize);
+    let policy = state.config.verify_gap_policy;
+    let mut tally = GroundingTally::default();
     let (mut name_matched, mut heading_matched) = (0usize, 0usize);
+    let mut manual_preserved = 0usize;
 
     for (i, snippet) in snippets.iter().enumerate() {
         let meta = &snippet_items[i];
-        let result = find_in_canonical_text(snippet, &document_pages);
+        let result = find_in_canonical_text_with_policy(snippet, &document_pages, Some(policy));
 
-        let (status_str, page) = match result.match_type {
-            CanonicalMatchType::Exact => {
-                exact += 1;
-                if matches!(meta.kind, SnippetKind::NameMatch) {
-                    name_matched += 1;
-                }
-                if matches!(meta.kind, SnippetKind::HeadingMatch) {
-                    heading_matched += 1;
-                }
-                ("exact", result.page_number.map(|p| p as i32))
+        // ONE mapping, shared with the pipeline step (see
+        // `grounding_write_for`), so the two verify paths cannot write different
+        // rows for the same result.
+        let (status_str, page, reason) = grounding_write_for(meta.item_id, &result);
+
+        tally.record(&result.match_type);
+        if is_grounded(&result.match_type) {
+            // Name and heading snippets are counted only when they actually
+            // landed — an unmatched name is not a "name matched".
+            if matches!(meta.kind, SnippetKind::NameMatch) {
+                name_matched += 1;
             }
-            CanonicalMatchType::Normalized => {
-                normalized += 1;
-                if matches!(meta.kind, SnippetKind::NameMatch) {
-                    name_matched += 1;
-                }
-                if matches!(meta.kind, SnippetKind::HeadingMatch) {
-                    heading_matched += 1;
-                }
-                ("normalized", result.page_number.map(|p| p as i32))
+            if matches!(meta.kind, SnippetKind::HeadingMatch) {
+                heading_matched += 1;
             }
-            CanonicalMatchType::NotFound => {
-                not_found += 1;
-                ("not_found", None)
-            }
-        };
+        }
+
+        if preserve_manual_grounding(&items, &manually_grounded, meta.item_id, page) {
+            manual_preserved += 1;
+            continue;
+        }
 
         pipeline_repository::update_item_grounding(
             &state.pipeline_pool,
             meta.item_id,
             status_str,
             page,
-            None,
+            reason,
         )
         .await
         .map_err(|e| AppError::Internal {
             message: format!("Failed to update item {}: {e}", meta.item_id),
         })?;
     }
+
+    // Unpack once, so everything below — the logs, the audit payload, the result
+    // summary — reads exactly as it did before the tally type existed.
+    let (exact, normalized, not_found) = (tally.exact, tally.normalized, tally.not_found);
 
     // 9. Validate derived-mode items per v5.1 §5.4. Pre-v5.1, every
     //    item routed to the derived bucket got blanket-stamped
@@ -344,6 +362,10 @@ pub(crate) async fn run_verify(
         derived = derived_count, derived_invalid = derived_invalid_count,
         unverified = unverified_count,
         name_matched, heading_matched, skipped = skipped_count,
+        // Not folded into any tally above: these rows were deliberately not
+        // written, and a reader of the log must be able to see that a number
+        // was left alone rather than computed as zero.
+        manual_preserved,
         "Verification complete"
     );
 
@@ -359,6 +381,13 @@ pub(crate) async fn run_verify(
             "unverified": unverified_count,
             "name_matched": name_matched, "heading_matched": heading_matched,
             "skipped_no_quote": skipped_count,
+            // Deliberately-unwritten rows, and the thresholds the run used.
+            // Durable, not just logged: "how many did it skip, and under which
+            // thresholds?" has to be answerable from the audit row later.
+            "manual_preserved": manual_preserved,
+            "gap_max_chars": policy.max_gap_chars,
+            "gap_min_half_fraction": policy.min_half_fraction,
+            "gap_min_half_words": policy.min_half_words,
         })),
     )
     .await;
@@ -379,6 +408,10 @@ pub(crate) async fn run_verify(
             "derived": derived_count, "derived_invalid": derived_invalid_count,
             "unverified": unverified_count,
             "name_matched": name_matched, "heading_matched": heading_matched,
+            "manual_preserved": manual_preserved,
+            "gap_max_chars": policy.max_gap_chars,
+            "gap_min_half_fraction": policy.min_half_fraction,
+            "gap_min_half_words": policy.min_half_words,
         }),
     )
     .await
