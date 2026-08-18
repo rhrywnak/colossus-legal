@@ -291,9 +291,14 @@ export interface DocumentError {
 }
 
 export interface ErrorsResponse {
+  /** Every step that has ever failed — a diagnostic history, including steps
+   *  that failed once and succeeded on retry. NOT the banner's number. */
   documents_with_errors: DocumentError[];
   total_errors: number;
   documents_with_no_errors: number;
+  /** Documents whose CURRENT status needs a human (failed, or awaiting review).
+   *  This is what the attention banner counts. */
+  needs_attention: number;
 }
 
 export interface ReviewerWorkload {

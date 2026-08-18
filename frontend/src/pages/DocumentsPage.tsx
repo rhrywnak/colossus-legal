@@ -4,6 +4,7 @@ import UploadDialog from "../components/pipeline/UploadDialog";
 import BatchProgressHeader from "../components/documents/BatchProgressHeader";
 import DocumentRow from "../components/documents/DocumentRow";
 import { getPhaseOptions, PhaseOption } from "../services/casePhases";
+import { attentionBannerText } from "./documentsPageHelpers";
 import {
   fetchPipelineDocuments, fetchMetrics, fetchErrors,
   PipelineDocument, EstimatesData,
@@ -140,7 +141,10 @@ const DocumentsPage: React.FC = () => {
         console.warn("Documents page: cost estimates unavailable", e);
       });
     fetchErrors()
-      .then((e) => setErrorCount(e.total_errors))
+      // `needs_attention`, not `total_errors`: the latter counts every step that
+      // has ever failed, so a retried-then-completed pass-2 kept the banner up
+      // forever on a PUBLISHED document.
+      .then((e) => setErrorCount(e.needs_attention))
       .catch((e: unknown) => {
         console.warn("Documents page: error count unavailable", e);
       });
@@ -234,9 +238,9 @@ const DocumentsPage: React.FC = () => {
       )}
 
       {/* Error alert banner */}
-      {errorCount > 0 && (
+      {attentionBannerText(errorCount) !== null && (
         <div style={errorBanner} onClick={() => setStatusFilter("failed")}>
-          {errorCount} document{errorCount !== 1 ? "s" : ""} need attention — click to filter
+          {attentionBannerText(errorCount)}
         </div>
       )}
 
