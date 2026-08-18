@@ -78,8 +78,109 @@ const Instruction: React.FC<{ wording: PracticeWording }> = ({ wording }) => {
   );
 };
 
+/** One question's row. Split out because the list's own body passed Rule 18. */
+const DeckRow: React.FC<{
+  question: PracticeQuestion;
+  number: number;
+  /** The last row draws the rule that closes the list. */
+  last: boolean;
+  wording: PracticeWording;
+  controls: PracticeDeckControls;
+  editing: boolean;
+  draft: string;
+  onDraftChange: (draft: string) => void;
+  onOpenEditor: () => void;
+  onCloseEditor: () => void;
+}> = ({
+  question,
+  number,
+  last,
+  wording,
+  controls,
+  editing,
+  draft,
+  onDraftChange,
+  onOpenEditor,
+  onCloseEditor,
+}) => {
+  const w = (key: string) => wordingOf(wording, key);
+  const skipped = controls.skippedToday.has(question.id);
+  const flagged = question.flag_note !== null && question.flag_note !== "";
+  const pill = sidePill(question, wording);
+  // Struck through at 40%, not hidden: a skipped row she cannot see is one she
+  // cannot put back.
+  const muted = skipped ? d.questionSkipped : undefined;
+
+  return (
+    <div
+      style={{
+        ...d.questionRow,
+        ...(flagged ? d.questionRowFlagged : {}),
+        ...(last ? d.questionRowLast : {}),
+      }}
+    >
+      <div style={d.questionNumber}>{number}</div>
+      <div>
+        <span style={{ ...pill.style, fontSize: 12 }}>{pill.label}</span>
+        {question.tactic !== null && <span style={s.tacticTag}>{question.tactic}</span>}
+        <div style={{ ...d.questionText, ...muted }}>{question.text}</div>
+        {question.receipt !== null && (
+          <div style={{ ...d.questionSource, ...muted }}>{question.receipt}</div>
+        )}
+        {flagged && (
+          <div style={d.flagged}>
+            ⚑ {w("flag_shown_template").replace("{note}", question.flag_note ?? "")}
+          </div>
+        )}
+        {editing && (
+          <div style={d.flagLine}>
+            <input
+              style={d.flagInput}
+              placeholder={w("flag_placeholder")}
+              value={draft}
+              onChange={(e) => onDraftChange(e.target.value)}
+              aria-label={w("flag_placeholder")}
+            />
+            <button
+              type="button"
+              style={d.rowButton}
+              disabled={controls.savingFlagFor === question.id}
+              onClick={() => {
+                controls.saveFlag(question.id, draft);
+                onCloseEditor();
+              }}
+            >
+              {w("flag_save_label")}
+            </button>
+            <button type="button" style={d.rowButton} onClick={onCloseEditor}>
+              {w("flag_cancel_label")}
+            </button>
+          </div>
+        )}
+      </div>
+      <div style={d.rowControls}>
+        <button
+          type="button"
+          style={skipped ? d.rowButtonSkipped : d.rowButton}
+          aria-pressed={skipped}
+          onClick={() => controls.toggleSkip(question.id)}
+        >
+          {skipped ? w("skipped_today_label") : w("skip_today_label")}
+        </button>
+        <button
+          type="button"
+          style={d.rowButton}
+          onClick={() => (editing ? onCloseEditor() : onOpenEditor())}
+        >
+          {flagged ? w("flag_edit_label") : w("flag_label")}
+        </button>
+      </div>
+    </div>
+  );
+};
+
 const PracticeDeckList: React.FC<Props> = ({ questions, wording, controls }) => {
-  const { skippedToday, toggleSkip, saveFlag, savingFlagFor, flagError } = controls;
+  const { skippedToday, flagError } = controls;
   const w = (key: string) => wordingOf(wording, key);
 
   // Open by default — Roman's ruling. Deliberately NOT persisted: the fold is
@@ -129,87 +230,21 @@ const PracticeDeckList: React.FC<Props> = ({ questions, wording, controls }) => 
         <>
           <Instruction wording={wording} />
           {flagError !== null && <p style={d.flagged}>{flagError}</p>}
-          {questions.map((question, i) => {
-            const skipped = skippedToday.has(question.id);
-            const flagged = question.flag_note !== null && question.flag_note !== "";
-            const pill = sidePill(question, wording);
-            const muted = skipped ? d.questionSkipped : undefined;
-            return (
-              <div
-                key={question.id}
-                style={{
-                  ...d.questionRow,
-                  ...(flagged ? d.questionRowFlagged : {}),
-                  ...(i === questions.length - 1 ? d.questionRowLast : {}),
-                }}
-              >
-                <div style={d.questionNumber}>{i + 1}</div>
-                <div>
-                  <span style={{ ...pill.style, fontSize: 12 }}>{pill.label}</span>
-                  {question.tactic !== null && (
-                    <span style={s.tacticTag}>{question.tactic}</span>
-                  )}
-                  <div style={{ ...d.questionText, ...muted }}>{question.text}</div>
-                  {question.receipt !== null && (
-                    <div style={{ ...d.questionSource, ...muted }}>{question.receipt}</div>
-                  )}
-                  {flagged && (
-                    <div style={d.flagged}>
-                      ⚑ {w("flag_shown_template").replace("{note}", question.flag_note ?? "")}
-                    </div>
-                  )}
-                  {editing === question.id && (
-                    <div style={d.flagLine}>
-                      <input
-                        style={d.flagInput}
-                        placeholder={w("flag_placeholder")}
-                        value={draft}
-                        onChange={(e) => setDraft(e.target.value)}
-                        aria-label={w("flag_placeholder")}
-                      />
-                      <button
-                        type="button"
-                        style={d.rowButton}
-                        disabled={savingFlagFor === question.id}
-                        onClick={() => {
-                          saveFlag(question.id, draft);
-                          setEditing(null);
-                        }}
-                      >
-                        {w("flag_save_label")}
-                      </button>
-                      <button
-                        type="button"
-                        style={d.rowButton}
-                        onClick={() => setEditing(null)}
-                      >
-                        {w("flag_cancel_label")}
-                      </button>
-                    </div>
-                  )}
-                </div>
-                <div style={d.rowControls}>
-                  <button
-                    type="button"
-                    style={skipped ? d.rowButtonSkipped : d.rowButton}
-                    aria-pressed={skipped}
-                    onClick={() => toggleSkip(question.id)}
-                  >
-                    {skipped ? w("skipped_today_label") : w("skip_today_label")}
-                  </button>
-                  <button
-                    type="button"
-                    style={d.rowButton}
-                    onClick={() =>
-                      editing === question.id ? setEditing(null) : openEditor(question)
-                    }
-                  >
-                    {flagged ? w("flag_edit_label") : w("flag_label")}
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+          {questions.map((question, i) => (
+            <DeckRow
+              key={question.id}
+              question={question}
+              number={i + 1}
+              last={i === questions.length - 1}
+              wording={wording}
+              controls={controls}
+              editing={editing === question.id}
+              draft={draft}
+              onDraftChange={setDraft}
+              onOpenEditor={() => openEditor(question)}
+              onCloseEditor={() => setEditing(null)}
+            />
+          ))}
         </>
       )}
     </div>

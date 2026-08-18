@@ -61,6 +61,26 @@ export interface DeckView {
 }
 
 /**
+ * The deck with one question's flag replaced by what the SERVER stored.
+ *
+ * A pure function, outside the hook, because it is the only part of the write
+ * that can be reasoned about without React: given a deck and a stored value,
+ * this is the deck afterwards. `null` in, `null` out — the page unmounted or the
+ * deck failed to load, and there is nothing to patch.
+ */
+function withFlag(
+  deck: PracticeDeck | null,
+  id: string,
+  stored: string | null,
+): PracticeDeck | null {
+  if (deck === null) return null;
+  return {
+    ...deck,
+    questions: deck.questions.map((q) => (q.id === id ? { ...q, flag_note: stored } : q)),
+  };
+}
+
+/**
  * Hold the start screen's row state, and write a flag when she saves one.
  *
  * `setDeck` is taken rather than a reload callback because the write returns the
@@ -97,18 +117,7 @@ export function usePracticeDeckControls(
     setSavingFlagFor(id);
     setFlagError(null);
     savePracticeFlag(id, note)
-      .then((stored) => {
-        setDeck((was) =>
-          was === null
-            ? was
-            : {
-                ...was,
-                questions: was.questions.map((q) =>
-                  q.id === id ? { ...q, flag_note: stored } : q,
-                ),
-              },
-        );
-      })
+      .then((stored) => setDeck((was) => withFlag(was, id, stored)))
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
         console.error("practice: the flag could not be saved", error);

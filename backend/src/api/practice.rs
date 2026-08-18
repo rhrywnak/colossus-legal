@@ -164,6 +164,98 @@ pub async fn post_practice_session(
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
 
+    check_sitting(&state, scenario_id, &body).await?;
+
+    let queue = serde_json::json!(body.queue);
+    let skipped_today = serde_json::json!(body.skipped_today);
+    let session_id = start_session(
+        &state.pipeline_pool,
+        scenario_id,
+        &body.who,
+        &NewSitting {
+            count: body.count,
+            queue: &queue,
+            skipped_today: &skipped_today,
+        },
+    )
+    .await
+    .map_err(|e| repo_error("start_session", e))?;
+
+    tracing::info!(
+        %scenario_id,
+        %session_id,
+        who = %body.who,
+        dealt = body.queue.len(),
+        skipped_today = body.skipped_today.len(),
+        "practice session started"
+    );
+    Ok(Json(StartSessionResponse { session_id }))
+}
+
+/// Read everything Chuck's sheet is composed from, and compose it.
+///
+/// Split from [`post_end_session`] so that handler is the three steps it reads
+/// as — find the session, close it, show the sheet — while the four reads and
+/// the one comparison that BUILD the sheet sit together, where the reason each
+/// is needed can be argued in one place.
+///
+/// # Errors
+/// 404 when the scenario behind the session has gone; 500 (logged, with the
+/// operation named) for any read that fails.
+async fn compose_sheet(
+    state: &AppState,
+    session_id: Uuid,
+    scenario_id: Uuid,
+) -> Result<PracticeSheetPayload, AppError> {
+    let record = get_scenario(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("get_scenario", e))?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("scenario {scenario_id} not found"),
+        })?;
+    let rows = sheet_rows(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("sheet_rows", e))?;
+    // The whole deck's flags, not this sitting's: a question she flagged AND
+    // kept out of tonight is the one Roman most needs to see.
+    let flagged = list_flagged(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_flagged", e))?;
+
+    // "Ended early" is a comparison against the queue she STARTED with, which is
+    // why the queue is stored on the session. Unknown (no stored queue) is
+    // reported as NOT early — the sheet never claims a fact it cannot source.
+    let queue_len = session_queue_len(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("session_queue_len", e))?;
+    let ended_early = queue_len.is_some_and(|n| rows.len() < n.max(0) as usize);
+
+    let settings = state.settings.current();
+    Ok(sheet_payload(
+        &settings,
+        &scenario_code(record.code_ordinal),
+        chrono::Utc::now(),
+        rows,
+        ended_early,
+        &flagged,
+    ))
+}
+
+/// Refuse a sitting whose side is unknown or whose questions are not this
+/// scenario's.
+///
+/// Split from the handler so that function stays the four steps it reads as
+/// (fence the case, check the sitting, store it, say so) — and because these are
+/// the two refusals that are about what a CLIENT sent, which is a different
+/// subject from recording a sitting.
+///
+/// # Errors
+/// 400 with the offending field and value, both times.
+async fn check_sitting(
+    state: &AppState,
+    scenario_id: Uuid,
+    body: &StartSessionRequest,
+) -> Result<(), AppError> {
     // The column has a CHECK, but a CHECK violation is a 500 with a constraint
     // name in it. Refusing here makes a bad `who` a 400 that says which values
     // exist — the difference between a client bug found in review and one found
@@ -192,31 +284,7 @@ pub async fn post_practice_session(
             details: serde_json::json!({ "field": "queue", "value": stray.to_string() }),
         });
     }
-
-    let queue = serde_json::json!(body.queue);
-    let skipped_today = serde_json::json!(body.skipped_today);
-    let session_id = start_session(
-        &state.pipeline_pool,
-        scenario_id,
-        &body.who,
-        &NewSitting {
-            count: body.count,
-            queue: &queue,
-            skipped_today: &skipped_today,
-        },
-    )
-    .await
-    .map_err(|e| repo_error("start_session", e))?;
-
-    tracing::info!(
-        %scenario_id,
-        %session_id,
-        who = %body.who,
-        dealt = body.queue.len(),
-        skipped_today = body.skipped_today.len(),
-        "practice session started"
-    );
-    Ok(Json(StartSessionResponse { session_id }))
+    Ok(())
 }
 
 /// The first id in the sitting that this scenario's deck does not contain.
@@ -274,38 +342,7 @@ pub async fn post_end_session(
         .await
         .map_err(|e| repo_error("end_session", e))?;
 
-    let record = get_scenario(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("get_scenario", e))?
-        .ok_or_else(|| AppError::NotFound {
-            message: format!("scenario {scenario_id} not found"),
-        })?;
-    let rows = sheet_rows(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("sheet_rows", e))?;
-    // The whole deck's flags, not this sitting's: a question she flagged AND
-    // kept out of tonight is the one Roman most needs to see.
-    let flagged = list_flagged(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_flagged", e))?;
-
-    // "Ended early" is a comparison against the queue she STARTED with, which is
-    // why the queue is stored on the session. Unknown (no stored queue) is
-    // reported as NOT early — the sheet never claims a fact it cannot source.
-    let queue_len = session_queue_len(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("session_queue_len", e))?;
-    let ended_early = queue_len.is_some_and(|n| rows.len() < n.max(0) as usize);
-
-    let settings = state.settings.current();
-    let payload = sheet_payload(
-        &settings,
-        &scenario_code(record.code_ordinal),
-        chrono::Utc::now(),
-        rows,
-        ended_early,
-        &flagged,
-    );
+    let payload = compose_sheet(&state, session_id, scenario_id).await?;
 
     tracing::info!(
         %session_id,
