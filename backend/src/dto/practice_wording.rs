@@ -108,6 +108,44 @@ pub struct PracticeWordingDto {
     pub sheet_again_button: String,
     pub print_button: String,
     pub homelab_line: String,
+
+    // ── mockup v3: the words that let her MOVE ───────────────────────────
+    // Flattened alongside the other two blocks rather than nested, because the
+    // wire contract this file pins is "one field per stored key, prefix
+    // dropped" — a nested object would be the one field on this page whose
+    // name is not a key, and the two tests below could no longer say so.
+    pub deck_heading: String,
+    pub deck_count_template: String,
+    pub deck_skipped_suffix_template: String,
+    pub deck_hide_link: String,
+    pub deck_show_link: String,
+    pub deck_instruction_template: String,
+    pub skip_today_label: String,
+    pub skipped_today_label: String,
+    pub flag_label: String,
+    pub flag_edit_label: String,
+    pub flag_placeholder: String,
+    pub flag_save_label: String,
+    pub flag_cancel_label: String,
+    pub flag_shown_template: String,
+    pub nothing_left_label: String,
+    pub unfinished_label: String,
+    pub unfinished_detail_template: String,
+    pub resume_label: String,
+    pub start_over_label: String,
+    pub start_over_hint: String,
+    pub back_label: String,
+    pub back_hint_question: String,
+    pub back_hint_reveal: String,
+    pub skip_question_label: String,
+    pub end_session_label: String,
+    pub skipped_answer_text: String,
+    pub mark_skipped: String,
+    pub sheet_skipped_clause_template: String,
+    pub sheet_ended_early_clause: String,
+    pub flag_summary_heading: String,
+    pub flag_summary_hint: String,
+    pub flag_summary_item_template: String,
 }
 
 impl PracticeWordingDto {
@@ -122,6 +160,38 @@ impl PracticeWordingDto {
     /// is which, and that is the whole reason to prefer it here.
     pub fn from_blocks(drill: &PracticeWording, report: &PracticeReportWording) -> Self {
         Self {
+            deck_heading: drill.flow.deck_heading.clone(),
+            deck_count_template: drill.flow.deck_count_template.clone(),
+            deck_skipped_suffix_template: drill.flow.deck_skipped_suffix_template.clone(),
+            deck_hide_link: drill.flow.deck_hide_link.clone(),
+            deck_show_link: drill.flow.deck_show_link.clone(),
+            deck_instruction_template: drill.flow.deck_instruction_template.clone(),
+            skip_today_label: drill.flow.skip_today_label.clone(),
+            skipped_today_label: drill.flow.skipped_today_label.clone(),
+            flag_label: drill.flow.flag_label.clone(),
+            flag_edit_label: drill.flow.flag_edit_label.clone(),
+            flag_placeholder: drill.flow.flag_placeholder.clone(),
+            flag_save_label: drill.flow.flag_save_label.clone(),
+            flag_cancel_label: drill.flow.flag_cancel_label.clone(),
+            flag_shown_template: drill.flow.flag_shown_template.clone(),
+            nothing_left_label: drill.flow.nothing_left_label.clone(),
+            unfinished_label: drill.flow.unfinished_label.clone(),
+            unfinished_detail_template: drill.flow.unfinished_detail_template.clone(),
+            resume_label: drill.flow.resume_label.clone(),
+            start_over_label: drill.flow.start_over_label.clone(),
+            start_over_hint: drill.flow.start_over_hint.clone(),
+            back_label: drill.flow.back_label.clone(),
+            back_hint_question: drill.flow.back_hint_question.clone(),
+            back_hint_reveal: drill.flow.back_hint_reveal.clone(),
+            skip_question_label: drill.flow.skip_question_label.clone(),
+            end_session_label: drill.flow.end_session_label.clone(),
+            skipped_answer_text: drill.flow.skipped_answer_text.clone(),
+            mark_skipped: drill.flow.mark_skipped.clone(),
+            sheet_skipped_clause_template: drill.flow.sheet_skipped_clause_template.clone(),
+            sheet_ended_early_clause: drill.flow.sheet_ended_early_clause.clone(),
+            flag_summary_heading: drill.flow.flag_summary_heading.clone(),
+            flag_summary_hint: drill.flow.flag_summary_hint.clone(),
+            flag_summary_item_template: drill.flow.flag_summary_item_template.clone(),
             kicker: drill.kicker.clone(),
             intro: drill.intro.clone(),
             who_heading: drill.who_heading.clone(),
@@ -211,6 +281,7 @@ impl PracticeWordingDto {
 mod tests {
     use super::*;
     use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+    use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
     use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 
     fn mirror() -> PracticeWordingDto {
@@ -228,7 +299,9 @@ mod tests {
         let value = serde_json::to_value(mirror()).expect("the mirror serializes");
         assert_eq!(
             value.as_object().expect("an object body").len(),
-            PRACTICE_WORDING_KEYS.len() + PRACTICE_REPORT_WORDING_KEYS.len(),
+            PRACTICE_WORDING_KEYS.len()
+                + PRACTICE_FLOW_WORDING_KEYS.len()
+                + PRACTICE_REPORT_WORDING_KEYS.len(),
         );
     }
 
@@ -241,6 +314,7 @@ mod tests {
             let stored = format!("practice_{key}");
             assert!(
                 PRACTICE_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_FLOW_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str()),
                 "wire field '{key}' implies stored key '{stored}', which is not declared",
             );

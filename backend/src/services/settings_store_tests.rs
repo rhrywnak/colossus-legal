@@ -25,6 +25,7 @@ use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -100,6 +101,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
         .chain(crate::domain::wording_war_room::WarRoomWording::for_test_values())
         .chain(crate::domain::wording_practice::PracticeWording::for_test_values())
+        // PRACTICE flow v1 (mockup v3): nested inside `PracticeWording` on the
+        // struct, but a SEPARATE table here — the store keys one flat table, and
+        // a fixture missing these thirty-two rows would let a snapshot build
+        // that the real store could not.
+        .chain(crate::domain::wording_practice_flow::PracticeFlowWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
@@ -606,6 +612,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          plus the named gaps, the way in, and the braid suffix on a tactic tag"
     );
     assert_eq!(
+        PRACTICE_FLOW_WORDING_KEYS.len(),
+        32,
+        "PRACTICE flow v1, mockup v3: the deck listed with its two row controls, \
+         the resume line, the top bar, and the sheet's flag list and two clauses"
+    );
+    assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
         48,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
@@ -627,8 +639,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + MATRIX_WORDING_KEYS.len()
             + WAR_ROOM_WORDING_KEYS.len()
             + PRACTICE_WORDING_KEYS.len()
+            + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len(),
-        "the seed and the fourteen required lists must describe the same store"
+        "the seed and the fifteen required lists must describe the same store"
     );
 }
 
@@ -1042,6 +1055,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // seven-card vocabulary — the sixteenth through nineteenth not-wording
         // parameters, arriving with the surface that reads them.
         "pipeline_migrations/20260817213319_practice_session_v0.sql",
+        // PRACTICE flow v1: no new not-wording parameter — it is here because
+        // `seeded()` below reads this same list for the WORDING rows, and v3's
+        // thirty-two navigation strings arrive in this file.
+        "pipeline_migrations/20260818093139_practice_flow_v1_deck_controls_and_session_queue.sql",
     ]
     .iter()
     .map(|relative| {
