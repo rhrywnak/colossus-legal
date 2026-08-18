@@ -131,10 +131,10 @@ fn mark_cell(settings: &Settings, mark: &str) -> String {
 /// vocabulary nobody uses.
 fn flag_label(side: &str, ordinal: usize, settings: &Settings) -> String {
     let w = &settings.practice_report_wording;
-    let word = if side == "chuck" {
-        &w.sheet_from_chuck
-    } else {
-        &w.sheet_from_george
+    let word = match side {
+        "chuck" => w.sheet_from_chuck.as_str(),
+        "george" => w.sheet_from_george.as_str(),
+        _ => "?",
     };
     let initial = word
         .chars()
@@ -159,12 +159,18 @@ pub fn flag_lines(settings: &Settings, flagged: &[FlaggedQuestionRecord]) -> Vec
     flagged
         .iter()
         .map(|q| {
-            let ordinal = if q.side == "chuck" {
-                seen_chuck += 1;
-                seen_chuck
-            } else {
-                seen_george += 1;
-                seen_george
+            // An unknown side counts on George's tally rather than opening a
+            // third: the LABEL above is what makes it visible, and a counter
+            // per unrecognised value would renumber the real ones.
+            let ordinal = match q.side.as_str() {
+                "chuck" => {
+                    seen_chuck += 1;
+                    seen_chuck
+                }
+                _ => {
+                    seen_george += 1;
+                    seen_george
+                }
             };
             render(
                 &flow.flag_summary_item_template,

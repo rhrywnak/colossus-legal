@@ -246,6 +246,18 @@ fn the_flag_label_counts_within_a_side_and_not_across_the_deck() {
     assert!(lines[2].starts_with("G2 —"), "{}", lines[2]);
 }
 
+/// A side the CHECK does not permit is VISIBLE, not printed as George.
+///
+/// Unreachable through the database today — `side` permits two values. It is
+/// pinned for the same reason `mark_cell`'s fallback is: a third side migrated
+/// in without an arm here must show a reader something to question.
+#[test]
+fn an_unknown_side_is_labelled_as_unknown_rather_than_as_george() {
+    let s = settings();
+    let lines = flag_lines(&s, &[flagged("umpire", 1, "who asked this?")]);
+    assert!(lines[0].starts_with("?1 —"), "{}", lines[0]);
+}
+
 /// The line carries the question and the note, and leaks no placeholder.
 #[test]
 fn a_flag_line_prints_the_question_and_the_note() {

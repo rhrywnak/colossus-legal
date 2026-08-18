@@ -256,6 +256,8 @@ VALUES
      'frontend PracticeSheet', NOW(), 'migration'),
     ('practice_flag_summary_item_template', '{id} — “{question}” → {note}', 'text',
      '{id} — “{question}” → {note}', NULL, NULL,
-     'One flagged question, as it prints. Carries the row id because the id is '
-     'what Roman needs to find it on the seed.',
+     'One flagged question, as it prints. {id} is a POSITION on its own side '
+     '(G2 = George''s second question), not the row''s uuid — a uuid is no use on '
+     'printed paper. {question} is the verbatim text, which is what Roman greps '
+     'the seed for.',
      'frontend PracticeSheet', NOW(), 'migration');

@@ -29,6 +29,8 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use std::collections::HashSet;
+
 use uuid::Uuid;
 
 use super::practice_answers::{
@@ -183,13 +185,8 @@ pub async fn post_practice_session(
     let deck = list_deck(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("list_deck", e))?;
-    let known: std::collections::HashSet<Uuid> = deck.iter().map(|q| q.id).collect();
-    if let Some(stray) = body
-        .queue
-        .iter()
-        .chain(body.skipped_today.iter())
-        .find(|id| !known.contains(id))
-    {
+    let known: HashSet<Uuid> = deck.iter().map(|q| q.id).collect();
+    if let Some(stray) = fence_queue(&body.queue, &body.skipped_today, &known) {
         return Err(AppError::BadRequest {
             message: "every question in the sitting must be in this scenario's deck".to_string(),
             details: serde_json::json!({ "field": "queue", "value": stray.to_string() }),
@@ -220,6 +217,35 @@ pub async fn post_practice_session(
         "practice session started"
     );
     Ok(Json(StartSessionResponse { session_id }))
+}
+
+/// The first id in the sitting that this scenario's deck does not contain.
+///
+/// ## Why this fence exists
+///
+/// The queue and today's skips are both composed in the BROWSER — the order is
+/// the drill, and the screen is what knows it. That makes them client input.
+/// Without this check a sitting could be opened whose queue named another
+/// scenario's questions, and Chuck's sheet would then carry a question Marie was
+/// never asked, with nothing on the page looking wrong. Same reasoning as
+/// [`super::practice_answers`]'s per-answer fence, applied once at the moment
+/// the sitting is recorded.
+///
+/// `skipped_today` is fenced too, and deliberately: it is written to the row as
+/// the record of what she was offered, so a foreign id there is a lie in the
+/// record even though it deals no question.
+///
+/// Returns `None` when everything belongs — which is also the answer for an
+/// empty sitting, because a sitting that deals nothing names nothing foreign.
+pub(super) fn fence_queue<'a>(
+    queue: &'a [Uuid],
+    skipped_today: &'a [Uuid],
+    known: &HashSet<Uuid>,
+) -> Option<&'a Uuid> {
+    queue
+        .iter()
+        .chain(skipped_today.iter())
+        .find(|id| !known.contains(id))
 }
 
 /// Record one answer, and ask the model for its one sentence.

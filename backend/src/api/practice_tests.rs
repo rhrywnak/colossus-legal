@@ -173,3 +173,36 @@ fn the_reveal_settles_fine_or_repeat_and_refuses_the_skipped_mark() {
     assert!(!is_settleable_mark(""));
     assert!(!is_settleable_mark("Fine"));
 }
+
+/// A sitting may only name questions this scenario's deck holds.
+///
+/// The queue and today's skips are composed in the browser, which makes them
+/// client input. Without the fence, a sitting could be opened whose queue named
+/// ANOTHER scenario's questions — and Chuck's sheet would carry a question Marie
+/// was never asked, with nothing on the page looking wrong.
+#[test]
+fn a_sitting_naming_a_question_outside_the_deck_is_refused() {
+    use super::fence_queue;
+    use std::collections::HashSet;
+    use uuid::Uuid;
+
+    let a = Uuid::from_u128(1);
+    let b = Uuid::from_u128(2);
+    let stray = Uuid::from_u128(99);
+    let known: HashSet<Uuid> = [a, b].into_iter().collect();
+
+    // Everything belongs.
+    assert_eq!(fence_queue(&[a, b], &[], &known), None);
+    assert_eq!(fence_queue(&[b], &[a], &known), None);
+
+    // A stray in the QUEUE — the dealt questions.
+    assert_eq!(fence_queue(&[a, stray], &[], &known), Some(&stray));
+
+    // A stray in TODAY'S SKIPS deals no question, and is still refused: it is
+    // written to the row as the record of what she was offered, so a foreign id
+    // there is a lie in the record.
+    assert_eq!(fence_queue(&[a], &[stray], &known), Some(&stray));
+
+    // An empty sitting names nothing foreign.
+    assert_eq!(fence_queue(&[], &[], &known), None);
+}
