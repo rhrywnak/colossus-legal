@@ -34,6 +34,10 @@ pub mod human_authored;
 pub mod link_cut;
 pub mod llm_params;
 pub mod llm_provider_ext;
+/// The verifier's second-chance matcher — numeral stripping and one-gap
+/// matching, for quotes the contiguous matcher cannot find. Split from
+/// `quote_match` so the strict path stays readable on its own.
+pub mod quote_gap;
 pub mod quote_match;
 pub mod rehearsal_shape;
 pub mod ruling_anchor;

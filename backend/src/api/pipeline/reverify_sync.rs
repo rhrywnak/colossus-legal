@@ -1,5 +1,5 @@
-//! Re-verify & Sync endpoint: chains verify → auto-approve → ingest-delta
-//! in a single operation for post-publish documents.
+//! Re-verify & Sync endpoint: chains verify → ingest-delta in a single
+//! operation for post-publish documents.
 //!
 //! ## Why this endpoint exists
 //!
@@ -7,8 +7,21 @@
 //! status guard (EXTRACTED/VERIFIED only) prevents re-verification. When
 //! the verifier is improved (e.g., cross-page matching), there's no way to
 //! apply improvements to already-processed documents. This endpoint bypasses
-//! that guard and chains all three downstream operations so the user gets
-//! one-click re-verification with immediate graph sync.
+//! that guard and syncs the graph in the same click.
+//!
+//! ## What it does NOT do, since 2026-08-17: approve
+//!
+//! It used to run `bulk_approve("grounded")` between the two phases, so
+//! improving the verifier silently approved every item the improvement
+//! grounded. That is the wrong default in a litigation record: grounding is a
+//! machine's claim that the words are on the page, approval is a human's
+//! decision that the statement belongs in the graph, and one must not be
+//! allowed to stand in for the other. Approval stays human (Roman's ruling).
+//!
+//! The consequence is deliberate: re-verify writes verification fields only —
+//! `grounding_status`, `grounded_page`, `verification_reason`. It touches no
+//! ids and creates no nodes. Phase 2 below then writes only what a human had
+//! already approved, so on a document with nothing approved it writes nothing.
 
 use std::collections::HashMap;
 
@@ -21,7 +34,7 @@ use crate::models::document_status::{
     STATUS_COMPLETED, STATUS_INDEXED, STATUS_INGESTED, STATUS_PUBLISHED,
 };
 use crate::repositories::audit_repository::log_admin_action;
-use crate::repositories::pipeline_repository::{self, review as review_repo};
+use crate::repositories::pipeline_repository;
 use crate::state::AppState;
 
 // ── Response DTOs ──────────────────────────────────────────────
@@ -30,9 +43,8 @@ use crate::state::AppState;
 pub struct ReverifySyncResponse {
     pub document_id: String,
     pub verify_results: VerifyResults,
-    pub auto_approve_results: AutoApproveResults,
     /// Present only if ingest-delta ran. Absent when there were no
-    /// newly-approved items to write to the graph.
+    /// approved-but-unwritten items to write to the graph.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ingest_delta_results: Option<IngestDeltaResults>,
     /// Non-nil when a later phase failed after an earlier phase succeeded.
@@ -54,11 +66,6 @@ pub struct VerifyResults {
     /// previous value. Tells the user whether re-verification
     /// actually did anything (e.g., cross-page fix applied).
     pub changed: usize,
-}
-
-#[derive(Debug, Serialize)]
-pub struct AutoApproveResults {
-    pub newly_approved: u64,
 }
 
 #[derive(Debug, Serialize)]
@@ -89,10 +96,10 @@ pub(crate) fn is_reverify_sync_allowed(status: &str) -> bool {
 
 /// POST /api/admin/pipeline/documents/:id/reverify-sync
 ///
-/// Chains three operations in sequence:
-/// 1. Re-verify all extraction items against canonical text
-/// 2. Auto-approve any pending items that now have grounded status
-/// 3. Write newly-approved items to Neo4j via ingest-delta
+/// Chains two operations in sequence:
+/// 1. Re-verify all extraction items against canonical text (verification
+///    fields only — no approval, see the module header)
+/// 2. Write already-approved items to Neo4j via ingest-delta
 ///
 /// Returns a combined response summarizing what each phase did.
 /// If a later phase fails, earlier results are still returned with
@@ -178,37 +185,7 @@ pub async fn reverify_sync_handler(
         "Re-verify phase complete"
     );
 
-    // ── Phase 2: Auto-approve ──────────────────────────────────
-
-    let newly_approved = match review_repo::bulk_approve(
-        &state.pipeline_pool,
-        &doc_id,
-        &user.username,
-        "grounded",
-    )
-    .await
-    {
-        Ok(count) => {
-            tracing::info!(doc_id = %doc_id, newly_approved = count, "Auto-approve phase complete");
-            count
-        }
-        Err(e) => {
-            let err_msg = format!("Auto-approve failed: {e}");
-            tracing::error!(doc_id = %doc_id, error = %e, "Re-verify auto-approve phase failed");
-            return Ok(Json(ReverifySyncResponse {
-                document_id: doc_id,
-                verify_results,
-                auto_approve_results: AutoApproveResults { newly_approved: 0 },
-                ingest_delta_results: None,
-                partial_error: Some(err_msg),
-                duration_secs: start.elapsed().as_secs_f64(),
-            }));
-        }
-    };
-
-    let auto_approve_results = AutoApproveResults { newly_approved };
-
-    // ── Phase 3: Ingest delta ──────────────────────────────────
+    // ── Phase 2: Ingest delta ──────────────────────────────────
 
     let ingest_delta_results =
         match super::ingest::run_ingest_delta(&state, &doc_id, &user.username).await {
@@ -233,7 +210,6 @@ pub async fn reverify_sync_handler(
                 return Ok(Json(ReverifySyncResponse {
                     document_id: doc_id,
                     verify_results,
-                    auto_approve_results,
                     ingest_delta_results: None,
                     partial_error: Some(err_msg),
                     duration_secs: start.elapsed().as_secs_f64(),
@@ -251,7 +227,6 @@ pub async fn reverify_sync_handler(
         Some(&doc_id),
         Some(serde_json::json!({
             "changed": changed,
-            "newly_approved": newly_approved,
             "written_to_graph": ingest_delta_results.as_ref().map(|r| r.written_to_graph),
             "duration_secs": format!("{duration:.2}"),
         })),
@@ -261,7 +236,6 @@ pub async fn reverify_sync_handler(
     tracing::info!(
         doc_id = %doc_id,
         changed,
-        newly_approved,
         duration_secs = format!("{duration:.2}"),
         "Re-verify & Sync complete"
     );
@@ -269,7 +243,6 @@ pub async fn reverify_sync_handler(
     Ok(Json(ReverifySyncResponse {
         document_id: doc_id,
         verify_results,
-        auto_approve_results,
         ingest_delta_results,
         partial_error: None,
         duration_secs: duration,

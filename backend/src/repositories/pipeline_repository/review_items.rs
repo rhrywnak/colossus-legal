@@ -28,10 +28,18 @@ pub struct ReviewItemRow {
     pub verbatim_quote: Option<String>,
     pub grounding_status: Option<String>,
     pub grounded_page: Option<i32>,
-    /// Diagnostic reason persisted alongside `grounding_status='derived_invalid'`.
-    /// Surfaces in the Review tab UI so reviewers see WHY a derived item
-    /// was rejected without grepping logs. Populated only by the v5.1
-    /// `validate_derived_provenance` path; NULL for every other status.
+    /// Diagnostic reason persisted alongside a grounding decision. Surfaces in
+    /// the Review tab UI so reviewers see WHY without grepping logs.
+    ///
+    /// Two producers as of 2026-08-17:
+    /// - the v5.1 `validate_derived_provenance` path, for `derived_invalid`;
+    /// - the verifier's second-chance tiers, for a page reached only after
+    ///   stray numerals were removed (`verified_without_stray_numerals`) or
+    ///   around one interruption (`verified_with_gap`), and for a stored quote
+    ///   that is nothing but markers (`quote_is_only_numerals`).
+    ///
+    /// NULL for an ordinary match — which is itself the signal that the page
+    /// was reached the ordinary way.
     pub verification_reason: Option<String>,
     pub review_status: String,
     pub reviewed_by: Option<String>,

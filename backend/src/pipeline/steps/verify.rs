@@ -9,6 +9,9 @@
 //! `api::pipeline::verify` and are reused from there. The canonical text
 //! search logic lives in `api::pipeline::canonical_verifier`.
 
+use crate::repositories::pipeline_repository::review_grounding::{
+    manually_grounded_ids, preserve_manual_grounding,
+};
 use std::collections::HashMap;
 use std::error::Error;
 use std::time::Instant;
@@ -24,8 +27,11 @@ use colossus_pipeline::cancel::CancellationToken;
 use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
-use crate::api::pipeline::canonical_verifier::{find_in_canonical_text, CanonicalMatchType};
+use crate::api::pipeline::canonical_verifier::{
+    find_in_canonical_text_with_policy, grounding_write_for, GroundingTally,
+};
 use crate::api::pipeline::verify as verify_api;
+use crate::domain::quote_gap::GapPolicy;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::auto_approve::AutoApprove;
 use crate::pipeline::task::DocProcessing;
@@ -94,6 +100,16 @@ pub struct VerifyResult {
     pub unverified: usize,
     pub missing_quote: usize,
     pub grounding_pct: f64,
+    /// Items whose row was deliberately NOT written because a human had already
+    /// grounded them. Carried on the result — not merely logged — so the
+    /// difference between `total_items` and the counts above is answerable from
+    /// `pipeline_steps.result_summary` months later.
+    pub manual_preserved: usize,
+    /// The thresholds this run actually used. Recorded because they decide
+    /// whether an item grounds at all: "was 9402 refused by the fraction or by
+    /// the word floor?" must be answerable from the row, not from the running
+    /// container's environment.
+    pub gap_policy: GapPolicy,
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -266,6 +282,18 @@ pub async fn run_verify(
         .map(|row| (row.page_number as u32, row.text_content))
         .collect();
 
+    // ── Manual grounding is a human's answer and outranks the machine's ──
+    //
+    // `grounding_status = 'manual'` means a reviewer opened the item, read the
+    // page, and typed the page number in. Re-verify exists to APPLY verifier
+    // improvements, not to overrule a person who has already looked — and now
+    // that the second chance can produce a page for these very items, the
+    // overwrite would be silent and would look like an improvement.
+    //
+    // So: compute for them (the counts stay honest, and the log records what
+    // the matcher would have said), write for none of them.
+    let manually_grounded = manually_grounded_ids(&items);
+
     // 6. Categorize items by grounding mode.
     let categorization = verify_api::categorize_items_for_grounding(&items, &grounding_config)
         .map_err(|message| VerifyError::GroundingModes {
@@ -300,32 +328,33 @@ pub async fn run_verify(
     }
 
     // 8. Search each snippet against canonical text and update DB.
-    let (mut exact, mut normalized, mut not_found) = (0usize, 0usize, 0usize);
+    let gap_policy = Some(context.verify_gap_policy);
+    let mut tally = GroundingTally::default();
+    let mut manual_preserved = 0usize;
     for (i, snippet) in snippets.iter().enumerate() {
         let meta = &snippet_items[i];
-        let result = find_in_canonical_text(snippet, &document_pages);
+        let result = find_in_canonical_text_with_policy(snippet, &document_pages, gap_policy);
 
-        let (status_str, page) = match result.match_type {
-            CanonicalMatchType::Exact => {
-                exact += 1;
-                ("exact", result.page_number.map(|p| p as i32))
-            }
-            CanonicalMatchType::Normalized => {
-                normalized += 1;
-                ("normalized", result.page_number.map(|p| p as i32))
-            }
-            CanonicalMatchType::NotFound => {
-                not_found += 1;
-                ("not_found", None)
-            }
-        };
-        pipeline_repository::update_item_grounding(db, meta.item_id, status_str, page, None)
+        // ONE mapping, shared with the API path (see `grounding_write_for`).
+        let (status_str, page, reason) = grounding_write_for(meta.item_id, &result);
+
+        tally.record(&result.match_type);
+        if preserve_manual_grounding(&items, &manually_grounded, meta.item_id, page) {
+            manual_preserved += 1;
+            continue;
+        }
+
+        pipeline_repository::update_item_grounding(db, meta.item_id, status_str, page, reason)
             .await
             .map_err(|e| VerifyError::Db {
                 doc_id: doc_id.to_string(),
                 message: format!("update_item_grounding (item {}): {e}", meta.item_id),
             })?;
     }
+
+    // Unpack once, so everything below — the logs, the audit payload, the result
+    // summary — reads exactly as it did before the tally type existed.
+    let (exact, normalized, not_found) = (tally.exact, tally.normalized, tally.not_found);
 
     // 10. Validate Derived-mode items per v5.1 §5.4. Mirrors the
     //     api-side path in `api::pipeline::verify::run_verify`. The
@@ -440,6 +469,8 @@ pub async fn run_verify(
         unverified: categorization.none_item_ids.len(),
         missing_quote: categorization.missing_quote_item_ids.len(),
         grounding_pct,
+        manual_preserved,
+        gap_policy: context.verify_gap_policy,
     })
 }
 

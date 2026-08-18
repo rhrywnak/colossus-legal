@@ -13,6 +13,7 @@
 //! Per v5_2 Part 7, with a construction-signature deviation documented in
 //! the P2-8 CC instruction (struct-of-args instead of 7 positional args).
 
+use crate::domain::quote_gap::GapPolicy;
 use std::sync::Arc;
 
 use colossus_extract::{EmbeddingProvider, LlmProvider};
@@ -123,6 +124,16 @@ pub struct AppContext {
     /// concurrent step executions.
     pub registry: Arc<PipelineRegistry>,
 
+    /// Thresholds for the verifier's second-chance (one-gap) match.
+    ///
+    /// Carried on the context rather than read from the environment inside the
+    /// step, so the pipeline path and the Re-verify API path are governed by the
+    /// same numbers — the alternative (each reading env at use time) is how the
+    /// two paths quietly come to disagree. Read once at startup; see
+    /// [`AppConfig::verify_gap_policy`](crate::config::AppConfig::verify_gap_policy)
+    /// for what each threshold means and why it has the value it has.
+    pub verify_gap_policy: GapPolicy,
+
     /// LLM provider (Anthropic or vLLM).
     /// Constructed from `LLM_PROVIDER` env var at startup.
     /// Consumed by the `LlmExtract` step and by the RAG synthesizer/decomposer.
@@ -187,6 +198,11 @@ impl AppContext {
     ///   value, or its required companion vars are missing (see
     ///   `colossus_extract::providers::embedding_provider_from_env`).
     pub fn from_deps_and_env(deps: AppContextDeps) -> Result<Self, String> {
+        // The SAME reader `AppConfig` uses — not a second copy of the defaults.
+        // A malformed value fails startup here exactly as it does there, and a
+        // default tuned in `GapPolicy::default` reaches both paths at once.
+        let verify_gap_policy = crate::config::verify_gap_policy_from_env()?;
+
         // Construct the Rig-backed extraction engine FIRST so the
         // anthropic-bridge `llm_provider` below can share it (one
         // HTTP/1.1 reqwest 0.13 client refcount-shared across the
@@ -251,6 +267,7 @@ impl AppContext {
             .unwrap_or(DEFAULT_LLM_CONCURRENCY);
 
         Ok(Self {
+            verify_gap_policy,
             pipeline_pool: deps.pipeline_pool,
             graph: deps.graph,
             qdrant_url: deps.qdrant_url,

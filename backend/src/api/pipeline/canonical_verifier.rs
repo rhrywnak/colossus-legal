@@ -12,6 +12,29 @@
 //! lives only in `document_text`. Since the LLM extracted quotes FROM
 //! `document_text`, verification must search IN `document_text`.
 
+use crate::domain::quote_gap::{
+    bare_numerals, locate_with_gap, normalize_without_foreign_numerals, GapPolicy,
+};
+
+/// `verification_reason` stamped on an item matched only after stray numeral
+/// tokens were removed from the page text.
+///
+/// Stored rather than merely logged: months later, the question "why does this
+/// statement claim page 12?" has to be answerable from the row itself.
+pub const REASON_WITHOUT_NUMERALS: &str = "verified_without_stray_numerals";
+
+/// `verification_reason` stamped on an item matched in two halves around one
+/// interruption. The Review panel reads this to say "matched around a
+/// footnote" instead of presenting it as an ordinary match — honesty law: an
+/// operator must be able to see that this page number came the harder way.
+pub const REASON_WITH_GAP: &str = "verified_with_gap";
+
+/// `verification_reason` stamped on an item whose stored quote is nothing but
+/// bare numerals. The item is ungrounded, like a not-found quote, but for a
+/// different reason and with a different fix — inspect the stored quote and
+/// re-extract, rather than hunt the page for words that are not there.
+pub const REASON_STRIPPED_TO_EMPTY: &str = "quote_is_only_numerals";
+
 /// Result of searching for a snippet in canonical text.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CanonicalGroundingResult {
@@ -29,6 +52,30 @@ pub enum CanonicalMatchType {
     /// hyphenated line breaks, transcript gutter line-numbers). See
     /// `normalize_text` for the full list.
     Normalized,
+    /// Matched only after stray numeral tokens (footnote markers, gutter
+    /// numerals) were removed from the page text. The quote's own numerals are
+    /// never removed, so a date still has to match a date.
+    NormalizedWithoutNumerals,
+    /// Matched in two contiguous halves around ONE interruption — a footnote
+    /// body spliced into the sentence by the PDF's text layer.
+    ///
+    /// Both halves together are the whole quote: nothing partial is accepted.
+    /// Carried as its own variant so the Review panel can say "matched around a
+    /// footnote" rather than presenting it as an ordinary match (honesty law).
+    NormalizedWithGap {
+        /// Characters between the halves — how much was spliced in.
+        gap_chars: usize,
+    },
+    /// The snippet consisted ENTIRELY of bare numerals, so stripping them left
+    /// nothing to search for.
+    ///
+    /// Kept apart from [`NotFound`](Self::NotFound) because the two are
+    /// different failures with different remedies: a not-found quote means the
+    /// extractor invented words that are not on the page, while this means the
+    /// extractor stored a quote that is only footnote markers. One is a
+    /// grounding problem, the other is an extraction problem, and a reviewer
+    /// must be able to tell them apart from the row (Standing Rule 1).
+    EmptyAfterStripping,
     /// Snippet not found in any page of canonical text.
     NotFound,
 }
@@ -70,6 +117,98 @@ fn strip_leading_page_number(text: &str) -> &str {
     text
 }
 
+/// How a search result is written to `extraction_items`: the status string, the
+/// page, and the reason (if any).
+///
+/// ## Why this is a function and not two copies of a `match`
+///
+/// Two code paths run verify — the Restate pipeline step and the Re-verify API
+/// handler — and they must write the SAME row for the same result. When each
+/// carried its own `match` over [`CanonicalMatchType`], adding a variant meant
+/// remembering to add it twice, and a divergence would have been invisible until
+/// an operator noticed two documents grounded differently for no reason.
+///
+/// ## Rust Learning: `&'static str` in the return, not `String`
+///
+/// Every value returned here is a compile-time literal that lives for the whole
+/// program, so there is nothing to allocate and nothing to free. `'static` is
+/// the lifetime that says exactly that, and it lets the caller hand the value
+/// straight to a `&str` parameter with no clone.
+pub fn grounding_write_for(
+    item_id: i32,
+    result: &CanonicalGroundingResult,
+) -> (&'static str, Option<i32>, Option<&'static str>) {
+    let page = result.page_number.map(|p| p as i32);
+    if let CanonicalMatchType::NormalizedWithGap { gap_chars } = result.match_type {
+        // Logged here rather than at each call site: one place decides what a
+        // gap match is, so one place says so.
+        tracing::info!(
+            item_id,
+            gap_chars,
+            page = ?page,
+            "verify: matched around an interruption of {gap_chars} characters"
+        );
+    }
+    match result.match_type {
+        CanonicalMatchType::Exact => ("exact", page, None),
+        CanonicalMatchType::Normalized => ("normalized", page, None),
+        // Counted and stored as normalized matches: they ARE normalized
+        // matches, of a page whose stray numerals were removed. The reason
+        // column is what distinguishes them, and it is stored rather than
+        // merely logged so "why does this claim page 12?" stays answerable.
+        CanonicalMatchType::NormalizedWithoutNumerals => {
+            ("normalized", page, Some(REASON_WITHOUT_NUMERALS))
+        }
+        CanonicalMatchType::NormalizedWithGap { .. } => ("normalized", page, Some(REASON_WITH_GAP)),
+        // No page, ever, on a refusal. Both refusals write `not_found` — the
+        // status a reviewer filters on — and the reason column is what says
+        // WHICH refusal it was.
+        CanonicalMatchType::EmptyAfterStripping => {
+            ("not_found", None, Some(REASON_STRIPPED_TO_EMPTY))
+        }
+        CanonicalMatchType::NotFound => ("not_found", None, None),
+    }
+}
+
+/// True when the result grounded the item somewhere — any tier.
+///
+/// Kept beside [`grounding_write_for`] for the same reason: one definition, two
+/// callers, no chance of the counts drifting apart from the writes.
+pub fn is_grounded(match_type: &CanonicalMatchType) -> bool {
+    !matches!(
+        match_type,
+        CanonicalMatchType::NotFound | CanonicalMatchType::EmptyAfterStripping
+    )
+}
+
+/// The three counts every verify run reports.
+///
+/// ## Rust Learning: `#[derive(Default)]` on a struct of counters
+///
+/// `Default` gives `GroundingTally::default()` with every field zeroed, which is
+/// what "nothing counted yet" means. Deriving it beats writing `0, 0, 0` at each
+/// call site, and it cannot get out of step when a field is added.
+#[derive(Debug, Default, Clone, Copy)]
+pub struct GroundingTally {
+    pub exact: usize,
+    pub normalized: usize,
+    pub not_found: usize,
+}
+
+impl GroundingTally {
+    /// Count one result. Every tier that produced a page counts as
+    /// `normalized` except an exact hit — the second-chance tiers ARE
+    /// normalized matches, distinguished by `verification_reason`, not by a
+    /// separate count that every downstream reader would have to learn about.
+    pub fn record(&mut self, match_type: &CanonicalMatchType) {
+        match match_type {
+            CanonicalMatchType::Exact => self.exact += 1,
+            _ if is_grounded(match_type) => self.normalized += 1,
+            _ => self.not_found += 1,
+        }
+    }
+}
+
 /// Search for a snippet in the canonical text representation.
 ///
 /// Tries exact match first (case-sensitive substring), then normalized
@@ -87,9 +226,33 @@ fn strip_leading_page_number(text: &str) -> &str {
 /// ¶ markers, and line breaks mid-word. Normalized matching bridges the gap
 /// by character-normalizing BOTH sides before comparison — see
 /// `normalize_text` for the full set of substitutions.
+///
+/// ## Why this is test-only
+///
+/// Production has exactly one caller shape — "verify with the configured
+/// policy" — so a second production entry point would only be a way for the two
+/// verify paths to drift apart. It survives as the *no-second-chance* entry the
+/// existing suite calls, which is how those tests keep proving that the four
+/// contiguous tiers behave today exactly as they did before the second chance
+/// was added.
+#[cfg(test)]
 pub fn find_in_canonical_text(
     snippet: &str,
     document_pages: &[(u32, String)],
+) -> CanonicalGroundingResult {
+    find_in_canonical_text_with_policy(snippet, document_pages, None)
+}
+
+/// [`find_in_canonical_text`], plus the two second-chance tiers.
+///
+/// `policy` of `None` reproduces the historical behaviour exactly — four tiers,
+/// no numeral stripping, no gap. Passing a policy adds tiers 5 and 6, which run
+/// ONLY after all four contiguous tiers have failed, so no quote that grounds
+/// today can change how it grounds.
+pub fn find_in_canonical_text_with_policy(
+    snippet: &str,
+    document_pages: &[(u32, String)],
+    policy: Option<GapPolicy>,
 ) -> CanonicalGroundingResult {
     if snippet.is_empty() {
         return CanonicalGroundingResult {
@@ -111,8 +274,30 @@ pub fn find_in_canonical_text(
     // 2. Try normalized match (collapse whitespace, case-insensitive)
     let normalized_snippet = normalize_text(snippet);
     if normalized_snippet.is_empty() {
+        // Two different reasons to arrive here, and they are not the same
+        // problem. Whitespace only → nothing was ever stored, which the
+        // `missing_quote` path already covers. Digits only → the extractor
+        // stored a quote consisting of footnote or gutter markers, which
+        // `normalize_text` strips as page furniture. The second is an
+        // EXTRACTION fault surfacing at verification time, and reporting it as
+        // an ordinary "not found" would send a reviewer hunting the page for
+        // words that were never claimed to be there (Standing Rule 1).
+        let only_numerals = snippet.chars().any(|c| c.is_ascii_digit());
+        if only_numerals {
+            tracing::warn!(
+                snippet = %snippet,
+                "verify: the stored quote is nothing but bare numerals, so there is \
+                 nothing to search for. The item stays ungrounded. Inspect the quote \
+                 on the Review tab; if it is only footnote markers, this item needs \
+                 re-extracting, not re-verifying."
+            );
+        }
         return CanonicalGroundingResult {
-            match_type: CanonicalMatchType::NotFound,
+            match_type: if only_numerals {
+                CanonicalMatchType::EmptyAfterStripping
+            } else {
+                CanonicalMatchType::NotFound
+            },
             page_number: None,
         };
     }
@@ -168,7 +353,70 @@ pub fn find_in_canonical_text(
         }
     }
 
-    // 5. Not found
+    // Tiers 5 and 6 are the second chance, and they run only here — after every
+    // contiguous tier has failed. A quote that grounds today cannot reach them.
+    let Some(policy) = policy else {
+        return CanonicalGroundingResult {
+            match_type: CanonicalMatchType::NotFound,
+            page_number: None,
+        };
+    };
+
+    // The quote's OWN numerals are the keep set: they are never stripped from
+    // the page, so a date must still match a date.
+    let keep = bare_numerals(snippet);
+    let snippet_stripped = normalize_without_foreign_numerals(snippet, &keep);
+    let needle = snippet_stripped.text();
+    if needle.is_empty() {
+        // Defensive: the guard above already catches a snippet that normalizes
+        // to nothing, and stripping only removes numerals the quote does not
+        // itself contain, so this should be unreachable. It refuses rather than
+        // searching for an empty string, which would match every page.
+        return CanonicalGroundingResult {
+            match_type: CanonicalMatchType::EmptyAfterStripping,
+            page_number: None,
+        };
+    }
+
+    // The same surfaces the contiguous tiers use: each page, then adjacent
+    // pairs, because a sentence interrupted by a footnote is also often a
+    // sentence that crosses a page break — measured, all six of the motion's
+    // failures matched on a PAIR, not a single page.
+    let mut surfaces: Vec<(u32, String)> = document_pages.to_vec();
+    for pair in document_pages.windows(2) {
+        let clean_left = strip_trailing_page_number(&pair[0].1);
+        let clean_right = strip_leading_page_number(&pair[1].1);
+        surfaces.push((
+            pair[0].0,
+            format!("{} {}", clean_left.trim_end(), clean_right.trim_start()),
+        ));
+    }
+
+    // 5. Contiguous match once the foreign numerals are gone.
+    for (page_num, text) in &surfaces {
+        let hay = normalize_without_foreign_numerals(text, &keep);
+        if hay.text().contains(needle) {
+            return CanonicalGroundingResult {
+                match_type: CanonicalMatchType::NormalizedWithoutNumerals,
+                page_number: Some(*page_num),
+            };
+        }
+    }
+
+    // 6. One gap — a footnote body spliced into the sentence.
+    for (page_num, text) in &surfaces {
+        let hay = normalize_without_foreign_numerals(text, &keep);
+        if let Some(m) = locate_with_gap(hay.text(), needle, policy) {
+            return CanonicalGroundingResult {
+                match_type: CanonicalMatchType::NormalizedWithGap {
+                    gap_chars: m.gap_chars,
+                },
+                page_number: Some(*page_num),
+            };
+        }
+    }
+
+    // 7. Not found — the item stays exactly as ungrounded as it is today.
     CanonicalGroundingResult {
         match_type: CanonicalMatchType::NotFound,
         page_number: None,
@@ -736,5 +984,344 @@ mod tests {
         let r3 = find_in_canonical_text("November 16, 2009", &pages);
         assert_eq!(r3.match_type, CanonicalMatchType::Exact);
         assert_eq!(r3.page_number, Some(3));
+    }
+
+    // ── Second-chance tiers (2026-08-17) ───────────────────────────
+
+    /// The policy the build ships with, so these tests measure DEV's behaviour.
+    fn shipped_policy() -> GapPolicy {
+        GapPolicy {
+            max_gap_chars: 240,
+            min_half_fraction: 0.05,
+            min_half_words: 3,
+        }
+    }
+
+    #[test]
+    fn footnote_marker_mid_sentence_now_grounds_and_reports_its_page() {
+        let pages = vec![
+            (11u32, "irrelevant opening page".to_string()),
+            (
+                12u32,
+                "the fee arrangement 24 the record seems to indicate 25 was never disclosed"
+                    .to_string(),
+            ),
+        ];
+        let quote = "the record seems to indicate was never disclosed";
+
+        // Today: no contiguous match anywhere, so no page.
+        let before = find_in_canonical_text(quote, &pages);
+        assert_eq!(before.match_type, CanonicalMatchType::NotFound);
+        assert_eq!(before.page_number, None);
+
+        // With the second chance: grounded, on the page it is actually on.
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(
+            after.match_type,
+            CanonicalMatchType::NormalizedWithoutNumerals
+        );
+        assert_eq!(after.page_number, Some(12));
+    }
+
+    #[test]
+    fn gutter_numeral_at_line_start_now_grounds() {
+        let pages = vec![(
+            7u32,
+            "1 the guardian ad litem 2 billed the estate 3 for a title search".to_string(),
+        )];
+        let quote = "the guardian ad litem billed the estate for a title search";
+
+        assert_eq!(
+            find_in_canonical_text(quote, &pages).match_type,
+            CanonicalMatchType::NotFound
+        );
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(
+            after.match_type,
+            CanonicalMatchType::NormalizedWithoutNumerals
+        );
+        assert_eq!(after.page_number, Some(7));
+    }
+
+    #[test]
+    fn a_footnote_body_spliced_into_the_sentence_matches_with_a_gap() {
+        let pages = vec![(
+            15u32,
+            "the guardian ad litem billed for the title \
+             See Exhibit 11 Transcript of the hearing held that same afternoon \
+             search and he is not entitled to that fee"
+                .to_string(),
+        )];
+        let quote =
+            "the guardian ad litem billed for the title search and he is not entitled to that fee";
+
+        assert_eq!(
+            find_in_canonical_text(quote, &pages).match_type,
+            CanonicalMatchType::NotFound
+        );
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        match after.match_type {
+            CanonicalMatchType::NormalizedWithGap { gap_chars } => {
+                assert!(gap_chars > 0 && gap_chars <= 240, "gap was {gap_chars}");
+            }
+            other => panic!("expected a gap match, got {other:?}"),
+        }
+        assert_eq!(after.page_number, Some(15));
+    }
+
+    #[test]
+    fn a_gap_match_is_refused_when_one_half_is_a_single_common_word() {
+        // The shape of item 9402: the head is one word that occurs by
+        // coincidence well before the rest of the quote. Refused — and refused
+        // means NO page, never a guessed one.
+        let pages = vec![(
+            9u32,
+            "For an entirely different reason set out at length below \
+             the estate paid the disputed fee in full"
+                .to_string(),
+        )];
+        let quote = "For the estate paid the disputed fee in full";
+
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(after.match_type, CanonicalMatchType::NotFound);
+        assert_eq!(
+            after.page_number, None,
+            "a refused match must not carry a page"
+        );
+    }
+
+    #[test]
+    fn a_quote_that_is_genuinely_absent_still_fails() {
+        let pages = vec![
+            (1u32, "the estate paid the fee 12 in full".to_string()),
+            (2u32, "13 counsel then withdrew from the matter".to_string()),
+        ];
+        let quote = "the trustee admitted forging the signature on the deed";
+
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(after.match_type, CanonicalMatchType::NotFound);
+        assert_eq!(after.page_number, None);
+    }
+
+    #[test]
+    fn a_quote_carrying_its_own_numerals_must_still_match_the_right_year() {
+        let right = vec![(
+            4u32,
+            "the estate paid $50,000.00 on July 23, 2009 7 to the guardian".to_string(),
+        )];
+        let wrong = vec![(
+            4u32,
+            "the estate paid $50,000.00 on July 23, 2011 7 to the guardian".to_string(),
+        )];
+        let quote = "the estate paid $50,000.00 on July 23, 2009 to the guardian";
+
+        let hit = find_in_canonical_text_with_policy(quote, &right, Some(shipped_policy()));
+        assert_eq!(
+            hit.match_type,
+            CanonicalMatchType::NormalizedWithoutNumerals
+        );
+        assert_eq!(hit.page_number, Some(4));
+
+        let miss = find_in_canonical_text_with_policy(quote, &wrong, Some(shipped_policy()));
+        assert_eq!(
+            miss.match_type,
+            CanonicalMatchType::NotFound,
+            "the year in the quote must not be stripped away"
+        );
+    }
+
+    #[test]
+    fn a_quote_that_already_grounds_is_unaffected_by_the_second_chance() {
+        // The Humphrey case: an ordinary exact match must stay an EXACT match
+        // on the same page, policy or no policy.
+        let pages = vec![
+            (1u32, "unrelated".to_string()),
+            (
+                2u32,
+                "the affiant states that he was present throughout".to_string(),
+            ),
+        ];
+        let quote = "the affiant states that he was present throughout";
+
+        let without = find_in_canonical_text(quote, &pages);
+        let with = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(without.match_type, CanonicalMatchType::Exact);
+        assert_eq!(with.match_type, CanonicalMatchType::Exact);
+        assert_eq!(with.page_number, without.page_number);
+    }
+
+    #[test]
+    fn re_verifying_the_same_item_twice_yields_the_same_answer() {
+        // Idempotence: the matcher is pure, so a second Re-verify over an
+        // already-recovered item must not move its page or change its tier.
+        let pages = vec![(
+            12u32,
+            "the fee arrangement 24 the record seems to indicate 25 was never disclosed"
+                .to_string(),
+        )];
+        let quote = "the record seems to indicate was never disclosed";
+
+        let first = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        let second = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(first.match_type, second.match_type);
+        assert_eq!(first.page_number, second.page_number);
+        assert_eq!(second.page_number, Some(12));
+    }
+
+    #[test]
+    fn tier_five_matches_across_a_page_pair_when_neither_page_holds_the_whole_quote() {
+        // The real shape, and the one the single-page tests do not reach: on the
+        // Phillips default motion ALL FOUR recoveries are on an adjacent PAIR,
+        // because a sentence a footnote interrupts is often also a sentence that
+        // crosses a page break. Tiers 5 and 6 build their own surface list, so
+        // the pre-existing cross-page tests for tiers 3 and 4 do not cover this.
+        let pages = vec![
+            (
+                7u32,
+                "preamble the guardian ad litem billed 12 for the title search and he is"
+                    .to_string(),
+            ),
+            (
+                8u32,
+                "not entitled to that fee. Further matters.".to_string(),
+            ),
+        ];
+        let quote =
+            "the guardian ad litem billed for the title search and he is not entitled to that fee";
+
+        // Neither page holds it, and no contiguous tier finds it — the inline
+        // `12` is not a gutter LINE, so the existing normalization leaves it.
+        assert_eq!(
+            find_in_canonical_text(quote, &pages).match_type,
+            CanonicalMatchType::NotFound
+        );
+
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        assert_eq!(
+            after.match_type,
+            CanonicalMatchType::NormalizedWithoutNumerals
+        );
+        // The pair is reported under its FIRST page, which is where the quote
+        // starts — the page a citation should carry.
+        assert_eq!(after.page_number, Some(7));
+    }
+
+    #[test]
+    fn tier_six_matches_across_a_page_pair_around_a_footnote_body() {
+        let pages = vec![
+            (
+                3u32,
+                "the estate paid the disputed fee \
+                 See the note below regarding the parties \
+                 in full to counsel"
+                    .to_string(),
+            ),
+            (4u32, "of record and the matter was closed".to_string()),
+        ];
+        let quote = "the estate paid the disputed fee in full to counsel of record";
+
+        assert_eq!(
+            find_in_canonical_text(quote, &pages).match_type,
+            CanonicalMatchType::NotFound
+        );
+
+        let after = find_in_canonical_text_with_policy(quote, &pages, Some(shipped_policy()));
+        match after.match_type {
+            CanonicalMatchType::NormalizedWithGap { gap_chars } => {
+                assert!(gap_chars > 0 && gap_chars <= 240, "gap was {gap_chars}");
+            }
+            other => panic!("expected a gap match across the pair, got {other:?}"),
+        }
+        assert_eq!(after.page_number, Some(3));
+    }
+
+    #[test]
+    fn a_quote_that_is_only_numerals_is_its_own_outcome_not_a_not_found() {
+        // An extraction fault, not a grounding fault: the stored quote is
+        // nothing but footnote markers, so there is nothing to search for. It
+        // must not look identical to a quote whose words are genuinely absent —
+        // the two have different remedies (re-extract vs. re-read the page).
+        // Each marker on its own line, which is how the extractor stores one it
+        // mistook for a quote — and which is exactly what `normalize_text`'s
+        // gutter-line stripping removes, leaving nothing behind.
+        let pages = vec![(5u32, "the estate paid the fee 24 in full".to_string())];
+        let result = find_in_canonical_text_with_policy("24\n25\n", &pages, Some(shipped_policy()));
+
+        // Whitespace only is a DIFFERENT emptiness and keeps the old answer:
+        // nothing was ever stored, which the missing-quote path covers.
+        assert_eq!(
+            find_in_canonical_text_with_policy("   \n  ", &pages, Some(shipped_policy()))
+                .match_type,
+            CanonicalMatchType::NotFound
+        );
+        assert_eq!(result.match_type, CanonicalMatchType::EmptyAfterStripping);
+        assert_eq!(result.page_number, None);
+
+        let (status, page, reason) = grounding_write_for(1, &result);
+        assert_eq!(status, "not_found", "it is ungrounded, and filters on that");
+        assert_eq!(page, None);
+        assert_eq!(
+            reason,
+            Some(REASON_STRIPPED_TO_EMPTY),
+            "the reason column is what distinguishes it from a genuine miss"
+        );
+    }
+
+    #[test]
+    fn every_match_type_maps_to_exactly_one_write() {
+        // The table both verify paths depend on. A new variant that nobody
+        // decided how to write would fail to compile in `grounding_write_for`;
+        // this pins what the existing ones write.
+        let cases = [
+            (CanonicalMatchType::Exact, "exact", Some(4), None),
+            (CanonicalMatchType::Normalized, "normalized", Some(4), None),
+            (
+                CanonicalMatchType::NormalizedWithoutNumerals,
+                "normalized",
+                Some(4),
+                Some(REASON_WITHOUT_NUMERALS),
+            ),
+            (
+                CanonicalMatchType::NormalizedWithGap { gap_chars: 99 },
+                "normalized",
+                Some(4),
+                Some(REASON_WITH_GAP),
+            ),
+            (
+                CanonicalMatchType::EmptyAfterStripping,
+                "not_found",
+                None,
+                Some(REASON_STRIPPED_TO_EMPTY),
+            ),
+            (CanonicalMatchType::NotFound, "not_found", None, None),
+        ];
+        for (match_type, want_status, want_page, want_reason) in cases {
+            let result = CanonicalGroundingResult {
+                match_type: match_type.clone(),
+                page_number: Some(4),
+            };
+            let (status, page, reason) = grounding_write_for(1, &result);
+            assert_eq!(status, want_status, "status for {match_type:?}");
+            assert_eq!(page, want_page, "page for {match_type:?}");
+            assert_eq!(reason, want_reason, "reason for {match_type:?}");
+        }
+    }
+
+    #[test]
+    fn the_tally_counts_every_second_chance_tier_as_normalized() {
+        // The second-chance tiers ARE normalized matches. Giving them their own
+        // count would mean every downstream reader of grounding_pct had to learn
+        // about them or silently under-report.
+        let mut tally = GroundingTally::default();
+        tally.record(&CanonicalMatchType::Exact);
+        tally.record(&CanonicalMatchType::Normalized);
+        tally.record(&CanonicalMatchType::NormalizedWithoutNumerals);
+        tally.record(&CanonicalMatchType::NormalizedWithGap { gap_chars: 12 });
+        tally.record(&CanonicalMatchType::NotFound);
+        tally.record(&CanonicalMatchType::EmptyAfterStripping);
+
+        assert_eq!(tally.exact, 1);
+        assert_eq!(tally.normalized, 3);
+        assert_eq!(tally.not_found, 2, "both refusals count as ungrounded");
     }
 }

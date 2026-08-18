@@ -32,8 +32,88 @@ use sqlx::PgPool;
 /// visible in `count_ungrounded_pending` so the operator sees the
 /// failure. The diagnostic reason lives in `extraction_items.verification_reason`
 /// and surfaces in the Review tab UI.
-pub(crate) const GROUNDED_STATUSES: &[&str] =
-    &["exact", "normalized", "derived", "unverified", "manual"];
+/// `grounding_status` written when a HUMAN supplied the page.
+///
+/// Named rather than repeated as a literal because two other modules now have
+/// to recognise it: `edit_item` writes it, and both verify paths refuse to
+/// overwrite it. A machine must not silently overrule a person who has already
+/// read the page (2026-08-17).
+pub const GROUNDING_STATUS_MANUAL: &str = "manual";
+
+pub(crate) const GROUNDED_STATUSES: &[&str] = &[
+    "exact",
+    "normalized",
+    "derived",
+    "unverified",
+    GROUNDING_STATUS_MANUAL,
+];
+
+/// The ids of every item a human has grounded by hand.
+///
+/// ## Rust Learning: returning a `HashSet` rather than testing inside the loop
+///
+/// The caller checks membership once per snippet. A `Vec::contains` would be a
+/// linear scan each time — fine at these sizes, but the set states the intent:
+/// this is a membership question, not a list.
+///
+/// Pure, so the rule "a manual grounding is never recomputed" is testable
+/// without a database.
+/// Whether this item's row must be left exactly as it is, and why.
+///
+/// Returns `true` when a human has already grounded the item. The matcher's own
+/// answer is logged beside the human's either way, so agreement and
+/// disagreement are both visible in the record — a silent skip would bury the
+/// interesting case, which is the one where they differ.
+pub fn preserve_manual_grounding(
+    items: &[crate::repositories::pipeline_repository::ExtractionItemRecord],
+    manual: &std::collections::HashSet<i32>,
+    item_id: i32,
+    matcher_page: Option<i32>,
+) -> bool {
+    if !manual.contains(&item_id) {
+        return false;
+    }
+    tracing::info!(
+        item_id,
+        manual_page = ?manual_page_of(items, item_id),
+        matcher_page = ?matcher_page,
+        "verify: manual grounding kept; the matcher's page is recorded for comparison only"
+    );
+    true
+}
+
+pub fn manually_grounded_ids(
+    items: &[crate::repositories::pipeline_repository::ExtractionItemRecord],
+) -> std::collections::HashSet<i32> {
+    let ids: std::collections::HashSet<i32> = items
+        .iter()
+        .filter(|it| it.grounding_status.as_deref() == Some(GROUNDING_STATUS_MANUAL))
+        .map(|it| it.id)
+        .collect();
+    if !ids.is_empty() {
+        tracing::info!(
+            manual_items = ids.len(),
+            "verify: preserving manually-grounded items; their pages are not recomputed"
+        );
+    }
+    ids
+}
+
+/// The page a human recorded for `item_id`, if this item is one of theirs.
+///
+/// Used only to put both numbers side by side in the log line that fires when
+/// verify declines to overwrite a manual grounding: the operator can then see
+/// at a glance whether the matcher agrees with the reviewer or contradicts
+/// them, which is the interesting case and the one a silent skip would bury.
+pub fn manual_page_of(
+    items: &[crate::repositories::pipeline_repository::ExtractionItemRecord],
+    item_id: i32,
+) -> Option<i32> {
+    items
+        .iter()
+        .find(|it| it.id == item_id)
+        .and_then(|it| it.grounded_page)
+}
 
 /// Return an owned `Vec<String>` copy of [`GROUNDED_STATUSES`] for sqlx
 /// binding. sqlx's Postgres `TEXT[]` encoding wants an owned vector of
@@ -112,6 +192,7 @@ pub async fn count_pending(pool: &PgPool, document_id: &str) -> Result<i64, sqlx
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::repositories::pipeline_repository::ExtractionItemRecord;
 
     // GROUNDED_STATUSES is bound into bulk_approve / count_pending /
     // count_ungrounded_pending via `= ANY($n)`, so asserting membership
@@ -171,5 +252,78 @@ mod tests {
         for s in GROUNDED_STATUSES {
             assert!(v.iter().any(|x| x == s));
         }
+    }
+
+    fn item(
+        id: i32,
+        grounding_status: Option<&str>,
+        grounded_page: Option<i32>,
+    ) -> ExtractionItemRecord {
+        ExtractionItemRecord {
+            id,
+            run_id: 1,
+            document_id: "doc-x".to_string(),
+            entity_type: "Evidence".to_string(),
+            item_data: serde_json::json!({}),
+            verbatim_quote: Some("a quote".to_string()),
+            grounding_status: grounding_status.map(|s| s.to_string()),
+            grounded_page,
+            review_status: "PENDING".to_string(),
+            reviewed_by: None,
+            reviewed_at: None,
+            review_notes: None,
+            graph_status: "pending".to_string(),
+            neo4j_node_id: None,
+            resolved_entity_type: None,
+        }
+    }
+
+    #[test]
+    fn only_manual_items_are_protected_from_recomputation() {
+        let items = vec![
+            item(1, Some("manual"), Some(10)),
+            item(2, Some("exact"), Some(4)),
+            item(3, Some("not_found"), None),
+            item(4, None, None),
+            item(5, Some("manual"), Some(23)),
+        ];
+        let protected = manually_grounded_ids(&items);
+        assert_eq!(protected.len(), 2);
+        assert!(protected.contains(&1) && protected.contains(&5));
+        // An ungrounded item is exactly what re-verify is FOR — it must not be
+        // protected, or the fix would never reach the items it was built for.
+        assert!(!protected.contains(&3));
+        assert!(!protected.contains(&2));
+        assert!(!protected.contains(&4));
+    }
+
+    #[test]
+    fn manual_page_is_reported_for_the_log_comparison() {
+        let items = vec![
+            item(1, Some("manual"), Some(10)),
+            item(2, Some("exact"), Some(4)),
+        ];
+        assert_eq!(manual_page_of(&items, 1), Some(10));
+        // An id that is not in the list is None, not a panic: the log line must
+        // never be the thing that takes verify down.
+        assert_eq!(manual_page_of(&items, 99), None);
+    }
+
+    #[test]
+    fn a_manual_grounding_is_preserved_and_a_machine_one_is_not() {
+        let items = vec![
+            item(1, Some("manual"), Some(10)),
+            item(2, Some("not_found"), None),
+        ];
+        let manual = manually_grounded_ids(&items);
+
+        // The human's row is left alone even though the matcher now has an
+        // answer for it — that is the whole point.
+        assert!(preserve_manual_grounding(&items, &manual, 1, Some(11)));
+        // And the ungrounded row, which is what re-verify exists for, is not.
+        assert!(!preserve_manual_grounding(&items, &manual, 2, Some(4)));
+        // An id nobody knows is not protected either — protection is a positive
+        // fact about a row, never a default.
+        assert!(!preserve_manual_grounding(&items, &manual, 99, None));
     }
 }

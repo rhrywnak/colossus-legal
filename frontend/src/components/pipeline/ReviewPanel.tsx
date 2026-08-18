@@ -68,13 +68,35 @@ const VERIFIED_STATUSES = new Set(["exact", "normalized", "derived", "unverified
 
 // ── Grounding indicator ─────────────────────────────────────────
 
-function GroundingIndicator({ status }: { status: string | null }) {
+// How a second-chance match describes itself. The backend writes these strings
+// to `extraction_items.verification_reason`; the constants live there
+// (canonical_verifier.rs) and are mirrored here because the wire carries the
+// value, not an enum.
+//
+// Ruled 2026-08-17: a page number the matcher reached around a footnote must
+// SAY so. Rendering it as an ordinary "Verified" would let the harder-won
+// grounding pass itself off as the routine kind.
+const REASON_LABELS: Record<string, string> = {
+  verified_without_stray_numerals:
+    "Verified — matched after footnote/gutter numerals were removed from the page",
+  verified_with_gap: "Verified — matched around a footnote spliced into the sentence",
+  quote_is_only_numerals: "The stored quote is only footnote markers — nothing to search for",
+};
+
+function GroundingIndicator({ status, reason }: { status: string | null; reason?: string | null }) {
+  const note = reason ? REASON_LABELS[reason] : undefined;
   switch (status) {
     case "exact":
     case "normalized":
-      return <span style={{ fontSize: "0.66rem", color: "var(--status-active-text)" }} title="Verified in document">&#10003; Verified</span>;
+      return note !== undefined ? (
+        <span style={{ fontSize: "0.66rem", color: "var(--status-active-text)" }} title={note}>
+          &#10003; Verified&#8225;
+        </span>
+      ) : (
+        <span style={{ fontSize: "0.66rem", color: "var(--status-active-text)" }} title="Verified in document">&#10003; Verified</span>
+      );
     case "not_found":
-      return <span style={{ fontSize: "0.66rem", color: "var(--state-warning-strong)" }} title="Not verified">&#9888; Not verified</span>;
+      return <span style={{ fontSize: "0.66rem", color: "var(--state-warning-strong)" }} title={note ?? "Not verified"}>&#9888; Not verified</span>;
     case "derived":
       return <span style={{ fontSize: "0.66rem", color: "var(--accent-primary)" }} title="Derived from other entities">&var(--status-active-text); Derived</span>;
     case "unverified":
@@ -386,7 +408,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
               style={{ ...actionBtn("var(--bias-purple-bg-soft)", "var(--bias-purple-text)", "var(--bias-purple-bg-soft)"), opacity: reverifyBusy ? 0.6 : 1 }}
               onClick={handleReverifySync}
               disabled={reverifyBusy}
-              title="Re-verify all items, auto-approve grounded items, and write to graph"
+              title="Re-verify every item against the page text and write already-approved items to the graph. Approval stays human — this never approves anything."
             >
               {reverifyBusy ? "Re-verifying…" : "Re-verify & Sync"}
             </button>
@@ -405,9 +427,10 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
               {" "}{reverifyResult.verify_results.not_found} not found.
               {" "}<strong>{reverifyResult.verify_results.changed} changed</strong> from previous.
             </div>
-            {reverifyResult.auto_approve_results.newly_approved > 0 && (
-              <div>{reverifyResult.auto_approve_results.newly_approved} newly approved.</div>
-            )}
+            {/* No approval line: re-verify writes verification fields only
+                (ruled 2026-08-17). Saying so here, rather than leaving the
+                absence to be inferred, is the point. */}
+            <div>Verification fields only — nothing was approved.</div>
             {reverifyResult.ingest_delta_results && reverifyResult.ingest_delta_results.written_to_graph > 0 && (
               <div>{reverifyResult.ingest_delta_results.written_to_graph} written to graph.</div>
             )}
@@ -478,7 +501,7 @@ const ReviewPanel: React.FC<ReviewPanelProps> = ({ documentId, pdfUrl, documentS
                 {item.grounded_page && (
                   <span style={{ fontSize: "0.68rem", color: "var(--text-muted)" }}>p.{item.grounded_page}</span>
                 )}
-                <GroundingIndicator status={item.grounding_status} />
+                <GroundingIndicator status={item.grounding_status} reason={item.verification_reason} />
               </div>
 
               {(() => {

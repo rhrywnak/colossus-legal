@@ -58,12 +58,12 @@ use std::ops::Range;
 /// the third stage of anyone's reading. `Copy` because it is three words — the
 /// stages pass them by value and never alias.
 #[derive(Debug, Clone, Copy)]
-struct Ch {
-    c: char,
+pub(super) struct Ch {
+    pub(super) c: char,
     /// Byte offset of the source character in the ORIGINAL text.
-    start: usize,
+    pub(super) start: usize,
     /// Byte offset just past that source character.
-    end: usize,
+    pub(super) end: usize,
 }
 
 /// Normalized text, plus the map back to where each byte came from.
@@ -85,6 +85,25 @@ pub struct Normalized {
 }
 
 impl Normalized {
+    /// Build a `Normalized` from a finished character stream.
+    ///
+    /// The one constructor: every stage that produces a `Vec<Ch>` ends here, so
+    /// the invariant "one origin entry per BYTE of `text`" is established in a
+    /// single place rather than re-derived by each caller. `pub(super)` because
+    /// the sibling [`super::quote_gap`] runs its own stage over the stream and
+    /// then needs exactly this.
+    pub(super) fn from_chars(chars: Vec<Ch>) -> Self {
+        let mut text = String::with_capacity(chars.len());
+        let mut origin = Vec::with_capacity(chars.len());
+        for ch in chars {
+            text.push(ch.c);
+            for _ in 0..ch.c.len_utf8() {
+                origin.push((ch.start, ch.end));
+            }
+        }
+        Normalized { text, origin }
+    }
+
     /// The normalized text — byte-identical to [`normalize_text`]'s output.
     pub fn text(&self) -> &str {
         &self.text
@@ -194,7 +213,7 @@ pub fn normalize_with_map(text: &str) -> Normalized {
 ///
 /// Every stage is a `Vec<Ch>` → `Vec<Ch>` transform, so the map is maintained by
 /// construction rather than by a second pass that could disagree with the first.
-fn pipeline(text: &str) -> Vec<Ch> {
+pub(super) fn pipeline(text: &str) -> Vec<Ch> {
     let chars = to_chars(text);
     let chars = drop_invisibles(chars);
     let chars = rejoin_breaks(chars);

@@ -24,6 +24,7 @@ import {
   PipelineStep,
 } from "../../services/pipelineApi";
 import { getDocumentConfig, PatchConfigInput } from "../../services/configApi";
+import { verifyGroundingFromHistory } from "../../services/verifyGrounding";
 
 // ── Styles ──────────────────────────────────────────────────────
 
@@ -312,13 +313,16 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
             {(doc.run_chunks_failed ?? 0) > 0 && <>, <span style={{ color: "var(--state-danger-strong)" }}>{doc.run_chunks_failed} failed</span></>}
           </div>
         )}
-        {entitiesCreated > 0 && (() => {
-          const flagged = doc.entities_flagged ?? 0;
-          const total = entitiesCreated + flagged;
-          const rate = total > 0 ? Math.round((entitiesCreated / total) * 100) : 0;
+        {/* Verify's own numbers, not ingest's. `entities_written` counts the
+            Document node and the Party nodes too, so using it here described a
+            different quantity than the label claimed. Rendered only when the
+            verify step actually reported — never a placeholder zero. */}
+        {(() => {
+          const grounding = verifyGroundingFromHistory(history);
+          if (grounding === null) return null;
           return (
             <div style={summaryLine}>
-              Grounding: {rate}% ({entitiesCreated} grounded, {flagged} ungrounded)
+              {grounding.grounded} of {grounding.total} items grounded ({grounding.pct}%)
             </div>
           );
         })()}
