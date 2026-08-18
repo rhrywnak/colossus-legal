@@ -342,3 +342,17 @@ pub async fn sheet_rows(
     .await
     .map_err(PipelineRepoError::from)
 }
+
+// The SQL in this file is opaque to the compiler (`sqlx::query`, not `query!`),
+// so a column name that no migration creates is neither a build error nor a
+// unit-test failure — it is a runtime "column … does not exist" on the first
+// real request, which is how 2026-08-18 happened. The sibling module reads this
+// file and the migrations off disk and asserts they agree (Rule 21), the same
+// guard `scan_runs.rs` has carried since the 2026-07-19 defect of that family.
+#[cfg(test)]
+#[path = "practice_sql_shape.rs"]
+mod sql_shape;
+
+#[cfg(test)]
+#[path = "practice_schema_tests.rs"]
+mod schema_tests;
