@@ -44,6 +44,11 @@
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PracticeWording {
+    /// What mockup v3 added: the deck listed on the start card, the resume line,
+    /// the top bar, and the sheet's two new clauses. Nested rather than hung off
+    /// `Settings` because that struct sits one line under Rule 17's limit and
+    /// this task has no business splitting it — see the flow module's header.
+    pub flow: super::wording_practice_flow::PracticeFlowWording,
     // ── S0 · the start card ──────────────────────────────────────────────
     /// The eyebrow over the scenario title on the practice start screen.
     pub kicker: String,
@@ -238,6 +243,7 @@ pub fn build_practice_wording<E>(
     read: impl Fn(&str) -> Result<String, E>,
 ) -> Result<PracticeWording, E> {
     Ok(PracticeWording {
+        flow: super::wording_practice_flow::build_practice_flow_wording(&read)?,
         kicker: read(KEY_KICKER)?,
         intro: read(KEY_INTRO)?,
         who_heading: read(KEY_WHO_HEADING)?,

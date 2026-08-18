@@ -94,6 +94,7 @@ fn question_dto(settings: &Settings, record: PracticeQuestionRecord) -> Practice
         pair_admitted: record.pair_admitted,
         stronger: record.stronger,
         stronger_lean: record.stronger_lean,
+        flag_note: record.flag_note,
     }
 }
 

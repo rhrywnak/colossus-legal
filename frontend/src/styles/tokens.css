@@ -569,6 +569,12 @@
   --practice-braid-text: #4d2a80;
   --practice-braid-border: #dccbf0;
 
+  /* Mockup v3 — the deck listed, the resume box, and a flagged row. Same rule
+     as the nine above: the mockup's own values, by its own names, in one place. */
+  --practice-resume-bg: #eef4fd;
+  --practice-resume-border: #cddcf3;
+  --practice-flagged-row-bg: #fffaf9;
+
   /* The neutral pill, and the tactic tag beside it. */
   --practice-pill-border: #d6e0ee;
   --practice-tactic-bg: #eef1f5;

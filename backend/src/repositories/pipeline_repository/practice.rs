@@ -45,6 +45,10 @@ pub struct PracticeQuestionRecord {
     pub pair_said: Option<String>,
     pub pair_admitted: Option<String>,
     pub sort_order: i32,
+    /// Marie's one line saying what is wrong with this question, or `None`.
+    /// Read with the deck because the start screen renders it on the row and
+    /// Chuck's sheet lists it at the foot — one read serves both.
+    pub flag_note: Option<String>,
 }
 
 /// One of Marie's three talking points, read live from the scenario record.
@@ -114,7 +118,8 @@ pub async fn list_deck(
 ) -> Result<Vec<PracticeQuestionRecord>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
-                watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order \
+                watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
+                flag_note \
          FROM practice_questions WHERE scenario_id = $1 ORDER BY sort_order",
     )
     .bind(scenario_id)
@@ -130,7 +135,8 @@ pub async fn get_question(
 ) -> Result<Option<PracticeQuestionRecord>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
-                watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order \
+                watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
+                flag_note \
          FROM practice_questions WHERE id = $1",
     )
     .bind(question_id)
@@ -221,15 +227,37 @@ pub async fn start_session(
     pool: &PgPool,
     scenario_id: Uuid,
     who: &str,
+    sitting: &NewSitting<'_>,
 ) -> Result<Uuid, PipelineRepoError> {
     let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO practice_sessions (scenario_id, who) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO practice_sessions \
+         (scenario_id, who, count, queue, skipped_today) \
+         VALUES ($1,$2,$3,$4,$5) RETURNING id",
     )
     .bind(scenario_id)
     .bind(who)
+    .bind(sitting.count)
+    .bind(sitting.queue)
+    .bind(sitting.skipped_today)
     .fetch_one(pool)
     .await?;
     Ok(row.0)
+}
+
+/// What the sitting was, at the moment it opened.
+///
+/// A struct rather than three more positional arguments: two of the three are
+/// `serde_json::Value` holding arrays of the same shape, and
+/// `start_session(pool, id, who, a, b, c)` is one transposition away from
+/// recording the questions she kept OUT as the ones she was dealt.
+#[derive(Debug, Clone, Copy)]
+pub struct NewSitting<'a> {
+    /// What she chose off the count pills, or `None` when nothing chose.
+    pub count: Option<i32>,
+    /// The dealt question ids, in order, as a JSON array.
+    pub queue: &'a serde_json::Value,
+    /// The ids she kept out on the start screen, as a JSON array.
+    pub skipped_today: &'a serde_json::Value,
 }
 
 /// The scenario a session belongs to, or `None` if there is no such session.

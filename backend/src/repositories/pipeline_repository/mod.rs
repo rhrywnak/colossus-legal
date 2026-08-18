@@ -62,6 +62,7 @@ pub mod extraction_relationships;
 pub mod extraction_runs;
 pub mod models;
 pub mod practice;
+pub mod practice_flow;
 pub mod report_queries;
 pub mod review;
 pub mod review_actions;

@@ -425,3 +425,6 @@ export const PRINT_CSS = `
   @page { margin: 14mm; }
 }
 `;
+
+/** `.skipmark` — the third mark on Chuck's sheet (mockup v3). */
+export const markSkipped: CSSProperties = { color: MUTED, fontWeight: 600 };

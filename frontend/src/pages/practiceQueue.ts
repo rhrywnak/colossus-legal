@@ -43,21 +43,59 @@ export function buildQueue(
   who: "george" | "chuck" | "mixed",
   limit: number = V0_QUESTION_COUNT,
 ): PracticeQuestion[] {
+  return orderedDeck(deck, who).slice(0, limit);
+}
+
+/**
+ * One side's questions, in the order the queue would deal them, UNCUT.
+ *
+ * ## Why the start screen's list and the queue share this function
+ *
+ * Mockup v3 lists the deck on the start card, and the list has to be the same
+ * questions in the same order the sitting will deal — otherwise Marie reads one
+ * order, skips "row 3", and is asked a different third question. Two functions
+ * that "both interleave the same way" is exactly how that drifts. So there is
+ * one ordering, here, and `buildQueue` is this plus a `slice`.
+ */
+export function orderedDeck(
+  deck: PracticeQuestion[],
+  who: "george" | "chuck" | "mixed",
+): PracticeQuestion[] {
   const george = deck.filter((q) => q.side === "george");
   const chuck = deck.filter((q) => q.side === "chuck");
 
-  if (who === "george") return george.slice(0, limit);
-  if (who === "chuck") return chuck.slice(0, limit);
+  if (who === "george") return george;
+  if (who === "chuck") return chuck;
 
-  // Mixed: alternate, starting with George, and stop when either side runs out
-  // or the limit is reached.
+  // Mixed: alternate, starting with George, and stop when either side runs out.
+  // The shape of a real day — a friendly question after a hostile one, so she
+  // has to change register between them.
   const mixed: PracticeQuestion[] = [];
-  for (let i = 0; mixed.length < limit; i += 1) {
+  for (let i = 0; ; i += 1) {
     const next = i % 2 === 0 ? george[Math.floor(i / 2)] : chuck[Math.floor(i / 2)];
     if (next === undefined) break;
     mixed.push(next);
   }
   return mixed;
+}
+
+/**
+ * The questions a sitting could deal right now: this side's, minus the ones she
+ * has kept out today.
+ *
+ * ## Domain note: "skipped today" is not stored on the question
+ *
+ * It is a fact about THIS sitting — she is not saying the question is wrong
+ * (that is what Flag says), only that she does not want it this evening. So it
+ * lives in the page's state and in the session's own `skipped_today`, and it is
+ * gone tomorrow.
+ */
+export function availableDeck(
+  deck: PracticeQuestion[],
+  who: "george" | "chuck" | "mixed",
+  skippedToday: ReadonlySet<string>,
+): PracticeQuestion[] {
+  return orderedDeck(deck, who).filter((q) => !skippedToday.has(q.id));
 }
 
 /**

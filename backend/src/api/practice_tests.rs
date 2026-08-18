@@ -29,6 +29,9 @@ const ROUTES: &[(&str, &[&str])] = &[
     ("/practice/answers/:answer_id/help", &["POST"]),
     ("/practice/answers/:answer_id/close", &["POST"]),
     ("/practice/sessions/:session_id/end", &["POST"]),
+    // Flow v1: the only PUT the drill serves. See the verb test below for why
+    // it is a PUT and why that does not make it destructive.
+    ("/practice/questions/:question_id/flag", &["PUT"]),
 ];
 
 #[test]
@@ -70,27 +73,46 @@ fn scenario_routes_are_case_fenced_and_handle_routes_are_not() {
     }
 }
 
-/// Every write is a POST, and the drill exposes no destructive verb.
+/// The drill's verbs, and the one it still refuses to expose.
 ///
 /// ## Domain note: there is no DELETE here, and that is the FRE 612 posture
 ///
 /// The log is the record of what a witness was asked and what she said. Nothing
 /// in this build can remove one — not a session, not an answer, not a question.
 /// A retraction is a conversation with Chuck, not a button.
+///
+/// ## Why flow v1's flag is a PUT, and why that is not a loosening
+///
+/// Writing the same note twice leaves the same row, and clearing is the same
+/// call with nothing in it — that is idempotent, which is what PUT means. It
+/// removes no RECORD: clearing a flag removes Marie's complaint about a
+/// question, never the question, and never anything she said. The verb this
+/// test exists to keep out is DELETE, and it is still absent.
 #[test]
-fn the_drill_exposes_one_read_five_writes_and_no_destructive_verb() {
+fn the_drill_exposes_one_read_six_writes_and_no_destructive_verb() {
     let mut reads = 0;
     let mut writes = 0;
     for (_, methods) in ROUTES {
         for method in *methods {
             match *method {
                 "GET" => reads += 1,
-                "POST" => writes += 1,
+                "POST" | "PUT" => writes += 1,
                 other => panic!("{other} is not a verb this drill serves"),
             }
         }
     }
-    assert_eq!((reads, writes), (1, 5));
+    assert_eq!((reads, writes), (1, 6));
+}
+
+/// The flag route is served, and it is the only PUT.
+#[test]
+fn the_flag_route_is_served_and_is_the_drills_only_put() {
+    let puts: Vec<&str> = ROUTES
+        .iter()
+        .filter(|(_, m)| m.contains(&"PUT"))
+        .map(|(p, _)| *p)
+        .collect();
+    assert_eq!(puts, vec!["/practice/questions/:question_id/flag"]);
 }
 
 /// The answer route is the one the task names, spelled exactly.
@@ -103,4 +125,84 @@ fn the_answer_route_is_the_path_the_task_names() {
     assert!(ROUTES
         .iter()
         .any(|(p, m)| *p == "/practice/answers" && m.contains(&"POST")));
+}
+
+/// A blank note CLEARS the flag; a real one is stored trimmed.
+///
+/// The three behaviours the handler documents, pinned where a unit test can
+/// reach them. This decides whether the database receives a note or a NULL, and
+/// it is the difference between "she withdrew her complaint" and "she filed one
+/// made of spaces" — which would print as an empty complaint on Chuck's sheet.
+#[test]
+fn a_blank_flag_note_clears_and_a_real_one_is_stored_trimmed() {
+    use crate::api::practice_answers::normalize_flag_note;
+
+    assert_eq!(normalize_flag_note(None), None);
+    assert_eq!(normalize_flag_note(Some(String::new())), None);
+    assert_eq!(normalize_flag_note(Some("   ".to_string())), None);
+    assert_eq!(normalize_flag_note(Some("\t \n".to_string())), None);
+    assert_eq!(
+        normalize_flag_note(Some("  too soft  ".to_string())),
+        Some("too soft".to_string())
+    );
+    assert_eq!(
+        normalize_flag_note(Some("too soft".to_string())),
+        Some("too soft".to_string())
+    );
+}
+
+/// The reveal settles a row `fine` or `repeat` — and never `skipped`.
+///
+/// `skipped` is a legal value of the column (the flow v1 migration widened the
+/// CHECK to three), which is exactly why this gate needs a test: a reader who
+/// sees three stored values and two accepted ones would reasonably "fix" the
+/// list. The asymmetry is the point. A `skipped` row is written by the
+/// mid-sitting control, for a question that never reached a reveal; letting the
+/// reveal write it would put her typed answer on Chuck's sheet under a mark
+/// saying she never gave one.
+#[test]
+fn the_reveal_settles_fine_or_repeat_and_refuses_the_skipped_mark() {
+    use crate::api::practice_answers::is_settleable_mark;
+
+    assert!(is_settleable_mark("fine"));
+    assert!(is_settleable_mark("repeat"));
+    assert!(
+        !is_settleable_mark("skipped"),
+        "the reveal must not relabel an answered question as one she set aside"
+    );
+    assert!(!is_settleable_mark(""));
+    assert!(!is_settleable_mark("Fine"));
+}
+
+/// A sitting may only name questions this scenario's deck holds.
+///
+/// The queue and today's skips are composed in the browser, which makes them
+/// client input. Without the fence, a sitting could be opened whose queue named
+/// ANOTHER scenario's questions — and Chuck's sheet would carry a question Marie
+/// was never asked, with nothing on the page looking wrong.
+#[test]
+fn a_sitting_naming_a_question_outside_the_deck_is_refused() {
+    use super::fence_queue;
+    use std::collections::HashSet;
+    use uuid::Uuid;
+
+    let a = Uuid::from_u128(1);
+    let b = Uuid::from_u128(2);
+    let stray = Uuid::from_u128(99);
+    let known: HashSet<Uuid> = [a, b].into_iter().collect();
+
+    // Everything belongs.
+    assert_eq!(fence_queue(&[a, b], &[], &known), None);
+    assert_eq!(fence_queue(&[b], &[a], &known), None);
+
+    // A stray in the QUEUE — the dealt questions.
+    assert_eq!(fence_queue(&[a, stray], &[], &known), Some(&stray));
+
+    // A stray in TODAY'S SKIPS deals no question, and is still refused: it is
+    // written to the row as the record of what she was offered, so a foreign id
+    // there is a lie in the record.
+    assert_eq!(fence_queue(&[a], &[stray], &known), Some(&stray));
+
+    // An empty sitting names nothing foreign.
+    assert_eq!(fence_queue(&[], &[], &known), None);
 }

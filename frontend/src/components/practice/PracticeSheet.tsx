@@ -30,6 +30,27 @@ interface Props {
   onPracticeAgain: () => void;
 }
 
+/**
+ * The colour of one mark cell.
+ *
+ * ## Why this is a three-way and not `repeat ? red : green`
+ *
+ * It was that, and flow v1's third mark turned the fallback into a liar: a
+ * SKIPPED row printed green — the sheet telling Chuck she answered a question
+ * she had set aside. The backend's `mark_cell` had the identical defect and was
+ * fixed in the same change; this is the screen's half of it.
+ *
+ * The comparison is against the STORED words, not against literals, because the
+ * cell already holds the rendered word and the three vocabularies are editable.
+ * An unrecognised mark gets no colour at all rather than a wrong one.
+ */
+const markStyle = (mark: string, w: (key: string) => string) => {
+  if (mark === w("mark_repeat")) return s.markRepeat;
+  if (mark === w("mark_skipped")) return s.markSkipped;
+  if (mark === w("mark_fine")) return s.markFine;
+  return undefined;
+};
+
 const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => {
   const w = (key: string) => wordingOf(wording, key);
 
@@ -77,12 +98,7 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
               <td style={s.cell}>
                 <i>{row.answer}</i>
               </td>
-              <td
-                style={{
-                  ...s.cell,
-                  ...(row.mark === w("mark_repeat") ? s.markRepeat : s.markFine),
-                }}
-              >
+              <td style={{ ...s.cell, ...markStyle(row.mark, w) }}>
                 {row.mark}
               </td>
               <td style={s.cell}>{row.help}</td>
@@ -90,6 +106,24 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
           ))}
         </tbody>
       </table>
+
+      {/* Flagged before the session — the whole DECK's flags, not this
+          sitting's. A question Marie flagged AND kept out of tonight is the one
+          Roman most needs to see. The block withdraws entirely when nothing is
+          flagged: a heading over an empty list reads as a list that failed to
+          load. It PRINTS — Chuck gets it with the sheet. */}
+      {sheet.flagged.length > 0 && (
+        <div style={{ marginTop: 18, fontSize: 15 }}>
+          <b>{sheet.flagged_heading}</b> {sheet.flagged_hint}
+          <ul>
+            {sheet.flagged.map((line) => (
+              <li key={line} style={{ margin: "4px 0" }}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div style={{ ...s.row, marginTop: 20 }} data-practice-no-print>
         <button type="button" style={s.buttonPrimary} onClick={onPracticeAgain}>

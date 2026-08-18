@@ -25,11 +25,14 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest},
+    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, FlagRequest, FlagResponse},
     error::AppError,
-    repositories::pipeline_repository::practice::{
-        close_answer, get_question, insert_answer, list_deck, list_points, mark_help_opened,
-        session_scenario, NewAnswer, PracticeQuestionRecord,
+    repositories::pipeline_repository::{
+        practice::{
+            close_answer, get_question, insert_answer, list_deck, list_points, mark_help_opened,
+            session_scenario, NewAnswer, PracticeQuestionRecord,
+        },
+        practice_flow::set_flag,
     },
     services::{
         practice_page::tactic_name,
@@ -217,6 +220,20 @@ pub async fn post_help_opened(
 /// Settle one answer: the mark she chose, and the four boxes she ticked.
 ///
 /// Separate from the answer write because both are decided AFTER she has read
+/// Which marks Marie may settle a row with from the reveal screen.
+///
+/// ## Domain note: `skipped` is stored but NOT settleable here
+///
+/// The `mark` CHECK permits three values, and this endpoint accepts two of
+/// them. That is deliberate rather than an oversight: `skipped` is written by
+/// the mid-sitting "Skip this one — doesn't fit" control, on a question she was
+/// never shown a reveal for. Accepting it here would let a row that HAS an
+/// answer and a read be relabelled as one she set aside — which would put a
+/// sentence on Chuck's sheet under a mark saying she never gave it.
+pub(super) fn is_settleable_mark(mark: &str) -> bool {
+    matches!(mark, "fine" | "repeat")
+}
+
 /// the reveal. See `close_answer`'s note for why the row is created first.
 pub async fn post_close_answer(
     _user: AuthUser,
@@ -224,7 +241,7 @@ pub async fn post_close_answer(
     Path(answer_id): Path<Uuid>,
     Json(body): Json<CloseAnswerRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    if !matches!(body.mark.as_str(), "fine" | "repeat") {
+    if !is_settleable_mark(&body.mark) {
         return Err(AppError::BadRequest {
             message: "mark must be fine or repeat".to_string(),
             details: serde_json::json!({ "field": "mark", "value": body.mark }),
@@ -252,4 +269,65 @@ pub async fn post_close_answer(
         });
     }
     Ok(Json(serde_json::json!({ "mark": body.mark })))
+}
+
+/// Store — or clear — Marie's flag on one question.
+///
+/// ## Why a blank note CLEARS rather than 400s
+///
+/// The screen has ONE control for both acts: she opens the note, empties it, and
+/// saves. A refusal there would leave her looking at a flag she has just decided
+/// is wrong with no way to remove it, and a second "unflag" endpoint would be a
+/// second way to say the same thing — two routes to keep in step for one act.
+///
+/// The note is trimmed, and a note that is nothing but whitespace IS blank: a
+/// flag reading `" "` prints as an empty complaint on Chuck's sheet.
+///
+/// # Errors
+/// 404 when no question carries that id — never a silent success for a write
+/// that touched no row.
+pub async fn put_question_flag(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(question_id): Path<Uuid>,
+    Json(body): Json<FlagRequest>,
+) -> Result<Json<FlagResponse>, AppError> {
+    let stored = normalize_flag_note(body.note);
+
+    let touched = set_flag(
+        &state.pipeline_pool,
+        question_id,
+        stored.as_deref(),
+        &user.username,
+    )
+    .await
+    .map_err(|e| repo_error("set_flag", e))?;
+
+    if !touched {
+        return Err(AppError::NotFound {
+            message: format!("practice question {question_id} not found"),
+        });
+    }
+
+    tracing::info!(
+        %question_id,
+        user = %user.username,
+        cleared = stored.is_none(),
+        "practice: flag written"
+    );
+    Ok(Json(FlagResponse { flag_note: stored }))
+}
+
+/// What a submitted note becomes: `None` to clear, or the trimmed line.
+///
+/// ## Why whitespace is BLANK and not a note
+///
+/// A flag reading `" "` prints as an empty complaint at the foot of Chuck's
+/// sheet — a row saying Marie objected to a question, with nothing where the
+/// objection should be. Trimming to nothing and clearing is the honest reading
+/// of an empty box.
+pub(super) fn normalize_flag_note(note: Option<String>) -> Option<String> {
+    let note = note?;
+    let trimmed = note.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }

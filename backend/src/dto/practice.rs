@@ -48,6 +48,32 @@ pub struct PracticeQuestionDto {
     /// line — a Chuck question, in the mockup's own words.
     pub stronger: Option<String>,
     pub stronger_lean: Option<String>,
+    /// Marie's one line saying what is wrong with this question, or `None`.
+    /// Served with the deck so the start screen can render the flag on the row
+    /// and Chuck's sheet can list it, without a second call.
+    pub flag_note: Option<String>,
+}
+
+/// The flag as it stands after a write — `None` when it was cleared.
+///
+/// Returned rather than assumed by the browser: the server TRIMS the note, so
+/// what is stored is not always what was typed, and a screen that echoed the
+/// typed value would show a flag the database does not have.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlagResponse {
+    pub flag_note: Option<String>,
+}
+
+/// A flag written — or cleared — on one question.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FlagRequest {
+    /// The line Roman and Chuck read. Blank or absent CLEARS the flag: the
+    /// screen has one control for both acts, and an "unflag" endpoint of its own
+    /// would be a second way to say the same thing.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// One of Marie's talking points, with its receipt.
@@ -86,6 +112,27 @@ pub struct PracticeDeckPayload {
 pub struct StartSessionRequest {
     /// `george` | `chuck` | `mixed`.
     pub who: String,
+    /// The question ids this sitting will be dealt, IN ORDER.
+    ///
+    /// ## Why the browser sends the queue rather than the server drawing it
+    ///
+    /// The ORDER is the drill (George · Chuck · George — the shape of a real
+    /// day), and it is composed on the screen that also knows what she kept out
+    /// today. Sending it means the server stores the sitting she actually
+    /// started, which is what a reload has to resume and what `Ended early.`
+    /// is measured against. The server still FENCES it: every id must belong to
+    /// this scenario's deck.
+    #[serde(default)]
+    pub queue: Vec<Uuid>,
+    /// What she chose off the count pills. Kept because the queue can grow past
+    /// it — "ask me this one again later" appends — and the choice is still
+    /// worth knowing afterwards.
+    #[serde(default)]
+    pub count: Option<i32>,
+    /// The ids she kept out of this sitting on the start screen. For the record:
+    /// they were never dealt, so they are not in `queue`.
+    #[serde(default)]
+    pub skipped_today: Vec<Uuid>,
 }
 
 /// The session she is now in.
@@ -171,4 +218,12 @@ pub struct PracticeSheetPayload {
     /// "Six questions. Two to repeat." — one sentence, both clauses stored.
     pub heading: String,
     pub rows: Vec<PracticeSheetRowDto>,
+    /// The deck's flagged questions, already composed into the sentence the
+    /// sheet prints. EMPTY withdraws the whole block, heading included — a
+    /// heading over nothing reads as a list that failed to load.
+    pub flagged: Vec<String>,
+    /// The block's heading and its one sentence, so the browser composes none of
+    /// it. Both empty when `flagged` is.
+    pub flagged_heading: String,
+    pub flagged_hint: String,
 }

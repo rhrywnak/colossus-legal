@@ -29,9 +29,10 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
+import type { NewSitting } from "./practiceFlow";
 
 /** How long an ordinary practice call may take. The house default. */
-const PRACTICE_TIMEOUT_MS = 30000;
+export const PRACTICE_TIMEOUT_MS = 30000;
 
 /** How long the answer call may take — it makes a model call inside. */
 const READ_TIMEOUT_MS = 90000;
@@ -56,6 +57,8 @@ export type PracticeQuestion = {
   /** `null` renders the stored "no receipt for this one" line. */
   stronger: string | null;
   stronger_lean: string | null;
+  /** Marie's one line saying what is wrong with this question. `null` = none. */
+  flag_note: string | null;
 };
 
 /** One of Marie's talking points. */
@@ -123,6 +126,14 @@ export type PracticeSheet = {
   kicker: string;
   heading: string;
   rows: PracticeSheetRow[];
+  /**
+   * The deck's flagged questions, already composed server-side into the
+   * sentences the sheet prints. EMPTY withdraws the whole block.
+   */
+  flagged: string[];
+  /** The block's heading and its sentence. Both empty when `flagged` is. */
+  flagged_heading: string;
+  flagged_hint: string;
 };
 
 /**
@@ -189,7 +200,7 @@ export async function fetchPracticeDeck(
 export async function startPracticeSession(
   slug: string,
   scenarioId: string,
-  who: string,
+  sitting: NewSitting,
 ): Promise<string> {
   const response = await authFetch(
     `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/` +
@@ -197,7 +208,12 @@ export async function startPracticeSession(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ who }),
+      body: JSON.stringify({
+        who: sitting.who,
+        queue: sitting.queue,
+        count: sitting.count,
+        skipped_today: sitting.skippedToday,
+      }),
       timeoutMs: PRACTICE_TIMEOUT_MS,
     },
   );

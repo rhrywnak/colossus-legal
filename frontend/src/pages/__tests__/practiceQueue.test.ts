@@ -7,7 +7,14 @@
 import { describe, expect, it } from "vitest";
 
 import type { PracticeQuestion } from "../../services/practice";
-import { availableFor, buildQueue, requeue, V0_QUESTION_COUNT } from "../practiceQueue";
+import {
+  availableDeck,
+  availableFor,
+  buildQueue,
+  orderedDeck,
+  requeue,
+  V0_QUESTION_COUNT,
+} from "../practiceQueue";
 
 function question(id: string, side: "george" | "chuck"): PracticeQuestion {
   return {
@@ -23,6 +30,7 @@ function question(id: string, side: "george" | "chuck"): PracticeQuestion {
     pair_admitted: null,
     stronger: null,
     stronger_lean: null,
+    flag_note: null,
   };
 }
 
@@ -113,5 +121,56 @@ describe("requeue", () => {
     const queue = buildQueue(DECK, "george");
     requeue(queue, queue[0]);
     expect(queue).toHaveLength(5);
+  });
+});
+
+// ── mockup v3: the start screen's list, and today's skips ────────────────────
+
+describe("orderedDeck", () => {
+  // The whole reason this function exists: the list Marie reads before Start and
+  // the queue she is then dealt must be the same questions in the same order.
+  // Two functions that "both interleave the same way" is how she skips row 3 and
+  // is asked a different third question.
+  it("is the queue's own order, uncut", () => {
+    const deck = DECK;
+    for (const who of ["george", "chuck", "mixed"] as const) {
+      const ordered = orderedDeck(deck, who);
+      expect(buildQueue(deck, who, ordered.length)).toEqual(ordered);
+      expect(buildQueue(deck, who, 3)).toEqual(ordered.slice(0, 3));
+    }
+  });
+
+  it("lists a whole side, not just the first five", () => {
+    expect(orderedDeck(DECK, "mixed")).toHaveLength(10);
+    expect(orderedDeck(DECK, "george")).toHaveLength(5);
+  });
+});
+
+describe("availableDeck", () => {
+  it("drops the questions she kept out today, and keeps the rest in order", () => {
+    const deck = DECK;
+    const ordered = orderedDeck(deck, "george");
+    const skipped = new Set([ordered[2].id]);
+
+    const left = availableDeck(deck, "george", skipped);
+
+    expect(left).toHaveLength(4);
+    expect(left.map((q) => q.id)).not.toContain(ordered[2].id);
+    // Order is preserved — skipping the third does not reshuffle the rest.
+    expect(left.map((q) => q.id)).toEqual(
+      ordered.filter((q) => q.id !== ordered[2].id).map((q) => q.id),
+    );
+  });
+
+  it("returns nothing when every question is kept out — Start has to withdraw", () => {
+    const deck = DECK;
+    const all = new Set(orderedDeck(deck, "chuck").map((q) => q.id));
+    expect(availableDeck(deck, "chuck", all)).toHaveLength(0);
+  });
+
+  it("is unaffected by a skip on the side she is not looking at", () => {
+    const deck = DECK;
+    const chuckIds = new Set(orderedDeck(deck, "chuck").map((q) => q.id));
+    expect(availableDeck(deck, "george", chuckIds)).toHaveLength(5);
   });
 });

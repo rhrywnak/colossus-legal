@@ -52,7 +52,8 @@ import {
   type SelfCheck,
 } from "../services/practice";
 import { scenarioPagePath, trialPrepPath } from "../utils/routePaths";
-import { buildQueue, availableFor, requeue } from "./practiceQueue";
+import { requeue } from "./practiceQueue";
+import { usePracticeDeckControls } from "./usePracticeDeckControls";
 
 /** Which of the four screens is showing. */
 type Screen = "start" | "question" | "reveal" | "sheet";
@@ -86,6 +87,10 @@ const PracticePage: React.FC = () => {
   const [sheet, setSheet] = React.useState<PracticeSheet | null>(null);
   const [helpNotRecorded, setHelpNotRecorded] = React.useState(false);
   const [markError, setMarkError] = React.useState<string | null>(null);
+
+  // mockup v3 · the start screen's two per-row controls, and the one write they
+  // make. Their state lives in a hook of its own — see its header.
+  const rowControls = usePracticeDeckControls(setDeck);
 
   // One fetch on mount. Every failure has an explicit `.catch` and an explicit
   // screen; nothing here can reject silently.
@@ -166,12 +171,26 @@ const PracticePage: React.FC = () => {
 
   const current = queue[index] ?? null;
 
+  // This side's questions in the order the sitting will deal them, and the ones
+  // it can still deal after today's skips. Both come from `practiceQueue` so the
+  // list she reads and the queue she is dealt cannot drift apart.
+  const view = rowControls.view(deck.questions, who);
+
   const handleStart = () => {
     setStarting(true);
-    startPracticeSession(slug, scenarioId, who)
+    // The queue is settled BEFORE the call so the sitting that is stored and the
+    // sitting that is dealt are the same list — not two slices taken a moment
+    // apart from state that could have moved between them.
+    const dealt = view.available.slice(0, view.count);
+    startPracticeSession(slug, scenarioId, {
+      who,
+      queue: dealt.map((q) => q.id),
+      count: view.count,
+      skippedToday: [...rowControls.skippedToday],
+    })
       .then((id) => {
         setSessionId(id);
-        setQueue(buildQueue(deck.questions, who));
+        setQueue(dealt);
         setIndex(0);
         setAnswer("");
         setAnswerError(null);
@@ -300,8 +319,8 @@ const PracticePage: React.FC = () => {
           onWhoChange={setWho}
           onStart={handleStart}
           starting={starting}
-          available={availableFor(deck.questions, who)}
-          deckSize={deck.questions.length}
+          controls={rowControls}
+          view={view}
         />
       )}
 

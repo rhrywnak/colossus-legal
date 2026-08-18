@@ -52,6 +52,7 @@ pub mod wording_card_grammar;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;
+pub mod wording_practice_flow;
 pub mod wording_practice_report;
 pub mod wording_rehearsal;
 pub mod wording_rehearsal_chrome;
