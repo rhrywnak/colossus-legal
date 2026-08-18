@@ -132,13 +132,14 @@ fn a_repeat_run_over_the_same_deck_is_a_no_op_and_not_a_write() {
     let s = sources();
     let deck = DeckFile {
         scenario_code: "S-5".to_string(),
+        points: Vec::new(),
         questions: vec![
             question(DeckSourceKind::Manual, None),
             question(DeckSourceKind::Manual, None),
         ],
     };
 
-    let report = finish_already_seeded("S-5", &s, &deck, 2).expect("the counts agree");
+    let report = finish_already_seeded("S-5", &s, &deck, 2, 0).expect("the counts agree");
     assert!(report.already_seeded);
     assert!(!report.written, "a no-op has written nothing");
     assert_eq!(report.questions_before, report.questions_after);
@@ -155,10 +156,11 @@ fn a_repeat_run_over_the_same_deck_is_a_no_op_and_not_a_write() {
 fn a_changed_deck_refuses_because_an_answer_may_already_cite_a_question() {
     let deck = DeckFile {
         scenario_code: "S-5".to_string(),
+        points: Vec::new(),
         questions: vec![question(DeckSourceKind::Manual, None)],
     };
 
-    let message = finish_already_seeded("S-5", &sources(), &deck, 10)
+    let message = finish_already_seeded("S-5", &sources(), &deck, 10, 0)
         .expect_err("10 stored against 1 incoming")
         .to_string();
 
@@ -179,6 +181,8 @@ fn the_proof_text_tells_a_dry_run_from_a_write() {
         questions_before: 0,
         questions_after: 0,
         questions_planned: 10,
+        receipts_planned: 3,
+        receipts_after: 0,
         instances_available: 5,
         points_available: 3,
         written: false,

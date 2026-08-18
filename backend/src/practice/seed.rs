@@ -67,6 +67,17 @@ pub enum SeedError {
     },
 
     #[error(
+        "point receipt {ordinal} backs point {position}, but scenario {code} has only {available} \
+         talking points — nothing was written"
+    )]
+    PointOutOfRange {
+        ordinal: usize,
+        position: usize,
+        code: String,
+        available: usize,
+    },
+
+    #[error(
         "scenario {code} already carries a deck of {stored} questions that differs from this file \
          ({incoming} questions) — nothing was written. A stored question cannot be replaced while \
          an answer cites it; edit the deck on the page instead"
@@ -95,6 +106,9 @@ pub struct SeedReport {
     pub questions_after: usize,
     /// How many the file asked for.
     pub questions_planned: usize,
+    /// How many point receipts the file carries, and how many were written.
+    pub receipts_planned: usize,
+    pub receipts_after: usize,
     /// The scenario's ruled instances and talking points, as counted.
     pub instances_available: usize,
     pub points_available: usize,
@@ -182,9 +196,23 @@ pub async fn run(pool: &PgPool, deck: &DeckFile, apply: bool) -> Result<SeedRepo
         refs.push(resolve_ref(question, i + 1, &sources, &code)?);
     }
 
+    // Same rule as a question's source: a receipt naming a point the scenario does
+    // not have is a REFUSAL, not a row written under a number nobody can see.
+    for (i, point) in deck.points.iter().enumerate() {
+        if point.position > sources.points.len() {
+            return Err(SeedError::PointOutOfRange {
+                ordinal: i + 1,
+                position: point.position,
+                code: code.clone(),
+                available: sources.points.len(),
+            });
+        }
+    }
+
     let before = count_questions(pool, sources.scenario_id).await?;
     if before > 0 {
-        return finish_already_seeded(&code, &sources, deck, before);
+        let receipts = count_receipts(pool, sources.scenario_id).await?;
+        return finish_already_seeded(&code, &sources, deck, before, receipts);
     }
 
     let mut report = SeedReport {
@@ -193,6 +221,8 @@ pub async fn run(pool: &PgPool, deck: &DeckFile, apply: bool) -> Result<SeedRepo
         questions_before: before,
         questions_after: before,
         questions_planned: deck.questions.len(),
+        receipts_planned: deck.points.len(),
+        receipts_after: 0,
         instances_available: sources.instances.len(),
         points_available: sources.points.len(),
         written: false,
@@ -204,6 +234,7 @@ pub async fn run(pool: &PgPool, deck: &DeckFile, apply: bool) -> Result<SeedRepo
 
     write_deck(pool, sources.scenario_id, deck, &refs).await?;
     report.questions_after = count_questions(pool, sources.scenario_id).await?;
+    report.receipts_after = count_receipts(pool, sources.scenario_id).await?;
     report.written = true;
     Ok(report)
 }
@@ -215,6 +246,7 @@ fn finish_already_seeded(
     sources: &ScenarioSources,
     deck: &DeckFile,
     before: usize,
+    before_receipts: usize,
 ) -> Result<SeedReport, SeedError> {
     if before != deck.questions.len() {
         return Err(SeedError::DeckDiffers {
@@ -229,6 +261,8 @@ fn finish_already_seeded(
         questions_before: before,
         questions_after: before,
         questions_planned: deck.questions.len(),
+        receipts_planned: deck.points.len(),
+        receipts_after: before_receipts,
         instances_available: sources.instances.len(),
         points_available: sources.points.len(),
         written: false,
@@ -243,6 +277,20 @@ async fn count_questions(pool: &PgPool, scenario_id: Uuid) -> Result<usize, Seed
         .fetch_one(pool)
         .await
         .map_err(|source| SeedError::Database { source })?;
+    let n: i64 = row
+        .try_get("n")
+        .map_err(|source| SeedError::Database { source })?;
+    Ok(usize::try_from(n).unwrap_or(0))
+}
+
+/// How many point receipts the scenario's deck holds right now.
+async fn count_receipts(pool: &PgPool, scenario_id: Uuid) -> Result<usize, SeedError> {
+    let row =
+        sqlx::query("SELECT COUNT(*) AS n FROM practice_point_receipts WHERE scenario_id = $1")
+            .bind(scenario_id)
+            .fetch_one(pool)
+            .await
+            .map_err(|source| SeedError::Database { source })?;
     let n: i64 = row
         .try_get("n")
         .map_err(|source| SeedError::Database { source })?;
@@ -288,6 +336,24 @@ async fn write_deck(
         .map_err(|source| SeedError::Database { source })?;
     }
 
+    // In the SAME transaction as the questions: a deck whose points had no
+    // receipts because the second write failed would render three named absences
+    // and look, to anybody reading the screen, exactly like a deck seeded before
+    // this ruling.
+    for point in &deck.points {
+        sqlx::query(
+            "INSERT INTO practice_point_receipts (scenario_id, position, text, created_by) \
+             VALUES ($1, $2, $3, $4)",
+        )
+        .bind(scenario_id)
+        .bind(i32::try_from(point.position).unwrap_or(i32::MAX))
+        .bind(point.text.trim())
+        .bind("seed_practice_deck")
+        .execute(&mut *tx)
+        .await
+        .map_err(|source| SeedError::Database { source })?;
+    }
+
     tx.commit()
         .await
         .map_err(|source| SeedError::Database { source })
@@ -312,6 +378,8 @@ pub fn render_report(report: &SeedReport) -> String {
          questions in file     {planned}\n\
          questions before      {before}\n\
          questions after       {after}\n\
+         point receipts in file {rplanned}\n\
+         point receipts after   {rafter}\n\
          \n\
          {verdict}\n",
         code = report.scenario_code,
@@ -321,6 +389,8 @@ pub fn render_report(report: &SeedReport) -> String {
         planned = report.questions_planned,
         before = report.questions_before,
         after = report.questions_after,
+        rplanned = report.receipts_planned,
+        rafter = report.receipts_after,
     )
 }
 

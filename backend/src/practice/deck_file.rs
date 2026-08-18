@@ -105,18 +105,42 @@ pub struct DeckQuestion {
     pub stronger_lean: Option<String>,
 }
 
+/// One receipt, under one of her talking points.
+///
+/// ## Domain note: a STAND-IN, ruled 2026-08-17
+///
+/// The record of which exhibit backs a point is the PAIRING
+/// (`response_item_fact_refs.note`), authored in an editor that is v1 work. Until
+/// that exists the reveal would print a named absence under every point, so Roman
+/// ruled these seeded with the deck. They lose to a real pairing wherever one
+/// appears, which is what stops them becoming a second truth.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeckPoint {
+    /// The point's PRINTED number — `response_items.item_index + 1`.
+    pub position: usize,
+    /// Her phrasing of the exhibit, WITHOUT the stored "Backed by:" prefix.
+    pub text: String,
+}
+
 /// One scenario's whole deck.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckFile {
     /// The scenario this deck is about, as a human writes it: `S-5`.
     pub scenario_code: String,
+    /// The receipts under her talking points. Absent or empty is legitimate — a
+    /// deck may simply have none, and every point then shows the stored
+    /// named-absence line.
+    #[serde(default)]
+    pub points: Vec<DeckPoint>,
     pub questions: Vec<DeckQuestion>,
 }
 
 /// Why a deck file cannot be used.
 ///
-/// Every variant names the QUESTION by its 1-based position in the file, because
+/// Every variant names the row by its 1-based position in the file — the question
+/// by its place in `questions`, the receipt by its place in `points` — because
 /// that is the number a human counts to when they open the file to fix it.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum DeckError {
@@ -145,6 +169,15 @@ pub enum DeckError {
 
     #[error("question {position}: the pair needs BOTH halves or neither — {half} is missing")]
     HalfAPair { position: usize, half: &'static str },
+
+    #[error("point receipt {ordinal}: the text is blank")]
+    BlankPointReceipt { ordinal: usize },
+
+    #[error("point receipt {ordinal}: position is {position}; points are numbered from 1")]
+    ZeroPointPosition { ordinal: usize, position: usize },
+
+    #[error("two point receipts both claim point {position}; a point has one receipt")]
+    DuplicatePointPosition { position: usize },
 }
 
 impl DeckFile {
@@ -170,6 +203,35 @@ impl DeckFile {
         }
         for (i, q) in self.questions.iter().enumerate() {
             q.validate(i + 1)?;
+        }
+        self.validate_points()
+    }
+
+    /// Prove the point receipts.
+    ///
+    /// The duplicate check is the one worth having: the column's UNIQUE
+    /// constraint would catch it too, but only as a mid-transaction database
+    /// error naming a constraint, and only after the questions were written.
+    /// Here it is a sentence naming the point, before anything is opened.
+    fn validate_points(&self) -> Result<(), DeckError> {
+        let mut seen: Vec<usize> = Vec::with_capacity(self.points.len());
+        for (i, point) in self.points.iter().enumerate() {
+            let ordinal = i + 1;
+            if point.text.trim().is_empty() {
+                return Err(DeckError::BlankPointReceipt { ordinal });
+            }
+            if point.position == 0 {
+                return Err(DeckError::ZeroPointPosition {
+                    ordinal,
+                    position: point.position,
+                });
+            }
+            if seen.contains(&point.position) {
+                return Err(DeckError::DuplicatePointPosition {
+                    position: point.position,
+                });
+            }
+            seen.push(point.position);
         }
         Ok(())
     }

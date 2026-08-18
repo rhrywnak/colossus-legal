@@ -109,7 +109,9 @@ fn exit_for(error: &SeedError) -> ExitCode {
         // The tool proved, before touching anything, that executing would leave a
         // state it cannot justify — a question citing evidence the scenario does
         // not have, or a replacement an answer may already depend on.
-        SeedError::SourceOutOfRange { .. } | SeedError::DeckDiffers { .. } => {
+        SeedError::SourceOutOfRange { .. }
+        | SeedError::PointOutOfRange { .. }
+        | SeedError::DeckDiffers { .. } => {
             error!(error = %error, "the plan is unsafe; nothing was written");
             ExitCode::from(EXIT_UNSAFE_PLAN)
         }

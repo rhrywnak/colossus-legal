@@ -132,6 +132,54 @@ COMMENT ON TABLE practice_questions IS
     'per scenario, human-edited, then fixed. Every row carries everything its '
     'reveal screen renders, so the drill reads no graph.';
 
+-- ─── 1b · The receipts under her three points ────────────────────────────────
+--
+-- Roman's ruling of 2026-08-17 night: the three receipts the reveal prints under
+-- Marie's talking points are seeded WITH THE DECK, verbatim from mockup v2. The
+-- pairing editor that would author them properly is v1 (tracker 3.9).
+--
+-- ## Why a table of its own, and not a column on `practice_questions`
+--
+-- A receipt belongs to a POINT, and a point is not a question. Five cross
+-- questions and five of Chuck's all render the same three points, so a column on
+-- the question row would store each receipt five times and let the five copies
+-- drift. This is the smallest additive shape that keeps one receipt in one place.
+--
+-- ## Domain note: this is a STAND-IN, and it says so by losing
+--
+-- `response_item_fact_refs.note` is where a receipt lives once a human has paired
+-- the point to the exhibit behind it. That pairing is the record; this is the
+-- interim text. So the reveal prefers the PAIRING when one exists and falls back
+-- to this — which means the v1 editor takes over by being used, with nothing to
+-- migrate and no second truth left behind.
+CREATE TABLE practice_point_receipts (
+    id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    scenario_id UUID        NOT NULL
+                REFERENCES scenarios(scenario_id) ON DELETE CASCADE,
+
+    -- The point this backs, as PRINTED: `response_items.item_index + 1`. A
+    -- position and not a `response_items.id` because the seed must be able to run
+    -- against a scenario whose points were re-authored, and because the number is
+    -- what the screen puts beside it.
+    position    INTEGER     NOT NULL CHECK (position >= 1),
+
+    -- Her phrasing of the exhibit — "your certified letter, 16 Nov 2009". WITHOUT
+    -- the "Backed by:" prefix: that word is wording, it lives in the settings
+    -- store, and the renderer joins the two.
+    text        TEXT        NOT NULL CHECK (btrim(text) <> ''),
+
+    created_by  TEXT        NOT NULL,
+    updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+    CONSTRAINT practice_point_receipts_position_unique UNIQUE (scenario_id, position)
+);
+
+COMMENT ON TABLE practice_point_receipts IS
+    'Seeded stand-in receipts for a scenario''s talking points (Roman, 2026-08-17). '
+    'Superseded per point by response_item_fact_refs.note once the pairing editor '
+    'exists (tracker 3.9).';
+
 -- ─── 2 · The session ──────────────────────────────────────────────────────────
 CREATE TABLE practice_sessions (
     id          UUID        PRIMARY KEY DEFAULT gen_random_uuid(),

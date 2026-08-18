@@ -24,7 +24,7 @@ use crate::domain::wording_templates::render;
 use crate::dto::practice::{PracticeDeckPayload, PracticePointDto, PracticeQuestionDto};
 use crate::dto::practice_wording::PracticeWordingDto;
 use crate::repositories::pipeline_repository::practice::{
-    LastSessionRecord, PracticePointRecord, PracticeQuestionRecord,
+    LastSessionRecord, PracticePointReceipt, PracticePointRecord, PracticeQuestionRecord,
 };
 
 /// The date format the drill's two composed lines use: `Sun 16 Aug`.
@@ -128,20 +128,72 @@ pub fn when(at: DateTime<Utc>) -> String {
     at.format(SESSION_DATE_FORMAT).to_string()
 }
 
+/// The receipt one point shows, and the order of precedence behind it.
+///
+/// ## Domain note: the PAIRING wins, the seeded receipt is the stand-in
+///
+/// Three sources, in this order:
+///
+/// 1. `exhibit` — the phrase a human authored when they PAIRED this point to the
+///    exhibit behind it (`response_item_fact_refs.note`). That pairing is the
+///    record, so it wins wherever it exists.
+/// 2. the seeded deck receipt (Roman's ruling, 2026-08-17), which exists because
+///    the editor that authors (1) is v1 work and Marie needs the line on Tuesday.
+/// 3. `None` — and the screen prints the stored named-absence sentence.
+///
+/// Putting the pairing first is what stops the stand-in becoming a second truth:
+/// the v1 editor takes over by being used, with nothing to migrate and no stale
+/// row left speaking over a human's own words.
+fn point_receipt(point: &PracticePointRecord, seeded: &[PracticePointReceipt]) -> Option<String> {
+    point.exhibit.clone().or_else(|| {
+        seeded
+            .iter()
+            .find(|r| r.position == point.position)
+            .map(|r| r.text.clone())
+    })
+}
+
+/// Everything one practice page is built from, besides the settings snapshot.
+///
+/// ## Rust Learning: a parameter struct, and when it earns its place
+///
+/// This was eight positional arguments, three of them `String` and two of them
+/// collections — the shape where a transposition compiles and puts the scenario's
+/// title where its code belongs. Grouping them costs one struct and buys named
+/// fields at the call site. Clippy's `too_many_arguments` is the mechanical
+/// prompt; the readability is the actual reason.
+///
+/// It borrows nothing it does not have to: the three owned collections are moved
+/// in and consumed, while `receipts` and `last` are read and left alone.
+pub struct DeckSources<'a> {
+    pub scenario_id: Uuid,
+    /// `S-5` — the handle a human reads aloud.
+    pub code: String,
+    /// The accusation, as the page titles itself.
+    pub title: String,
+    pub deck: Vec<PracticeQuestionRecord>,
+    pub points: Vec<PracticePointRecord>,
+    /// The seeded stand-in receipts. See [`point_receipt`] for the precedence.
+    pub receipts: &'a [PracticePointReceipt],
+    pub last: Option<&'a LastSessionRecord>,
+}
+
 /// Build the whole payload.
 ///
 /// An empty `questions` is a LEGITIMATE state, not an error: the page shows the
 /// stored "no practice deck yet — seed it" line. That is the S-6 case, and it is
 /// why this function has no "not seeded" failure mode to return.
-pub fn deck_payload(
-    settings: &Settings,
-    scenario_id: Uuid,
-    code: String,
-    title: String,
-    deck: Vec<PracticeQuestionRecord>,
-    points: Vec<PracticePointRecord>,
-    last: Option<&LastSessionRecord>,
-) -> PracticeDeckPayload {
+pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDeckPayload {
+    let DeckSources {
+        scenario_id,
+        code,
+        title,
+        deck,
+        points,
+        receipts,
+        last,
+    } = sources;
+
     PracticeDeckPayload {
         scenario_id,
         code,
@@ -154,8 +206,8 @@ pub fn deck_payload(
             .into_iter()
             .map(|p| PracticePointDto {
                 position: p.position,
+                exhibit: point_receipt(&p, receipts),
                 text: p.text,
-                exhibit: p.exhibit,
             })
             .collect(),
         last_session_line: last_session_line(&settings.practice_wording, last),

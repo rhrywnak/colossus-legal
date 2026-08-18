@@ -38,6 +38,30 @@
 
 scenario_code: S-5
 
+# ── The receipts under her three points ──────────────────────────────────────
+#
+# Ruled by Roman on 2026-08-17 night: seed them with the deck, verbatim from
+# mockup v2, so the reveal prints "Backed by: your certified letter, 16 Nov 2009"
+# under point 1 rather than the named-absence line. The pairing editor that would
+# author them properly is v1.
+#
+# `position` is the point's PRINTED number (`response_items.item_index + 1`), and
+# the seed refuses a position the scenario has no point for. The text carries NO
+# "Backed by:" — that word is wording, it lives in the settings store, and the
+# renderer joins the two.
+#
+# These are a STAND-IN and they lose to a real pairing: once
+# `response_item_fact_refs.note` holds a receipt for a point, that is what the
+# screen shows. Nothing here has to be migrated when the editor arrives.
+
+points:
+  - position: 1
+    text: your certified letter, 16 Nov 2009
+  - position: 2
+    text: CFS Interrogatory Response, p. 10
+  - position: 3
+    text: CFS Interrogatory Response, p. 14
+
 questions:
   # ── George's side (cross) — one per ruled instance ────────────────────────
   - side: george

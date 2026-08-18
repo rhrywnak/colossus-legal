@@ -27,6 +27,7 @@ fn good_question() -> DeckQuestion {
 fn deck_of(questions: Vec<DeckQuestion>) -> DeckFile {
     DeckFile {
         scenario_code: "S-5".to_string(),
+        points: Vec::new(),
         questions,
     }
 }
@@ -51,6 +52,7 @@ fn a_deck_naming_no_scenario_is_refused_before_the_database_is_opened() {
     for blank in ["", "   ", "\t"] {
         let deck = DeckFile {
             scenario_code: blank.to_string(),
+            points: Vec::new(),
             questions: vec![good_question()],
         };
         assert_eq!(deck.validate(), Err(DeckError::NoScenarioCode), "{blank:?}");
@@ -250,6 +252,60 @@ fn half_a_pair_is_refused_because_the_screen_would_read_as_an_admission_of_nothi
     assert_eq!(deck_of(vec![q]).validate(), Ok(()));
 }
 
+/// The point receipts are refused the same three ways a question is.
+#[test]
+fn a_malformed_point_receipt_is_refused_by_its_place_in_the_file() {
+    let with = |points: Vec<DeckPoint>| DeckFile {
+        scenario_code: "S-5".to_string(),
+        points,
+        questions: vec![good_question()],
+    };
+
+    assert_eq!(
+        with(vec![DeckPoint {
+            position: 1,
+            text: "  ".to_string()
+        }])
+        .validate(),
+        Err(DeckError::BlankPointReceipt { ordinal: 1 })
+    );
+
+    // Position 0 would underflow the printed numbering the screen uses.
+    assert_eq!(
+        with(vec![DeckPoint {
+            position: 0,
+            text: "a receipt".to_string()
+        }])
+        .validate(),
+        Err(DeckError::ZeroPointPosition {
+            ordinal: 1,
+            position: 0
+        })
+    );
+
+    // Two receipts for one point. The column's UNIQUE would catch it too — but
+    // only mid-transaction, as a constraint name, AFTER the questions were
+    // written. Here it is a sentence naming the point, before anything opens.
+    assert_eq!(
+        with(vec![
+            DeckPoint {
+                position: 2,
+                text: "one".to_string()
+            },
+            DeckPoint {
+                position: 2,
+                text: "two".to_string()
+            },
+        ])
+        .validate(),
+        Err(DeckError::DuplicatePointPosition { position: 2 })
+    );
+
+    // A deck with NO receipts is legitimate — every point then shows the stored
+    // named-absence line, which is what every scenario but S-5 does today.
+    assert_eq!(with(Vec::new()).validate(), Ok(()));
+}
+
 /// THE SHIPPED DECK PARSES, AND IS THE TEN QUESTIONS OF THE MOCKUP.
 ///
 /// ## Why this test reads a file off disk (Rule 21)
@@ -315,4 +371,21 @@ fn the_shipped_s5_deck_parses_and_holds_the_mockups_ten_questions() {
         .collect();
     assert_eq!(braids.len(), 1);
     assert_eq!(braids[0].tactic, Some(5), "a braid is card 5, compound");
+
+    // Roman's ruling of 2026-08-17: one receipt per talking point, seeded with
+    // the deck, and they carry NO "Backed by:" — that word is wording and the
+    // renderer joins the two. A receipt shipped with the prefix baked in would
+    // print "Backed by: Backed by: …" on the reveal.
+    assert_eq!(deck.points.len(), 3, "one receipt per talking point");
+    for (i, point) in deck.points.iter().enumerate() {
+        assert_eq!(point.position, i + 1, "the three are positions 1, 2, 3");
+        assert!(
+            !point.text.contains("Backed by"),
+            "the stored prefix must not be baked into the receipt: {}",
+            point.text
+        );
+    }
+    assert_eq!(deck.points[0].text, "your certified letter, 16 Nov 2009");
+    assert_eq!(deck.points[1].text, "CFS Interrogatory Response, p. 10");
+    assert_eq!(deck.points[2].text, "CFS Interrogatory Response, p. 14");
 }

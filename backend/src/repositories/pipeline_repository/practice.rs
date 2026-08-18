@@ -139,6 +139,34 @@ pub async fn get_question(
     .map_err(PipelineRepoError::from)
 }
 
+/// One seeded stand-in receipt, keyed to the point it backs by printed position.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PracticePointReceipt {
+    pub position: i32,
+    pub text: String,
+}
+
+/// The seeded receipts for this scenario's points.
+///
+/// Separate from [`list_points`] rather than joined into it because they are
+/// different KINDS of fact: one is the scenario's own record, the other is a
+/// stand-in the deck carries until the pairing editor exists. Keeping the two
+/// reads apart is what lets the caller state the precedence out loud instead of
+/// burying it in a `COALESCE`.
+pub async fn list_point_receipts(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<Vec<PracticePointReceipt>, PipelineRepoError> {
+    sqlx::query_as::<_, PracticePointReceipt>(
+        "SELECT position, text FROM practice_point_receipts \
+         WHERE scenario_id = $1 ORDER BY position",
+    )
+    .bind(scenario_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
 /// The scenario's talking points, with the exhibit phrase a human paired.
 ///
 /// `MIN(note)` collapses the m:n link to the one phrase the point shows. A point

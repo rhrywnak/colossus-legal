@@ -5,11 +5,21 @@
 // while saying `{when}`, or "0 to repeat", or nothing at all.
 
 use super::*;
-use crate::repositories::pipeline_repository::practice::PracticeQuestionRecord;
+use crate::repositories::pipeline_repository::practice::{
+    PracticePointReceipt, PracticePointRecord, PracticeQuestionRecord,
+};
 use chrono::TimeZone;
 
 fn settings() -> Settings {
     Settings::for_test()
+}
+
+fn point(position: i32, exhibit: Option<&str>) -> PracticePointRecord {
+    PracticePointRecord {
+        position,
+        text: format!("point {position}"),
+        exhibit: exhibit.map(str::to_string),
+    }
 }
 
 fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
@@ -121,12 +131,15 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
     let s = settings();
     let payload = deck_payload(
         &s,
-        Uuid::nil(),
-        "S-6".to_string(),
-        "Too many attorneys".to_string(),
-        vec![],
-        vec![],
-        None,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-6".to_string(),
+            title: "Too many attorneys".to_string(),
+            deck: vec![],
+            points: vec![],
+            receipts: &[],
+            last: None,
+        },
     );
 
     assert!(payload.questions.is_empty());
@@ -151,12 +164,15 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
     let s = settings();
     let payload = deck_payload(
         &s,
-        Uuid::nil(),
-        "S-5".to_string(),
-        "Marie refused to divide property amicably".to_string(),
-        vec![record(Some(4), None)],
-        vec![],
-        None,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-5".to_string(),
+            title: "Marie refused to divide property amicably".to_string(),
+            deck: vec![record(Some(4), None)],
+            points: vec![],
+            receipts: &[],
+            last: None,
+        },
     );
     let json = serde_json::to_string(&payload).expect("the payload serializes");
 
@@ -169,4 +185,109 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
     ] {
         assert!(!json.contains(banned), "{banned} reached the wire");
     }
+}
+
+/// The seeded receipt shows under a point nobody has paired yet.
+///
+/// Roman's ruling of 2026-08-17: the reveal prints "Backed by: your certified
+/// letter, 16 Nov 2009" rather than a named absence, because the editor that
+/// would author that pairing properly is v1 and Marie sits down on Tuesday.
+#[test]
+fn a_point_with_no_pairing_shows_the_seeded_receipt() {
+    let s = settings();
+    let payload = deck_payload(
+        &s,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-5".to_string(),
+            title: "Marie refused to divide property amicably".to_string(),
+            deck: vec![],
+            points: vec![point(1, None), point(2, None)],
+            receipts: &[
+                PracticePointReceipt {
+                    position: 1,
+                    text: "your certified letter, 16 Nov 2009".to_string(),
+                },
+                PracticePointReceipt {
+                    position: 2,
+                    text: "CFS Interrogatory Response, p. 10".to_string(),
+                },
+            ],
+            last: None,
+        },
+    );
+
+    assert_eq!(
+        payload.points[0].exhibit.as_deref(),
+        Some("your certified letter, 16 Nov 2009")
+    );
+    assert_eq!(
+        payload.points[1].exhibit.as_deref(),
+        Some("CFS Interrogatory Response, p. 10")
+    );
+}
+
+/// A REAL pairing beats the seeded stand-in.
+///
+/// ## Why this precedence and not the other one
+///
+/// `response_item_fact_refs.note` is the record of which exhibit backs a point,
+/// authored by a human in the v1 editor. The seeded receipt exists only because
+/// that editor does not yet. If the stand-in won, the editor would ship and
+/// change nothing on screen — and the deck row would be a second truth speaking
+/// over a human's own words. This way v1 takes over by being used, with nothing
+/// to migrate.
+#[test]
+fn a_real_pairing_supersedes_the_seeded_stand_in() {
+    let s = settings();
+    let payload = deck_payload(
+        &s,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-5".to_string(),
+            title: "x".to_string(),
+            deck: vec![],
+            points: vec![point(1, Some("My certified letter"))],
+            receipts: &[PracticePointReceipt {
+                position: 1,
+                text: "your certified letter, 16 Nov 2009".to_string(),
+            }],
+            last: None,
+        },
+    );
+
+    assert_eq!(
+        payload.points[0].exhibit.as_deref(),
+        Some("My certified letter")
+    );
+}
+
+/// A point no receipt names still shows the named absence.
+///
+/// The honest-gap law survives the ruling: seeding SOME receipts must not make an
+/// unseeded point silently borrow another point's.
+#[test]
+fn a_point_with_neither_still_names_its_absence() {
+    let s = settings();
+    let payload = deck_payload(
+        &s,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-5".to_string(),
+            title: "x".to_string(),
+            deck: vec![],
+            points: vec![point(3, None)],
+            receipts: &[PracticePointReceipt {
+                position: 1,
+                text: "your certified letter, 16 Nov 2009".to_string(),
+            }],
+            last: None,
+        },
+    );
+
+    assert_eq!(payload.points[0].exhibit, None);
+    assert_eq!(
+        s.practice_report_wording.point_no_receipt, "No receipt recorded for this point.",
+        "and the screen has the sentence to print in its place"
+    );
 }

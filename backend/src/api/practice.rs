@@ -43,11 +43,14 @@ use crate::{
     repositories::pipeline_repository::{
         get_scenario,
         practice::{
-            end_session, last_ended_session, list_deck, list_points, session_scenario, sheet_rows,
-            start_session,
+            end_session, last_ended_session, list_deck, list_point_receipts, list_points,
+            session_scenario, sheet_rows, start_session,
         },
     },
-    services::{practice_page::deck_payload, practice_sheet::sheet_payload},
+    services::{
+        practice_page::{deck_payload, DeckSources},
+        practice_sheet::sheet_payload,
+    },
     state::AppState,
 };
 
@@ -108,6 +111,9 @@ pub async fn get_practice_deck(
     let points = list_points(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("list_points", e))?;
+    let receipts = list_point_receipts(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_point_receipts", e))?;
     let last = last_ended_session(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("last_ended_session", e))?;
@@ -115,12 +121,15 @@ pub async fn get_practice_deck(
     let settings = state.settings.current();
     let payload = deck_payload(
         &settings,
-        scenario_id,
-        scenario_code(record.code_ordinal),
-        record.name,
-        deck,
-        points,
-        last.as_ref(),
+        DeckSources {
+            scenario_id,
+            code: scenario_code(record.code_ordinal),
+            title: record.name,
+            deck,
+            points,
+            receipts: &receipts,
+            last: last.as_ref(),
+        },
     );
 
     tracing::info!(
