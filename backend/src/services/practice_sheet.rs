@@ -18,6 +18,7 @@ use crate::domain::settings::Settings;
 use crate::domain::wording_templates::render;
 use crate::dto::practice::{PracticeSheetPayload, PracticeSheetRowDto};
 use crate::repositories::pipeline_repository::practice::PracticeSheetRow;
+use crate::repositories::pipeline_repository::practice_flow::FlaggedQuestionRecord;
 use crate::services::practice_page::{tactic_name, when};
 
 /// The "From" cell: which side asked, and whether it was a braid.
@@ -116,18 +117,84 @@ fn mark_cell(settings: &Settings, mark: &str) -> String {
 }
 
 /// Render the whole sheet.
+/// The label the flag list prints for one question — `G2`, `C4`.
+///
+/// ## Why it is composed here and not stored
+///
+/// It is a POSITION, not an identity: "the second of George's questions". The
+/// row's identity is its uuid, which is no use to Roman reading a printed sheet.
+/// Composing it from the side and the per-side ordinal means it stays correct
+/// when the deck is re-seeded, and there is no second column to keep in step.
+///
+/// The letters come from the stored side pills' first character rather than
+/// from a literal, so a deck that renamed a side cannot print a letter from a
+/// vocabulary nobody uses.
+fn flag_label(side: &str, ordinal: usize, settings: &Settings) -> String {
+    let w = &settings.practice_report_wording;
+    let word = if side == "chuck" {
+        &w.sheet_from_chuck
+    } else {
+        &w.sheet_from_george
+    };
+    let initial = word
+        .chars()
+        .next()
+        .unwrap_or('?')
+        .to_uppercase()
+        .to_string();
+    format!("{initial}{ordinal}")
+}
+
+/// The flag list at the foot of the sheet, already composed into sentences.
+///
+/// Returns EMPTY when nothing is flagged, and the caller withdraws the whole
+/// block — heading included. A heading over an empty list reads as a list that
+/// failed to load.
+pub fn flag_lines(settings: &Settings, flagged: &[FlaggedQuestionRecord]) -> Vec<String> {
+    let flow = &settings.practice_wording.flow;
+    // Per-SIDE ordinals: George's second question is G2 whether or not Chuck's
+    // questions are interleaved with it in the deck's sort order.
+    let mut seen_george = 0usize;
+    let mut seen_chuck = 0usize;
+    flagged
+        .iter()
+        .map(|q| {
+            let ordinal = if q.side == "chuck" {
+                seen_chuck += 1;
+                seen_chuck
+            } else {
+                seen_george += 1;
+                seen_george
+            };
+            render(
+                &flow.flag_summary_item_template,
+                &[
+                    ("id", &flag_label(&q.side, ordinal, settings)),
+                    ("question", &q.text),
+                    // The query returns only rows carrying a note; the default is
+                    // unreachable and is an empty string rather than a guess.
+                    ("note", q.flag_note.as_deref().unwrap_or_default()),
+                ],
+            )
+        })
+        .collect()
+}
+
 pub fn sheet_payload(
     settings: &Settings,
     code: &str,
     ended_at: chrono::DateTime<chrono::Utc>,
     rows: Vec<PracticeSheetRow>,
     ended_early: bool,
+    flagged: &[FlaggedQuestionRecord],
 ) -> PracticeSheetPayload {
     let w = &settings.practice_report_wording;
     let repeats = rows.iter().filter(|r| r.mark == "repeat").count();
     // Counted apart from `repeats`, and neither is counted as the other: a
     // question she set aside is not one she stumbled on.
     let skipped = rows.iter().filter(|r| r.mark == "skipped").count();
+    let flow = &settings.practice_wording.flow;
+    let lines = flag_lines(settings, flagged);
 
     let rendered = rows
         .iter()
@@ -157,6 +224,17 @@ pub fn sheet_payload(
         ),
         heading: heading(settings, rendered.len(), repeats, skipped, ended_early),
         rows: rendered,
+        flagged: lines,
+        flagged_heading: if flagged.is_empty() {
+            String::new()
+        } else {
+            flow.flag_summary_heading.clone()
+        },
+        flagged_hint: if flagged.is_empty() {
+            String::new()
+        } else {
+            flow.flag_summary_hint.clone()
+        },
     }
 }
 

@@ -13,7 +13,8 @@
 
 import React from "react";
 
-import type { PracticeQuestion, PracticeWording } from "../../services/practice";
+import type { PracticeWording } from "../../services/practice";
+import type { DeckView, PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
@@ -42,19 +43,16 @@ interface Props {
   onStart: () => void;
   /** True while the session POST is in flight; the control says so. */
   starting: boolean;
-  /** This side's questions, in the order the sitting will deal them. */
-  questions: PracticeQuestion[];
-  /** How many are available after today's skips. `0` withdraws Start. */
-  available: number;
-  /** How many she has chosen to be asked. */
-  count: number;
-  onCountChange: (count: number) => void;
-  /** Ids kept out of this sitting. Session-scoped; never stored. */
-  skippedToday: ReadonlySet<string>;
-  onToggleSkip: (id: string) => void;
-  onSaveFlag: (id: string, note: string) => void;
-  savingFlagFor: string | null;
-  flagError: string | null;
+  /**
+   * The start screen's own state and its two row controls, as one object.
+   *
+   * Passed whole rather than as nine props: they are one thing (what the start
+   * card can do to a question before a sitting), they move together, and nine
+   * positional props is where one eventually gets wired to the wrong handler.
+   */
+  controls: PracticeDeckControls;
+  /** This side's questions, and what is left of them after today's skips. */
+  view: DeckView;
 }
 
 /**
@@ -81,17 +79,12 @@ const PracticeStart: React.FC<Props> = ({
   onWhoChange,
   onStart,
   starting,
-  questions,
-  available,
-  count,
-  onCountChange,
-  skippedToday,
-  onToggleSkip,
-  onSaveFlag,
-  savingFlagFor,
-  flagError,
+  controls,
+  view,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
+  const available = view.available.length;
+  const count = view.count;
 
   // The three choices, in the mockup's order. A table rather than three copies
   // of the same JSX: the only things that differ are the value and its two
@@ -142,7 +135,7 @@ const PracticeStart: React.FC<Props> = ({
               type="button"
               style={{ ...s.pill, cursor: "pointer", opacity: count === v ? 1 : 0.5 }}
               aria-pressed={count === v}
-              onClick={() => onCountChange(v)}
+              onClick={() => controls.setCount(v)}
             >
               {v}
             </button>{" "}
@@ -156,21 +149,13 @@ const PracticeStart: React.FC<Props> = ({
             opacity: count >= available ? 1 : 0.5,
           }}
           aria-pressed={count >= available}
-          onClick={() => onCountChange(available)}
+          onClick={() => controls.setCount(available)}
         >
           {w("count_all_template").replace("{n}", String(available))}
         </button>
       </p>
 
-      <PracticeDeckList
-        questions={questions}
-        wording={wording}
-        skippedToday={skippedToday}
-        onToggleSkip={onToggleSkip}
-        onSaveFlag={onSaveFlag}
-        savingFlagFor={savingFlagFor}
-        flagError={flagError}
-      />
+      <PracticeDeckList questions={view.ordered} wording={wording} controls={controls} />
 
       <div style={{ ...s.row, marginTop: 22 }}>
         <button

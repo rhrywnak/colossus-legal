@@ -29,6 +29,7 @@
 import React from "react";
 
 import type { PracticeQuestion, PracticeWording } from "../../services/practice";
+import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
 import * as s from "./practiceStyles";
 import * as d from "./practiceDeckStyles";
@@ -37,15 +38,8 @@ interface Props {
   /** This side's questions, in the order the sitting will deal them. */
   questions: PracticeQuestion[];
   wording: PracticeWording;
-  /** Ids she has kept out of this sitting. Session-scoped; never stored. */
-  skippedToday: ReadonlySet<string>;
-  onToggleSkip: (id: string) => void;
-  /** Writes the note to the question. Blank clears it. */
-  onSaveFlag: (id: string, note: string) => void;
-  /** The id whose flag write is in flight, so the control can say so. */
-  savingFlagFor: string | null;
-  /** Set when the last flag write failed — shown, never swallowed. */
-  flagError: string | null;
+  /** The row controls' state and handlers — see the hook's header. */
+  controls: PracticeDeckControls;
 }
 
 /**
@@ -84,15 +78,8 @@ const Instruction: React.FC<{ wording: PracticeWording }> = ({ wording }) => {
   );
 };
 
-const PracticeDeckList: React.FC<Props> = ({
-  questions,
-  wording,
-  skippedToday,
-  onToggleSkip,
-  onSaveFlag,
-  savingFlagFor,
-  flagError,
-}) => {
+const PracticeDeckList: React.FC<Props> = ({ questions, wording, controls }) => {
+  const { skippedToday, toggleSkip, saveFlag, savingFlagFor, flagError } = controls;
   const w = (key: string) => wordingOf(wording, key);
 
   // Open by default — Roman's ruling. Deliberately NOT persisted: the fold is
@@ -185,7 +172,7 @@ const PracticeDeckList: React.FC<Props> = ({
                         style={d.rowButton}
                         disabled={savingFlagFor === question.id}
                         onClick={() => {
-                          onSaveFlag(question.id, draft);
+                          saveFlag(question.id, draft);
                           setEditing(null);
                         }}
                       >
@@ -206,7 +193,7 @@ const PracticeDeckList: React.FC<Props> = ({
                     type="button"
                     style={skipped ? d.rowButtonSkipped : d.rowButton}
                     aria-pressed={skipped}
-                    onClick={() => onToggleSkip(question.id)}
+                    onClick={() => toggleSkip(question.id)}
                   >
                     {skipped ? w("skipped_today_label") : w("skip_today_label")}
                   </button>

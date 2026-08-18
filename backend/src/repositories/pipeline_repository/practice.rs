@@ -227,15 +227,37 @@ pub async fn start_session(
     pool: &PgPool,
     scenario_id: Uuid,
     who: &str,
+    sitting: &NewSitting<'_>,
 ) -> Result<Uuid, PipelineRepoError> {
     let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO practice_sessions (scenario_id, who) VALUES ($1, $2) RETURNING id",
+        "INSERT INTO practice_sessions \
+         (scenario_id, who, count, queue, skipped_today) \
+         VALUES ($1,$2,$3,$4,$5) RETURNING id",
     )
     .bind(scenario_id)
     .bind(who)
+    .bind(sitting.count)
+    .bind(sitting.queue)
+    .bind(sitting.skipped_today)
     .fetch_one(pool)
     .await?;
     Ok(row.0)
+}
+
+/// What the sitting was, at the moment it opened.
+///
+/// A struct rather than three more positional arguments: two of the three are
+/// `serde_json::Value` holding arrays of the same shape, and
+/// `start_session(pool, id, who, a, b, c)` is one transposition away from
+/// recording the questions she kept OUT as the ones she was dealt.
+#[derive(Debug, Clone, Copy)]
+pub struct NewSitting<'a> {
+    /// What she chose off the count pills, or `None` when nothing chose.
+    pub count: Option<i32>,
+    /// The dealt question ids, in order, as a JSON array.
+    pub queue: &'a serde_json::Value,
+    /// The ids she kept out on the start screen, as a JSON array.
+    pub skipped_today: &'a serde_json::Value,
 }
 
 /// The scenario a session belongs to, or `None` if there is no such session.
@@ -289,61 +311,6 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
     .fetch_one(pool)
     .await?;
     Ok(row.0)
-}
-
-/// How many questions this sitting's stored queue holds.
-///
-/// `None` when the session carries no queue — every session started before flow
-/// v1, and any started by a build that does not write one. The caller must treat
-/// that as "unknown", never as zero: a sheet that claimed `Ended early.` because
-/// it could not find a queue would be inventing a fact about her evening.
-pub async fn session_queue_len(
-    pool: &PgPool,
-    session_id: Uuid,
-) -> Result<Option<i32>, PipelineRepoError> {
-    let row: Option<(Option<i32>,)> =
-        sqlx::query_as("SELECT jsonb_array_length(queue) FROM practice_sessions WHERE id = $1")
-            .bind(session_id)
-            .fetch_optional(pool)
-            .await?;
-    Ok(row.and_then(|r| r.0))
-}
-
-/// Store — or clear — Marie's flag on one question.
-///
-/// ## Domain note: why this writes the QUESTION and not the session
-///
-/// Roman's ruling of 2026-08-18: a flag outlives the sitting. It is Marie
-/// telling Roman and Chuck that a question is wrong, and it stands until one of
-/// them changes the deck. A note scoped to an evening would be gone before
-/// either of them read it.
-///
-/// A blank note CLEARS the flag — all three columns together, so a row can never
-/// carry a `flagged_at` with nothing flagged. `who` is stored rather than
-/// derived at render because the answer to "who flagged this" must survive the
-/// log window.
-///
-/// Returns whether a row was touched, so the route can tell "stored" from "no
-/// such question" rather than reporting success for a write that hit nothing.
-pub async fn set_flag(
-    pool: &PgPool,
-    question_id: Uuid,
-    note: Option<&str>,
-    who: &str,
-) -> Result<bool, PipelineRepoError> {
-    let done = sqlx::query(
-        "UPDATE practice_questions \
-         SET flag_note = $2, \
-             flagged_at = CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END, \
-             flagged_by = CASE WHEN $2::text IS NULL THEN NULL ELSE $3 END \
-         WHERE id = $1",
-    )
-    .bind(question_id)
-    .bind(note)
-    .bind(who)
-    .execute(pool)
-    .await?;
-    Ok(done.rows_affected() == 1)
 }
 
 /// Record that she opened the stronger-answer drawer.

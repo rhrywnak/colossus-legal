@@ -112,6 +112,27 @@ pub struct PracticeDeckPayload {
 pub struct StartSessionRequest {
     /// `george` | `chuck` | `mixed`.
     pub who: String,
+    /// The question ids this sitting will be dealt, IN ORDER.
+    ///
+    /// ## Why the browser sends the queue rather than the server drawing it
+    ///
+    /// The ORDER is the drill (George · Chuck · George — the shape of a real
+    /// day), and it is composed on the screen that also knows what she kept out
+    /// today. Sending it means the server stores the sitting she actually
+    /// started, which is what a reload has to resume and what `Ended early.`
+    /// is measured against. The server still FENCES it: every id must belong to
+    /// this scenario's deck.
+    #[serde(default)]
+    pub queue: Vec<Uuid>,
+    /// What she chose off the count pills. Kept because the queue can grow past
+    /// it — "ask me this one again later" appends — and the choice is still
+    /// worth knowing afterwards.
+    #[serde(default)]
+    pub count: Option<i32>,
+    /// The ids she kept out of this sitting on the start screen. For the record:
+    /// they were never dealt, so they are not in `queue`.
+    #[serde(default)]
+    pub skipped_today: Vec<Uuid>,
 }
 
 /// The session she is now in.
@@ -197,4 +218,12 @@ pub struct PracticeSheetPayload {
     /// "Six questions. Two to repeat." — one sentence, both clauses stored.
     pub heading: String,
     pub rows: Vec<PracticeSheetRowDto>,
+    /// The deck's flagged questions, already composed into the sentence the
+    /// sheet prints. EMPTY withdraws the whole block, heading included — a
+    /// heading over nothing reads as a list that failed to load.
+    pub flagged: Vec<String>,
+    /// The block's heading and its one sentence, so the browser composes none of
+    /// it. Both empty when `flagged` is.
+    pub flagged_heading: String,
+    pub flagged_hint: String,
 }

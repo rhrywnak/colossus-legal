@@ -29,9 +29,10 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
+import type { NewSitting } from "./practiceFlow";
 
 /** How long an ordinary practice call may take. The house default. */
-const PRACTICE_TIMEOUT_MS = 30000;
+export const PRACTICE_TIMEOUT_MS = 30000;
 
 /** How long the answer call may take — it makes a model call inside. */
 const READ_TIMEOUT_MS = 90000;
@@ -125,6 +126,14 @@ export type PracticeSheet = {
   kicker: string;
   heading: string;
   rows: PracticeSheetRow[];
+  /**
+   * The deck's flagged questions, already composed server-side into the
+   * sentences the sheet prints. EMPTY withdraws the whole block.
+   */
+  flagged: string[];
+  /** The block's heading and its sentence. Both empty when `flagged` is. */
+  flagged_heading: string;
+  flagged_hint: string;
 };
 
 /**
@@ -191,7 +200,7 @@ export async function fetchPracticeDeck(
 export async function startPracticeSession(
   slug: string,
   scenarioId: string,
-  who: string,
+  sitting: NewSitting,
 ): Promise<string> {
   const response = await authFetch(
     `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/` +
@@ -199,7 +208,12 @@ export async function startPracticeSession(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ who }),
+      body: JSON.stringify({
+        who: sitting.who,
+        queue: sitting.queue,
+        count: sitting.count,
+        skipped_today: sitting.skippedToday,
+      }),
       timeoutMs: PRACTICE_TIMEOUT_MS,
     },
   );
@@ -284,38 +298,6 @@ export async function closePracticeAnswer(
       `Your mark for that question was not recorded (HTTP ${response.status}${detail}).`,
     );
   }
-}
-
-/**
- * Store — or clear — Marie's flag on one question.
- *
- * ## Why the SERVER's value is returned rather than the typed one
- *
- * The backend trims the note, and a blank note clears the flag. A screen that
- * echoed what she typed would show a flag the database does not have — a
- * leading space, or a "flag" made entirely of whitespace.
- */
-export async function savePracticeFlag(
-  questionId: string,
-  note: string,
-): Promise<string | null> {
-  const response = await authFetch(
-    `${API_BASE_URL}/api/practice/questions/${encodeURIComponent(questionId)}/flag`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note }),
-      timeoutMs: PRACTICE_TIMEOUT_MS,
-    },
-  );
-
-  if (!response.ok) {
-    const detail = await readErrorMessage(response);
-    throw new Error(`Your flag was not saved (HTTP ${response.status}${detail}).`);
-  }
-
-  const body = (await response.json()) as { flag_note: string | null };
-  return body.flag_note;
 }
 
 /** She opened the stronger-answer drawer; Chuck's sheet says so. */

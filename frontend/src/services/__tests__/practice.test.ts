@@ -20,6 +20,7 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { savePracticeFlag } from "../practiceFlow";
 import {
   closePracticeAnswer,
   endPracticeSession,
@@ -35,6 +36,7 @@ const SLUG = "awad_v_catholic_family_service";
 const SCENARIO = "11111111-1111-1111-1111-111111111111";
 const SESSION = "22222222-2222-2222-2222-222222222222";
 const ANSWER = "33333333-3333-3333-3333-333333333333";
+const QUESTION = "44444444-4444-4444-4444-444444444444";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -94,15 +96,46 @@ describe("fetchPracticeDeck", () => {
 });
 
 describe("the write paths", () => {
-  it("POSTs the session to the scenario-scoped sessions URL, carrying who", async () => {
+  it("POSTs the session to the scenario-scoped sessions URL, carrying the whole sitting", async () => {
     const mock = okFetch({ session_id: SESSION });
 
-    await expect(startPracticeSession(SLUG, SCENARIO, "mixed")).resolves.toBe(SESSION);
+    await expect(
+      startPracticeSession(SLUG, SCENARIO, {
+        who: "mixed",
+        queue: [QUESTION],
+        count: 5,
+        skippedToday: [ANSWER],
+      }),
+    ).resolves.toBe(SESSION);
 
     const [url, options] = mock.mock.calls[0];
     expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/practice/sessions`);
     expect(options.method).toBe("POST");
-    expect(JSON.parse(options.body)).toEqual({ who: "mixed" });
+    // The wire names are the server's, not the client's: `skipped_today`, not
+    // `skippedToday`. A rename on either side has to be made on both, and this
+    // is where that is caught.
+    expect(JSON.parse(options.body)).toEqual({
+      who: "mixed",
+      queue: [QUESTION],
+      count: 5,
+      skipped_today: [ANSWER],
+    });
+  });
+
+  it("sends the queue in the order it was dealt, not sorted", async () => {
+    // The order IS the drill — George · Chuck · George, the shape of a real day.
+    // A server that received it re-ordered would resume a different sitting.
+    const mock = okFetch({ session_id: SESSION });
+    const order = [ANSWER, QUESTION, SESSION];
+
+    await startPracticeSession(SLUG, SCENARIO, {
+      who: "mixed",
+      queue: order,
+      count: 3,
+      skippedToday: [],
+    });
+
+    expect(JSON.parse(mock.mock.calls[0][1].body).queue).toEqual(order);
   });
 
   it("POSTs an answer to /api/practice/answers, with no mark and no boxes", async () => {
@@ -171,6 +204,27 @@ describe("the write paths", () => {
     const mock = okFetch({ kicker: "Session done", heading: "1 questions. 0 to repeat.", rows: [] });
     await endPracticeSession(SESSION);
     expect(mock.mock.calls[0][0]).toContain(`/api/practice/sessions/${SESSION}/end`);
+  });
+
+  it("PUTs the flag to the question URL and returns the STORED note", async () => {
+    // The server half of this guard is `api::practice_tests::ROUTES`. Between
+    // the two, a path can only drift if BOTH are edited to agree — the .377
+    // failure class, where a client called a path the router did not serve.
+    const mock = okFetch({ flag_note: "too soft" });
+    const stored = await savePracticeFlag(QUESTION, "  too soft  ");
+
+    const [url, options] = mock.mock.calls[0];
+    expect(url).toContain(`/api/practice/questions/${QUESTION}/flag`);
+    expect(options.method).toBe("PUT");
+    expect(JSON.parse(options.body).note).toBe("  too soft  ");
+    // The SERVER's value, not the typed one: it trims, and a screen echoing what
+    // she typed would show a flag the database does not have.
+    expect(stored).toBe("too soft");
+  });
+
+  it("reports a cleared flag as null rather than an empty string", async () => {
+    okFetch({ flag_note: null });
+    expect(await savePracticeFlag(QUESTION, "   ")).toBeNull();
   });
 
   it("escapes every path parameter", async () => {

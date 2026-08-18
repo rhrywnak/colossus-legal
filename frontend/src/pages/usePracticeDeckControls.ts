@@ -17,7 +17,7 @@
 import React from "react";
 
 import type { PracticeDeck, PracticeQuestion } from "../services/practice";
-import { savePracticeFlag } from "../services/practice";
+import { savePracticeFlag } from "../services/practiceFlow";
 import { availableDeck, orderedDeck, V0_QUESTION_COUNT } from "./practiceQueue";
 
 /** What the start screen needs to render and drive the two row controls. */

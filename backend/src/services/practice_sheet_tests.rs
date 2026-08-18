@@ -78,6 +78,7 @@ fn every_cell_arrives_as_a_word_a_lawyer_can_read_on_paper() {
             row("chuck", None, None, "fine", false),
         ],
         false,
+        &[],
     );
 
     assert_eq!(payload.kicker, "Session done · S-5 · Mon 17 Aug");
@@ -118,6 +119,7 @@ fn her_answer_is_printed_exactly_as_she_typed_it() {
         Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
         vec![r.clone()],
         false,
+        &[],
     );
     assert_eq!(payload.rows[0].answer, r.answer_text);
 }
@@ -136,6 +138,7 @@ fn a_session_with_no_answers_still_composes_a_sheet() {
         Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
         vec![],
         false,
+        &[],
     );
 
     assert!(payload.rows.is_empty());
@@ -162,6 +165,7 @@ fn a_skipped_row_prints_as_skipped_and_is_counted_as_neither() {
             row("chuck", None, None, "repeat", false),
         ],
         false,
+        &[],
     );
 
     let marks: Vec<&str> = payload.rows.iter().map(|r| r.mark.as_str()).collect();

@@ -27,9 +27,12 @@ use crate::{
     auth::AuthUser,
     dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, FlagRequest, FlagResponse},
     error::AppError,
-    repositories::pipeline_repository::practice::{
-        close_answer, get_question, insert_answer, list_deck, list_points, mark_help_opened,
-        session_scenario, set_flag, NewAnswer, PracticeQuestionRecord,
+    repositories::pipeline_repository::{
+        practice::{
+            close_answer, get_question, insert_answer, list_deck, list_points, mark_help_opened,
+            session_scenario, NewAnswer, PracticeQuestionRecord,
+        },
+        practice_flow::set_flag,
     },
     services::{
         practice_page::tactic_name,
@@ -289,13 +292,16 @@ pub async fn put_question_flag(
     Path(question_id): Path<Uuid>,
     Json(body): Json<FlagRequest>,
 ) -> Result<Json<FlagResponse>, AppError> {
-    let note = body.note.unwrap_or_default();
-    let trimmed = note.trim();
-    let stored = (!trimmed.is_empty()).then_some(trimmed);
+    let stored = normalize_flag_note(body.note);
 
-    let touched = set_flag(&state.pipeline_pool, question_id, stored, &user.username)
-        .await
-        .map_err(|e| repo_error("set_flag", e))?;
+    let touched = set_flag(
+        &state.pipeline_pool,
+        question_id,
+        stored.as_deref(),
+        &user.username,
+    )
+    .await
+    .map_err(|e| repo_error("set_flag", e))?;
 
     if !touched {
         return Err(AppError::NotFound {
@@ -309,7 +315,19 @@ pub async fn put_question_flag(
         cleared = stored.is_none(),
         "practice: flag written"
     );
-    Ok(Json(FlagResponse {
-        flag_note: stored.map(str::to_string),
-    }))
+    Ok(Json(FlagResponse { flag_note: stored }))
+}
+
+/// What a submitted note becomes: `None` to clear, or the trimmed line.
+///
+/// ## Why whitespace is BLANK and not a note
+///
+/// A flag reading `" "` prints as an empty complaint at the foot of Chuck's
+/// sheet — a row saying Marie objected to a question, with nothing where the
+/// objection should be. Trimming to nothing and clearing is the honest reading
+/// of an empty box.
+pub(super) fn normalize_flag_note(note: Option<String>) -> Option<String> {
+    let note = note?;
+    let trimmed = note.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }

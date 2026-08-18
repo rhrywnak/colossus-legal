@@ -178,10 +178,19 @@ const PracticePage: React.FC = () => {
 
   const handleStart = () => {
     setStarting(true);
-    startPracticeSession(slug, scenarioId, who)
+    // The queue is settled BEFORE the call so the sitting that is stored and the
+    // sitting that is dealt are the same list — not two slices taken a moment
+    // apart from state that could have moved between them.
+    const dealt = view.available.slice(0, view.count);
+    startPracticeSession(slug, scenarioId, {
+      who,
+      queue: dealt.map((q) => q.id),
+      count: view.count,
+      skippedToday: [...rowControls.skippedToday],
+    })
       .then((id) => {
         setSessionId(id);
-        setQueue(view.available.slice(0, view.count));
+        setQueue(dealt);
         setIndex(0);
         setAnswer("");
         setAnswerError(null);
@@ -310,15 +319,8 @@ const PracticePage: React.FC = () => {
           onWhoChange={setWho}
           onStart={handleStart}
           starting={starting}
-          questions={view.ordered}
-          available={view.available.length}
-          count={view.count}
-          onCountChange={rowControls.setCount}
-          skippedToday={rowControls.skippedToday}
-          onToggleSkip={rowControls.toggleSkip}
-          onSaveFlag={rowControls.saveFlag}
-          savingFlagFor={rowControls.savingFlagFor}
-          flagError={rowControls.flagError}
+          controls={rowControls}
+          view={view}
         />
       )}
 

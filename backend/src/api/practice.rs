@@ -46,8 +46,9 @@ use crate::{
         get_scenario,
         practice::{
             end_session, last_ended_session, list_deck, list_point_receipts, list_points,
-            session_queue_len, session_scenario, sheet_rows, start_session,
+            session_scenario, sheet_rows, start_session, NewSitting,
         },
+        practice_flow::{list_flagged, session_queue_len},
     },
     services::{
         practice_page::{deck_payload, DeckSources},
@@ -172,11 +173,52 @@ pub async fn post_practice_session(
         });
     }
 
-    let session_id = start_session(&state.pipeline_pool, scenario_id, &body.who)
+    // FENCE: every id the browser sent must belong to THIS scenario's deck.
+    //
+    // The queue is composed on screen, so without this a client could open a
+    // sitting whose queue named another scenario's questions — and Chuck's
+    // sheet would then carry a question Marie was never asked, with nothing on
+    // the page looking wrong. Same reasoning as `fence_answer`, applied at the
+    // moment the sitting is recorded rather than one answer at a time.
+    let deck = list_deck(&state.pipeline_pool, scenario_id)
         .await
-        .map_err(|e| repo_error("start_session", e))?;
+        .map_err(|e| repo_error("list_deck", e))?;
+    let known: std::collections::HashSet<Uuid> = deck.iter().map(|q| q.id).collect();
+    if let Some(stray) = body
+        .queue
+        .iter()
+        .chain(body.skipped_today.iter())
+        .find(|id| !known.contains(id))
+    {
+        return Err(AppError::BadRequest {
+            message: "every question in the sitting must be in this scenario's deck".to_string(),
+            details: serde_json::json!({ "field": "queue", "value": stray.to_string() }),
+        });
+    }
 
-    tracing::info!(%scenario_id, %session_id, who = %body.who, "practice session started");
+    let queue = serde_json::json!(body.queue);
+    let skipped_today = serde_json::json!(body.skipped_today);
+    let session_id = start_session(
+        &state.pipeline_pool,
+        scenario_id,
+        &body.who,
+        &NewSitting {
+            count: body.count,
+            queue: &queue,
+            skipped_today: &skipped_today,
+        },
+    )
+    .await
+    .map_err(|e| repo_error("start_session", e))?;
+
+    tracing::info!(
+        %scenario_id,
+        %session_id,
+        who = %body.who,
+        dealt = body.queue.len(),
+        skipped_today = body.skipped_today.len(),
+        "practice session started"
+    );
     Ok(Json(StartSessionResponse { session_id }))
 }
 
@@ -215,6 +257,11 @@ pub async fn post_end_session(
     let rows = sheet_rows(&state.pipeline_pool, session_id)
         .await
         .map_err(|e| repo_error("sheet_rows", e))?;
+    // The whole deck's flags, not this sitting's: a question she flagged AND
+    // kept out of tonight is the one Roman most needs to see.
+    let flagged = list_flagged(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_flagged", e))?;
 
     // "Ended early" is a comparison against the queue she STARTED with, which is
     // why the queue is stored on the session. Unknown (no stored queue) is
@@ -231,9 +278,15 @@ pub async fn post_end_session(
         chrono::Utc::now(),
         rows,
         ended_early,
+        &flagged,
     );
 
-    tracing::info!(%session_id, rows = payload.rows.len(), "practice session ended");
+    tracing::info!(
+        %session_id,
+        rows = payload.rows.len(),
+        flagged = payload.flagged.len(),
+        "practice session ended"
+    );
     Ok(Json(payload))
 }
 
