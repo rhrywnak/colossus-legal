@@ -26,12 +26,14 @@
 
 use axum::{
     extract::{Path, State},
-    routing::{get, post},
+    routing::{get, post, put},
     Json, Router,
 };
 use uuid::Uuid;
 
-use super::practice_answers::{post_close_answer, post_help_opened, post_practice_answer};
+use super::practice_answers::{
+    post_close_answer, post_help_opened, post_practice_answer, put_question_flag,
+};
 
 use crate::{
     auth::AuthUser,
@@ -44,7 +46,7 @@ use crate::{
         get_scenario,
         practice::{
             end_session, last_ended_session, list_deck, list_point_receipts, list_points,
-            session_scenario, sheet_rows, start_session,
+            session_queue_len, session_scenario, sheet_rows, start_session,
         },
     },
     services::{
@@ -74,6 +76,13 @@ pub fn routes() -> Router<AppState> {
             post(post_close_answer),
         )
         .route("/practice/sessions/:session_id/end", post(post_end_session))
+        // PUT and not POST: writing the same note twice leaves the same row, and
+        // clearing is the same call with nothing in it. That is idempotent, which
+        // is what PUT means.
+        .route(
+            "/practice/questions/:question_id/flag",
+            put(put_question_flag),
+        )
 }
 
 /// Turn a repository failure into a 500 that says nothing, having logged
@@ -207,12 +216,21 @@ pub async fn post_end_session(
         .await
         .map_err(|e| repo_error("sheet_rows", e))?;
 
+    // "Ended early" is a comparison against the queue she STARTED with, which is
+    // why the queue is stored on the session. Unknown (no stored queue) is
+    // reported as NOT early — the sheet never claims a fact it cannot source.
+    let queue_len = session_queue_len(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("session_queue_len", e))?;
+    let ended_early = queue_len.is_some_and(|n| rows.len() < n.max(0) as usize);
+
     let settings = state.settings.current();
     let payload = sheet_payload(
         &settings,
         &scenario_code(record.code_ordinal),
         chrono::Utc::now(),
         rows,
+        ended_early,
     );
 
     tracing::info!(%session_id, rows = payload.rows.len(), "practice session ended");

@@ -38,6 +38,13 @@ ALTER TABLE practice_questions ADD COLUMN IF NOT EXISTS flagged_by TEXT        N
 COMMENT ON COLUMN practice_questions.flag_note IS
     'One line from Marie saying what is wrong with this question. NULL = not '
     'flagged. Outlives the sitting; cleared only by a human.';
+COMMENT ON COLUMN practice_questions.flagged_at IS
+    'When the flag was written. NULL exactly when flag_note is NULL — the two '
+    'are set and cleared together, so a row cannot carry a time for a flag it '
+    'does not have.';
+COMMENT ON COLUMN practice_questions.flagged_by IS
+    'The authenticated username that wrote the flag. Stored rather than derived '
+    'so "who flagged this" survives the log window.';
 
 -- ─── 2 · The sitting, on the SESSION ─────────────────────────────────────────
 --

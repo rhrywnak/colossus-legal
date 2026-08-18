@@ -40,8 +40,30 @@ fn from_cell(settings: &Settings, row: &PracticeSheetRow) -> String {
 /// first thing Chuck reads. The zero case gets its own row for the same reason
 /// the .392 count line's singular forms did: a surface a professional reads stops
 /// being trusted the moment it produces a sentence a person would not.
-pub fn heading(settings: &Settings, answered: usize, repeats: usize) -> String {
+/// Mockup v3 adds two clauses: `s skipped.` when she set questions aside, and
+/// `Ended early.` when she stopped before the queue was exhausted.
+///
+/// ## Why they are APPENDED rather than folded into the heading template
+///
+/// The template is a stored row that has been correct since v0, and two more
+/// placeholders in it would render `. .` on the common path where neither
+/// clause applies. Appending only the clauses that are true keeps the ordinary
+/// sentence exactly what Chuck already reads.
+///
+/// ## Domain note: `Ended early.` is a fact, not a fault
+///
+/// The sheet says what happened and grades nothing. A witness who stopped after
+/// three questions did three questions; the clause is there so Chuck is not
+/// misled into thinking the deck was exhausted, not to mark her down.
+pub fn heading(
+    settings: &Settings,
+    answered: usize,
+    repeats: usize,
+    skipped: usize,
+    ended_early: bool,
+) -> String {
     let w = &settings.practice_report_wording;
+    let flow = &settings.practice_wording.flow;
     let clause = if repeats == 0 {
         w.sheet_nothing_to_repeat.clone()
     } else {
@@ -50,10 +72,47 @@ pub fn heading(settings: &Settings, answered: usize, repeats: usize) -> String {
             &[("n", &repeats.to_string())],
         )
     };
-    render(
+    let mut line = render(
         &w.sheet_heading_template,
         &[("count", &answered.to_string()), ("repeat", &clause)],
-    )
+    );
+    if skipped > 0 {
+        // The joining space is supplied HERE and never stored: a stored value is
+        // trimmed, so a template could not carry a leading one.
+        line.push(' ');
+        line.push_str(&render(
+            &flow.sheet_skipped_clause_template,
+            &[("s", &skipped.to_string())],
+        ));
+    }
+    if ended_early {
+        line.push(' ');
+        line.push_str(&flow.sheet_ended_early_clause);
+    }
+    line
+}
+
+/// The word one row's mark renders as.
+///
+/// ## Why this is a match and not an `if repeat { … } else { … }`
+///
+/// It was that, and widening the stored vocabulary to three values in the flow
+/// v1 migration turned the `else` into a silent liar: a `skipped` row printed on
+/// Chuck's sheet as **fine**, which is the sheet telling him she answered a
+/// question she had set aside. An exhaustive match over the three stored values
+/// cannot do that, and the fallback arm now names what it saw.
+fn mark_cell(settings: &Settings, mark: &str) -> String {
+    let w = &settings.practice_report_wording;
+    match mark {
+        "repeat" => w.mark_repeat.clone(),
+        "skipped" => settings.practice_wording.flow.mark_skipped.clone(),
+        "fine" => w.mark_fine.clone(),
+        // The CHECK constraint permits exactly three values, so this is
+        // unreachable through the database. It renders the raw value rather
+        // than guessing at "fine": a fourth mark added to the migration and not
+        // to this match must be VISIBLE on the sheet, not disguised as a pass.
+        other => other.to_string(),
+    }
 }
 
 /// Render the whole sheet.
@@ -62,9 +121,13 @@ pub fn sheet_payload(
     code: &str,
     ended_at: chrono::DateTime<chrono::Utc>,
     rows: Vec<PracticeSheetRow>,
+    ended_early: bool,
 ) -> PracticeSheetPayload {
     let w = &settings.practice_report_wording;
     let repeats = rows.iter().filter(|r| r.mark == "repeat").count();
+    // Counted apart from `repeats`, and neither is counted as the other: a
+    // question she set aside is not one she stumbled on.
+    let skipped = rows.iter().filter(|r| r.mark == "skipped").count();
 
     let rendered = rows
         .iter()
@@ -77,11 +140,7 @@ pub fn sheet_payload(
             tactic: tactic_name(settings, row.tactic).unwrap_or_else(|| w.tactic_none.clone()),
             question: row.question.clone(),
             answer: row.answer_text.clone(),
-            mark: if row.mark == "repeat" {
-                w.mark_repeat.clone()
-            } else {
-                w.mark_fine.clone()
-            },
+            mark: mark_cell(settings, &row.mark),
             help_opened: row.help_opened,
             help: if row.help_opened {
                 w.help_opened.clone()
@@ -96,7 +155,7 @@ pub fn sheet_payload(
             &w.sheet_kicker_template,
             &[("code", code), ("when", &when(ended_at))],
         ),
-        heading: heading(settings, rendered.len(), repeats),
+        heading: heading(settings, rendered.len(), repeats, skipped, ended_early),
         rows: rendered,
     }
 }

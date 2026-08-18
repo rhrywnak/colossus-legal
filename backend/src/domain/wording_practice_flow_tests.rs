@@ -66,7 +66,12 @@ impl PracticeFlowWording {
                 .iter()
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| (*v).to_string())
-                .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
+                .ok_or_else(|| {
+                    format!(
+                        "{key} is declared to the boot loader but missing from this file's \
+                         TEST_SEED fixture — add the value the migration seeds"
+                    )
+                })
         })
         .expect("every key in PRACTICE_FLOW_WORDING_KEYS is in TEST_SEED")
     }
@@ -104,7 +109,12 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
             .iter()
             .find(|(k, _)| k == key)
             .map(|(_, v)| (*v).to_string())
-            .unwrap_or_else(|| panic!("{key} is missing from TEST_SEED"));
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but missing from this file's \
+                     TEST_SEED fixture — add the value the migration seeds"
+                )
+            });
         assert_eq!(
             seeded, expected,
             "the migration and the fixture disagree about {key}"

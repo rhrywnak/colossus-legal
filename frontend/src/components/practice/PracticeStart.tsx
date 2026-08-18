@@ -13,20 +13,20 @@
 
 import React from "react";
 
-import type { PracticeWording } from "../../services/practice";
+import type { PracticeQuestion, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
-import { V0_QUESTION_COUNT } from "../../pages/practiceQueue";
 import * as s from "./practiceStyles";
+import PracticeDeckList from "./PracticeDeckList";
 
 /**
- * The middle count pill, which v0 does not serve.
+ * The shorter counts the mockup offers, when the deck is longer than they are.
  *
- * A literal because it is the mockup's own proposal for a LATER build — eight is
- * not derived from this deck and is not a parameter anything reads. It renders
- * dimmed beside the live one, which is the mockup's way of showing what is
- * coming without offering it. When it becomes real it becomes a parameter.
+ * Literals because they are the mockup's own proposals — neither is derived from
+ * this deck and neither is a parameter anything reads. Mockup v3 shows a pill
+ * ONLY when it is smaller than what is available: a "5" beside a four-question
+ * deck is a control that cannot do what it says.
  */
-const DEFERRED_COUNT_PILL = 8;
+const SHORT_COUNTS = [5, 8];
 
 /** Which deck she is choosing. The three values the backend accepts. */
 export type PracticeWho = "george" | "chuck" | "mixed";
@@ -42,10 +42,19 @@ interface Props {
   onStart: () => void;
   /** True while the session POST is in flight; the control says so. */
   starting: boolean;
-  /** How many questions the chosen side has. `0` withdraws Start entirely. */
+  /** This side's questions, in the order the sitting will deal them. */
+  questions: PracticeQuestion[];
+  /** How many are available after today's skips. `0` withdraws Start. */
   available: number;
-  /** The whole deck's size — what the "all {n}" pill reports. */
-  deckSize: number;
+  /** How many she has chosen to be asked. */
+  count: number;
+  onCountChange: (count: number) => void;
+  /** Ids kept out of this sitting. Session-scoped; never stored. */
+  skippedToday: ReadonlySet<string>;
+  onToggleSkip: (id: string) => void;
+  onSaveFlag: (id: string, note: string) => void;
+  savingFlagFor: string | null;
+  flagError: string | null;
 }
 
 /**
@@ -72,8 +81,15 @@ const PracticeStart: React.FC<Props> = ({
   onWhoChange,
   onStart,
   starting,
+  questions,
   available,
-  deckSize,
+  count,
+  onCountChange,
+  skippedToday,
+  onToggleSkip,
+  onSaveFlag,
+  savingFlagFor,
+  flagError,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
 
@@ -113,21 +129,48 @@ const PracticeStart: React.FC<Props> = ({
         ))}
       </div>
 
-      {/* The count pills. Only 5 is live in v0 and the other two render dimmed,
-          exactly as the mockup does — which is honest about what this build
-          offers rather than showing controls that do nothing.
-
-          The third one says "all {n}" with the DECK's own size, not the mockup's
-          literal "all 12": S-5 carries ten questions, and a pill naming a number
-          no deck has is the kind of small wrongness a witness stops trusting a
-          screen over. */}
+      {/* The count pills FOLLOW what is available (mockup v3): a shorter count
+          appears only when it is smaller than the deck she can actually be
+          asked, and the last pill always reads "all N" with N = available. A
+          pill naming a number no deck has is the kind of small wrongness a
+          witness stops trusting a screen over. */}
       <p style={{ marginTop: 22 }}>
-        <b>{w("how_many_heading")}</b> <span style={s.pill}>{V0_QUESTION_COUNT}</span>{" "}
-        <span style={{ ...s.pill, opacity: 0.5 }}>{DEFERRED_COUNT_PILL}</span>{" "}
-        <span style={{ ...s.pill, opacity: 0.5 }}>
-          {w("count_all_template").replace("{n}", String(deckSize))}
-        </span>
+        <b>{w("how_many_heading")}</b>{" "}
+        {SHORT_COUNTS.filter((v) => v < available).map((v) => (
+          <React.Fragment key={v}>
+            <button
+              type="button"
+              style={{ ...s.pill, cursor: "pointer", opacity: count === v ? 1 : 0.5 }}
+              aria-pressed={count === v}
+              onClick={() => onCountChange(v)}
+            >
+              {v}
+            </button>{" "}
+          </React.Fragment>
+        ))}
+        <button
+          type="button"
+          style={{
+            ...s.pill,
+            cursor: "pointer",
+            opacity: count >= available ? 1 : 0.5,
+          }}
+          aria-pressed={count >= available}
+          onClick={() => onCountChange(available)}
+        >
+          {w("count_all_template").replace("{n}", String(available))}
+        </button>
       </p>
+
+      <PracticeDeckList
+        questions={questions}
+        wording={wording}
+        skippedToday={skippedToday}
+        onToggleSkip={onToggleSkip}
+        onSaveFlag={onSaveFlag}
+        savingFlagFor={savingFlagFor}
+        flagError={flagError}
+      />
 
       <div style={{ ...s.row, marginTop: 22 }}>
         <button
@@ -136,7 +179,9 @@ const PracticeStart: React.FC<Props> = ({
           onClick={onStart}
           disabled={starting || available === 0}
         >
-          {w("start_label")}
+          {/* A disabled button still reading "Start" is a screen refusing without
+              saying why. */}
+          {available === 0 ? w("nothing_left_label") : w("start_label")}
         </button>
         <span style={s.progress}>{lastSessionLine}</span>
       </div>

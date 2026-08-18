@@ -38,6 +38,7 @@ fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
         pair_said: None,
         pair_admitted: None,
         sort_order: 1,
+        flag_note: None,
     }
 }
 

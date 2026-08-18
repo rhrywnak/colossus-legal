@@ -57,9 +57,12 @@ fn the_from_cell_distinguishes_cross_braid_and_direct() {
 #[test]
 fn the_heading_reads_as_a_sentence_whether_or_not_anything_needs_repeating() {
     let s = settings();
-    assert_eq!(heading(&s, 6, 2), "6 questions. 2 to repeat.");
-    assert_eq!(heading(&s, 5, 0), "5 questions. Nothing to repeat.");
-    assert!(!heading(&s, 5, 0).contains('{'));
+    assert_eq!(heading(&s, 6, 2, 0, false), "6 questions. 2 to repeat.");
+    assert_eq!(
+        heading(&s, 5, 0, 0, false),
+        "5 questions. Nothing to repeat."
+    );
+    assert!(!heading(&s, 5, 0, 0, false).contains('{'));
 }
 
 /// Every cell arrives as a word, and the numbering starts at one.
@@ -74,6 +77,7 @@ fn every_cell_arrives_as_a_word_a_lawyer_can_read_on_paper() {
             row("george", None, Some(4), "repeat", true),
             row("chuck", None, None, "fine", false),
         ],
+        false,
     );
 
     assert_eq!(payload.kicker, "Session done · S-5 · Mon 17 Aug");
@@ -113,6 +117,7 @@ fn her_answer_is_printed_exactly_as_she_typed_it() {
         "S-5",
         Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
         vec![r.clone()],
+        false,
     );
     assert_eq!(payload.rows[0].answer, r.answer_text);
 }
@@ -130,8 +135,73 @@ fn a_session_with_no_answers_still_composes_a_sheet() {
         "S-5",
         Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
         vec![],
+        false,
     );
 
     assert!(payload.rows.is_empty());
     assert_eq!(payload.heading, "0 questions. Nothing to repeat.");
+}
+
+/// A `skipped` row is neither fine nor repeat, anywhere on the sheet.
+///
+/// The flow v1 migration widened the stored vocabulary to three values. Before
+/// this test the reader was `if mark == "repeat" { repeat } else { fine }`, so a
+/// question Marie had SET ASIDE printed on Chuck's sheet as **fine** — the sheet
+/// telling him she answered something she had not. Silent, and caught by nothing:
+/// no test passed a third value through.
+#[test]
+fn a_skipped_row_prints_as_skipped_and_is_counted_as_neither() {
+    let s = settings();
+    let payload = sheet_payload(
+        &s,
+        "S-5",
+        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+        vec![
+            row("george", None, Some(4), "fine", false),
+            row("george", None, Some(2), "skipped", false),
+            row("chuck", None, None, "repeat", false),
+        ],
+        false,
+    );
+
+    let marks: Vec<&str> = payload.rows.iter().map(|r| r.mark.as_str()).collect();
+    assert_eq!(marks, vec!["fine", "skipped", "repeat"]);
+
+    // One to repeat, not two: a set-aside question is not a stumble.
+    assert_eq!(payload.heading, "3 questions. 1 to repeat. 1 skipped.");
+}
+
+/// The two new clauses appear only when they are true, and in the drawn order.
+#[test]
+fn the_headline_gains_its_clauses_only_when_they_apply() {
+    let s = settings();
+    assert_eq!(
+        heading(&s, 5, 0, 0, false),
+        "5 questions. Nothing to repeat."
+    );
+    assert_eq!(
+        heading(&s, 2, 0, 1, true),
+        "2 questions. Nothing to repeat. 1 skipped. Ended early."
+    );
+    assert_eq!(
+        heading(&s, 4, 2, 0, true),
+        "4 questions. 2 to repeat. Ended early."
+    );
+    // No stored template leaks an unfilled placeholder into a printed sheet.
+    assert!(!heading(&s, 2, 1, 1, true).contains('{'));
+}
+
+/// A mark the migration permits and this code has not learned is VISIBLE.
+///
+/// The old `else` arm disguised an unknown value as "fine". If a fourth mark is
+/// ever added to the CHECK constraint without being added to `mark_cell`, the
+/// sheet must show something a reader can question — not a pass.
+#[test]
+fn an_unknown_mark_renders_as_itself_rather_than_as_fine() {
+    let s = settings();
+    assert_eq!(mark_cell(&s, "deferred"), "deferred");
+    assert_ne!(
+        mark_cell(&s, "deferred"),
+        s.practice_report_wording.mark_fine
+    );
 }

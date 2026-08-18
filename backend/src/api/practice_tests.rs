@@ -104,3 +104,26 @@ fn the_answer_route_is_the_path_the_task_names() {
         .iter()
         .any(|(p, m)| *p == "/practice/answers" && m.contains(&"POST")));
 }
+
+/// The reveal settles a row `fine` or `repeat` — and never `skipped`.
+///
+/// `skipped` is a legal value of the column (the flow v1 migration widened the
+/// CHECK to three), which is exactly why this gate needs a test: a reader who
+/// sees three stored values and two accepted ones would reasonably "fix" the
+/// list. The asymmetry is the point. A `skipped` row is written by the
+/// mid-sitting control, for a question that never reached a reveal; letting the
+/// reveal write it would put her typed answer on Chuck's sheet under a mark
+/// saying she never gave one.
+#[test]
+fn the_reveal_settles_fine_or_repeat_and_refuses_the_skipped_mark() {
+    use crate::api::practice_answers::is_settleable_mark;
+
+    assert!(is_settleable_mark("fine"));
+    assert!(is_settleable_mark("repeat"));
+    assert!(
+        !is_settleable_mark("skipped"),
+        "the reveal must not relabel an answered question as one she set aside"
+    );
+    assert!(!is_settleable_mark(""));
+    assert!(!is_settleable_mark("Fine"));
+}
