@@ -209,3 +209,94 @@ fn an_unknown_mark_renders_as_itself_rather_than_as_fine() {
         s.practice_report_wording.mark_fine
     );
 }
+
+// ── The flag list at the foot of the sheet ──────────────────────────────────
+
+fn flagged(side: &str, sort_order: i32, note: &str) -> FlaggedQuestionRecord {
+    FlaggedQuestionRecord {
+        side: side.to_string(),
+        text: format!("question {sort_order}"),
+        sort_order,
+        flag_note: Some(note.to_string()),
+    }
+}
+
+/// The label is a POSITION on its own side, not a row in the deck.
+///
+/// George's second question is G2 whether or not Chuck's are interleaved with
+/// it in the deck's sort order. Roman reads `G2` on paper and goes to the second
+/// George entry on the seed; a label that counted deck-wide would send him to
+/// the wrong one on any mixed deck.
+#[test]
+fn the_flag_label_counts_within_a_side_and_not_across_the_deck() {
+    let s = settings();
+    let lines = flag_lines(
+        &s,
+        &[
+            flagged("george", 1, "too soft"),
+            flagged("chuck", 2, "leading"),
+            flagged("george", 3, "wrong date"),
+        ],
+    );
+
+    assert_eq!(lines.len(), 3);
+    assert!(lines[0].starts_with("G1 —"), "{}", lines[0]);
+    assert!(lines[1].starts_with("C1 —"), "{}", lines[1]);
+    // The THIRD deck row, but George's SECOND question.
+    assert!(lines[2].starts_with("G2 —"), "{}", lines[2]);
+}
+
+/// The line carries the question and the note, and leaks no placeholder.
+#[test]
+fn a_flag_line_prints_the_question_and_the_note() {
+    let s = settings();
+    let lines = flag_lines(&s, &[flagged("george", 1, "too soft")]);
+
+    assert!(lines[0].contains("question 1"), "{}", lines[0]);
+    assert!(lines[0].contains("too soft"), "{}", lines[0]);
+    assert!(
+        !lines[0].contains('{'),
+        "an unfilled placeholder: {}",
+        lines[0]
+    );
+}
+
+/// Nothing flagged withdraws the whole block — heading and hint included.
+///
+/// A heading over an empty list reads as a list that failed to load, which on a
+/// printed sheet is indistinguishable from one that was never written.
+#[test]
+fn an_unflagged_deck_withdraws_the_block_rather_than_printing_an_empty_heading() {
+    let s = settings();
+    assert!(flag_lines(&s, &[]).is_empty());
+
+    let payload = sheet_payload(
+        &s,
+        "S-5",
+        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+        vec![row("george", None, Some(4), "fine", false)],
+        false,
+        &[],
+    );
+    assert!(payload.flagged.is_empty());
+    assert_eq!(payload.flagged_heading, "");
+    assert_eq!(payload.flagged_hint, "");
+}
+
+/// A flagged deck carries the block's own words, from the store.
+#[test]
+fn a_flagged_deck_carries_the_blocks_heading_and_hint() {
+    let s = settings();
+    let payload = sheet_payload(
+        &s,
+        "S-5",
+        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+        vec![row("george", None, Some(4), "fine", false)],
+        false,
+        &[flagged("george", 1, "too soft")],
+    );
+
+    assert_eq!(payload.flagged.len(), 1);
+    assert_eq!(payload.flagged_heading, "Flagged before the session");
+    assert!(!payload.flagged_hint.is_empty());
+}
