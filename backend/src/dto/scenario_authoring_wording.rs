@@ -89,6 +89,8 @@ pub struct ScenarioIdentityWordingDto {
     /// scenario. A fifth request for one string would buy nothing, and a copy on
     /// the detail payload would be a second row to keep in step.
     pub rehearsal_link_blocked_reason: String,
+    /// The label on the control that opens Marie's practice drill (PRACTICE v0).
+    pub practice_link_label: String,
 
     // ── The unified identity vocabulary (task R2; SHIPPED in R4) ────────────
     //
@@ -158,6 +160,7 @@ pub fn identity_wording(w: &ScenarioAuthoringWording) -> ScenarioIdentityWording
         target_needs_attack_text: w.identity_target_needs_attack_text.clone(),
         meaning_needs_attack_text: w.identity_meaning_needs_attack_text.clone(),
         rehearsal_link_blocked_reason: w.rehearsal_link_blocked_reason.clone(),
+        practice_link_label: w.practice_link_label.clone(),
         // The `identity_` prefix is dropped on the wire: over there the whole
         // struct IS the identity vocabulary, so repeating it in every field name
         // would be the payload saying "identity" nine times to one reader.

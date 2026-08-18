@@ -26,6 +26,11 @@ use std::collections::HashMap;
 /// Concatenated rather than searched one at a time because WHERE a row is seeded
 /// is a fact about migration history — only its VALUE is what this test pins.
 const SEED_MIGRATIONS: &[&str] = &[
+    // PRACTICE v0 (2026-08-17): the one string this block gained from another
+    // task — the label on the control that opens Marie's drill. It is seeded by
+    // the practice migration because that is the task that introduced it; it is
+    // READ from this block because the scenario page is what speaks it.
+    "pipeline_migrations/20260817213319_practice_session_v0.sql",
     "pipeline_migrations/20260807155419_scenario_authoring_wording.sql",
     "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
     "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
@@ -121,6 +126,7 @@ const TEST_SEED: &[(&str, &str)] = &[
         "Not in rehearsal — this scenario is {status}. Switch it to Ready on \
          this page first.",
     ),
+    (KEY_PRACTICE_LINK_LABEL, "Practice \u{25b8}"),
 ];
 
 impl ScenarioAuthoringWording {

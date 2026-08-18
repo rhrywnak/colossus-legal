@@ -16,6 +16,7 @@ pub mod oneshot;
 pub mod partymerge;
 pub mod partyresolve;
 pub mod pipeline;
+pub mod practice;
 pub mod prompt_loader;
 pub mod rekey;
 pub mod remap;

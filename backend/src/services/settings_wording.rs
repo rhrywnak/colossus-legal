@@ -20,6 +20,10 @@ use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
 use crate::domain::wording_matrix::{build_matrix_wording, MatrixWording};
 use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
+use crate::domain::wording_practice::{build_practice_wording, PracticeWording};
+use crate::domain::wording_practice_report::{
+    build_practice_report_wording, PracticeReportWording,
+};
 use crate::domain::wording_rehearsal::{build_rehearsal_wording, RehearsalWording};
 use crate::domain::wording_rehearsal_chrome::{
     build_rehearsal_chrome_wording, RehearsalChromeWording,
@@ -60,6 +64,10 @@ pub(crate) struct AllWording {
     /// The Trial Prep dashboard's own words (task 396, P3b — the R2 §3 rows
     /// that batch never migrated).
     pub(crate) war_room: WarRoomWording,
+    /// The words Marie's practice drill speaks (task PRACTICE v0).
+    pub(crate) practice: PracticeWording,
+    /// The words the reveal and Chuck's sheet speak (task PRACTICE v0).
+    pub(crate) practice_report: PracticeReportWording,
 }
 
 /// Every stored-string block, read by one rule.
@@ -93,6 +101,8 @@ pub(crate) fn build_all_wording(
     let model_params = build_model_params_wording(|key| text_of(require(rows, key)?))?;
     let matrix = build_matrix_wording(|key| text_of(require(rows, key)?))?;
     let war_room = build_war_room_wording(|key| text_of(require(rows, key)?))?;
+    let practice = build_practice_wording(|key| text_of(require(rows, key)?))?;
+    let practice_report = build_practice_report_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -109,5 +119,7 @@ pub(crate) fn build_all_wording(
         model_params,
         matrix,
         war_room,
+        practice,
+        practice_report,
     })
 }

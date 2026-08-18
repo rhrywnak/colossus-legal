@@ -34,6 +34,7 @@ pub mod human_authored;
 pub mod link_cut;
 pub mod llm_params;
 pub mod llm_provider_ext;
+pub mod practice_params;
 /// The verifier's second-chance matcher — numeral stripping and one-gap
 /// matching, for quotes the contiguous matcher cannot find. Split from
 /// `quote_match` so the strict path stays readable on its own.
@@ -50,6 +51,8 @@ pub mod wording_authoring;
 pub mod wording_card_grammar;
 pub mod wording_matrix;
 pub mod wording_model_params;
+pub mod wording_practice;
+pub mod wording_practice_report;
 pub mod wording_rehearsal;
 pub mod wording_rehearsal_chrome;
 pub mod wording_scan;

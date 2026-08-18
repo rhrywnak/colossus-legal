@@ -104,6 +104,11 @@ const KEY_PREFILTER_STATEMENT_TYPES: &str = "theme_scan_prefilter_statement_type
 const KEY_TIER_STRONG_PAIRS: &str = "matrix_tier_strong_pairs";
 const KEY_TIER_HEDGED_PAIRS: &str = "matrix_tier_hedged_pairs";
 const KEY_TIER_OTHER_PAIRS: &str = "matrix_tier_other_pairs";
+// PRACTICE v0 (2026-08-17). Seven rows that are TEXT-or-number but NOT wording:
+// they decide what the one-sentence read is TOLD, by WHICH model, and what shape
+// of reply reaches a witness. Judgment parameters in exactly the sense
+// `theme_scan_prompt_file` is; the words Marie READS live in the two
+// `PRACTICE_*_WORDING_KEYS` lists. Their keys live beside the block they build.
 
 /// Every NOT-WORDING key this build reads, so a missing one is caught at boot by
 /// name.
@@ -120,6 +125,10 @@ const KEY_TIER_OTHER_PAIRS: &str = "matrix_tier_other_pairs";
 /// `theme_scan_prompt_file` is text and still belongs HERE: it names a file the
 /// scan reads, not a sentence anybody reads, and it decides what the judge is
 /// told — which is a judgment parameter in every sense that matters.
+///
+/// PRACTICE v0's seven are the first NOT-WORDING keys to live in a list of their
+/// own (`domain::practice_params::PRACTICE_PARAM_KEYS`) rather than here — see
+/// that list's note. `settings_boot` consults both.
 pub const REQUIRED_KEYS: &[&str] = &[
     KEY_BAND_HIGH,
     KEY_BAND_MEDIUM,
@@ -305,6 +314,9 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         card_element_chips_visible_k: count_of(require(rows, KEY_CARD_ELEMENT_CHIPS_K)?)?,
         matrix_wording: words.matrix,
         war_room_wording: words.war_room,
+        practice_wording: words.practice,
+        practice_report_wording: words.practice_report,
+        practice_read: crate::services::settings_practice::build_practice_read_params(rows)?,
         evidence_tier_map,
     })
 }

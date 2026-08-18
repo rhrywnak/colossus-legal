@@ -515,3 +515,73 @@
      and 8–9px for controls, which are set at their call sites. */
   --radius-card: 12px;
 }
+
+/* =============================================================================
+ * The PRACTICE surface's palette (PRACTICE v0, 2026-08-17)
+ * -----------------------------------------------------------------------------
+ * Marie's drill was designed on its own, in PRACTICE_MOCKUP_v2_2026-08-17.html,
+ * and Roman's task instruction is to reproduce that mockup EXACTLY — "text,
+ * order, sizes, colours as rendered". Its palette is therefore not the working
+ * surfaces' palette and must not be mapped onto one: doing so would be a
+ * redesign performed silently during a transcription.
+ *
+ * So the mockup's `:root` block arrives here VERBATIM, as named tokens, scoped
+ * to the one surface that reads them — the same move ruling R1 made for the v3
+ * palette (`[data-surface="v3"]`), and for the same reason: a mockup's colours
+ * belong in one named place a designer edits, not scattered as hex literals
+ * through a component's style objects (Rule 2).
+ *
+ * Scoped, so nothing outside the practice page can pick these up by accident.
+ * ============================================================================= */
+[data-surface="practice"] {
+  /* The mockup's own nine custom properties, by its own names. */
+  --practice-ink: #1b2430;
+  --practice-muted: #5b6673;
+  --practice-line: #dfe4ea;
+  --practice-blue: #1f5fbf;
+  --practice-navy: #1f3a5f;
+  --practice-pale: #f4f7fb;
+  --practice-gold: #fff6d6;
+  --practice-red: #b3261e;
+  --practice-green: #1e7a3c;
+  --practice-paper: #ffffff;
+
+  /* The values the mockup wrote inline rather than as properties. Named here for
+     the same reason the nine above are: one place, one edit. */
+  --practice-control-border: #c9d1da;
+  --practice-quiet-bg: #f9fafb;
+  --practice-drawer-bg: #fbfcfd;
+  --practice-choice-selected-bg: #eef4fd;
+  --practice-tag-bg: #7a8794;
+
+  /* The George pill — the cross-examination red. */
+  --practice-george-bg: #fbecec;
+  --practice-george-text: #8a1c14;
+  --practice-george-border: #f0c9c6;
+
+  /* The Chuck pill — the direct-examination green. */
+  --practice-chuck-bg: #e8f3ec;
+  --practice-chuck-text: #1e5a33;
+  --practice-chuck-border: #c4dfcd;
+
+  /* The braid pill — a third colour, because a braid is answered a third way. */
+  --practice-braid-bg: #f3ecfb;
+  --practice-braid-text: #4d2a80;
+  --practice-braid-border: #dccbf0;
+
+  /* The neutral pill, and the tactic tag beside it. */
+  --practice-pill-border: #d6e0ee;
+  --practice-tactic-bg: #eef1f5;
+  --practice-tactic-text: #3b4652;
+  --practice-tactic-border: #d6dbe1;
+
+  /* The watch-for box's border, against its gold fill. */
+  --practice-gold-border: #f0e2a8;
+
+  /* The read's two rails, and the wash behind each. */
+  --practice-read-bad-bg: #fff5f4;
+  --practice-read-ok-bg: #f2faf4;
+
+  /* Foreground for text on a saturated fill — the primary button, the tag. */
+  --practice-on-fill: #ffffff;
+}

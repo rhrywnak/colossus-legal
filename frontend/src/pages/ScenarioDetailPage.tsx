@@ -457,6 +457,11 @@ const ScenarioDetailPage: React.FC = () => {
         rehearsalBlockedTemplate={
           augmentation?.identity_wording.rehearsal_link_blocked_reason ?? null
         }
+        // PRACTICE v0. Rides the identity wording this page ALREADY fetches —
+        // one label, no second request, and no failure path of its own. `null`
+        // withdraws the control, exactly as it does for the rehearsal link
+        // beside it, and the page's own augmentation-failure notice says why.
+        practiceLabel={augmentation?.identity_wording.practice_link_label ?? null}
       />
 
       {/* 2 — §2.2. The three texts come from the augmentation identity, which is

@@ -53,6 +53,8 @@ pub mod import;
 pub mod logout;
 pub mod persons;
 pub mod pipeline;
+pub mod practice;
+pub mod practice_answers;
 pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;
@@ -111,6 +113,7 @@ pub fn router() -> Router<AppState> {
         // statement (the "one write path" reading recorded 2026-08-06).
         .merge(scenario_accusation::routes())
         .merge(rehearsal::routes())
+        .merge(practice::routes())
         .merge(settings::routes())
         .merge(claim_routes())
         .merge(document_routes())

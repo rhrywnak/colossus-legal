@@ -43,6 +43,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  practicePath,
   rehearsalPath,
   rehearsalScenarioPath,
   scenarioPagePath,
@@ -134,6 +135,16 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/rehearsal/:code",
     emit: () => rehearsalScenarioPath("awad v cfs", "S/1 draft"),
   },
+  {
+    name: "practicePath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId",
+    emit: () => practicePath("awad-v-cfs", "3f2b1c9e-0000-4a1b-8c7d-000000000001"),
+  },
+  {
+    name: "practicePath (id needs escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId",
+    emit: () => practicePath("awad v cfs", "id/with/slashes"),
+  },
 ];
 
 describe("the route-side URL guard", () => {
@@ -168,6 +179,7 @@ describe("the guard can fail", () => {
     // that turns that into a red test.
     expect(routes.length).toBeGreaterThanOrEqual(20);
     expect(routes).toContain("/cases/:slug/trial-prep/:scenarioId");
+    expect(routes).toContain("/cases/:slug/trial-prep/practice/:scenarioId");
     expect(routes).toContain("/cases/:slug/rehearsal/:code");
     expect(routes).toContain("/documents/:id");
   });
@@ -187,6 +199,25 @@ describe("the guard can fail", () => {
     // matched" and "the matcher matches everything" look identical.
     expect(routeFor("/cases/awad-v-cfs/scenarios/3f2b1c9e-0000-4a1b-8c7d-000000000001")).toBeNull();
     expect(routeFor("/cases/awad-v-cfs/not-a-page")).toBeNull();
+  });
+
+  it("does not let the practice route and the scenario page shadow each other", () => {
+    // They share a prefix and differ only in length: `/trial-prep/:scenarioId`
+    // against `/trial-prep/practice/:scenarioId`. If the matcher were loose about
+    // segment counts, a scenario id would match the practice route (or the other
+    // way round) and one of the two screens would be unreachable — the .382
+    // failure mode with two live routes instead of one dead one.
+    expect(routeFor(scenarioPagePath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/:scenarioId",
+    );
+    expect(routeFor(practicePath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId",
+    );
+    // And the literal segment is not itself a legal scenario id landing on the
+    // practice page with nothing after it.
+    expect(routeFor("/cases/awad-v-cfs/trial-prep/practice")).toBe(
+      "/cases/:slug/trial-prep/:scenarioId",
+    );
   });
 
   it("keeps a parameter inside one segment", () => {

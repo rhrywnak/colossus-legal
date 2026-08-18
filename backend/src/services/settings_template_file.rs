@@ -1,7 +1,8 @@
 //! Does the file a settings row NAMES actually exist? (task 2.15 Tier 2, R3.)
 //!
-//! One row — `theme_scan_prompt_file` — holds a filename rather than a number or
-//! a sentence, and a filename is the one kind of stored value whose correctness
+//! Two rows — `theme_scan_prompt_file` and (since PRACTICE v0)
+//! `practice_read_prompt_file` — hold a filename rather than a number or a
+//! sentence, and a filename is the one kind of stored value whose correctness
 //! lives outside the database. This module is the check, in the two places it has
 //! to happen.
 //!
@@ -29,6 +30,8 @@
 
 use std::path::PathBuf;
 
+use crate::domain::practice_params::KEY_PRACTICE_READ_PROMPT_FILE;
+use crate::domain::settings::Settings;
 use crate::pipeline::registry::PipelineRegistry;
 use crate::services::settings_store::{SettingsError, KEY_THEME_SCAN_PROMPT_FILE};
 
@@ -68,10 +71,11 @@ impl TemplateDir {
 
 /// For a row that NAMES A FILE, prove the file is there before accepting it.
 ///
-/// Only `theme_scan_prompt_file` is such a row today, and the `match` is what
-/// keeps this honest: a future filename row must be added here deliberately rather
-/// than inheriting a check by accident (or, worse, being silently unchecked
-/// because a broad heuristic like "the value ends in .md" did not fire).
+/// Two rows are such rows today — `theme_scan_prompt_file` and
+/// `practice_read_prompt_file` — and the `match` is what keeps this honest: a
+/// future filename row must be added here deliberately rather than inheriting a
+/// check by accident (or, worse, being silently unchecked because a broad
+/// heuristic like "the value ends in .md" did not fire).
 ///
 /// # Errors
 /// Returns [`SettingsError::FileNotFound`] naming the key, the value and the full
@@ -82,7 +86,9 @@ pub(crate) fn check_named_file(
     templates: &TemplateDir,
 ) -> Result<(), SettingsError> {
     match key {
-        KEY_THEME_SCAN_PROMPT_FILE if !templates.resolves(candidate) => {
+        KEY_THEME_SCAN_PROMPT_FILE | KEY_PRACTICE_READ_PROMPT_FILE
+            if !templates.resolves(candidate) =>
+        {
             Err(SettingsError::FileNotFound {
                 key: key.to_string(),
                 value: candidate.to_string(),
@@ -93,42 +99,57 @@ pub(crate) fn check_named_file(
     }
 }
 
-/// BOOT PRECONDITION: the judging prompt the settings row names is deployed, or
-/// the process does not start (ruling R3, 2026-08-08).
+/// BOOT PRECONDITION: the prompt a settings row names is deployed, or the process
+/// does not start (ruling R3, 2026-08-08; extended to the practice read 2026-08-17).
 ///
 /// ## Why refusing to boot is proportionate here
 ///
-/// A Theme Scan is the prompt's only consumer, and without it every scan fails at
-/// the door — so a process that starts is a process advertising a feature it
-/// cannot perform. That is not hypothetical: for eleven days in July, scans died
-/// on a missing prompt and the only surface saying so was a toast the next
-/// navigation erased. A refusal at boot is the same failure, said once, in the
-/// place an operator is already looking.
+/// The prompt's surface is its only consumer, and without the file every call
+/// fails at the door — so a process that starts is a process advertising a feature
+/// it cannot perform. That is not hypothetical: for eleven days in July, theme
+/// scans died on a missing prompt and the only surface saying so was a toast the
+/// next navigation erased. A refusal at boot is the same failure, said once, in
+/// the place an operator is already looking.
 ///
 /// Reaching this refusal means the file was removed or the directory moved AFTER
 /// the row was set — [`check_named_file`] refuses a filename that does not resolve
 /// at the moment it is saved — so it is a deployment fault, and the log line names
-/// both the file and the full path.
+/// the key, the file and the full path.
 ///
-/// Takes the registry so the caller stays one line; the split from `main.rs` also
+/// ## Why one function with a `surface` argument, and not one per prompt
+///
+/// The second prompt arrived on 2026-08-17 and the copy-paste version would have
+/// been two eleven-line functions differing in three strings — the shape whose
+/// failure mode is that the SECOND one quietly stops matching the first. The
+/// argument that varies is the one that reads on screen: which feature is dark.
+///
+/// Takes the registry so each caller stays one line; the split from `main.rs` also
 /// keeps that file's boot sequence readable at a glance.
-pub fn assert_scan_prompt_deployed(prompt_file: &str, registry: &PipelineRegistry) {
+pub fn assert_prompt_deployed(
+    key: &str,
+    surface: &str,
+    prompt_file: &str,
+    registry: &PipelineRegistry,
+) {
     let templates = TemplateDir::new(registry.template_dir());
     if templates.resolves(prompt_file) {
         tracing::info!(
+            key = %key,
+            surface = %surface,
             file = %prompt_file,
-            "Theme Scan judging prompt resolved from the settings store"
+            "prompt resolved from the settings store"
         );
         return;
     }
 
     tracing::error!(
-        key = KEY_THEME_SCAN_PROMPT_FILE,
+        key = %key,
+        surface = %surface,
         file = %prompt_file,
         path = %templates.path_of(prompt_file).display(),
-        "BOOT REFUSED: the Theme Scan judging prompt named by the settings store is \
-         not deployed. Deploy the file to the template directory, or change the \
-         theme_scan_prompt_file row to one that exists."
+        "BOOT REFUSED: the prompt named by the settings store is not deployed. \
+         Deploy the file to the template directory, or change the row to one \
+         that exists."
     );
     std::process::exit(1);
 }
@@ -223,6 +244,50 @@ mod tests {
         );
     }
 
+    /// The PRACTICE read's prompt row is guarded too, and not by accident.
+    ///
+    /// ## Why this is its own test rather than a second assertion above
+    ///
+    /// The guard is a `match` on a key list, and the failure mode of a key list
+    /// is a row added to the store and forgotten here. That row would then accept
+    /// any filename at all on the Settings page and kill the service at the next
+    /// restart — the exact sequence the write-path check exists to prevent, on
+    /// the exact surface a witness is booked to use tomorrow. A named test is
+    /// what makes forgetting it a red build.
+    #[test]
+    fn the_practice_read_prompt_row_is_guarded_by_the_same_check() {
+        let scratch = Scratch::new("practice");
+        fs::write(scratch.0.join("practice_read_prompt_v1.md"), "read this")
+            .expect("test file is writable");
+        let dir = TemplateDir::new(scratch.0.to_string_lossy().to_string());
+
+        assert!(
+            check_named_file(
+                KEY_PRACTICE_READ_PROMPT_FILE,
+                "practice_read_prompt_v1.md",
+                &dir
+            )
+            .is_ok(),
+            "the deployed prompt must be accepted — a guard that refuses \
+             everything is a wall, not a check"
+        );
+
+        let error = check_named_file(
+            KEY_PRACTICE_READ_PROMPT_FILE,
+            "practice_read_prompt_v9.md",
+            &dir,
+        )
+        .expect_err("v9 was never deployed");
+
+        let message = error.to_string();
+        assert!(message.contains("practice_read_prompt_v9.md"), "{message}");
+        assert!(message.contains(KEY_PRACTICE_READ_PROMPT_FILE), "{message}");
+        assert!(
+            message.contains(&scratch.0.to_string_lossy().to_string()),
+            "the refusal must name the directory it looked in: {message}"
+        );
+    }
+
     /// The check is keyed, and only that key is checked.
     ///
     /// Every other parameter is a number or a sentence, and running a file
@@ -244,5 +309,34 @@ mod tests {
                 "{key} does not name a file and must not be checked as one"
             );
         }
+    }
+}
+
+/// Every prompt this build needs, checked in one call at boot.
+///
+/// ## Why the LIST lives here and not in `main.rs`
+///
+/// `main.rs` is the boot sequence, and each prompt added to the product was
+/// making it one call longer — a file already well past the size limit growing
+/// for a reason that has nothing to do with sequencing. The knowledge of WHICH
+/// rows name a file belongs beside [`check_named_file`], which already holds the
+/// same list for the write path; keeping the two together is what stops a future
+/// prompt being guarded on save and unguarded at boot, or the reverse.
+///
+/// Exits the process, via [`assert_prompt_deployed`], on the first one missing.
+pub fn assert_prompts_deployed(settings: &Settings, registry: &PipelineRegistry) {
+    for (key, surface, file) in [
+        (
+            KEY_THEME_SCAN_PROMPT_FILE,
+            "Theme Scan judge",
+            &settings.theme_scan_prompt_file,
+        ),
+        (
+            KEY_PRACTICE_READ_PROMPT_FILE,
+            "Practice read",
+            &settings.practice_read.prompt_file,
+        ),
+    ] {
+        assert_prompt_deployed(key, surface, file, registry);
     }
 }
