@@ -38,9 +38,15 @@ import {
   type PracticeQuestion,
 } from "../services/practice";
 import { resumeSitting, startOverSitting } from "../services/practiceFlow";
-import { practicePath, practiceSessionPath } from "../utils/routePaths";
+import { saveNote, strikeNote } from "../services/practiceEditor";
+import {
+  practicePath,
+  practiceQuestionPath,
+  practiceSessionPath,
+} from "../utils/routePaths";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
+import { usePracticeEditor } from "./usePracticeEditor";
 
 /**
  * What the loading card says before the store has been read.
@@ -57,6 +63,10 @@ const PracticePage: React.FC = () => {
   const navigate = useNavigate();
 
   const [deck, setDeck] = React.useState<PracticeDeck | null>(null);
+  // A ref beside the state so the failure-sentence callbacks can read the
+  // CURRENT wording without being rebuilt on every render — which would rebuild
+  // the editor hook's handlers with them.
+  const deckRef = React.useRef<PracticeDeck | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [who, setWho] = React.useState<PracticeWho>("george");
   const [starting, setStarting] = React.useState(false);
@@ -64,8 +74,31 @@ const PracticePage: React.FC = () => {
   const [resuming, setResuming] = React.useState(false);
   const [resumeError, setResumeError] = React.useState<string | null>(null);
   const [reloads, setReloads] = React.useState(0);
+  const [savingNote, setSavingNote] = React.useState(false);
+  const [noteError, setNoteError] = React.useState<string | null>(null);
 
   const rowControls = usePracticeDeckControls(setDeck);
+
+  /**
+   * Re-read the deck.
+   *
+   * Every editor write and every note write ends here rather than patching the
+   * payload: a move re-orders two rows, an edit re-writes what the change log
+   * says, an add changes the deck's length and Marie's badges, and a note
+   * changes the "new notes" clause. All of those are sentences the SERVER
+   * composes, and the browser holds no template for any of them.
+   */
+  const reload = React.useCallback(() => setReloads((n) => n + 1), []);
+
+  // The stored failure sentences are read at FAILURE time rather than captured:
+  // the wording arrives on the payload, and these hooks are constructed before
+  // it exists. A literal here would be the one sentence on this page the store
+  // could not change.
+  const editorFailure = React.useCallback(
+    () => (deckRef.current === null ? "" : wordingOf(deckRef.current.wording, "editor_failed")),
+    [],
+  );
+  const editor = usePracticeEditor(slug, scenarioId, reload, editorFailure);
 
   // One fetch on mount, and again after Start over — which changes what the
   // payload says (the open sitting is gone) and nothing else. `reloads` is the
@@ -75,7 +108,9 @@ const PracticePage: React.FC = () => {
     setLoadError(null);
     fetchPracticeDeck(slug, scenarioId)
       .then((payload) => {
-        if (!cancelled) setDeck(payload);
+        if (cancelled) return;
+        setDeck(payload);
+        deckRef.current = payload;
       })
       .catch((error: unknown) => {
         if (cancelled) return;
@@ -110,6 +145,34 @@ const PracticePage: React.FC = () => {
   }
 
   const view = rowControls.view(deck.questions, who);
+
+  /** Write one note on this scenario, and re-read so the counts follow. */
+  const writeNote = (author: string, text: string) => {
+    setSavingNote(true);
+    setNoteError(null);
+    saveNote(slug, scenarioId, { questionId: null, answerId: null }, author, text)
+      .then(() => reload())
+      .catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error("practice: the note was not saved", error);
+        setNoteError(w("notes_failed"));
+      })
+      .finally(() => setSavingNote(false));
+  };
+
+  /** Strike one note through. Never a delete. */
+  const strike = (note: { id: string; author: string }) => {
+    setSavingNote(true);
+    setNoteError(null);
+    strikeNote(note.id, note.author)
+      .then(() => reload())
+      .catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error("practice: the note was not struck", error);
+        setNoteError(w("notes_failed"));
+      })
+      .finally(() => setSavingNote(false));
+  };
 
   /**
    * Open a sitting and go to its address.
@@ -215,6 +278,17 @@ const PracticePage: React.FC = () => {
         resumeError={resumeError}
         onPracticeOne={practiceOne}
         startingOne={startingOne}
+        onReview={(question) =>
+          navigate(practiceQuestionPath(slug, scenarioId, question.id))
+        }
+        editor={editor}
+        attachOptions={deck.attach_options}
+        changed={deck.changed}
+        notes={deck.notes}
+        onSaveNote={writeNote}
+        onStrikeNote={strike}
+        savingNote={savingNote}
+        noteError={noteError}
       />
     </div>
   );

@@ -136,6 +136,24 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
         </div>
       )}
 
+      {/* The deck edits made on the day of this sitting (task B2). Chuck asked
+          for a question to be re-worded on Thursday morning and drilled her on
+          it that afternoon; the footer is where he sees that is what happened.
+          Withdrawn with its heading when nothing changed — same rule as the
+          flag block above, and the same reason. */}
+      {sheet.changes.length > 0 && (
+        <div style={{ marginTop: 18, fontSize: 15 }}>
+          <b>{sheet.changes_heading}</b>
+          <ul>
+            {sheet.changes.map((line) => (
+              <li key={line} style={{ margin: "4px 0" }}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div style={{ ...s.row, marginTop: 20 }} data-practice-no-print>
         <button type="button" style={s.buttonPrimary} onClick={onPracticeAgain}>
           {w("sheet_again_button")}

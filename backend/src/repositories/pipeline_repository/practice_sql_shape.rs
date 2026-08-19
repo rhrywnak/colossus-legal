@@ -35,6 +35,15 @@ use std::collections::BTreeMap;
 const COVERED: &[&str] = &[
     "src/repositories/pipeline_repository/practice.rs",
     "src/repositories/pipeline_repository/practice_flow.rs",
+    // Part B's two, added the day they were written rather than a release later:
+    // this list going stale IS the defect, and it has already happened once.
+    "src/repositories/pipeline_repository/practice_editor.rs",
+    "src/repositories/pipeline_repository/practice_notes.rs",
+    // NOT a repository, and in the cover anyway: the seed writes
+    // `practice_questions` with the widest column list in the codebase, and
+    // leaving it out is what let Part A ship an INSERT naming a `draft_by`
+    // column no migration created.
+    "src/practice/seed_rows.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.
@@ -169,7 +178,15 @@ pub(super) fn migration_columns(table: &str) -> Vec<String> {
     for path in files {
         let sql = std::fs::read_to_string(&path).expect("migration is UTF-8");
 
-        if let Some(start) = find_table(&sql, "CREATE TABLE ", table) {
+        // `CREATE TABLE` and `CREATE TABLE IF NOT EXISTS` are the same
+        // statement to Postgres and must be the same statement to this parser.
+        // Reading only the first form made every guarded table created the
+        // second way report ZERO columns — which does not fail quietly: every
+        // column the code names is then "undeclared", and the guard accuses the
+        // code of the parser's blindness. Both spellings, explicitly.
+        let create = find_table(&sql, "CREATE TABLE ", table)
+            .or_else(|| find_table(&sql, "CREATE TABLE IF NOT EXISTS ", table));
+        if let Some(start) = create {
             for line in sql[start..].lines().skip(1) {
                 let line = line.trim();
                 if line == ");" {
@@ -395,6 +412,8 @@ pub(super) fn declared() -> BTreeMap<String, Vec<String>> {
         "practice_point_receipts",
         "practice_sessions",
         "practice_answers",
+        "practice_deck_changes",
+        "practice_notes",
     ]
     .iter()
     .map(|t| ((*t).to_string(), migration_columns(t)))

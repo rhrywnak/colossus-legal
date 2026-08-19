@@ -76,6 +76,51 @@ export type PracticeQuestion = {
    * "answered today · repeat · attempt 2". `null` renders nothing at all.
    */
   status: string | null;
+  /**
+   * The RAW mark behind that status — `fine`, `repeat` or `skipped`, or `null`.
+   *
+   * Sent beside the sentence rather than parsed out of it: the sentence is a
+   * Settings row and can be re-worded, and a screen that coloured itself by
+   * searching it for the word "repeat" would lose its colours the first time
+   * somebody edited the template.
+   */
+  status_mark: string | null;
+  /**
+   * True when the deck editor has hidden this question. Marie's list and every
+   * queue drop it; the editor still shows it, greyed, so it can be put back.
+   */
+  hidden: boolean;
+  /** Who drafted it when nobody has reviewed it (`architect`), or `null`. */
+  draft_by: string | null;
+  /** True when it changed since her last sitting and she has not answered it since. */
+  changed: boolean;
+};
+
+/** One note, as every panel renders it. */
+export type PracticeNote = {
+  id: string;
+  question_id: string | null;
+  answer_id: string | null;
+  author: string;
+  text: string;
+  /** `Tue 18 Aug` — composed, so the browser holds no date format. */
+  when: string;
+  /** `struck Tue 19 Aug`, or `null` while it stands. Its presence strikes it. */
+  struck: string | null;
+};
+
+/** What changed since her last sitting, composed. */
+export type PracticeChanged = {
+  heading: string;
+  /** The plain-words list behind the fold. */
+  items: string[];
+};
+
+/** One thing a new question can be attached to, in the add form's picker. */
+export type PracticeAttachOption = {
+  source_kind: string;
+  source_index: number;
+  label: string;
 };
 
 /** One of Marie's talking points. */
@@ -117,6 +162,12 @@ export type PracticeDeck = {
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */
   open_session: OpenSession | null;
+  /** The notes on this SCENARIO, oldest first. */
+  notes: PracticeNote[];
+  /** What changed since her last sitting. `null` withdraws the blue box. */
+  changed: PracticeChanged | null;
+  /** What the editor's add form may attach a new question to. */
+  attach_options: PracticeAttachOption[];
   wording: PracticeWording;
 };
 
@@ -164,6 +215,10 @@ export type PracticeSheet = {
   /** The block's heading and its sentence. Both empty when `flagged` is. */
   flagged_heading: string;
   flagged_hint: string;
+  /** The deck changes made on the day of this sitting. EMPTY withdraws the block. */
+  changes: string[];
+  /** That block's heading. Empty when `changes` is. */
+  changes_heading: string;
 };
 
 /**
@@ -216,6 +271,8 @@ export async function fetchPracticeDeck(
     !Array.isArray(parsed.questions) ||
     !Array.isArray(parsed.points) ||
     !Array.isArray(parsed.receipts) ||
+    !Array.isArray(parsed.notes) ||
+    !Array.isArray(parsed.attach_options) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {

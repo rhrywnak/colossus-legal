@@ -7,6 +7,14 @@
 // picks none, one or several; what she picked rides with the answer, shows on
 // the reveal, and prints on Chuck's sheet.
 //
+// ## Mockup v4 makes it CHIPS, not a fold
+//
+// v1 built a control that opened a checkbox list. v4 draws the receipts inline
+// as pressable chips under the answer box, and that is the better shape for the
+// same reason the deck list is open by default: the question "what would I point
+// to?" arises while she is typing, and a control she has to open first is one
+// she answers without opening.
+//
 // ## Why it is optional and says nothing when she skips it
 //
 // It is not a step and not a grade. A witness who answers well and names no
@@ -25,7 +33,8 @@ import React from "react";
 
 import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
-import * as f from "./practiceFlowStyles";
+import * as s from "./practiceStyles";
+import * as e from "./practiceEditorStyles";
 
 /**
  * What joins two picked receipts wherever they are printed together.
@@ -59,11 +68,10 @@ const PracticePointsTo: React.FC<Props> = ({
   disabled,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
-  const [open, setOpen] = React.useState(false);
 
-  // A scenario with no receipts at all renders NOTHING — not an empty list and
-  // not a control that opens onto one. An empty picker reads as a list that
-  // failed to load, which is the one thing it must not look like.
+  // A scenario with no receipts at all renders NOTHING — not an empty row of
+  // chips and not a label over one. An empty picker reads as a list that failed
+  // to load, which is the one thing it must not look like.
   if (receipts.length === 0) return null;
 
   const toggle = (receipt: string) => {
@@ -75,40 +83,27 @@ const PracticePointsTo: React.FC<Props> = ({
   };
 
   return (
-    <div>
-      <button
-        type="button"
-        style={f.pointsToToggle}
-        aria-expanded={open}
-        onClick={() => setOpen((was) => !was)}
-        disabled={disabled}
-      >
-        {open ? w("points_to_done_label") : w("points_to_label")}
-      </button>
-
-      {open && (
-        <div style={f.pointsToBox}>
-          {receipts.map((receipt) => (
-            <label key={receipt} style={f.pointsToItem}>
-              <input
-                type="checkbox"
-                checked={picked.includes(receipt)}
-                onChange={() => toggle(receipt)}
-                disabled={disabled}
-              />{" "}
-              {receipt}
-            </label>
-          ))}
-        </div>
-      )}
-
-      {/* Echoed while the list is CLOSED so she can see what she picked without
-          reopening it. See `RECEIPT_JOIN` for why the separator is a constant. */}
-      {!open && picked.length > 0 && (
-        <div style={f.pointsToChosen}>
-          {w("points_to_reveal_prefix")} {picked.join(RECEIPT_JOIN)}
-        </div>
-      )}
+    <div style={e.pointTo}>
+      {/* Mockup v4 makes this a LABEL and a row of chips rather than a control
+          that opens a list. Nothing to open means nothing to forget to open,
+          and every receipt is readable at a glance while she is still typing —
+          which is the moment the question "what would I point to?" arises. */}
+      <span style={{ ...s.sub, fontSize: 14 }}>{w("points_to_label")}</span>{" "}
+      {receipts.map((receipt) => {
+        const on = picked.includes(receipt);
+        return (
+          <button
+            key={receipt}
+            type="button"
+            style={on ? e.chipOn : e.chip}
+            aria-pressed={on}
+            disabled={disabled}
+            onClick={() => toggle(receipt)}
+          >
+            {receipt}
+          </button>
+        );
+      })}
     </div>
   );
 };

@@ -11,6 +11,7 @@ import {
   availableDeck,
   availableFor,
   buildQueue,
+  editorDeck,
   orderedDeck,
   requeue,
   V0_QUESTION_COUNT,
@@ -42,6 +43,10 @@ function question(
     deck_key: id,
     follows_key: followsKey,
     status: null,
+    status_mark: null,
+    hidden: false,
+    draft_by: null,
+    changed: false,
   };
 }
 
@@ -262,5 +267,63 @@ describe("availableDeck", () => {
     const deck = DECK;
     const chuckIds = new Set(orderedDeck(deck, "chuck").map((q) => q.id));
     expect(availableDeck(deck, "george", chuckIds)).toHaveLength(5);
+  });
+});
+
+// ── Part B: a hidden question leaves every list Marie sees ───────────────────
+
+/** The same question, hidden by the deck editor. */
+function hidden(question: PracticeQuestion): PracticeQuestion {
+  return { ...question, hidden: true };
+}
+
+describe("hidden questions", () => {
+  it("are dropped from the list, the queue and the count", () => {
+    // Task B1: a hidden question vanishes from Marie's list and from queues. It
+    // is filtered in `orderedDeck` because that is the ONE ordering the whole
+    // drill shares — a filter on the queue but not the list is how she reads
+    // five questions and is asked four.
+    const deck = [question("g1", "george"), hidden(question("g2", "george")), question("g3", "george")];
+
+    expect(orderedDeck(deck, "george").map((q) => q.id)).toEqual(["g1", "g3"]);
+    expect(buildQueue(deck, "george").map((q) => q.id)).toEqual(["g1", "g3"]);
+    expect(availableFor(deck, "george")).toBe(2);
+    expect(availableDeck(deck, "george", new Set()).map((q) => q.id)).toEqual(["g1", "g3"]);
+  });
+
+  it("are dropped from the mixed pairs too, on either side of a pair", () => {
+    const deck = [
+      question("g1", "george"),
+      question("g2", "george"),
+      redirect("r1", "g1"),
+      hidden(redirect("r2", "g2")),
+    ];
+    expect(orderedDeck(deck, "mixed").map((q) => q.id)).toEqual(["g1", "r1", "g2"]);
+  });
+
+  it("a hidden TRAP takes its pair out with it", () => {
+    // The redirect survives as a question — it is not hidden — but it has no
+    // trap to follow, so it falls to the tail rather than being dropped.
+    const deck = [hidden(question("g1", "george")), redirect("r1", "g1")];
+    expect(orderedDeck(deck, "mixed").map((q) => q.id)).toEqual(["r1"]);
+  });
+
+  it("are still listed for the EDITOR, after the live ones", () => {
+    // The one screen that can put a hidden question back must be able to see
+    // it. Same order and same side filter, with that one step removed.
+    const deck = [question("g1", "george"), hidden(question("g2", "george"))];
+
+    expect(editorDeck(deck, "george").map((q) => q.id)).toEqual(["g1", "g2"]);
+    expect(editorDeck(deck, "chuck")).toEqual([]);
+  });
+
+  it("puts a hidden REDIRECT on Chuck's editor list, not George's", () => {
+    // The editor's side filter has to agree with the live one: a redirect is
+    // Chuck's, and a hidden one appearing under George would be un-unhideable
+    // from the side it belongs to.
+    const deck = [question("g1", "george"), hidden(redirect("r1", "g1"))];
+
+    expect(editorDeck(deck, "george").map((q) => q.id)).toEqual(["g1"]);
+    expect(editorDeck(deck, "chuck").map((q) => q.id)).toEqual(["r1"]);
   });
 });

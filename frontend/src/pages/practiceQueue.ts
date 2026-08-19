@@ -61,11 +61,20 @@ export function orderedDeck(
   deck: PracticeQuestion[],
   who: "george" | "chuck" | "mixed",
 ): PracticeQuestion[] {
+  // A HIDDEN question leaves Marie's list and every queue (task B1). It is
+  // filtered here rather than at each call site because "here" is the one
+  // ordering the whole drill shares — the start card's list, the queue that is
+  // dealt, and the count pills all come through this function, and a filter on
+  // two of the three is how she reads a list of five and is asked four.
+  //
+  // The EDITOR does not use this function: it renders the payload's own order
+  // so a hidden row can be seen and put back.
+  const live = deck.filter((q) => !q.hidden);
   // George's side is every CROSS question — which is what `side === "george"`
   // meant before redirects existed and still means today, but stated as the
   // kind because that is the fact the filter is actually about.
-  const george = deck.filter((q) => q.kind === "cross");
-  const chuck = deck.filter((q) => q.side === "chuck");
+  const george = live.filter((q) => q.kind === "cross");
+  const chuck = live.filter((q) => q.side === "chuck");
 
   if (who === "george") return george;
   if (who === "chuck") return chuck;
@@ -88,7 +97,7 @@ export function orderedDeck(
     // whose target is not in this deck (a key that was re-worded away) is left
     // out of the pairs and picked up by the tail below — never dropped.
     if (trap.deck_key !== null) {
-      mixed.push(...deck.filter((q) => q.kind === "redirect" && q.follows_key === trap.deck_key));
+      mixed.push(...live.filter((q) => q.kind === "redirect" && q.follows_key === trap.deck_key));
     }
   }
   const dealt = new Set(mixed.map((q) => q.id));
@@ -146,4 +155,30 @@ export function availableFor(
   who: "george" | "chuck" | "mixed",
 ): number {
   return buildQueue(deck, who).length;
+}
+
+/**
+ * One side's questions INCLUDING the hidden ones — what the editor renders.
+ *
+ * ## Why the editor needs its own list
+ *
+ * `orderedDeck` drops hidden questions, which is right for every screen Marie
+ * sees and wrong for the one screen that can put one back. This is the same
+ * filter and the same order with that one step removed, so the editor's list
+ * and Marie's cannot disagree about anything else.
+ */
+export function editorDeck(
+  deck: PracticeQuestion[],
+  who: "george" | "chuck" | "mixed",
+): PracticeQuestion[] {
+  const live = orderedDeck(deck, who);
+  const hidden = deck.filter(
+    (q) => q.hidden && (who === "mixed" || sideOf(q) === who),
+  );
+  return [...live, ...hidden];
+}
+
+/** Which filter a question belongs under: cross is George's, the rest Chuck's. */
+function sideOf(question: PracticeQuestion): "george" | "chuck" {
+  return question.kind === "cross" ? "george" : "chuck";
 }

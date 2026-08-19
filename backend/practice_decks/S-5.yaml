@@ -325,9 +325,10 @@ questions:
   #
   # `draft_by: architect` marks all five as UNREVIEWED. Chuck edits them on
   # Thursday; the deck editor shows a `draft` mark on such a row until it is.
-  # No `watch_for` is written for any of them, and that is deliberate: a
-  # watch-for is authored coaching, and nobody has authored one for these yet.
-  # The screen withdraws the gold box rather than showing an invented one.
+  # The `watch_for` lines were the gap Part A reported and could not fill —
+  # authored coaching, and nobody had authored it. Roman supplied all five on
+  # 2026-08-19 (CC_TASK_PRACTICE_V1_PART_B_GO_v1) and they are transcribed here
+  # verbatim. They stay `draft_by: architect` until Chuck edits them.
 
   - key: r1
     side: chuck
@@ -339,6 +340,8 @@ questions:
     text: >-
       Marie, tell the jury about the letter you sent in November 2009.
     receipt: Chuck's redirect after G1 — point 1, the certified letter of 16 Nov 2009.
+    watch_for: >-
+      Tell it — this is Chuck's time. The letter: certified, November 16, 2009, asking to divide Dad's things with your sisters.
 
   - key: r2
     side: chuck
@@ -351,6 +354,8 @@ questions:
       What did Catholic Family Service say, under oath, about whether you had
       asked to divide the property?
     receipt: Chuck's redirect after G2 — point 2, their own sworn answer.
+    watch_for: >-
+      Tell it. Their own sworn answer: the request was received. Say “under oath” once.
 
   - key: r3
     side: chuck
@@ -363,6 +368,8 @@ questions:
       Did anyone from the estate, or the court, ever ask you to come in and
       stipulate to a division?
     receipt: Chuck's redirect after G3 — point 1.
+    watch_for: >-
+      Tell it. Nobody asked you to come in; you put it in writing to Mr. Phillips.
 
   - key: r4
     side: chuck
@@ -375,6 +382,8 @@ questions:
       When Catholic Family Service was asked under oath who had told them you
       couldn't be amicable, what did they say?
     receipt: Chuck's redirect after G4 — point 2.
+    watch_for: >-
+      Tell it. “Unaware of who exactly” — “no such conversations.” Their words, not yours.
 
   - key: r5
     side: chuck
@@ -386,3 +395,5 @@ questions:
     text: >-
       Let's take those one at a time. Who decided to hold the auction?
     receipt: Chuck's redirect after G5 — point 3.
+    watch_for: >-
+      Tell it, one strand at a time. They decided the auction. Stop; Chuck takes the next strand.

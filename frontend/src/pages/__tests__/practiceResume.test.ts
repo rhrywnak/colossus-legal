@@ -35,6 +35,10 @@ function question(id: string): PracticeQuestion {
     deck_key: id,
     follows_key: null,
     status: null,
+    status_mark: null,
+    hidden: false,
+    draft_by: null,
+    changed: false,
   };
 }
 

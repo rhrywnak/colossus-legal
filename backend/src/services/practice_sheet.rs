@@ -212,14 +212,56 @@ fn picked_receipts(row: &PracticeSheetRow) -> Vec<String> {
     }
 }
 
-pub fn sheet_payload(
-    settings: &Settings,
-    code: &str,
-    ended_at: chrono::DateTime<chrono::Utc>,
-    rows: Vec<PracticeSheetRow>,
-    ended_early: bool,
-    flagged: &[FlaggedQuestionRecord],
-) -> PracticeSheetPayload {
+/// One printed row, composed.
+///
+/// Split from [`sheet_payload`] so that function stays the assembly it reads as.
+fn row_dto(settings: &Settings, row: &PracticeSheetRow, number: usize) -> PracticeSheetRowDto {
+    let w = &settings.practice_report_wording;
+    PracticeSheetRowDto {
+        number,
+        from: from_cell(settings, row),
+        // A question with no card gets the stored dash, not an empty cell — an
+        // empty cell in a printed table reads as data that went missing.
+        tactic: tactic_name(settings, row.tactic).unwrap_or_else(|| w.tactic_none.clone()),
+        question: row.question.clone(),
+        answer: row.answer_text.clone(),
+        mark: mark_cell(settings, &row.mark),
+        help_opened: row.help_opened,
+        help: if row.help_opened {
+            w.help_opened.clone()
+        } else {
+            w.help_none.clone()
+        },
+        points_to: picked_receipts(row),
+    }
+}
+
+/// Everything Chuck's sheet is composed from, besides the settings snapshot.
+///
+/// A parameter struct for the reason `DeckSources` is one: this was six
+/// positional arguments and Part B made it seven, two of them collections and
+/// two of them booleans — the shape where a transposition compiles and prints
+/// the wrong evening.
+pub struct SheetSources<'a> {
+    pub code: &'a str,
+    pub ended_at: chrono::DateTime<chrono::Utc>,
+    pub rows: Vec<PracticeSheetRow>,
+    pub ended_early: bool,
+    pub flagged: &'a [FlaggedQuestionRecord],
+    /// The deck changes made on the day of this sitting, already composed
+    /// (task B2). EMPTY withdraws the block, heading included.
+    pub changes: Vec<String>,
+}
+
+pub fn sheet_payload(settings: &Settings, sources: SheetSources<'_>) -> PracticeSheetPayload {
+    let SheetSources {
+        code,
+        ended_at,
+        rows,
+        ended_early,
+        flagged,
+        changes,
+    } = sources;
     let w = &settings.practice_report_wording;
     let repeats = rows.iter().filter(|r| r.mark == "repeat").count();
     // Counted apart from `repeats`, and neither is counted as the other: a
@@ -231,23 +273,7 @@ pub fn sheet_payload(
     let rendered = rows
         .iter()
         .enumerate()
-        .map(|(i, row)| PracticeSheetRowDto {
-            number: i + 1,
-            from: from_cell(settings, row),
-            // A question with no card gets the stored dash, not an empty cell —
-            // an empty cell in a printed table reads as data that went missing.
-            tactic: tactic_name(settings, row.tactic).unwrap_or_else(|| w.tactic_none.clone()),
-            question: row.question.clone(),
-            answer: row.answer_text.clone(),
-            mark: mark_cell(settings, &row.mark),
-            help_opened: row.help_opened,
-            help: if row.help_opened {
-                w.help_opened.clone()
-            } else {
-                w.help_none.clone()
-            },
-            points_to: picked_receipts(row),
-        })
+        .map(|(i, row)| row_dto(settings, row, i + 1))
         .collect::<Vec<_>>();
 
     PracticeSheetPayload {
@@ -268,9 +294,25 @@ pub fn sheet_payload(
         } else {
             flow.flag_summary_hint.clone()
         },
+        // Same withdrawal rule as the flag block, for the same reason: a heading
+        // over an empty list reads as a list that failed to load.
+        changes_heading: if changes.is_empty() {
+            String::new()
+        } else {
+            settings
+                .practice_wording
+                .editor
+                .sheet_changes_heading
+                .clone()
+        },
+        changes,
     }
 }
 
 #[cfg(test)]
 #[path = "practice_sheet_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "practice_sheet_points_tests.rs"]
+mod points_tests;

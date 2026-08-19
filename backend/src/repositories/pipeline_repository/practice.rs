@@ -30,6 +30,11 @@ use super::PipelineRepoError;
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct PracticeQuestionRecord {
     pub id: Uuid,
+    /// The scenario this question belongs to. Read on every row rather than
+    /// only where it is needed: the editor reaches a question by its own id and
+    /// must write the change row against the right scenario, and a second query
+    /// to learn that is a round trip for a column already on the row.
+    pub scenario_id: Uuid,
     pub side: String,
     pub text: String,
     /// TACTIC_DECK_v1 card 1–7. `None` on a Chuck question — which has no tactic,
@@ -61,6 +66,11 @@ pub struct PracticeQuestionRecord {
     /// The exhibit this question stands on, as Marie would name it aloud. `None`
     /// on every question that stands on no document of its own.
     pub source_line: Option<String>,
+    /// When the deck editor hid this question, or `None` while it is live. A
+    /// hidden question leaves Marie's list and every queue and is never deleted.
+    pub hidden_at: Option<chrono::DateTime<chrono::Utc>>,
+    /// Who drafted this row, when nobody has reviewed it (`architect`).
+    pub draft_by: Option<String>,
 }
 
 /// One of Marie's three talking points, read live from the scenario record.
@@ -95,6 +105,8 @@ pub struct PracticeSheetRow {
     pub side: String,
     pub braid_rows: Option<String>,
     pub tactic: Option<i16>,
+    /// The question AS ASKED, from the answer row — never the deck's current
+    /// text. A later edit must not re-write what she was asked.
     pub question: String,
     pub answer_text: String,
     pub mark: String,
@@ -127,6 +139,11 @@ pub struct NewAnswer {
     /// `None` = she never opened the control; `Some([])` = she opened it and
     /// picked nothing. Two different facts about the same answer, kept apart.
     pub points_to: Option<serde_json::Value>,
+    /// The question AS ASKED, copied here at answer time. Chuck's sheet and the
+    /// review page print this rather than joining the deck's current text: an
+    /// answer is a moment, and a later edit must not re-write what she was
+    /// asked.
+    pub question_text: String,
     pub mark: String,
 }
 
@@ -136,9 +153,9 @@ pub async fn list_deck(
     scenario_id: Uuid,
 ) -> Result<Vec<PracticeQuestionRecord>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeQuestionRecord>(
-        "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
+        "SELECT id, scenario_id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note, deck_key, kind, follows_key, source_line \
+                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by \
          FROM practice_questions WHERE scenario_id = $1 ORDER BY sort_order",
     )
     .bind(scenario_id)
@@ -153,9 +170,9 @@ pub async fn get_question(
     question_id: Uuid,
 ) -> Result<Option<PracticeQuestionRecord>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeQuestionRecord>(
-        "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
+        "SELECT id, scenario_id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note, deck_key, kind, follows_key, source_line \
+                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by \
          FROM practice_questions WHERE id = $1",
     )
     .bind(question_id)
@@ -310,8 +327,8 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
         "INSERT INTO practice_answers \
          (session_id, question_id, answer_text, dont_recall, read_text, read_ok, read_error, \
           read_input_tokens, read_output_tokens, read_ms, read_model, read_raw_reply, \
-          self_check, points_to, mark) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
+          self_check, points_to, question_text, mark) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id",
     )
     .bind(answer.session_id)
     .bind(answer.question_id)
@@ -327,6 +344,7 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
     .bind(answer.read_raw_reply.as_deref())
     .bind(&answer.self_check)
     .bind(&answer.points_to)
+    .bind(&answer.question_text)
     .bind(&answer.mark)
     .fetch_one(pool)
     .await?;
@@ -380,7 +398,8 @@ pub async fn sheet_rows(
     session_id: Uuid,
 ) -> Result<Vec<PracticeSheetRow>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeSheetRow>(
-        "SELECT q.side, q.braid_rows, q.tactic, q.text AS question, \
+        "SELECT q.side, q.braid_rows, q.tactic, \
+                COALESCE(a.question_text, q.text) AS question, \
                 a.answer_text, a.mark, a.help_opened, a.points_to \
          FROM practice_answers a JOIN practice_questions q ON q.id = a.question_id \
          WHERE a.session_id = $1 ORDER BY a.answered_at, a.id",

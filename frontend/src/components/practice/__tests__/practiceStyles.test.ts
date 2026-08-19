@@ -26,6 +26,7 @@ const COMPONENTS = [
   "practiceStyles.ts",
   "practiceDeckStyles.ts",
   "practiceFlowStyles.ts",
+  "practiceEditorStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",
@@ -34,10 +35,20 @@ const COMPONENTS = [
   "PracticeResume.tsx",
   "PracticeTopBar.tsx",
   "PracticePointsTo.tsx",
+  "PracticeDeckRow.tsx",
+  "PracticeRowEdit.tsx",
+  "PracticeAddQuestion.tsx",
+  "PracticeNotes.tsx",
+  "PracticeChanged.tsx",
 ];
 
 /** Every file that renders a practice screen and therefore needs the attribute. */
-const PAGES = ["PracticePage.tsx", "PracticeSessionPage.tsx", "practiceChrome.tsx"];
+const PAGES = [
+  "PracticePage.tsx",
+  "PracticeSessionPage.tsx",
+  "PracticeQuestionReviewPage.tsx",
+  "practiceChrome.tsx",
+];
 
 /** Every `var(--practice-…)` the style module and its components reference. */
 function referencedTokens(): string[] {

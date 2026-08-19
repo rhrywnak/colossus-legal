@@ -98,6 +98,12 @@ pub async fn post_practice_answer(
             // answer now is what survives a closed laptop.
             self_check: unticked_self_check(),
             points_to,
+            // The question AS ASKED, copied onto the answer now. Chuck's sheet
+            // and the review page print this rather than joining the deck's
+            // current text — Chuck edits the deck on Thursday, and a sheet that
+            // silently re-worded itself would put her Tuesday answer under a
+            // question she was never asked.
+            question_text: question.text.clone(),
             mark: "fine".to_string(),
         },
     )
@@ -271,6 +277,7 @@ pub async fn post_skip_question(
             read_raw_reply: None,
             self_check: unticked_self_check(),
             points_to: None,
+            question_text: question.text.clone(),
             mark: "skipped".to_string(),
         },
     )

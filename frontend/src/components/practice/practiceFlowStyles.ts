@@ -147,15 +147,24 @@ export const pointsToChosen: CSSProperties = { fontSize: 14, color: MUTED, margi
  * is, and keyed on a data attribute rather than a tag so it cannot leak onto
  * any other link on the page.
  *
- * Rendered by both practice pages beside `PRINT_CSS`, for the same reason that
+ * Rendered by every practice page beside `PRINT_CSS`, for the same reason that
  * one is: a media query and a pseudo-class are the two things a React style
  * object cannot carry.
+ *
+ * `[data-practice-question]` is the deck row's question text, and it turns BLUE
+ * rather than underlining — mockup v4 draws it that way, and it is already
+ * carrying a dotted rule of its own. Two underlines on one control is the same
+ * mistake the stronger-answer drawer made with two arrows.
  */
 export const LINK_CSS = `
 [data-surface="practice"] [data-practice-link]:hover {
   text-decoration: underline;
 }
-[data-surface="practice"] [data-practice-link]:disabled {
+[data-surface="practice"] [data-practice-question]:hover {
+  color: var(--practice-blue);
+}
+[data-surface="practice"] [data-practice-link]:disabled,
+[data-surface="practice"] [data-practice-question]:disabled {
   cursor: default;
   opacity: 0.5;
   text-decoration: none;

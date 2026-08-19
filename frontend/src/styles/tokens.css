@@ -553,6 +553,14 @@
      the control border it sits beside, and its own token because it is the one
      colour on the bar that is punctuation rather than an edge. */
   --practice-separator: #b7c0cc;
+  /* mockup v4 `.qrow .qt a` — the dotted rule under a clickable question. It is
+     the only thing that says the question is pressable, and it is deliberately
+     not the blue link colour: a blue serif question reads as a link to
+     somewhere else rather than as the question itself. */
+  --practice-link-underline: #9aa6b2;
+  /* mockup v4 `.badge.draft` — olive, so an unreviewed draft does not read as
+     the blue "changed" badge beside it. */
+  --practice-draft-badge: #8a6d1f;
   --practice-quiet-bg: #f9fafb;
   --practice-drawer-bg: #fbfcfd;
   --practice-choice-selected-bg: #eef4fd;

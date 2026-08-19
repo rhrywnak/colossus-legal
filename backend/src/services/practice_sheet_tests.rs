@@ -6,11 +6,11 @@
 use super::*;
 use chrono::{TimeZone, Utc};
 
-fn settings() -> Settings {
+pub(super) fn settings() -> Settings {
     Settings::for_test()
 }
 
-fn row(
+pub(super) fn row(
     side: &str,
     braid: Option<&str>,
     tactic: Option<i16>,
@@ -72,14 +72,17 @@ fn every_cell_arrives_as_a_word_a_lawyer_can_read_on_paper() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![
-            row("george", None, Some(4), "repeat", true),
-            row("chuck", None, None, "fine", false),
-        ],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![
+                row("george", None, Some(4), "repeat", true),
+                row("chuck", None, None, "fine", false),
+            ],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     assert_eq!(payload.kicker, "Session done · S-5 · Mon 17 Aug");
@@ -116,11 +119,14 @@ fn her_answer_is_printed_exactly_as_she_typed_it() {
 
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![r.clone()],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![r.clone()],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
     assert_eq!(payload.rows[0].answer, r.answer_text);
 }
@@ -135,11 +141,14 @@ fn a_session_with_no_answers_still_composes_a_sheet() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     assert!(payload.rows.is_empty());
@@ -158,15 +167,18 @@ fn a_skipped_row_prints_as_skipped_and_is_counted_as_neither() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![
-            row("george", None, Some(4), "fine", false),
-            row("george", None, Some(2), "skipped", false),
-            row("chuck", None, None, "repeat", false),
-        ],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![
+                row("george", None, Some(4), "fine", false),
+                row("george", None, Some(2), "skipped", false),
+                row("chuck", None, None, "repeat", false),
+            ],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     let marks: Vec<&str> = payload.rows.iter().map(|r| r.mark.as_str()).collect();
@@ -285,11 +297,14 @@ fn an_unflagged_deck_withdraws_the_block_rather_than_printing_an_empty_heading()
 
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![row("george", None, Some(4), "fine", false)],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![row("george", None, Some(4), "fine", false)],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
     assert!(payload.flagged.is_empty());
     assert_eq!(payload.flagged_heading, "");
@@ -302,77 +317,17 @@ fn a_flagged_deck_carries_the_blocks_heading_and_hint() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![row("george", None, Some(4), "fine", false)],
-        false,
-        &[flagged("george", 1, "too soft")],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![row("george", None, Some(4), "fine", false)],
+            ended_early: false,
+            flagged: &[flagged("george", 1, "too soft")],
+            changes: vec![],
+        },
     );
 
     assert_eq!(payload.flagged.len(), 1);
     assert_eq!(payload.flagged_heading, "Flagged before the session");
     assert!(!payload.flagged_hint.is_empty());
-}
-
-/// The receipts she named ride on the row, in the order she picked them.
-#[test]
-fn the_sheet_carries_what_she_said_she_would_point_to() {
-    let s = settings();
-    let mut row = row("george", None, Some(4), "fine", false);
-    row.points_to = Some(serde_json::json!([
-        "your certified letter, 16 Nov 2009",
-        "CFS Interrogatory Response, p. 10"
-    ]));
-
-    let payload = sheet_payload(&s, "S-5", Utc::now(), vec![row], false, &[]);
-    assert_eq!(
-        payload.rows[0].points_to,
-        vec![
-            "your certified letter, 16 Nov 2009".to_string(),
-            "CFS Interrogatory Response, p. 10".to_string()
-        ]
-    );
-}
-
-/// An answer that named nothing prints NOTHING, and so does one from before the
-/// control existed.
-///
-/// Two different stored values — `Some([])` and `None` — and one rendering,
-/// because the SHEET's question is "what did she point to" and the answer is
-/// "nothing" either way. The distinction the column keeps is for the log, not
-/// for Chuck's paper: a "would point to:" with an empty list after it reads as
-/// data that went missing.
-#[test]
-fn an_answer_that_named_nothing_prints_no_line() {
-    let s = settings();
-    let mut never = row("george", None, Some(4), "fine", false);
-    never.points_to = None;
-    let mut empty = row("george", None, Some(4), "fine", false);
-    empty.points_to = Some(serde_json::json!([]));
-
-    let payload = sheet_payload(&s, "S-5", Utc::now(), vec![never, empty], false, &[]);
-    assert!(payload.rows[0].points_to.is_empty());
-    assert!(payload.rows[1].points_to.is_empty());
-}
-
-/// A stored value that is not a list of strings withdraws the line rather than
-/// failing the sheet.
-///
-/// Chuck's sheet is printed paper. Refusing to render it over one malformed cell
-/// would cost him the whole sitting, and there is nothing about that cell he
-/// needs more than the other six columns. The log names it; the paper says
-/// nothing, which is honest.
-#[test]
-fn a_malformed_points_to_withdraws_the_line_and_never_fails_the_sheet() {
-    let s = settings();
-    let mut row = row("george", None, Some(4), "fine", false);
-    row.points_to = Some(serde_json::json!({ "not": "a list" }));
-
-    let payload = sheet_payload(&s, "S-5", Utc::now(), vec![row], false, &[]);
-    assert_eq!(payload.rows.len(), 1, "the sheet still renders");
-    assert!(payload.rows[0].points_to.is_empty());
-    assert_eq!(
-        payload.rows[0].answer, "her answer",
-        "every other cell stands"
-    );
 }

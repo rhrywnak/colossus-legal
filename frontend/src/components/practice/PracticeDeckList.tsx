@@ -1,25 +1,20 @@
 // =============================================================================
-// PracticeDeckList.tsx — the deck, listed on the start card (mockup v3)
+// PracticeDeckList.tsx — the deck, listed on the start card (mockups v3 · v4)
 // =============================================================================
 //
 // Roman's ruling of 2026-08-18: Marie reads the questions BEFORE she starts, and
-// the list is open by default. Each row carries two controls — Skip today, which
-// keeps it out of this sitting, and Flag, which tells Roman and Chuck what is
-// wrong with it.
+// the list is open by default. Each row carries her three controls — Practice
+// this one ▸, Skip today, and Flag.
 //
-// ## Why skip and flag are two controls and not one
+// Mockup v4 puts a SWITCH in the header: "Edit the deck" turns the same list
+// into Chuck's editor — arrows, Edit, Hide, and + Add a question — with
+// "Editing as" beside it. The list is the same list; only the controls change.
 //
-// They say different things. "Skip today" is about this evening; "Flag" is about
-// the question. Collapsing them would lose the distinction that makes the flag
-// worth reading — Roman needs to know which questions are WRONG, not which ones
-// she was not in the mood for.
+// ## Who sees what
 //
-// ## Why there is no edit control
-//
-// Roman's ruling, and the migration header argues it: the deck text is what was
-// proved verbatim against the mockup and what the read is prompted on. A text
-// change mid-week with no record of who made it is the pairing-editor problem
-// again. The flag carries the complaint; the edit is a human act on the seed.
+// Marie never presses Edit the deck. There is one login, so nothing enforces
+// that in the browser — "Editing as" is the honest substitute, and the SERVER
+// refuses a change signed by somebody the store does not list as an editor.
 //
 // ## Every string here comes from the payload
 //
@@ -28,12 +23,20 @@
 
 import React from "react";
 
-import type { PracticeQuestion, PracticeWording } from "../../services/practice";
+import type {
+  PracticeAttachOption,
+  PracticeQuestion,
+  PracticeWording,
+} from "../../services/practice";
 import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
+import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
-import * as s from "./practiceStyles";
+import { authorsOf } from "./PracticeNotes";
+import PracticeAddQuestion from "./PracticeAddQuestion";
+import PracticeDeckRow from "./PracticeDeckRow";
 import * as d from "./practiceDeckStyles";
-import * as f from "./practiceFlowStyles";
+import * as e from "./practiceEditorStyles";
+import * as s from "./practiceStyles";
 
 interface Props {
   /** This side's questions, in the order the sitting will deal them. */
@@ -41,32 +44,17 @@ interface Props {
   wording: PracticeWording;
   /** The row controls' state and handlers — see the hook's header. */
   controls: PracticeDeckControls;
-  /**
-   * Open a one-question sitting on this question alone (task A2).
-   *
-   * A ONE-question sitting rather than a jump into the middle of the deck: the
-   * queue is `[id]`, the side is the question's own, and the count is 1. Going
-   * back returns her to this card with the session closed. Chuck's sheet is only
-   * drawn if she asks for it — five sheets holding one row each would bury the
-   * one sitting he actually wants to read.
-   */
+  /** The editor's state and its four writes — see its hook's header. */
+  editor: PracticeEditor;
+  /** What a new question may attach to. */
+  attachOptions: PracticeAttachOption[];
+  /** Open a one-question sitting on this question alone (task A2). */
   onPracticeOne: (question: PracticeQuestion) => void;
+  /** Open this question's review page (task B3). */
+  onReview: (question: PracticeQuestion) => void;
   /** True while that session POST is in flight, so the row can say so. */
   startingOne: boolean;
 }
-
-/**
- * The pill on a row: George, Chuck, or the braid's third colour.
- *
- * A braid is answered differently from either side, which is why the mockup
- * gives it a colour of its own rather than a George pill with a note.
- */
-const sidePill = (question: PracticeQuestion, wording: PracticeWording) => {
-  const w = (key: string) => wordingOf(wording, key);
-  if (question.braid) return { style: s.pillBraid, label: w("pill_braid") };
-  if (question.side === "george") return { style: s.pillGeorge, label: w("pill_george") };
-  return { style: s.pillChuck, label: w("pill_chuck") };
-};
 
 /**
  * The instruction sentence, with the two control labels rendered bold.
@@ -91,133 +79,29 @@ const Instruction: React.FC<{ wording: PracticeWording }> = ({ wording }) => {
   );
 };
 
-/** One question's row. Split out because the list's own body passed Rule 18. */
-const DeckRow: React.FC<{
-  question: PracticeQuestion;
-  number: number;
-  /** The last row draws the rule that closes the list. */
-  last: boolean;
-  wording: PracticeWording;
-  controls: PracticeDeckControls;
-  editing: boolean;
-  draft: string;
-  onDraftChange: (draft: string) => void;
-  onOpenEditor: () => void;
-  onCloseEditor: () => void;
-  onPracticeOne: () => void;
-  startingOne: boolean;
-}> = ({
-  question,
-  number,
-  last,
+/** "Editing as ⟨Chuck⟩", shown only once the editor is open. */
+const EditingAs: React.FC<{ wording: PracticeWording; editor: PracticeEditor }> = ({
   wording,
-  controls,
-  editing,
-  draft,
-  onDraftChange,
-  onOpenEditor,
-  onCloseEditor,
-  onPracticeOne,
-  startingOne,
+  editor,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
-  const skipped = controls.skippedToday.has(question.id);
-  const flagged = question.flag_note !== null && question.flag_note !== "";
-  const pill = sidePill(question, wording);
-  // Struck through at 40%, not hidden: a skipped row she cannot see is one she
-  // cannot put back.
-  const muted = skipped ? d.questionSkipped : undefined;
-
   return (
-    <div
-      style={{
-        ...d.questionRow,
-        ...(flagged ? d.questionRowFlagged : {}),
-        ...(last ? d.questionRowLast : {}),
-      }}
-    >
-      <div style={d.questionNumber}>{number}</div>
-      <div>
-        <span style={{ ...pill.style, fontSize: 12 }}>{pill.label}</span>
-        {question.tactic !== null && <span style={s.tacticTag}>{question.tactic}</span>}
-        {/* The question text is the link that opens it alone (task A2). A
-            `<button>` and not an `<a>`: it runs a handler that opens a session,
-            it does not navigate to a URL — and an anchor with no href is not
-            reachable by keyboard, which on a witness surface is not a detail. */}
-        <button
-          type="button"
-          style={{ ...f.questionLink, ...d.questionText, ...muted }}
-          onClick={onPracticeOne}
-          disabled={startingOne}
-        >
-          {question.text}
-        </button>
-        {question.receipt !== null && (
-          <div style={{ ...d.questionSource, ...muted }}>{question.receipt}</div>
-        )}
-        {/* What happened to this question, composed by the server. Mockup v4
-            will rule on where it sits; until then it is under the source line at
-            13px muted, which is where the task put it. NOTHING renders on a
-            question nobody has answered — an empty status line reads as a status
-            that failed to load. */}
-        {question.status !== null && <div style={f.rowStatus}>{question.status}</div>}
-        {flagged && (
-          <div style={d.flagged}>
-            ⚑ {w("flag_shown_template").replace("{note}", question.flag_note ?? "")}
-          </div>
-        )}
-        {editing && (
-          <div style={d.flagLine}>
-            <input
-              style={d.flagInput}
-              placeholder={w("flag_placeholder")}
-              value={draft}
-              onChange={(e) => onDraftChange(e.target.value)}
-              aria-label={w("flag_placeholder")}
-            />
-            <button
-              type="button"
-              style={d.rowButton}
-              disabled={controls.savingFlagFor === question.id}
-              onClick={() => {
-                controls.saveFlag(question.id, draft);
-                onCloseEditor();
-              }}
-            >
-              {w("flag_save_label")}
-            </button>
-            <button type="button" style={d.rowButton} onClick={onCloseEditor}>
-              {w("flag_cancel_label")}
-            </button>
-          </div>
-        )}
-      </div>
-      <div style={d.rowControls}>
-        <button
-          type="button"
-          style={d.rowButton}
-          onClick={onPracticeOne}
-          disabled={startingOne}
-        >
-          {w("row_practice_this_label")}
-        </button>
-        <button
-          type="button"
-          style={skipped ? d.rowButtonSkipped : d.rowButton}
-          aria-pressed={skipped}
-          onClick={() => controls.toggleSkip(question.id)}
-        >
-          {skipped ? w("skipped_today_label") : w("skip_today_label")}
-        </button>
-        <button
-          type="button"
-          style={d.rowButton}
-          onClick={() => (editing ? onCloseEditor() : onOpenEditor())}
-        >
-          {flagged ? w("flag_edit_label") : w("flag_label")}
-        </button>
-      </div>
-    </div>
+    <span>
+      {w("editor_as_label")}{" "}
+      <select
+        style={e.editSelect}
+        value={editor.editingAs}
+        onChange={(event) => editor.setEditingAs(event.target.value)}
+        aria-label={w("editor_as_label")}
+      >
+        <option value="">{w("editor_as_unset")}</option>
+        {authorsOf(wording, "editor_authors").map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </span>
   );
 };
 
@@ -225,7 +109,10 @@ const PracticeDeckList: React.FC<Props> = ({
   questions,
   wording,
   controls,
+  editor,
+  attachOptions,
   onPracticeOne,
+  onReview,
   startingOne,
 }) => {
   const { skippedToday, flagError } = controls;
@@ -235,11 +122,14 @@ const PracticeDeckList: React.FC<Props> = ({
   // for one page-load, until Chuck rules on whether Marie should see the deck
   // before a drill at all.
   const [open, setOpen] = React.useState(true);
-  // Which row has its note editor showing, and what is typed in it. One row at a
+  // Which row has its flag note showing, and what is typed in it. One at a
   // time: two open editors is two half-written complaints and no way to tell
   // which one she meant to save.
   const [editing, setEditing] = React.useState<string | null>(null);
   const [draft, setDraft] = React.useState("");
+  // Which row has its EDITOR fields open, and whether the add form is showing.
+  const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
+  const [adding, setAdding] = React.useState(false);
 
   const george = questions.filter((q) => q.side === "george").length;
   const skippedHere = questions.filter((q) => skippedToday.has(q.id)).length;
@@ -253,7 +143,7 @@ const PracticeDeckList: React.FC<Props> = ({
       ? ` ${w("deck_skipped_suffix_template").replace("{k}", String(skippedHere))}`
       : "");
 
-  const openEditor = (question: PracticeQuestion) => {
+  const openFlagEditor = (question: PracticeQuestion) => {
     setEditing(question.id);
     setDraft(question.flag_note ?? "");
   };
@@ -264,37 +154,86 @@ const PracticeDeckList: React.FC<Props> = ({
         <b>
           {w("deck_heading")} <span style={d.deckCount}>{count}</span>
         </b>
-        <button
-          type="button"
-          style={d.deckToggle}
-          aria-expanded={open}
-          onClick={() => setOpen((was) => !was)}
-        >
-          {open ? w("deck_hide_link") : w("deck_show_link")}
-        </button>
+        <span style={e.editBar}>
+          {editor.editing && <EditingAs wording={wording} editor={editor} />}
+          <button
+            type="button"
+            style={e.editSwitch}
+            data-practice-link
+            aria-pressed={editor.editing}
+            onClick={editor.toggleEditing}
+          >
+            {editor.editing ? w("editor_done_label") : w("editor_switch_label")}
+          </button>
+          <span style={{ color: "var(--practice-separator)" }}>·</span>
+          <button
+            type="button"
+            style={d.deckToggle}
+            data-practice-link
+            aria-expanded={open}
+            onClick={() => setOpen((was) => !was)}
+          >
+            {open ? w("deck_hide_link") : w("deck_show_link")}
+          </button>
+        </span>
       </div>
 
       {open && (
         <>
           <Instruction wording={wording} />
           {flagError !== null && <p style={d.flagged}>{flagError}</p>}
+          {/* Standing Rule 1: a failed editor write says so, and says the deck
+              is UNCHANGED — an editor who believes an edit landed when it did
+              not will not make it again. */}
+          {editor.error !== null && (
+            <div style={{ ...s.feedback, marginTop: 8 }} role="alert">
+              {editor.error}
+            </div>
+          )}
+
           {questions.map((question, i) => (
-            <DeckRow
+            <PracticeDeckRow
               key={question.id}
               question={question}
               number={i + 1}
               last={i === questions.length - 1}
               wording={wording}
               controls={controls}
+              editor={editor}
               editing={editing === question.id}
               draft={draft}
               onDraftChange={setDraft}
-              onOpenEditor={() => openEditor(question)}
+              onOpenEditor={() => openFlagEditor(question)}
               onCloseEditor={() => setEditing(null)}
               onPracticeOne={() => onPracticeOne(question)}
+              onReview={() => onReview(question)}
               startingOne={startingOne}
+              fieldsOpen={fieldsFor === question.id}
+              onToggleFields={() =>
+                setFieldsFor((was) => (was === question.id ? null : question.id))
+              }
             />
           ))}
+
+          {editor.editing &&
+            (adding ? (
+              <PracticeAddQuestion
+                wording={wording}
+                attachOptions={attachOptions}
+                ready={editor.ready}
+                onAdd={(question) => {
+                  editor.add(question);
+                  setAdding(false);
+                }}
+                onCancel={() => setAdding(false)}
+              />
+            ) : (
+              <div style={{ ...s.row, marginTop: 10 }}>
+                <button type="button" style={s.button} onClick={() => setAdding(true)}>
+                  {w("editor_add_label")}
+                </button>
+              </div>
+            ))}
         </>
       )}
     </div>

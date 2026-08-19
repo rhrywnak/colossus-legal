@@ -67,6 +67,24 @@ pub struct PracticeQuestionDto {
     /// repeat · attempt 2". `None` on a question nobody has answered, which
     /// renders nothing at all rather than an empty line.
     pub status: Option<String>,
+    /// The RAW mark behind that status — `fine`, `repeat` or `skipped`, or
+    /// `None` when there is no status.
+    ///
+    /// Sent beside the sentence rather than parsed out of it: the sentence is a
+    /// Settings row and can be re-worded, and a screen that coloured itself by
+    /// searching it for the word "repeat" would lose its colours the first time
+    /// somebody edited the template.
+    pub status_mark: Option<String>,
+    /// True when the deck editor has hidden this question. Marie's list and
+    /// every queue drop it; the editor still shows it, greyed, so it can be put
+    /// back. Never deleted.
+    pub hidden: bool,
+    /// Who drafted this question when nobody has reviewed it (`architect`), or
+    /// `None`. The editor shows a draft badge while it is set.
+    pub draft_by: Option<String>,
+    /// True when this question has changed since her last sitting AND she has
+    /// not answered it since. The badge that says "re-read this one".
+    pub changed: bool,
 }
 
 /// The flag as it stands after a write — `None` when it was cleared.
@@ -126,6 +144,14 @@ pub struct PracticeDeckPayload {
     /// blue box entirely — an empty box would read as a session that failed to
     /// load.
     pub open_session: Option<OpenSessionDto>,
+    /// The notes on this SCENARIO, oldest first. Question- and attempt-level
+    /// notes ride the review payload instead.
+    pub notes: Vec<super::practice_review::PracticeNoteDto>,
+    /// What changed since her last sitting. `None` withdraws the blue box.
+    pub changed: Option<super::practice_review::PracticeChangedDto>,
+    /// What the editor's add form may attach a new question to — this
+    /// scenario's ruled instances and talking points, already labelled.
+    pub attach_options: Vec<super::practice_review::PracticeAttachOptionDto>,
     pub wording: PracticeWordingDto,
 }
 
@@ -293,6 +319,9 @@ pub struct PracticeSheetRowDto {
     pub points_to: Vec<String>,
 }
 
+/// One change the sheet's footer prints. See `services::practice_changes`.
+pub type SheetChangeLine = String;
+
 /// Chuck's sheet, composed.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -310,4 +339,10 @@ pub struct PracticeSheetPayload {
     /// it. Both empty when `flagged` is.
     pub flagged_heading: String,
     pub flagged_hint: String,
+    /// The deck changes made on the day of this sitting, already composed
+    /// (task B2: "Chuck's sheet footer lists the changes made that day"). EMPTY
+    /// withdraws the block, heading included.
+    pub changes: Vec<SheetChangeLine>,
+    /// That block's heading. Empty when `changes` is.
+    pub changes_heading: String,
 }

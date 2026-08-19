@@ -25,8 +25,10 @@ use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -112,6 +114,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // table, and a fixture missing these twelve rows would let a snapshot
         // build that the real store could not.
         .chain(crate::domain::wording_practice_row::PracticeRowWording::for_test_values())
+        // PRACTICE v1 Part B: the deck editor's words and the review page's,
+        // nested on the struct for the same Rule 17 reason and listed here for
+        // the same reason as their siblings — one flat table.
+        .chain(crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values())
+        .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
@@ -634,6 +641,18 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          line, and what she would point to"
     );
     assert_eq!(
+        PRACTICE_EDITOR_WORDING_KEYS.len(),
+        47,
+        "PRACTICE v1 Part B, mockup v4: the deck editor, the two author \
+         vocabularies, the change vocabulary, the badges, and the changed-since \
+         box"
+    );
+    assert_eq!(
+        PRACTICE_REVIEW_WORDING_KEYS.len(),
+        21,
+        "PRACTICE v1 Part B: the notes panel and the review page"
+    );
+    assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
         48,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
@@ -657,8 +676,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
+            + PRACTICE_EDITOR_WORDING_KEYS.len()
+            + PRACTICE_REVIEW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len(),
-        "the seed and the sixteen required lists must describe the same store"
+        "the seed and the eighteen required lists must describe the same store"
     );
 }
 
@@ -1080,6 +1101,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // it is here because it CORRECTS one. `practice_read_prompt_file` moves
         // to v2, and the correction pass below is what sees it.
         "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql",
+        // PRACTICE v1 Part B: no new not-wording parameter, but it CORRECTS the
+        // answer box's placeholder, and the correction pass below is what sees
+        // it. The two author vocabularies live in the wording lists.
+        "pipeline_migrations/20260819113610_practice_v1_part_b_deck_editor_notes_and_review.sql",
     ]
     .iter()
     .map(|relative| {

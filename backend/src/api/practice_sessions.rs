@@ -30,11 +30,21 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{OpenSessionsClosed, SittingPayload},
+    domain::scenario_code::scenario_code,
+    dto::practice::{OpenSessionsClosed, PracticeSheetPayload, SittingPayload},
     error::AppError,
-    repositories::pipeline_repository::practice::{end_session, session_scenario},
+    repositories::pipeline_repository::get_scenario,
+    repositories::pipeline_repository::practice::{
+        end_session, list_deck, session_scenario, sheet_rows,
+    },
+    repositories::pipeline_repository::practice_editor::changes_on_day,
     repositories::pipeline_repository::practice_flow::{
-        answered_question_ids, close_open_sessions_except, get_sitting,
+        answered_question_ids, close_open_sessions_except, get_sitting, list_flagged,
+        session_queue_len,
+    },
+    services::{
+        practice_changes::sheet_lines,
+        practice_sheet::{sheet_payload, SheetSources},
     },
     state::AppState,
 };
@@ -171,4 +181,95 @@ pub async fn post_start_over(
 
     tracing::info!(%session_id, %scenario_id, also_closed = also, "practice sitting started over");
     Ok(Json(OpenSessionsClosed { also_closed: also }))
+}
+
+/// Read everything Chuck's sheet is composed from, and compose it.
+///
+/// Split from [`post_end_session`] so that handler is the three steps it reads
+/// as — find the session, close it, show the sheet — while the four reads and
+/// the one comparison that BUILD the sheet sit together, where the reason each
+/// is needed can be argued in one place.
+///
+/// # Errors
+/// 404 when the scenario behind the session has gone; 500 (logged, with the
+/// operation named) for any read that fails.
+async fn compose_sheet(
+    state: &AppState,
+    session_id: Uuid,
+    scenario_id: Uuid,
+) -> Result<PracticeSheetPayload, AppError> {
+    let record = get_scenario(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("get_scenario", e))?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("scenario {scenario_id} not found"),
+        })?;
+    let rows = sheet_rows(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("sheet_rows", e))?;
+    // The whole deck's flags, not this sitting's: a question she flagged AND
+    // kept out of tonight is the one Roman most needs to see.
+    let flagged = list_flagged(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_flagged", e))?;
+
+    // "Ended early" is a comparison against the queue she STARTED with, which is
+    // why the queue is stored on the session. Unknown (no stored queue) is
+    // reported as NOT early — the sheet never claims a fact it cannot source.
+    let queue_len = session_queue_len(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("session_queue_len", e))?;
+    let ended_early = queue_len.is_some_and(|n| rows.len() < n.max(0) as usize);
+
+    // The day's deck edits, for the sheet's footer (task B2). Read against the
+    // deck so a change can name the question's PRINTED position rather than a
+    // uuid, which is no use on paper.
+    let now = chrono::Utc::now();
+    let deck = list_deck(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_deck", e))?;
+    let today = changes_on_day(&state.pipeline_pool, scenario_id, now)
+        .await
+        .map_err(|e| repo_error("changes_on_day", e))?;
+
+    let settings = state.settings.current();
+    Ok(sheet_payload(
+        &settings,
+        SheetSources {
+            code: &scenario_code(record.code_ordinal),
+            ended_at: now,
+            rows,
+            ended_early,
+            flagged: &flagged,
+            changes: sheet_lines(&settings, &deck, &today),
+        },
+    ))
+}
+
+/// Close the session and return Chuck's sheet.
+pub async fn post_end_session(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Path(session_id): Path<Uuid>,
+) -> Result<Json<PracticeSheetPayload>, AppError> {
+    let scenario_id = session_scenario(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("session_scenario", e))?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("practice session {session_id} not found"),
+        })?;
+
+    end_session(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("end_session", e))?;
+
+    let payload = compose_sheet(&state, session_id, scenario_id).await?;
+
+    tracing::info!(
+        %session_id,
+        rows = payload.rows.len(),
+        flagged = payload.flagged.len(),
+        "practice session ended"
+    );
+    Ok(Json(payload))
 }

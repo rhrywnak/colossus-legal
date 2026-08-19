@@ -18,7 +18,7 @@ import React from "react";
 
 import type { PracticeDeck, PracticeQuestion } from "../services/practice";
 import { savePracticeFlag } from "../services/practiceFlow";
-import { availableDeck, orderedDeck, V0_QUESTION_COUNT } from "./practiceQueue";
+import { availableDeck, editorDeck, orderedDeck, V0_QUESTION_COUNT } from "./practiceQueue";
 
 /** What the start screen needs to render and drive the two row controls. */
 export interface PracticeDeckControls {
@@ -58,6 +58,14 @@ export interface DeckView {
   ordered: PracticeQuestion[];
   available: PracticeQuestion[];
   count: number;
+  /**
+   * The same side INCLUDING hidden questions — what the deck EDITOR renders.
+   *
+   * Marie never sees these; the editor must, or a hidden question is one nobody
+   * can put back. Carried on the same view object so the two lists cannot drift
+   * apart in anything but that one step.
+   */
+  all: PracticeQuestion[];
 }
 
 /**
@@ -132,6 +140,7 @@ export function usePracticeDeckControls(
       ordered: orderedDeck(questions, who),
       available,
       count: Math.min(count, available.length),
+      all: editorDeck(questions, who),
     };
   };
 

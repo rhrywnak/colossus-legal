@@ -53,6 +53,9 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
     last_session_line: "No session on this one yet.",
     receipts: ["your certified letter, 16 Nov 2009"],
     open_session: null,
+    notes: [],
+    changed: null,
+    attach_options: [],
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }

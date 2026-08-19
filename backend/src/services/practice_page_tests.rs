@@ -25,6 +25,7 @@ fn point(position: i32, exhibit: Option<&str>) -> PracticePointRecord {
 pub(super) fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
     PracticeQuestionRecord {
         id: Uuid::nil(),
+        scenario_id: Uuid::nil(),
         side: "george".to_string(),
         text: "a question".to_string(),
         tactic,
@@ -43,6 +44,8 @@ pub(super) fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuesti
         kind: "cross".to_string(),
         follows_key: None,
         source_line: Some("the hearing, p. 34".to_string()),
+        hidden_at: None,
+        draft_by: None,
     }
 }
 
@@ -97,13 +100,14 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
         &s,
         now(),
         &[],
+        &[],
         record(Some(5), Some("Barrage rows 1 · 2 · 5")),
     );
 
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
 
-    let plain = question_dto(&s, now(), &[], record(Some(5), None));
+    let plain = question_dto(&s, now(), &[], &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
     assert!(!plain.braid);
 }
@@ -161,6 +165,10 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
 
@@ -197,6 +205,10 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
     let json = serde_json::to_string(&payload).expect("the payload serializes");
@@ -242,6 +254,10 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
 
@@ -284,6 +300,10 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
 
@@ -316,6 +336,10 @@ fn a_point_with_neither_still_names_its_absence() {
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
 

@@ -78,6 +78,10 @@ impl PracticeWording {
         // consulted here too — one builder, one rule, two tables.
         let flow = crate::domain::wording_practice_flow::PracticeFlowWording::for_test_values();
         let row = crate::domain::wording_practice_row::PracticeRowWording::for_test_values();
+        let editor =
+            crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values();
+        let review =
+            crate::domain::wording_practice_review::PracticeReviewWording::for_test_values();
         build_practice_wording::<String>(|key| {
             TEST_SEED
                 .iter()
@@ -85,6 +89,8 @@ impl PracticeWording {
                 .map(|(_, v)| (*v).to_string())
                 .or_else(|| flow.get(key).cloned())
                 .or_else(|| row.get(key).cloned())
+                .or_else(|| editor.get(key).cloned())
+                .or_else(|| review.get(key).cloned())
                 .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
         })
         .expect("every key in PRACTICE_WORDING_KEYS is in TEST_SEED")

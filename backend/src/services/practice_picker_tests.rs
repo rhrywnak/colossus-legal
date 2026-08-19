@@ -50,6 +50,10 @@ fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) 
             statuses: &[],
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     )
     .receipts
@@ -168,6 +172,10 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
             statuses: &statuses,
             open: None,
             now: now(),
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
         },
     );
 
@@ -175,8 +183,15 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
         payload.questions[0].status.as_deref(),
         Some("answered today · repeat · attempt 2")
     );
+    assert_eq!(
+        payload.questions[0].status_mark.as_deref(),
+        Some("repeat"),
+        "the RAW mark rides beside the sentence, so the screen colours without \
+         searching a template somebody can re-word"
+    );
     assert!(
         payload.questions[1].status.is_none(),
         "a question nobody has answered renders NOTHING, not an empty line"
     );
+    assert!(payload.questions[1].status_mark.is_none());
 }

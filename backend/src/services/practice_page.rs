@@ -83,6 +83,33 @@ fn tactic_tag(settings: &Settings, record: &PracticeQuestionRecord) -> Option<St
     }
 }
 
+/// One deck row for a screen that has no statuses and no badges to apply.
+///
+/// The review page shows ONE question and never a list, so neither its status
+/// (which is about the row on the start card) nor its `changed` badge (which is
+/// about re-reading the list) means anything there. Passing empty slices rather
+/// than a second mapper keeps ONE function deciding what a question is on the
+/// wire — which is what stops the review page and the start card disagreeing
+/// about a redirect's tag.
+pub fn question_dto_for(
+    settings: &Settings,
+    record: PracticeQuestionRecord,
+) -> PracticeQuestionDto {
+    question_dto(settings, Utc::now(), &[], &[], record)
+}
+
+/// One talking point with its receipt, for a caller outside this module.
+pub fn point_dto(
+    point: PracticePointRecord,
+    receipts: &[PracticePointReceipt],
+) -> PracticePointDto {
+    PracticePointDto {
+        position: point.position,
+        exhibit: point_receipt(&point, receipts),
+        text: point.text,
+    }
+}
+
 /// One deck row, as the three screens receive it.
 ///
 /// `status` arrives already composed, or absent. A question nobody has answered
@@ -92,12 +119,12 @@ fn question_dto(
     settings: &Settings,
     now: DateTime<Utc>,
     statuses: &[RowStatusRecord],
+    badged: &[Uuid],
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    let status = statuses
-        .iter()
-        .find(|s| s.question_id == record.id)
-        .map(|s| row_status(settings, now, s));
+    let found = statuses.iter().find(|s| s.question_id == record.id);
+    let status = found.map(|s| row_status(settings, now, s));
+    let status_mark = found.map(|s| s.mark.clone());
     PracticeQuestionDto {
         tactic: tactic_tag(settings, &record),
         braid: record.braid_rows.is_some(),
@@ -112,10 +139,14 @@ fn question_dto(
         stronger: record.stronger,
         stronger_lean: record.stronger_lean,
         flag_note: record.flag_note,
+        hidden: record.hidden_at.is_some(),
+        draft_by: record.draft_by,
+        changed: badged.contains(&record.id),
         kind: record.kind,
         deck_key: record.deck_key,
         follows_key: record.follows_key,
         status,
+        status_mark,
     }
 }
 
@@ -242,6 +273,15 @@ pub struct DeckSources<'a> {
     /// Passed rather than read here so the composition stays testable without a
     /// clock — the same reason the sheet takes its `ended_at`.
     pub now: DateTime<Utc>,
+    /// The questions wearing the `changed` badge, decided by
+    /// `services::practice_changes::badged`.
+    pub badged: &'a [Uuid],
+    /// The notes on the scenario, already composed.
+    pub notes: Vec<crate::dto::practice_review::PracticeNoteDto>,
+    /// What changed since her last sitting, or `None`.
+    pub changed: Option<crate::dto::practice_review::PracticeChangedDto>,
+    /// What the editor's add form may attach a new question to.
+    pub attach_options: Vec<crate::dto::practice_review::PracticeAttachOptionDto>,
 }
 
 /// Build the whole payload.
@@ -261,6 +301,10 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         statuses,
         open,
         now,
+        badged,
+        notes,
+        changed,
+        attach_options,
     } = sources;
 
     let picker = picker_receipts(&deck, receipts);
@@ -270,7 +314,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, now, statuses, record))
+            .map(|record| question_dto(settings, now, statuses, badged, record))
             .collect(),
         points: points
             .into_iter()
@@ -282,6 +326,9 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
             .collect(),
         last_session_line: last_session_line(&settings.practice_wording, last),
         receipts: picker,
+        notes,
+        changed,
+        attach_options,
         open_session: open.map(|record| OpenSessionDto {
             session_id: record.id,
             detail: open_session_detail(settings, now, record),

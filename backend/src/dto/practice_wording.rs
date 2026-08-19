@@ -166,6 +166,83 @@ pub struct PracticeWordingDto {
     pub points_to_reveal_prefix: String,
     pub points_to_sheet_prefix: String,
     pub unfinished_today_word: String,
+
+    // ── Part B: the deck editor and what it records (Chuck's words) ─────
+    // Same flattening rule as every block above: one field per stored key,
+    // the `practice_` prefix dropped and nothing else done to the name.
+    // `note_authors` and `editor_authors` arrive as the stored comma-separated
+    // STRING — the readers split them — so this object stays what its two
+    // tests below say it is: every value a string, every name a key.
+    pub note_authors: String,
+    pub editor_authors: String,
+    pub editor_switch_label: String,
+    pub editor_done_label: String,
+    pub editor_as_label: String,
+    pub editor_as_unset: String,
+    pub editor_edit_label: String,
+    pub editor_hide_label: String,
+    pub editor_unhide_label: String,
+    pub editor_hidden_badge: String,
+    pub editor_up_label: String,
+    pub editor_down_label: String,
+    pub editor_save_label: String,
+    pub editor_cancel_label: String,
+    pub editor_saved_hint_template: String,
+    pub editor_field_question: String,
+    pub editor_field_tactic: String,
+    pub editor_field_follows: String,
+    pub editor_field_watch_for: String,
+    pub editor_field_stronger: String,
+    pub editor_field_side: String,
+    pub editor_field_attach: String,
+    pub editor_side_cross: String,
+    pub editor_side_direct: String,
+    pub editor_side_redirect: String,
+    pub editor_attach_none: String,
+    pub editor_attach_instance_template: String,
+    pub editor_attach_point_template: String,
+    pub editor_add_label: String,
+    pub editor_add_heading: String,
+    pub editor_add_button: String,
+    pub editor_add_hint: String,
+    pub editor_question_placeholder: String,
+    pub editor_failed: String,
+    pub changed_heading_template: String,
+    pub changed_notes_template: String,
+    pub changed_summary: String,
+    pub change_added_template: String,
+    pub change_reworded_template: String,
+    pub change_edited_template: String,
+    pub change_moved_template: String,
+    pub change_hidden_template: String,
+    pub change_unhidden_template: String,
+    pub badge_changed: String,
+    pub badge_draft: String,
+    pub sheet_changes_heading: String,
+    pub sheet_change_item_template: String,
+
+    // ── Part B: notes, and the review page ───────────────────────────────
+    pub notes_heading_template: String,
+    pub notes_scenario_title: String,
+    pub notes_question_title: String,
+    pub notes_hint: String,
+    pub notes_placeholder: String,
+    pub notes_attempt_placeholder: String,
+    pub notes_save_label: String,
+    pub notes_strike_label: String,
+    pub notes_struck_template: String,
+    pub notes_empty: String,
+    pub notes_failed: String,
+    pub notes_author_unset: String,
+    pub row_review_link: String,
+    pub review_progress_template: String,
+    pub review_attempts_kicker: String,
+    pub review_attempt_template: String,
+    pub review_detail_template: String,
+    pub review_boxes_none: String,
+    pub review_no_attempts: String,
+    pub review_practice_again: String,
+    pub review_stronger_heading: String,
 }
 
 #[cfg(test)]
@@ -173,9 +250,11 @@ mod tests {
     use super::*;
     use crate::domain::wording_practice::PracticeWording;
     use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+    use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
     use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
     use crate::domain::wording_practice_report::PracticeReportWording;
     use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+    use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
     use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 
     fn mirror() -> PracticeWordingDto {
@@ -196,7 +275,9 @@ mod tests {
             PRACTICE_WORDING_KEYS.len()
                 + PRACTICE_FLOW_WORDING_KEYS.len()
                 + PRACTICE_REPORT_WORDING_KEYS.len()
-                + PRACTICE_ROW_WORDING_KEYS.len(),
+                + PRACTICE_ROW_WORDING_KEYS.len()
+                + PRACTICE_EDITOR_WORDING_KEYS.len()
+                + PRACTICE_REVIEW_WORDING_KEYS.len(),
         );
     }
 
@@ -211,7 +292,9 @@ mod tests {
                 PRACTICE_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_FLOW_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str()),
+                    || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_REVIEW_WORDING_KEYS.contains(&stored.as_str()),
                 "wire field '{key}' implies stored key '{stored}', which is not declared",
             );
         }
