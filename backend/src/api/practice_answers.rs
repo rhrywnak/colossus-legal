@@ -253,6 +253,16 @@ pub async fn post_skip_question(
             // NOT an error: `read_error` says why a read is ABSENT, and the
             // honest reason here is that none was asked for. Leaving it NULL
             // would make a skip indistinguishable from a call that vanished.
+            //
+            // CONST (structural): a DIAGNOSTIC marker in a log column, not a
+            // sentence anybody reads on a screen — which is exactly what
+            // distinguishes it from `skipped_answer_text` two lines above, a
+            // stored row because Marie's answer cell prints it. Every other
+            // value this column holds is composed by this build from a failure
+            // it observed (`the call failed: …`, `the read was 41 words; …`);
+            // one of them arriving from the settings store would mean an
+            // operator could edit what a past failure is recorded as having
+            // been. It changes only when this code path changes.
             read_error: Some("no read: the question was skipped mid-sitting".to_string()),
             read_input_tokens: None,
             read_output_tokens: None,

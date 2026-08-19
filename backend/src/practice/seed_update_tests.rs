@@ -144,7 +144,11 @@ fn the_plan_separates_updates_inserts_and_the_rows_left_alone() {
 
     let report = plan("S-5", stored, &keys, &key_of, &[]);
 
-    assert_eq!(report.updated, vec!["g1".to_string()], "g1 is already stored");
+    assert_eq!(
+        report.updated,
+        vec!["g1".to_string()],
+        "g1 is already stored"
+    );
     assert_eq!(report.inserted, vec!["r1".to_string()], "r1 is new");
     assert_eq!(
         report.untouched,

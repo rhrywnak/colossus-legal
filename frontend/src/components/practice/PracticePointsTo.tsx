@@ -27,6 +27,19 @@ import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import * as f from "./practiceFlowStyles";
 
+/**
+ * What joins two picked receipts wherever they are printed together.
+ *
+ * CONST (structural): punctuation between two DATA values, not a sentence. It is
+ * the same middle dot the deck count, the row status and the sheet's own clauses
+ * already use, and it is exported so the three surfaces that print this list —
+ * this control, the reveal, and Chuck's printed sheet — cannot drift into using
+ * three different separators for the same list. The settings store deliberately
+ * does not hold it: a stored value is trimmed, so it could not carry its own
+ * surrounding spaces, and the store cannot validate punctuation.
+ */
+export const RECEIPT_JOIN = " · ";
+
 interface Props {
   wording: PracticeWording;
   /** This scenario's receipts, already de-duplicated and ordered by the server. */
@@ -90,12 +103,10 @@ const PracticePointsTo: React.FC<Props> = ({
       )}
 
       {/* Echoed while the list is CLOSED so she can see what she picked without
-          reopening it. The join is the same separator the reveal and the sheet
-          use, and it is drawn here rather than stored: it is punctuation between
-          two data values, not a sentence. */}
+          reopening it. See `RECEIPT_JOIN` for why the separator is a constant. */}
       {!open && picked.length > 0 && (
         <div style={f.pointsToChosen}>
-          {w("points_to_reveal_prefix")} {picked.join(" · ")}
+          {w("points_to_reveal_prefix")} {picked.join(RECEIPT_JOIN)}
         </div>
       )}
     </div>

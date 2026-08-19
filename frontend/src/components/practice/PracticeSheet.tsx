@@ -22,6 +22,7 @@ import React from "react";
 
 import type { PracticeSheet as Sheet, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
+import { RECEIPT_JOIN } from "./PracticePointsTo";
 import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
 
@@ -104,7 +105,7 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
                     missing, and naming no exhibit is not a fault to print. */}
                 {row.points_to.length > 0 && (
                   <div style={f.pointsToChosen}>
-                    {w("points_to_sheet_prefix")} {row.points_to.join(" · ")}
+                    {w("points_to_sheet_prefix")} {row.points_to.join(RECEIPT_JOIN)}
                   </div>
                 )}
               </td>

@@ -31,6 +31,7 @@ import { wordingOf } from "../../services/practice";
 import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
 import { QuestionPills } from "./PracticeQuestion";
+import { RECEIPT_JOIN } from "./PracticePointsTo";
 import PracticeTopBar from "./PracticeTopBar";
 
 interface Props {
@@ -145,7 +146,7 @@ const PracticeReveal: React.FC<Props> = ({
           failed to load, and naming no exhibit is not a fault to point at. */}
       {pointsTo.length > 0 && (
         <div style={f.pointsToChosen}>
-          {w("points_to_reveal_prefix")} {pointsTo.join(" · ")}
+          {w("points_to_reveal_prefix")} {pointsTo.join(RECEIPT_JOIN)}
         </div>
       )}
 

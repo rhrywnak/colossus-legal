@@ -82,7 +82,11 @@ async fn sitting_payload(state: &AppState, session_id: Uuid) -> Result<SittingPa
         .await
         .map_err(|e| repo_error("get_sitting", e))?
         .ok_or_else(|| AppError::NotFound {
-            message: format!("practice session {session_id} not found"),
+            message: format!(
+                "practice session {session_id} not found — it was never opened, or it \
+                 belongs to another case. Go back to the practice start card and begin \
+                 a new sitting; nothing you answered has been lost"
+            ),
         })?;
 
     // A session opened before flow v1 carries no queue. EMPTY is the honest
@@ -151,7 +155,11 @@ pub async fn post_start_over(
         .await
         .map_err(|e| repo_error("session_scenario", e))?
         .ok_or_else(|| AppError::NotFound {
-            message: format!("practice session {session_id} not found"),
+            message: format!(
+                "practice session {session_id} not found — it was never opened, or it \
+                 belongs to another case. Go back to the practice start card and begin \
+                 a new sitting; nothing you answered has been lost"
+            ),
         })?;
 
     end_session(&state.pipeline_pool, session_id)
