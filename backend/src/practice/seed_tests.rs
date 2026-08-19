@@ -22,6 +22,11 @@ fn sources() -> ScenarioSources {
 
 fn question(kind: DeckSourceKind, index: Option<usize>) -> DeckQuestion {
     DeckQuestion {
+        key: None,
+        kind: None,
+        follows: None,
+        source_line: None,
+        draft_by: None,
         side: DeckSide::George,
         source_kind: kind,
         source_index: index,

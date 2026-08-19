@@ -51,6 +51,8 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
     questions,
     points: [{ position: 1, text: "I asked in writing.", exhibit: "my certified letter" }],
     last_session_line: "No session on this one yet.",
+    receipts: ["your certified letter, 16 Nov 2009"],
+    open_session: null,
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -149,6 +151,7 @@ describe("the write paths", () => {
       questionId: "q1",
       answerText: "I asked in writing.",
       dontRecall: false,
+      pointsTo: ["your certified letter, 16 Nov 2009"],
     });
 
     const [url, options] = mock.mock.calls[0];
@@ -159,6 +162,7 @@ describe("the write paths", () => {
       question_id: "q1",
       answer_text: "I asked in writing.",
       dont_recall: false,
+      points_to: ["your certified letter, 16 Nov 2009"],
     });
     expect(result).toEqual({ answer_id: ANSWER, read_text: "Fine.", read_ok: true });
   });
@@ -173,6 +177,7 @@ describe("the write paths", () => {
       questionId: "q1",
       answerText: "",
       dontRecall: false,
+      pointsTo: null,
     });
     expect(result.read_text).toBeNull();
     expect(result.read_ok).toBeNull();
@@ -245,6 +250,7 @@ describe("the write paths", () => {
         questionId: "q1",
         answerText: "x",
         dontRecall: false,
+        pointsTo: null,
       }),
     ).rejects.toThrow(/was not recorded/);
   });

@@ -44,6 +44,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   practicePath,
+  practiceSessionPath,
   rehearsalPath,
   rehearsalScenarioPath,
   scenarioPagePath,
@@ -145,6 +146,21 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/trial-prep/practice/:scenarioId",
     emit: () => practicePath("awad v cfs", "id/with/slashes"),
   },
+  {
+    name: "practiceSessionPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
+    emit: () =>
+      practiceSessionPath(
+        "awad-v-cfs",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000001",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000002",
+      ),
+  },
+  {
+    name: "practiceSessionPath (ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
+    emit: () => practiceSessionPath("awad v cfs", "id/with/slashes", "sid/with/slashes"),
+  },
 ];
 
 describe("the route-side URL guard", () => {
@@ -180,6 +196,9 @@ describe("the guard can fail", () => {
     expect(routes.length).toBeGreaterThanOrEqual(20);
     expect(routes).toContain("/cases/:slug/trial-prep/:scenarioId");
     expect(routes).toContain("/cases/:slug/trial-prep/practice/:scenarioId");
+    expect(routes).toContain(
+      "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
+    );
     expect(routes).toContain("/cases/:slug/rehearsal/:code");
     expect(routes).toContain("/documents/:id");
   });
@@ -218,6 +237,23 @@ describe("the guard can fail", () => {
     expect(routeFor("/cases/awad-v-cfs/trial-prep/practice")).toBe(
       "/cases/:slug/trial-prep/:scenarioId",
     );
+  });
+
+  it("does not let the sitting's address and the start card shadow each other", () => {
+    // Section B item B10 added a THIRD route to the same prefix. The start card
+    // and the sitting differ by two segments, one of which is the literal
+    // `session` — so a scenario id can never land on the sitting, and a sitting
+    // can never land on the start card showing question 1 again, which is the
+    // exact failure Section B exists to close.
+    expect(routeFor(practicePath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId",
+    );
+    expect(routeFor(practiceSessionPath("awad-v-cfs", "abc", "def"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
+    );
+    // A sitting id with nothing after `session` is NOT the sitting route, and
+    // must not silently fall back to the start card either.
+    expect(routeFor("/cases/awad-v-cfs/trial-prep/practice/abc/session")).toBeNull();
   });
 
   it("keeps a parameter inside one segment", () => {

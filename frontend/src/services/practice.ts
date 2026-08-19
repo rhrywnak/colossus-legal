@@ -59,6 +59,23 @@ export type PracticeQuestion = {
   stronger_lean: string | null;
   /** Marie's one line saying what is wrong with this question. `null` = none. */
   flag_note: string | null;
+  /**
+   * `cross`, `direct` or `redirect` — what the question DOES.
+   *
+   * Not the same as `side`: Chuck asks both `direct` and `redirect`, and they
+   * are dealt, tagged and judged differently. Nothing on this screen infers one
+   * from the other.
+   */
+  kind: string;
+  /** The stable handle the deck file uses (`g1`, `r2`), or `null`. */
+  deck_key: string | null;
+  /** The `deck_key` of the George question a redirect answers, or `null`. */
+  follows_key: string | null;
+  /**
+   * What happened to this question, ALREADY COMPOSED by the server —
+   * "answered today · repeat · attempt 2". `null` renders nothing at all.
+   */
+  status: string | null;
 };
 
 /** One of Marie's talking points. */
@@ -80,6 +97,13 @@ export type PracticePoint = {
  */
 export type PracticeWording = Record<string, string>;
 
+/** The sitting she walked out of, as the start card offers it back. */
+export type OpenSession = {
+  session_id: string;
+  /** `· today 09:57 · George's side · 1 of 5 answered.` — composed server-side. */
+  detail: string;
+};
+
 /** Everything the page needs, in one response. */
 export type PracticeDeck = {
   scenario_id: string;
@@ -89,6 +113,10 @@ export type PracticeDeck = {
   questions: PracticeQuestion[];
   points: PracticePoint[];
   last_session_line: string;
+  /** What the "I'd point to…" picker offers, composed and de-duplicated. */
+  receipts: string[];
+  /** `null` withdraws the blue resume box entirely. */
+  open_session: OpenSession | null;
   wording: PracticeWording;
 };
 
@@ -119,6 +147,8 @@ export type PracticeSheetRow = {
   mark: string;
   help_opened: boolean;
   help: string;
+  /** What she said she would point to. EMPTY withdraws the line. */
+  points_to: string[];
 };
 
 /** Chuck's sheet, composed. */
@@ -185,6 +215,7 @@ export async function fetchPracticeDeck(
   if (
     !Array.isArray(parsed.questions) ||
     !Array.isArray(parsed.points) ||
+    !Array.isArray(parsed.receipts) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {
@@ -246,6 +277,14 @@ export async function submitPracticeAnswer(input: {
   questionId: string;
   answerText: string;
   dontRecall: boolean;
+  /**
+   * The receipts she picked, or `null` when she never opened the control.
+   *
+   * `null` and `[]` are DIFFERENT and are sent differently: an empty array says
+   * she looked at the list and reached for nothing, which is a fact about the
+   * answer; `null` says the question of what she would point to never came up.
+   */
+  pointsTo: string[] | null;
 }): Promise<AnswerResult> {
   const response = await authFetch(`${API_BASE_URL}/api/practice/answers`, {
     method: "POST",
@@ -255,6 +294,7 @@ export async function submitPracticeAnswer(input: {
       question_id: input.questionId,
       answer_text: input.answerText,
       dont_recall: input.dontRecall,
+      points_to: input.pointsTo,
     }),
     timeoutMs: READ_TIMEOUT_MS,
   });

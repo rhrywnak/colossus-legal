@@ -22,6 +22,7 @@ import React from "react";
 
 import type { PracticeSheet as Sheet, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
+import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
 
 interface Props {
@@ -97,6 +98,15 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
               <td style={s.cell}>{row.question}</td>
               <td style={s.cell}>
                 <i>{row.answer}</i>
+                {/* What she said she would reach for, under her own words.
+                    Withdrawn entirely when she named nothing: on printed paper a
+                    prefix with an empty list after it reads as data that went
+                    missing, and naming no exhibit is not a fault to print. */}
+                {row.points_to.length > 0 && (
+                  <div style={f.pointsToChosen}>
+                    {w("points_to_sheet_prefix")} {row.points_to.join(" · ")}
+                  </div>
+                )}
               </td>
               <td style={{ ...s.cell, ...markStyle(row.mark, w) }}>
                 {row.mark}

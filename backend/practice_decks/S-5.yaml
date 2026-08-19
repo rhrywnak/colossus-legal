@@ -35,6 +35,42 @@
 # and three talking points, and the instances are in the order these five
 # questions assume (hearing p. 34 · p. 33 · p. 31 · Phillips discovery p. 5 ·
 # Court of Appeals p. 11).
+#
+# ## What 2026-08-19 added (CC_TASK_PRACTICE_V1_CHUCK_REVIEW_v1, A4/A5/A7)
+#
+# `key` — the stable handle each question keeps for the life of the deck. It is
+# what `--update` matches on, so Chuck re-ordering the deck in the editor and the
+# architect re-ordering it here can be reconciled without matching on TEXT, which
+# stops working the first moment somebody re-words a question. The ten rows this
+# file seeded on 2026-08-17 receive their keys once, by exact text, on the first
+# `--update` run; after that the text is never matched again.
+#
+# `kind` — `cross`, `direct` or `redirect`. `side` says who is speaking and
+# cannot say what the question DOES: Chuck asks two kinds, and a redirect exists
+# only because of the George question it repairs. Absent means `cross` on
+# George's side and `direct` on Chuck's, which is what the ten original rows
+# meant.
+#
+# `follows` — the `key` of the George question a redirect answers. Not a node id
+# and not a uuid, for the same reason `source_index` is not: this file is edited
+# by humans and read by a seed, and both halves of a pair live in it.
+#
+# `source_line` — the exhibit a question stands on, as MARIE would name it aloud.
+# It is the handle the "I'd point to…" picker offers under the answer box, and it
+# is authored rather than cut out of `receipt`: those paragraphs end in "p. 34"
+# on George's rows and in "establishes point 1" on Chuck's, so a machine slicing
+# them would put a phrase in front of a witness that nobody wrote. Every line
+# below is transcribed verbatim from the citation the row's own `receipt`
+# already names.
+#
+# ## Order, and why it is general → specific (ruling R10)
+#
+# George's side: broad generalization → authority borrow → half-truth →
+# compound → the braid. Chuck's direct: the letter → what it asked → did they
+# get it → did you refuse → who decided. Both were already in that order on
+# 2026-08-17; nothing here re-orders them. The five redirects are appended, and
+# the MIXED queue pairs each one behind the George question its `follows` names
+# rather than dealing them in file order.
 
 scenario_code: S-5
 
@@ -64,9 +100,12 @@ points:
 
 questions:
   # ── George's side (cross) — one per ruled instance ────────────────────────
-  - side: george
+  - key: g1
+    side: george
+    kind: cross
     source_kind: instance
     source_index: 1
+    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
     tactic: 4          # false premise
     text: >-
       Isn't it true that you and your sisters were at each other's throats — that
@@ -90,9 +129,12 @@ questions:
       November 16, 2009.
     stronger_lean: leans on point 1
 
-  - side: george
+  - key: g2
+    side: george
+    kind: cross
     source_kind: instance
     source_index: 2
+    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 33
     tactic: 6          # authority borrow
     text: >-
       Mr. Phillips told the court the parties were not going to be able to
@@ -113,9 +155,12 @@ questions:
     stronger: I asked in writing to divide it. They chose the auction.
     stronger_lean: leans on points 1 and 3
 
-  - side: george
+  - key: g3
+    side: george
+    kind: cross
     source_kind: instance
     source_index: 3
+    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 31
     tactic: 2          # half-truth
     text: >-
       You never came into court and stipulated to a division of the property, did
@@ -138,9 +183,12 @@ questions:
       I put my request in writing to Mr. Phillips. Nobody asked me to come in.
     stronger_lean: leans on point 1
 
-  - side: george
+  - key: g4
+    side: george
+    kind: cross
     source_kind: instance
     source_index: 4
+    source_line: Phillips Response to Discovery, p. 5
     tactic: 5          # compound
     text: >-
       There were multiple contacts among you and your sisters about wrongdoing
@@ -165,9 +213,12 @@ questions:
       admitted they got my letter.
     stronger_lean: leans on points 1 and 2
 
-  - side: george
+  - key: g5
+    side: george
+    kind: cross
     source_kind: instance
     source_index: 5
+    source_line: Court of Appeals, 12 Jan 2012, p. 11
     tactic: 5          # compound · braid
     braid_rows: Barrage rows 1 (S-5) · 2 (S-6) · 5 (the courts)
     text: >-
@@ -192,7 +243,9 @@ questions:
       courts strand is Chuck's
 
   # ── Chuck (direct) — one per talking point, plus the admission ────────────
-  - side: chuck
+  - key: c1
+    side: chuck
+    kind: direct
     source_kind: point
     source_index: 1
     text: >-
@@ -207,7 +260,9 @@ questions:
       divide Dad's things with my sisters.
     stronger_lean: leans on point 1
 
-  - side: chuck
+  - key: c2
+    side: chuck
+    kind: direct
     source_kind: point
     source_index: 1
     text: What did you ask for in that letter?
@@ -218,7 +273,9 @@ questions:
       auction.
     stronger_lean: leans on point 1
 
-  - side: chuck
+  - key: c3
+    side: chuck
+    kind: direct
     source_kind: point
     source_index: 2
     text: Did Mr. Phillips's office receive your letter?
@@ -231,7 +288,9 @@ questions:
     stronger: Yes. Their own sworn answers say the request was received.
     stronger_lean: leans on point 2
 
-  - side: chuck
+  - key: c4
+    side: chuck
+    kind: direct
     source_kind: point
     source_index: 3
     text: Did you ever refuse to divide the property?
@@ -241,7 +300,9 @@ questions:
     stronger: "No."
     stronger_lean: leans on point 3
 
-  - side: chuck
+  - key: c5
+    side: chuck
+    kind: direct
     source_kind: point
     source_index: 3
     text: Who decided to hold the auction?
@@ -252,3 +313,76 @@ questions:
       “They did.” Don't add motive — that's Chuck's closing, not your testimony.
     stronger: They did — Catholic Family Service.
     stronger_lean: leans on point 3
+
+  # ── Chuck's REDIRECT — one per George trap (drafted 2026-08-19) ───────────
+  #
+  # A redirect is Chuck repairing the subject George has just damaged, and it is
+  # the one place in the drill where LENGTH is the right answer: prompt v2 tells
+  # the read to judge no length fault at all on a redirect. That is why none of
+  # these carries a `stronger` example — the drawer shows the stored line
+  # "Tell it — this is Chuck's time." instead of the honest-gap "no receipt for
+  # this one" sentence, which would be exactly wrong here.
+  #
+  # `draft_by: architect` marks all five as UNREVIEWED. Chuck edits them on
+  # Thursday; the deck editor shows a `draft` mark on such a row until it is.
+  # No `watch_for` is written for any of them, and that is deliberate: a
+  # watch-for is authored coaching, and nobody has authored one for these yet.
+  # The screen withdraws the gold box rather than showing an invented one.
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    draft_by: architect
+    source_kind: point
+    source_index: 1
+    text: >-
+      Marie, tell the jury about the letter you sent in November 2009.
+    receipt: Chuck's redirect after G1 — point 1, the certified letter of 16 Nov 2009.
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g2
+    draft_by: architect
+    source_kind: point
+    source_index: 2
+    text: >-
+      What did Catholic Family Service say, under oath, about whether you had
+      asked to divide the property?
+    receipt: Chuck's redirect after G2 — point 2, their own sworn answer.
+
+  - key: r3
+    side: chuck
+    kind: redirect
+    follows: g3
+    draft_by: architect
+    source_kind: point
+    source_index: 1
+    text: >-
+      Did anyone from the estate, or the court, ever ask you to come in and
+      stipulate to a division?
+    receipt: Chuck's redirect after G3 — point 1.
+
+  - key: r4
+    side: chuck
+    kind: redirect
+    follows: g4
+    draft_by: architect
+    source_kind: point
+    source_index: 2
+    text: >-
+      When Catholic Family Service was asked under oath who had told them you
+      couldn't be amicable, what did they say?
+    receipt: Chuck's redirect after G4 — point 2.
+
+  - key: r5
+    side: chuck
+    kind: redirect
+    follows: g5
+    draft_by: architect
+    source_kind: point
+    source_index: 3
+    text: >-
+      Let's take those one at a time. Who decided to hold the auction?
+    receipt: Chuck's redirect after G5 — point 3.

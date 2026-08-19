@@ -24,6 +24,8 @@
 
 use serde::Deserialize;
 
+pub use super::deck_valid::DeckError;
+
 /// Which side asks the question.
 ///
 /// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a unit enum
@@ -47,6 +49,41 @@ impl DeckSide {
         match self {
             DeckSide::George => "george",
             DeckSide::Chuck => "chuck",
+        }
+    }
+}
+
+/// What the question DOES, as the file says it.
+///
+/// ## Domain note: why this is not derivable from `side`
+///
+/// Chuck asks two kinds. A DIRECT question opens a subject; a REDIRECT repairs
+/// one George has just damaged, and it exists only because of the George
+/// question it follows. The read judges them by different rules (prompt v2), the
+/// mixed queue deals them differently, and the screen tags them differently.
+/// `side` cannot carry any of that.
+///
+/// Absent in the file means `cross` on George's side and `direct` on Chuck's —
+/// which is what every deck written before 2026-08-19 meant, and what
+/// [`DeckQuestion::resolved_kind`] returns.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DeckKind {
+    /// George's attack, turned into the question their lawyer would ask.
+    Cross,
+    /// Chuck opening a subject so she can tell it in her own words.
+    Direct,
+    /// Chuck repairing the subject George just damaged.
+    Redirect,
+}
+
+impl DeckKind {
+    /// The value the `practice_questions.kind` column stores.
+    pub fn as_column(self) -> &'static str {
+        match self {
+            DeckKind::Cross => "cross",
+            DeckKind::Direct => "direct",
+            DeckKind::Redirect => "redirect",
         }
     }
 }
@@ -79,7 +116,31 @@ impl DeckSourceKind {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckQuestion {
+    /// The stable handle this question keeps for the life of the deck — `g1`,
+    /// `c3`, `r2`. Optional so a deck written before 2026-08-19 still parses;
+    /// the seed's `--update` path REFUSES a file whose questions have none,
+    /// because matching on text is what it exists to stop doing.
+    #[serde(default)]
+    pub key: Option<String>,
     pub side: DeckSide,
+    /// What the question does. Absent means `cross` on George's side and
+    /// `direct` on Chuck's — see [`DeckKind`].
+    #[serde(default)]
+    pub kind: Option<DeckKind>,
+    /// The `key` of the George question a redirect answers. Required on a
+    /// redirect, refused on anything else.
+    #[serde(default)]
+    pub follows: Option<String>,
+    /// The exhibit this question stands on, as Marie would name it aloud — the
+    /// handle the "I'd point to…" picker offers. Absent on every question that
+    /// stands on no document of its own.
+    #[serde(default)]
+    pub source_line: Option<String>,
+    /// Who drafted this row, when nobody has reviewed it yet (`architect`). The
+    /// deck editor shows a `draft` mark on such rows until they are edited.
+    /// Absent on every question a human has settled.
+    #[serde(default)]
+    pub draft_by: Option<String>,
     pub source_kind: DeckSourceKind,
     /// 1-based position among the scenario's instances or points. Absent on a
     /// `manual` question, required on the other two.
@@ -137,150 +198,10 @@ pub struct DeckFile {
     pub questions: Vec<DeckQuestion>,
 }
 
-/// Why a deck file cannot be used.
-///
-/// Every variant names the row by its 1-based position in the file — the question
-/// by its place in `questions`, the receipt by its place in `points` — because
-/// that is the number a human counts to when they open the file to fix it.
-#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
-pub enum DeckError {
-    #[error("the deck names no scenario code")]
-    NoScenarioCode,
-
-    #[error("the deck holds no questions — seeding it would write nothing and report success")]
-    NoQuestions,
-
-    #[error("question {position}: the text is blank")]
-    BlankText { position: usize },
-
-    #[error("question {position}: tactic {tactic} is not one of the seven cards (1–7)")]
-    UnknownTactic { position: usize, tactic: i16 },
-
-    #[error(
-        "question {position}: source_kind '{kind}' needs a source_index, and the deck gives none"
-    )]
-    MissingSourceIndex { position: usize, kind: &'static str },
-
-    #[error("question {position}: a manual question must carry no source_index, and this one has {index}")]
-    ManualWithSourceIndex { position: usize, index: usize },
-
-    #[error("question {position}: source_index is {index}; positions are 1-based")]
-    ZeroSourceIndex { position: usize, index: usize },
-
-    #[error("question {position}: the pair needs BOTH halves or neither — {half} is missing")]
-    HalfAPair { position: usize, half: &'static str },
-
-    #[error("point receipt {ordinal}: the text is blank")]
-    BlankPointReceipt { ordinal: usize },
-
-    #[error("point receipt {ordinal}: position is {position}; points are numbered from 1")]
-    ZeroPointPosition { ordinal: usize, position: usize },
-
-    #[error("two point receipts both claim point {position}; a point has one receipt")]
-    DuplicatePointPosition { position: usize },
-}
-
-impl DeckFile {
-    /// Prove the file before anything is written.
-    ///
-    /// ## Why every one of these is a refusal and not a repair
-    ///
-    /// A deck is authored prose that a witness reads the night before she
-    /// testifies. There is no value this code could substitute for a blank
-    /// question that would be better than stopping and saying so — and a seed
-    /// that quietly dropped a malformed row would produce a five-question deck
-    /// with four questions in it, which nobody would notice until the session.
-    ///
-    /// # Errors
-    /// Returns the FIRST [`DeckError`] the file earns, naming the question by its
-    /// position in the file.
-    pub fn validate(&self) -> Result<(), DeckError> {
-        if self.scenario_code.trim().is_empty() {
-            return Err(DeckError::NoScenarioCode);
-        }
-        if self.questions.is_empty() {
-            return Err(DeckError::NoQuestions);
-        }
-        for (i, q) in self.questions.iter().enumerate() {
-            q.validate(i + 1)?;
-        }
-        self.validate_points()
-    }
-
-    /// Prove the point receipts.
-    ///
-    /// The duplicate check is the one worth having: the column's UNIQUE
-    /// constraint would catch it too, but only as a mid-transaction database
-    /// error naming a constraint, and only after the questions were written.
-    /// Here it is a sentence naming the point, before anything is opened.
-    fn validate_points(&self) -> Result<(), DeckError> {
-        let mut seen: Vec<usize> = Vec::with_capacity(self.points.len());
-        for (i, point) in self.points.iter().enumerate() {
-            let ordinal = i + 1;
-            if point.text.trim().is_empty() {
-                return Err(DeckError::BlankPointReceipt { ordinal });
-            }
-            if point.position == 0 {
-                return Err(DeckError::ZeroPointPosition {
-                    ordinal,
-                    position: point.position,
-                });
-            }
-            if seen.contains(&point.position) {
-                return Err(DeckError::DuplicatePointPosition {
-                    position: point.position,
-                });
-            }
-            seen.push(point.position);
-        }
-        Ok(())
-    }
-}
-
-impl DeckQuestion {
-    /// Prove one question. See [`DeckFile::validate`] for why each is a refusal.
-    fn validate(&self, position: usize) -> Result<(), DeckError> {
-        if self.text.trim().is_empty() {
-            return Err(DeckError::BlankText { position });
-        }
-        if let Some(tactic) = self.tactic {
-            if !(1..=7).contains(&tactic) {
-                return Err(DeckError::UnknownTactic { position, tactic });
-            }
-        }
-        match (self.source_kind, self.source_index) {
-            (DeckSourceKind::Manual, Some(index)) => {
-                return Err(DeckError::ManualWithSourceIndex { position, index })
-            }
-            (DeckSourceKind::Manual, None) => {}
-            (kind, None) => {
-                return Err(DeckError::MissingSourceIndex {
-                    position,
-                    kind: kind.as_column(),
-                })
-            }
-            (_, Some(0)) => return Err(DeckError::ZeroSourceIndex { position, index: 0 }),
-            (_, Some(_)) => {}
-        }
-        match (&self.pair_said, &self.pair_admitted) {
-            (Some(_), None) => {
-                return Err(DeckError::HalfAPair {
-                    position,
-                    half: "pair_admitted",
-                })
-            }
-            (None, Some(_)) => {
-                return Err(DeckError::HalfAPair {
-                    position,
-                    half: "pair_said",
-                })
-            }
-            _ => {}
-        }
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 #[path = "deck_file_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "deck_shipped_tests.rs"]
+mod shipped_tests;

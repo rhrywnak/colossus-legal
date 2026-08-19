@@ -124,7 +124,7 @@ impl PracticeReadParams {
     /// `settings_store_tests::the_fixtures_carry_the_values_the_migration_actually_seeds`.
     pub fn for_test() -> Self {
         PracticeReadParams {
-            prompt_file: "practice_read_prompt_v1.md".to_string(),
+            prompt_file: "practice_read_prompt_v2.md".to_string(),
             model: "claude-opus-5".to_string(),
             max_tokens: 1024,
             max_words: 25,

@@ -186,6 +186,32 @@ pub fn flag_lines(settings: &Settings, flagged: &[FlaggedQuestionRecord]) -> Vec
         .collect()
 }
 
+/// The receipts one answer says she would point to, or an empty list.
+///
+/// ## Why a decode failure is EMPTY and not a panic
+///
+/// The column is jsonb written by this service, so a value that is not an array
+/// of strings means the row was edited around the API. Chuck's sheet is printed
+/// paper; refusing to render it over one malformed cell would cost him the whole
+/// sitting. The line is withdrawn — the sheet claims nothing — and the log names
+/// the answer, which is where an operator can act on it.
+fn picked_receipts(row: &PracticeSheetRow) -> Vec<String> {
+    let Some(value) = row.points_to.as_ref() else {
+        return Vec::new();
+    };
+    match serde_json::from_value::<Vec<String>>(value.clone()) {
+        Ok(picked) => picked,
+        Err(e) => {
+            tracing::error!(
+                error = %e,
+                question = %row.question,
+                "practice sheet: a stored points_to would not decode; the line is withdrawn"
+            );
+            Vec::new()
+        }
+    }
+}
+
 pub fn sheet_payload(
     settings: &Settings,
     code: &str,
@@ -220,6 +246,7 @@ pub fn sheet_payload(
             } else {
                 w.help_none.clone()
             },
+            points_to: picked_receipts(row),
         })
         .collect::<Vec<_>>();
 

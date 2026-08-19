@@ -153,3 +153,41 @@ export function practicePath(slug: string, scenarioId: string): string {
     `${encodeURIComponent(scenarioId)}`
   );
 }
+
+/**
+ * One SITTING of the practice drill — the address a reload lands back on.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId`.
+ *
+ * ## Why a sitting has an address at all (Section B, item B10)
+ *
+ * Because the browser's Back button and the reload key exist. In .401 the four
+ * screens were four states of one component at one address: Roman answered
+ * question 1, left the page, came back — and started at question 1 again with no
+ * sign his answer had been kept. It HAD been kept; the screen simply had no way
+ * to say so or to return him to it. An address is what makes "where she was" a
+ * thing the browser can hold.
+ *
+ * ## Why `session` is a literal segment
+ *
+ * The same reason `practice` is one in the parent: it stops a scenario id and a
+ * session id being told apart by position alone. `…/practice/:scenarioId` and
+ * `…/practice/:scenarioId/session/:sessionId` differ by two segments, one of
+ * which is a word no uuid can be — so neither can shadow the other, and the
+ * guard test says so.
+ *
+ * @param slug the case slug, escaped here
+ * @param scenarioId the scenario's UUID, escaped here
+ * @param sessionId the sitting's UUID, escaped here
+ */
+export function practiceSessionPath(
+  slug: string,
+  scenarioId: string,
+  sessionId: string,
+): string {
+  return (
+    `/cases/${encodeURIComponent(slug)}/trial-prep/practice/` +
+    `${encodeURIComponent(scenarioId)}/session/${encodeURIComponent(sessionId)}`
+  );
+}

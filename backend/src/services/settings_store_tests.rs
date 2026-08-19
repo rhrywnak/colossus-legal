@@ -27,6 +27,7 @@ use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
@@ -106,6 +107,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // a fixture missing these thirty-two rows would let a snapshot build
         // that the real store could not.
         .chain(crate::domain::wording_practice_flow::PracticeFlowWording::for_test_values())
+        // PRACTICE v1 (the Chuck review): nested inside `PracticeWording` for the
+        // same reason `flow` is, and listed here for the same reason — one flat
+        // table, and a fixture missing these twelve rows would let a snapshot
+        // build that the real store could not.
+        .chain(crate::domain::wording_practice_row::PracticeRowWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
@@ -143,7 +149,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // them on a screen.
             (
                 "practice_read_prompt_file",
-                "practice_read_prompt_v1.md".to_string(),
+                // v2 as of 2026-08-19: Roman's ruling on the anchor and on
+                // redirect length is a change to what the model is TOLD, so it
+                // is a new file and a pointer moved. v1 stays on disk.
+                "practice_read_prompt_v2.md".to_string(),
             ),
             ("practice_read_model", "claude-opus-5".to_string()),
             // The OK word, coupled to the prompt file. Text, and not wording:
@@ -618,6 +627,13 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          the resume line, the top bar, and the sheet's flag list and two clauses"
     );
     assert_eq!(
+        PRACTICE_ROW_WORDING_KEYS.len(),
+        12,
+        "PRACTICE v1, the Chuck review: the words about ONE question — the way \
+         into it alone, its status on the row, the redirect tag and its drawer \
+         line, and what she would point to"
+    );
+    assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
         48,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
@@ -640,8 +656,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + WAR_ROOM_WORDING_KEYS.len()
             + PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
+            + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len(),
-        "the seed and the fifteen required lists must describe the same store"
+        "the seed and the sixteen required lists must describe the same store"
     );
 }
 
@@ -1059,6 +1076,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // `seeded()` below reads this same list for the WORDING rows, and v3's
         // thirty-two navigation strings arrive in this file.
         "pipeline_migrations/20260818093139_practice_flow_v1_deck_controls_and_session_queue.sql",
+        // PRACTICE v1 (the Chuck review): no new not-wording parameter either —
+        // it is here because it CORRECTS one. `practice_read_prompt_file` moves
+        // to v2, and the correction pass below is what sees it.
+        "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql",
     ]
     .iter()
     .map(|relative| {
@@ -1072,7 +1093,12 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
     let mut checked = 0usize;
 
     for key in REQUIRED_KEYS.iter().chain(PRACTICE_PARAM_KEYS) {
-        let seeded_value = seeded_value_in(&sql, key)
+        // A later migration may have CORRECTED the row; the store's value is
+        // then the correction, not the original insert. Checking only the
+        // insert would let this test go green while the live store holds
+        // something else — the exact drift it exists to catch.
+        let seeded_value = crate::domain::wording::tests::corrected_value_in(&sql, key)
+            .or_else(|| seeded_value_in(&sql, key))
             .unwrap_or_else(|| panic!("{key} is not seeded by the migration"));
 
         let in_fixture = &fixture

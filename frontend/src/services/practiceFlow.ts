@@ -67,3 +67,129 @@ export async function savePracticeFlag(
   return body.flag_note;
 }
 
+
+/** One sitting, as the page re-enters it at its own address. */
+export interface Sitting {
+  session_id: string;
+  scenario_id: string;
+  /** `george` | `chuck` | `mixed`. */
+  who: string;
+  /** The dealt question ids, in order. EMPTY = a sitting that cannot resume. */
+  queue: string[];
+  /** The questions already dealt. A `skipped` row counts as dealt. */
+  answered: string[];
+  /** True when the sitting is already closed. */
+  ended: boolean;
+}
+
+/**
+ * Refuse a body that is not a sitting, by NAME.
+ *
+ * Shared by the two calls that return one, so a contract mismatch reads the same
+ * whichever of them met it. The alternative — trusting the cast — puts
+ * `undefined.length` in the middle of a witness's session with no clue where it
+ * came from.
+ */
+function asSitting(parsed: Partial<Sitting>): Sitting {
+  if (
+    typeof parsed.session_id !== "string" ||
+    typeof parsed.who !== "string" ||
+    !Array.isArray(parsed.queue) ||
+    !Array.isArray(parsed.answered)
+  ) {
+    throw new Error(
+      "The practice session response is missing its queue or its side — " +
+        "backend/frontend contract mismatch. Report it to the site administrator.",
+    );
+  }
+  return parsed as Sitting;
+}
+
+/** Read one sitting — what a reload at `…/session/:id` runs. */
+export async function fetchSitting(sessionId: string): Promise<Sitting> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/practice/sessions/${encodeURIComponent(sessionId)}`,
+    { timeoutMs: PRACTICE_TIMEOUT_MS },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `That practice session could not be opened (HTTP ${response.status}${detail}).`,
+    );
+  }
+  return asSitting((await response.json()) as Partial<Sitting>);
+}
+
+/**
+ * Take the unfinished sitting back, and retire any older open ones.
+ *
+ * The retiring happens on the SERVER and is why this is a POST rather than the
+ * read above: pressing Resume is the first moment she has said which sitting she
+ * means, and nothing before that may end one on her behalf.
+ */
+export async function resumeSitting(sessionId: string): Promise<Sitting> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/practice/sessions/${encodeURIComponent(sessionId)}/resume`,
+    { method: "POST", timeoutMs: PRACTICE_TIMEOUT_MS },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `That practice session could not be resumed (HTTP ${response.status}${detail}).`,
+    );
+  }
+  return asSitting((await response.json()) as Partial<Sitting>);
+}
+
+/**
+ * Close the unfinished sitting — and every older one — and start clean.
+ *
+ * Never a delete. Each closed sitting keeps its answers and gets a Chuck's sheet
+ * of its own, which is exactly what the stored hint beside the control promises.
+ */
+export async function startOverSitting(sessionId: string): Promise<void> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/practice/sessions/${encodeURIComponent(sessionId)}/start-over`,
+    { method: "POST", timeoutMs: PRACTICE_TIMEOUT_MS },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `That practice session could not be closed (HTTP ${response.status}${detail}).`,
+    );
+  }
+}
+
+/**
+ * Record that she was dealt this question and set it aside.
+ *
+ * ## Why this is its own call and not `submitPracticeAnswer` with a flag
+ *
+ * It makes no model call, stores the STORED "doesn't fit" phrase rather than
+ * anything she typed, and lands on the row already marked `skipped`. The answer
+ * path does the opposite of all three.
+ *
+ * The ordinary 30-second timeout, and not the answer path's ninety: there is no
+ * model in this request, so a slow one is a slow database and not a slow vendor.
+ */
+export async function skipPracticeQuestion(
+  sessionId: string,
+  questionId: string,
+): Promise<void> {
+  const response = await authFetch(`${API_BASE_URL}/api/practice/answers/skip`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ session_id: sessionId, question_id: questionId }),
+    timeoutMs: PRACTICE_TIMEOUT_MS,
+  });
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Skipping that question was not recorded (HTTP ${response.status}${detail}).`,
+    );
+  }
+}

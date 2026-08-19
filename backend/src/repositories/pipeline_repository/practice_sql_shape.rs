@@ -21,11 +21,38 @@
 
 use std::collections::BTreeMap;
 
-/// The shipped source of `practice.rs`.
+/// Every repository file whose SQL this guard covers.
+///
+/// ## Why `practice_flow.rs` is here (owed by the .401 report, paid here)
+///
+/// The flow module was split out of `practice.rs` under Rule 17 and took an
+/// UPDATE and two SELECTs with it — and this guard kept reading only the file
+/// the split left behind. A column name invented in the module that was moved
+/// would have been invisible to exactly the test written to catch it: not a
+/// build error (the SQL is a `&str`), not a unit failure, but a runtime
+/// "column … does not exist" on the first real request, which is how 2026-08-18
+/// happened in the first place.
+const COVERED: &[&str] = &[
+    "src/repositories/pipeline_repository/practice.rs",
+    "src/repositories/pipeline_repository/practice_flow.rs",
+];
+
+/// The shipped source of every covered repository file, concatenated.
+///
+/// Joined with a newline rather than parsed per file because the parse below is
+/// per STATEMENT: it finds string literals and reads each one on its own, so a
+/// boundary between two files is no different from a boundary between two
+/// functions.
 fn practice_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/repositories/pipeline_repository/practice.rs");
-    std::fs::read_to_string(path).expect("practice.rs is readable")
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    COVERED
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|e| panic!("{relative} is readable: {e}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Is this a character Postgres would accept inside an unquoted identifier?

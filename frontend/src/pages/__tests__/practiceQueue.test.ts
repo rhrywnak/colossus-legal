@@ -16,7 +16,12 @@ import {
   V0_QUESTION_COUNT,
 } from "../practiceQueue";
 
-function question(id: string, side: "george" | "chuck"): PracticeQuestion {
+function question(
+  id: string,
+  side: "george" | "chuck",
+  kind: "cross" | "direct" | "redirect" = side === "george" ? "cross" : "direct",
+  followsKey: string | null = null,
+): PracticeQuestion {
   return {
     id,
     side,
@@ -31,7 +36,18 @@ function question(id: string, side: "george" | "chuck"): PracticeQuestion {
     stronger: null,
     stronger_lean: null,
     flag_note: null,
+    kind,
+    // The key IS the id in these fixtures, which keeps the pairing assertions
+    // readable: `r1` follows `g1` and the reader can see it.
+    deck_key: id,
+    follows_key: followsKey,
+    status: null,
   };
+}
+
+/** One redirect, on Chuck's side, answering the George question it names. */
+function redirect(id: string, follows: string): PracticeQuestion {
+  return question(id, "chuck", "redirect", follows);
 }
 
 /** The S-5 deck's shape: five George questions, then five of Chuck's. */
@@ -46,6 +62,18 @@ const DECK: PracticeQuestion[] = [
   question("c3", "chuck"),
   question("c4", "chuck"),
   question("c5", "chuck"),
+];
+
+/** A v1 deck: three traps, each with its redirect, plus two of Chuck's direct. */
+const PAIRED: PracticeQuestion[] = [
+  question("g1", "george"),
+  question("g2", "george"),
+  question("g3", "george"),
+  question("c1", "chuck"),
+  question("c2", "chuck"),
+  redirect("r1", "g1"),
+  redirect("r2", "g2"),
+  redirect("r3", "g3"),
 ];
 
 describe("buildQueue", () => {
@@ -66,16 +94,64 @@ describe("buildQueue", () => {
     ]);
   });
 
-  it("alternates the mixed queue starting with George — the shape of a real day", () => {
-    // Not randomised, deliberately: two sittings must be comparable, and the
-    // point of mixing is that she changes register between a hostile question
-    // and a friendly one.
-    expect(buildQueue(DECK, "mixed").map((q) => q.id)).toEqual([
+  it("deals the mixed queue as PAIRS: a trap, then its redirect", () => {
+    // v1's ruling. Not randomised, deliberately — two sittings must be
+    // comparable — and not the v0 alternation either: a redirect is the answer
+    // to the question just asked, and dealing it three questions later drills
+    // something that never happens in a courtroom.
+    expect(buildQueue(PAIRED, "mixed", 6).map((q) => q.id)).toEqual([
       "g1",
-      "c1",
+      "r1",
       "g2",
-      "c2",
+      "r2",
       "g3",
+      "r3",
+    ]);
+  });
+
+  it("deals Chuck's direct questions AFTER every pair", () => {
+    expect(orderedDeck(PAIRED, "mixed").map((q) => q.id)).toEqual([
+      "g1",
+      "r1",
+      "g2",
+      "r2",
+      "g3",
+      "r3",
+      "c1",
+      "c2",
+    ]);
+  });
+
+  it("deals a redirect exactly once, even though it is on Chuck's side too", () => {
+    // The pairs are built from George's list and the tail from Chuck's, and a
+    // redirect belongs to both. Without the dedup she would be asked the same
+    // redirect twice in one sitting — which reads as a bug in the deck.
+    const ids = orderedDeck(PAIRED, "mixed").map((q) => q.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("still deals a redirect whose George question is not in the deck", () => {
+    // A `follows` pointing at a key nobody kept. Leaving it out entirely would
+    // silently drop a question from the drill; it falls to the tail instead,
+    // which is visible.
+    const orphaned = [question("g1", "george"), redirect("r9", "g-gone")];
+    expect(orderedDeck(orphaned, "mixed").map((q) => q.id)).toEqual(["g1", "r9"]);
+  });
+
+  it("keeps the mixed queue alternating when the deck has no redirects at all", () => {
+    // Every deck seeded before 2026-08-19. George's five, then Chuck's five —
+    // the pairs are empty and the tail is the whole of Chuck's side.
+    expect(orderedDeck(DECK, "mixed").map((q) => q.id)).toEqual([
+      "g1",
+      "g2",
+      "g3",
+      "g4",
+      "g5",
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+      "c5",
     ]);
   });
 
@@ -143,6 +219,20 @@ describe("orderedDeck", () => {
   it("lists a whole side, not just the first five", () => {
     expect(orderedDeck(DECK, "mixed")).toHaveLength(10);
     expect(orderedDeck(DECK, "george")).toHaveLength(5);
+  });
+
+  it("puts a redirect on Chuck's side and NOT on George's", () => {
+    // A redirect wears Chuck's pill because Chuck asks it. George's filter is
+    // every CROSS question, which is what "George's side" has always meant —
+    // stated as the kind now because that is the fact it is about.
+    expect(orderedDeck(PAIRED, "george").map((q) => q.id)).toEqual(["g1", "g2", "g3"]);
+    expect(orderedDeck(PAIRED, "chuck").map((q) => q.id)).toEqual([
+      "c1",
+      "c2",
+      "r1",
+      "r2",
+      "r3",
+    ]);
   });
 });
 

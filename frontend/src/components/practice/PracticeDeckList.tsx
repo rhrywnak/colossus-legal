@@ -33,6 +33,7 @@ import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
 import * as s from "./practiceStyles";
 import * as d from "./practiceDeckStyles";
+import * as f from "./practiceFlowStyles";
 
 interface Props {
   /** This side's questions, in the order the sitting will deal them. */
@@ -40,6 +41,18 @@ interface Props {
   wording: PracticeWording;
   /** The row controls' state and handlers — see the hook's header. */
   controls: PracticeDeckControls;
+  /**
+   * Open a one-question sitting on this question alone (task A2).
+   *
+   * A ONE-question sitting rather than a jump into the middle of the deck: the
+   * queue is `[id]`, the side is the question's own, and the count is 1. Going
+   * back returns her to this card with the session closed. Chuck's sheet is only
+   * drawn if she asks for it — five sheets holding one row each would bury the
+   * one sitting he actually wants to read.
+   */
+  onPracticeOne: (question: PracticeQuestion) => void;
+  /** True while that session POST is in flight, so the row can say so. */
+  startingOne: boolean;
 }
 
 /**
@@ -91,6 +104,8 @@ const DeckRow: React.FC<{
   onDraftChange: (draft: string) => void;
   onOpenEditor: () => void;
   onCloseEditor: () => void;
+  onPracticeOne: () => void;
+  startingOne: boolean;
 }> = ({
   question,
   number,
@@ -102,6 +117,8 @@ const DeckRow: React.FC<{
   onDraftChange,
   onOpenEditor,
   onCloseEditor,
+  onPracticeOne,
+  startingOne,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const skipped = controls.skippedToday.has(question.id);
@@ -123,10 +140,27 @@ const DeckRow: React.FC<{
       <div>
         <span style={{ ...pill.style, fontSize: 12 }}>{pill.label}</span>
         {question.tactic !== null && <span style={s.tacticTag}>{question.tactic}</span>}
-        <div style={{ ...d.questionText, ...muted }}>{question.text}</div>
+        {/* The question text is the link that opens it alone (task A2). A
+            `<button>` and not an `<a>`: it runs a handler that opens a session,
+            it does not navigate to a URL — and an anchor with no href is not
+            reachable by keyboard, which on a witness surface is not a detail. */}
+        <button
+          type="button"
+          style={{ ...f.questionLink, ...d.questionText, ...muted }}
+          onClick={onPracticeOne}
+          disabled={startingOne}
+        >
+          {question.text}
+        </button>
         {question.receipt !== null && (
           <div style={{ ...d.questionSource, ...muted }}>{question.receipt}</div>
         )}
+        {/* What happened to this question, composed by the server. Mockup v4
+            will rule on where it sits; until then it is under the source line at
+            13px muted, which is where the task put it. NOTHING renders on a
+            question nobody has answered — an empty status line reads as a status
+            that failed to load. */}
+        {question.status !== null && <div style={f.rowStatus}>{question.status}</div>}
         {flagged && (
           <div style={d.flagged}>
             ⚑ {w("flag_shown_template").replace("{note}", question.flag_note ?? "")}
@@ -161,6 +195,14 @@ const DeckRow: React.FC<{
       <div style={d.rowControls}>
         <button
           type="button"
+          style={d.rowButton}
+          onClick={onPracticeOne}
+          disabled={startingOne}
+        >
+          {w("row_practice_this_label")}
+        </button>
+        <button
+          type="button"
           style={skipped ? d.rowButtonSkipped : d.rowButton}
           aria-pressed={skipped}
           onClick={() => controls.toggleSkip(question.id)}
@@ -179,7 +221,13 @@ const DeckRow: React.FC<{
   );
 };
 
-const PracticeDeckList: React.FC<Props> = ({ questions, wording, controls }) => {
+const PracticeDeckList: React.FC<Props> = ({
+  questions,
+  wording,
+  controls,
+  onPracticeOne,
+  startingOne,
+}) => {
   const { skippedToday, flagError } = controls;
   const w = (key: string) => wordingOf(wording, key);
 
@@ -243,6 +291,8 @@ const PracticeDeckList: React.FC<Props> = ({ questions, wording, controls }) => 
               onDraftChange={setDraft}
               onOpenEditor={() => openEditor(question)}
               onCloseEditor={() => setEditing(null)}
+              onPracticeOne={() => onPracticeOne(question)}
+              startingOne={startingOne}
             />
           ))}
         </>

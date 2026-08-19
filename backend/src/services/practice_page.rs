@@ -21,11 +21,15 @@ use uuid::Uuid;
 use crate::domain::settings::Settings;
 use crate::domain::wording_practice::PracticeWording;
 use crate::domain::wording_templates::render;
-use crate::dto::practice::{PracticeDeckPayload, PracticePointDto, PracticeQuestionDto};
+use crate::dto::practice::{
+    OpenSessionDto, PracticeDeckPayload, PracticePointDto, PracticeQuestionDto,
+};
 use crate::dto::practice_wording::PracticeWordingDto;
 use crate::repositories::pipeline_repository::practice::{
     LastSessionRecord, PracticePointReceipt, PracticePointRecord, PracticeQuestionRecord,
 };
+use crate::repositories::pipeline_repository::practice_flow::{OpenSessionRecord, RowStatusRecord};
+use crate::services::practice_status::{open_session_detail, row_status};
 
 /// The date format the drill's two composed lines use: `Sun 16 Aug`.
 ///
@@ -79,8 +83,21 @@ fn tactic_tag(settings: &Settings, record: &PracticeQuestionRecord) -> Option<St
     }
 }
 
-/// One deck row, as the two screens receive it.
-fn question_dto(settings: &Settings, record: PracticeQuestionRecord) -> PracticeQuestionDto {
+/// One deck row, as the three screens receive it.
+///
+/// `status` arrives already composed, or absent. A question nobody has answered
+/// carries `None` and the row renders nothing at all — an empty status line
+/// under a question reads as a status that failed to load.
+fn question_dto(
+    settings: &Settings,
+    now: DateTime<Utc>,
+    statuses: &[RowStatusRecord],
+    record: PracticeQuestionRecord,
+) -> PracticeQuestionDto {
+    let status = statuses
+        .iter()
+        .find(|s| s.question_id == record.id)
+        .map(|s| row_status(settings, now, s));
     PracticeQuestionDto {
         tactic: tactic_tag(settings, &record),
         braid: record.braid_rows.is_some(),
@@ -95,7 +112,47 @@ fn question_dto(settings: &Settings, record: PracticeQuestionRecord) -> Practice
         stronger: record.stronger,
         stronger_lean: record.stronger_lean,
         flag_note: record.flag_note,
+        kind: record.kind,
+        deck_key: record.deck_key,
+        follows_key: record.follows_key,
+        status,
     }
+}
+
+/// The receipts the "I'd point to…" picker offers, in the order it lists them.
+///
+/// Her three points' receipts first — those are the exhibits her own case rests
+/// on — then the documents her questions stand on, in deck order. De-duplicated
+/// by exact text, because the same hearing page backs more than one question and
+/// a list offering it twice is a list she stops reading.
+///
+/// ## Domain note: nothing here is derived from prose
+///
+/// Both halves are AUTHORED strings — the seeded point receipts and the deck's
+/// own `source_line`. The alternative considered and rejected was cutting the
+/// citation off the end of each `receipt` paragraph: it works on George's five
+/// rows and produces "establishes point 1" on Chuck's, which is the machine
+/// putting a phrase in front of a witness that nobody wrote.
+fn picker_receipts(
+    deck: &[PracticeQuestionRecord],
+    seeded: &[PracticePointReceipt],
+) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut push = |value: &str| {
+        let value = value.trim();
+        if !value.is_empty() && !out.iter().any(|held| held == value) {
+            out.push(value.to_string());
+        }
+    };
+    for receipt in seeded {
+        push(&receipt.text);
+    }
+    for question in deck {
+        if let Some(line) = question.source_line.as_deref() {
+            push(line);
+        }
+    }
+    out
 }
 
 /// The start screen's one line about the last time she sat down.
@@ -177,6 +234,14 @@ pub struct DeckSources<'a> {
     /// The seeded stand-in receipts. See [`point_receipt`] for the precedence.
     pub receipts: &'a [PracticePointReceipt],
     pub last: Option<&'a LastSessionRecord>,
+    /// The newest attempt at each question, for the status on its row.
+    pub statuses: &'a [RowStatusRecord],
+    /// The sitting she walked out of, if there is one.
+    pub open: Option<&'a OpenSessionRecord>,
+    /// Now, taken once by the caller so every "today" on one payload agrees.
+    /// Passed rather than read here so the composition stays testable without a
+    /// clock — the same reason the sheet takes its `ended_at`.
+    pub now: DateTime<Utc>,
 }
 
 /// Build the whole payload.
@@ -193,15 +258,19 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         points,
         receipts,
         last,
+        statuses,
+        open,
+        now,
     } = sources;
 
+    let picker = picker_receipts(&deck, receipts);
     PracticeDeckPayload {
         scenario_id,
         code,
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, record))
+            .map(|record| question_dto(settings, now, statuses, record))
             .collect(),
         points: points
             .into_iter()
@@ -212,6 +281,11 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
             })
             .collect(),
         last_session_line: last_session_line(&settings.practice_wording, last),
+        receipts: picker,
+        open_session: open.map(|record| OpenSessionDto {
+            session_id: record.id,
+            detail: open_session_detail(settings, now, record),
+        }),
         wording: PracticeWordingDto::from_blocks(
             &settings.practice_wording,
             &settings.practice_report_wording,

@@ -55,6 +55,7 @@ pub mod persons;
 pub mod pipeline;
 pub mod practice;
 pub mod practice_answers;
+pub mod practice_sessions;
 pub mod proof_matrix;
 pub mod proof_review;
 pub mod qa;

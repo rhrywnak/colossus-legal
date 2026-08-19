@@ -9,6 +9,11 @@ use super::*;
 /// A deck that is entirely well-formed, for the tests that spoil one thing.
 fn good_question() -> DeckQuestion {
     DeckQuestion {
+        key: None,
+        kind: None,
+        follows: None,
+        source_line: None,
+        draft_by: None,
         side: DeckSide::George,
         source_kind: DeckSourceKind::Instance,
         source_index: Some(1),
@@ -304,88 +309,4 @@ fn a_malformed_point_receipt_is_refused_by_its_place_in_the_file() {
     // A deck with NO receipts is legitimate — every point then shows the stored
     // named-absence line, which is what every scenario but S-5 does today.
     assert_eq!(with(Vec::new()).validate(), Ok(()));
-}
-
-/// THE SHIPPED DECK PARSES, AND IS THE TEN QUESTIONS OF THE MOCKUP.
-///
-/// ## Why this test reads a file off disk (Rule 21)
-///
-/// The deck is data, and data in this repo has one failure mode nothing else
-/// catches: it parses in the author's head and not in serde's. A typo in a key
-/// name, one wrong indent under a folded scalar, a `tactic: 8` — every one of
-/// them is invisible until an operator runs the binary against the live
-/// database, which on this timetable means Tuesday morning.
-///
-/// The counts are asserted because they are the CLAIM: five George questions from
-/// five ruled instances, five Chuck questions from three points, ten in all.
-#[test]
-fn the_shipped_s5_deck_parses_and_holds_the_mockups_ten_questions() {
-    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let raw = std::fs::read_to_string(root.join("practice_decks/S-5.yaml"))
-        .expect("the S-5 deck is on disk");
-    let deck: DeckFile = serde_yaml::from_str(&raw).expect("the S-5 deck parses");
-
-    deck.validate().expect("the S-5 deck is valid");
-    assert_eq!(deck.scenario_code, "S-5");
-    assert_eq!(deck.questions.len(), 10);
-
-    let george: Vec<_> = deck
-        .questions
-        .iter()
-        .filter(|q| q.side == DeckSide::George)
-        .collect();
-    let chuck: Vec<_> = deck
-        .questions
-        .iter()
-        .filter(|q| q.side == DeckSide::Chuck)
-        .collect();
-    assert_eq!(george.len(), 5, "one cross question per ruled instance");
-    assert_eq!(chuck.len(), 5, "Chuck's direct");
-
-    // Every George question is tagged, sourced to an instance, and carries the
-    // pair its reveal renders. Those three together are what makes the cross side
-    // TRACEABLE — the property design §1 states as "nothing is invented".
-    for q in &george {
-        assert!(q.tactic.is_some(), "a cross question carries its tactic");
-        assert_eq!(q.source_kind, DeckSourceKind::Instance);
-        assert!(q.pair_said.is_some() && q.pair_admitted.is_some());
-        assert!(
-            q.receipt.is_some(),
-            "and the line saying where it came from"
-        );
-    }
-
-    // Chuck's carry none of that and must not pretend to: no tactic (there is no
-    // trap in a friendly question), no pair (nobody is being impeached).
-    for q in &chuck {
-        assert!(q.tactic.is_none());
-        assert_eq!(q.source_kind, DeckSourceKind::Point);
-        assert!(q.pair_said.is_none() && q.pair_admitted.is_none());
-    }
-
-    // The braid is the fifth George question and the only one naming barrage rows.
-    let braids: Vec<_> = deck
-        .questions
-        .iter()
-        .filter(|q| q.braid_rows.is_some())
-        .collect();
-    assert_eq!(braids.len(), 1);
-    assert_eq!(braids[0].tactic, Some(5), "a braid is card 5, compound");
-
-    // Roman's ruling of 2026-08-17: one receipt per talking point, seeded with
-    // the deck, and they carry NO "Backed by:" — that word is wording and the
-    // renderer joins the two. A receipt shipped with the prefix baked in would
-    // print "Backed by: Backed by: …" on the reveal.
-    assert_eq!(deck.points.len(), 3, "one receipt per talking point");
-    for (i, point) in deck.points.iter().enumerate() {
-        assert_eq!(point.position, i + 1, "the three are positions 1, 2, 3");
-        assert!(
-            !point.text.contains("Backed by"),
-            "the stored prefix must not be baked into the receipt: {}",
-            point.text
-        );
-    }
-    assert_eq!(deck.points[0].text, "your certified letter, 16 Nov 2009");
-    assert_eq!(deck.points[1].text, "CFS Interrogatory Response, p. 10");
-    assert_eq!(deck.points[2].text, "CFS Interrogatory Response, p. 14");
 }

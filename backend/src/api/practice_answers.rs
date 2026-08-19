@@ -25,7 +25,10 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, FlagRequest, FlagResponse},
+    dto::practice::{
+        AnswerRequest, AnswerResponse, CloseAnswerRequest, FlagRequest, FlagResponse,
+        SkipQuestionRequest,
+    },
     error::AppError,
     repositories::pipeline_repository::{
         practice::{
@@ -44,6 +47,23 @@ use crate::{
 
 use super::practice::repo_error;
 
+/// The four boxes as an answer row OPENS: none ticked.
+///
+/// A helper rather than a literal at each of the two call sites, so a fifth box
+/// added to the reveal cannot be added to one of them and forgotten in the
+/// other. Domain note: this is PROVISIONAL. `post_close_answer` settles it when
+/// she leaves the reveal, which is the first moment any of the four is known —
+/// and a skipped question keeps these, because she was never shown a reveal to
+/// tick them on.
+fn unticked_self_check() -> serde_json::Value {
+    serde_json::json!({
+        "only_asked": false,
+        "accepted_premise": false,
+        "explained_unasked": false,
+        "guessed": false
+    })
+}
+
 pub async fn post_practice_answer(
     _user: AuthUser,
     State(state): State<AppState>,
@@ -51,6 +71,11 @@ pub async fn post_practice_answer(
 ) -> Result<Json<AnswerResponse>, AppError> {
     let (scenario_id, question) = fence_answer(&state, body.session_id, body.question_id).await?;
     let outcome = read_for(&state, scenario_id, &question, &body.answer_text).await;
+    // `None` when the control was never opened; `Some([])` when she opened it
+    // and picked nothing. The column keeps the two apart, so the mapping does
+    // too — collapsing them would tell Chuck she considered the exhibits and
+    // reached for none, on an answer where she never saw the list.
+    let points_to = body.points_to.map(|picked| serde_json::json!(picked));
 
     let answer_id = insert_answer(
         &state.pipeline_pool,
@@ -71,12 +96,8 @@ pub async fn post_practice_answer(
             // are settled by `post_close_answer` when she leaves the reveal,
             // which is the first moment either is known. Recording her typed
             // answer now is what survives a closed laptop.
-            self_check: serde_json::json!({
-                "only_asked": false,
-                "accepted_premise": false,
-                "explained_unasked": false,
-                "guessed": false
-            }),
+            self_check: unticked_self_check(),
+            points_to,
             mark: "fine".to_string(),
         },
     )
@@ -178,6 +199,12 @@ async fn read_for(
             question: &question.text,
             tactic: tactic.as_deref(),
             side: &side,
+            // Prompt v2 judges a CROSS answer, a DIRECT answer and a REDIRECT
+            // answer by three different rules — a paragraph on cross is
+            // "that's redirect", a paragraph on redirect is no fault at all —
+            // so the kind is sent as itself rather than inferred from `side`,
+            // which cannot tell Chuck's two apart.
+            kind: &question.kind,
             answer: answer_text,
             points: &points,
             watch_for: question.watch_for.as_deref(),
@@ -185,6 +212,72 @@ async fn read_for(
         },
     )
     .await
+}
+
+/// She was dealt this question and set it aside: "Skip this one — doesn't fit".
+///
+/// ## Why this writes a ROW at all
+///
+/// Because it happened. A question she was shown and declined is a different
+/// fact from one she was never dealt, and Chuck's sheet is the record of the
+/// sitting — a skip that left no row would make the sheet claim a shorter
+/// evening than she had. The stored phrase goes in `answer_text` so a skipped
+/// row and a blank answer stay different rows.
+///
+/// ## Why there is no model call
+///
+/// There is nothing to read. She typed nothing, and asking a model to judge the
+/// stored phrase would spend tokens to produce a sentence about a sentence this
+/// service wrote itself.
+///
+/// # Errors
+/// 404 when the session or the question does not exist; 400 when the question is
+/// not in this session's deck. Same fence as an answer, for the same reason.
+pub async fn post_skip_question(
+    _user: AuthUser,
+    State(state): State<AppState>,
+    Json(body): Json<SkipQuestionRequest>,
+) -> Result<Json<AnswerResponse>, AppError> {
+    let (_, question) = fence_answer(&state, body.session_id, body.question_id).await?;
+    let settings = state.settings.current();
+
+    let answer_id = insert_answer(
+        &state.pipeline_pool,
+        &NewAnswer {
+            session_id: body.session_id,
+            question_id: question.id,
+            answer_text: settings.practice_wording.flow.skipped_answer_text.clone(),
+            dont_recall: false,
+            read_text: None,
+            read_ok: None,
+            // NOT an error: `read_error` says why a read is ABSENT, and the
+            // honest reason here is that none was asked for. Leaving it NULL
+            // would make a skip indistinguishable from a call that vanished.
+            read_error: Some("no read: the question was skipped mid-sitting".to_string()),
+            read_input_tokens: None,
+            read_output_tokens: None,
+            read_ms: None,
+            read_model: None,
+            read_raw_reply: None,
+            self_check: unticked_self_check(),
+            points_to: None,
+            mark: "skipped".to_string(),
+        },
+    )
+    .await
+    .map_err(|e| repo_error("insert_answer", e))?;
+
+    tracing::info!(
+        session = %body.session_id,
+        question = %question.id,
+        %answer_id,
+        "practice: a question was skipped mid-sitting"
+    );
+    Ok(Json(AnswerResponse {
+        answer_id,
+        read_text: None,
+        read_ok: None,
+    }))
 }
 
 /// She opened the stronger-answer drawer. Chuck's sheet says so.

@@ -61,21 +61,38 @@ export function orderedDeck(
   deck: PracticeQuestion[],
   who: "george" | "chuck" | "mixed",
 ): PracticeQuestion[] {
-  const george = deck.filter((q) => q.side === "george");
+  // George's side is every CROSS question — which is what `side === "george"`
+  // meant before redirects existed and still means today, but stated as the
+  // kind because that is the fact the filter is actually about.
+  const george = deck.filter((q) => q.kind === "cross");
   const chuck = deck.filter((q) => q.side === "chuck");
 
   if (who === "george") return george;
   if (who === "chuck") return chuck;
 
-  // Mixed: alternate, starting with George, and stop when either side runs out.
-  // The shape of a real day — a friendly question after a hostile one, so she
-  // has to change register between them.
+  // Mixed, as of v1: PAIRS. Each George trap is followed immediately by the
+  // redirect that repairs it, then the next trap; Chuck's direct questions come
+  // after every pair.
+  //
+  // ## Domain note: why the pair and not the old alternation
+  //
+  // The v0 order alternated George · Chuck · George, which is the shape of a
+  // trial DAY. A redirect is not that: it is the answer to the question that was
+  // just asked, and dealing it three questions later drills something that never
+  // happens in a courtroom. Chuck's direct questions keep the old position —
+  // after the cross — because that IS when he asks them.
   const mixed: PracticeQuestion[] = [];
-  for (let i = 0; ; i += 1) {
-    const next = i % 2 === 0 ? george[Math.floor(i / 2)] : chuck[Math.floor(i / 2)];
-    if (next === undefined) break;
-    mixed.push(next);
+  for (const trap of george) {
+    mixed.push(trap);
+    // `follows_key` names the George question by its stable deck key. A redirect
+    // whose target is not in this deck (a key that was re-worded away) is left
+    // out of the pairs and picked up by the tail below — never dropped.
+    if (trap.deck_key !== null) {
+      mixed.push(...deck.filter((q) => q.kind === "redirect" && q.follows_key === trap.deck_key));
+    }
   }
+  const dealt = new Set(mixed.map((q) => q.id));
+  mixed.push(...chuck.filter((q) => !dealt.has(q.id)));
   return mixed;
 }
 

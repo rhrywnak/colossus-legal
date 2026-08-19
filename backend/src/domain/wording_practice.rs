@@ -49,6 +49,11 @@ pub struct PracticeWording {
     /// `Settings` because that struct sits one line under Rule 17's limit and
     /// this task has no business splitting it — see the flow module's header.
     pub flow: super::wording_practice_flow::PracticeFlowWording,
+    /// What v1 (the Chuck review) added: the words about ONE question — the way
+    /// into it alone, what happened to it last time, what kind it is, and what
+    /// she would point to. Nested for the same reason `flow` is, and the block's
+    /// own header argues the seam.
+    pub row: super::wording_practice_row::PracticeRowWording,
     // ── S0 · the start card ──────────────────────────────────────────────
     /// The eyebrow over the scenario title on the practice start screen.
     pub kicker: String,
@@ -244,6 +249,7 @@ pub fn build_practice_wording<E>(
 ) -> Result<PracticeWording, E> {
     Ok(PracticeWording {
         flow: super::wording_practice_flow::build_practice_flow_wording(&read)?,
+        row: super::wording_practice_row::build_practice_row_wording(&read)?,
         kicker: read(KEY_KICKER)?,
         intro: read(KEY_INTRO)?,
         who_heading: read(KEY_WHO_HEADING)?,

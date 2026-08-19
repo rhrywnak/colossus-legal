@@ -137,6 +137,12 @@ pub struct ReadInputs<'a> {
     /// The tactic's name, or `None` on a Chuck question — which has no trap.
     pub tactic: Option<&'a str>,
     pub side: &'a str,
+    /// `cross`, `direct` or `redirect`. Domain note: prompt v2 judges the three
+    /// by different rules — on cross the right answer is the short counter plus
+    /// one named receipt and a paragraph is `That's redirect — save it for
+    /// Chuck.`; on direct and redirect there is no length fault at all. `side`
+    /// cannot carry that, because two of the three kinds are Chuck's.
+    pub kind: &'a str,
     pub answer: &'a str,
     /// Her three points, in her words.
     pub points: &'a [String],
@@ -172,12 +178,14 @@ pub fn build_user_message(inputs: &ReadInputs<'_>) -> String {
 
     format!(
         "THE QUESTION ({side}): {question}\n\
+         THE KIND: {kind}\n\
          THE TACTIC: {tactic}\n\n\
          HER ANSWER, verbatim:\n{answer}\n\n\
          HER THREE POINTS:\n{points}\n\n\
          THE WATCH-FOR: {watch}\n\n\
          THE ALWAYS CARD: {always}\n",
         side = inputs.side,
+        kind = inputs.kind,
         question = inputs.question,
         answer = inputs.answer,
         always = inputs.always,

@@ -16,6 +16,7 @@ pub mod practice_page;
 pub mod practice_read;
 pub mod practice_read_parse;
 pub mod practice_sheet;
+pub mod practice_status;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
 pub mod rehearsal_count;

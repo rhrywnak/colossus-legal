@@ -52,6 +52,21 @@ pub struct PracticeQuestionDto {
     /// Served with the deck so the start screen can render the flag on the row
     /// and Chuck's sheet can list it, without a second call.
     pub flag_note: Option<String>,
+    /// `cross`, `direct` or `redirect` — what the question DOES. The screen tags
+    /// a redirect, the mixed queue pairs one behind the George question it
+    /// answers, and the read judges it by a different rule. Three behaviours
+    /// that `side` cannot carry.
+    pub kind: String,
+    /// The stable handle the deck file uses (`g1`, `r2`). `None` on rows seeded
+    /// before the key existed.
+    pub deck_key: Option<String>,
+    /// The `deck_key` of the George question this redirect answers, or `None`.
+    /// The browser pairs the queue by it; nothing else reads it.
+    pub follows_key: Option<String>,
+    /// What happened to this question, ALREADY COMPOSED — "answered today ·
+    /// repeat · attempt 2". `None` on a question nobody has answered, which
+    /// renders nothing at all rather than an empty line.
+    pub status: Option<String>,
 }
 
 /// The flag as it stands after a write — `None` when it was cleared.
@@ -103,7 +118,53 @@ pub struct PracticeDeckPayload {
     /// The composed last-session sentence, or the composed "no session yet" one.
     /// Always present, because the start screen always has that line.
     pub last_session_line: String,
+    /// The receipts the "I'd point to…" picker offers, de-duplicated and in
+    /// deck order: her points' receipts first, then the exhibits her questions
+    /// stand on. Composed here so the browser assembles no list of its own.
+    pub receipts: Vec<String>,
+    /// The sitting she walked out of, if there is one. `None` withdraws the
+    /// blue box entirely — an empty box would read as a session that failed to
+    /// load.
+    pub open_session: Option<OpenSessionDto>,
     pub wording: PracticeWordingDto,
+}
+
+/// The unfinished sitting the start card offers back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenSessionDto {
+    pub session_id: Uuid,
+    /// `· today 09:57 · George's side · 1 of 5 answered.` — one composed
+    /// sentence, so the browser holds no template and no date format.
+    pub detail: String,
+}
+
+/// One sitting, as the page re-enters it at its own address.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SittingPayload {
+    pub session_id: Uuid,
+    pub scenario_id: Uuid,
+    /// `george` | `chuck` | `mixed`.
+    pub who: String,
+    /// The dealt question ids, in the order they were dealt. EMPTY when the
+    /// session predates the stored queue — the page then says it cannot resume
+    /// rather than dealing a queue it invented.
+    pub queue: Vec<Uuid>,
+    /// The questions already dealt, in the order she answered them. A `skipped`
+    /// row counts: she was shown that question and set it aside.
+    pub answered: Vec<Uuid>,
+    /// True when this sitting is already closed. The page then shows the start
+    /// card rather than re-entering a session that is over.
+    pub ended: bool,
+}
+
+/// What closing the stale open sittings did.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OpenSessionsClosed {
+    /// How many OTHER open sittings this scenario carried and now does not.
+    pub also_closed: u64,
 }
 
 /// Which deck she chose, and how many.
@@ -160,6 +221,26 @@ pub struct AnswerRequest {
     pub question_id: Uuid,
     pub answer_text: String,
     pub dont_recall: bool,
+    /// The receipts she said she would point to. ABSENT when she never opened
+    /// the control, an empty array when she opened it and picked nothing —
+    /// two different facts, and the column keeps them different.
+    #[serde(default)]
+    pub points_to: Option<Vec<String>>,
+}
+
+/// One question she was dealt and set aside mid-sitting.
+///
+/// A request of its own rather than a flag on [`AnswerRequest`], because it is a
+/// different act with a different cost: it makes NO model call, stores the
+/// stored "doesn't fit" phrase rather than anything she typed, and lands on the
+/// row already marked `skipped`. Folding it into the answer path would put a
+/// `if skipped { … }` around the read, the mark and the text at once — three
+/// branches whose only shared code is the insert.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SkipQuestionRequest {
+    pub session_id: Uuid,
+    pub question_id: Uuid,
 }
 
 /// How one answer ends: the mark she chose, and the boxes she ticked.
@@ -207,6 +288,9 @@ pub struct PracticeSheetRowDto {
     pub help_opened: bool,
     /// The stored word for that cell: "opened" or the dash.
     pub help: String,
+    /// What she said she would point to. EMPTY withdraws the line — a "would
+    /// point to:" with nothing after it reads as data that went missing.
+    pub points_to: Vec<String>,
 }
 
 /// Chuck's sheet, composed.

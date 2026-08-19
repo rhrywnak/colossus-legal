@@ -1,0 +1,166 @@
+//! Flattening the practice tool's stored wording blocks into one wire object.
+//!
+//! One `impl` block and nothing else. Split from [`super::practice_wording`] on
+//! 2026-08-19, when the twelve rows v1 added carried that file past Rule 17's
+//! 300-line limit.
+//!
+//! ## Why the seam falls between the SHAPE and the MAPPING
+//!
+//! The sibling declares a contract — one field per stored key, the `practice_`
+//! prefix dropped — and two tests there pin exactly that. This file is the
+//! clerical work of satisfying it: four blocks in, one object out, one line per
+//! field. Nothing here decides anything, which is what makes it the half that
+//! can be filed elsewhere without a reader losing the plot.
+//!
+//! ## Rust Learning: an inherent `impl` in another module
+//!
+//! `impl PracticeWordingDto` is written HERE while `struct PracticeWordingDto`
+//! is declared in the sibling. Rust allows that for any type defined in the same
+//! CRATE — coherence is a rule about crates, not modules — so a type's data and
+//! one coherent family of its methods can be filed separately without a trait, a
+//! wrapper, or a re-export.
+
+use super::practice_wording::PracticeWordingDto;
+use crate::domain::wording_practice::PracticeWording;
+use crate::domain::wording_practice_report::PracticeReportWording;
+
+impl PracticeWordingDto {
+    /// Flatten the two stored blocks into the one object the page reads.
+    ///
+    /// ## Rust Learning: an inherent constructor instead of `From`
+    ///
+    /// `From` takes ONE value. The natural workaround — `From<(&A, &B)>` for a
+    /// tuple — makes the call site `PracticeWordingDto::from((&a, &b))`, where the
+    /// two references are positional and a transposition would compile the day a
+    /// third block appears. A named constructor with named parameters says which
+    /// is which, and that is the whole reason to prefer it here.
+    pub fn from_blocks(drill: &PracticeWording, report: &PracticeReportWording) -> Self {
+        Self {
+            deck_heading: drill.flow.deck_heading.clone(),
+            deck_count_template: drill.flow.deck_count_template.clone(),
+            deck_skipped_suffix_template: drill.flow.deck_skipped_suffix_template.clone(),
+            deck_hide_link: drill.flow.deck_hide_link.clone(),
+            deck_show_link: drill.flow.deck_show_link.clone(),
+            deck_instruction_template: drill.flow.deck_instruction_template.clone(),
+            skip_today_label: drill.flow.skip_today_label.clone(),
+            skipped_today_label: drill.flow.skipped_today_label.clone(),
+            flag_label: drill.flow.flag_label.clone(),
+            flag_edit_label: drill.flow.flag_edit_label.clone(),
+            flag_placeholder: drill.flow.flag_placeholder.clone(),
+            flag_save_label: drill.flow.flag_save_label.clone(),
+            flag_cancel_label: drill.flow.flag_cancel_label.clone(),
+            flag_shown_template: drill.flow.flag_shown_template.clone(),
+            nothing_left_label: drill.flow.nothing_left_label.clone(),
+            unfinished_label: drill.flow.unfinished_label.clone(),
+            unfinished_detail_template: drill.flow.unfinished_detail_template.clone(),
+            resume_label: drill.flow.resume_label.clone(),
+            start_over_label: drill.flow.start_over_label.clone(),
+            start_over_hint: drill.flow.start_over_hint.clone(),
+            back_label: drill.flow.back_label.clone(),
+            back_hint_question: drill.flow.back_hint_question.clone(),
+            back_hint_reveal: drill.flow.back_hint_reveal.clone(),
+            skip_question_label: drill.flow.skip_question_label.clone(),
+            end_session_label: drill.flow.end_session_label.clone(),
+            skipped_answer_text: drill.flow.skipped_answer_text.clone(),
+            mark_skipped: drill.flow.mark_skipped.clone(),
+            sheet_skipped_clause_template: drill.flow.sheet_skipped_clause_template.clone(),
+            sheet_ended_early_clause: drill.flow.sheet_ended_early_clause.clone(),
+            flag_summary_heading: drill.flow.flag_summary_heading.clone(),
+            flag_summary_hint: drill.flow.flag_summary_hint.clone(),
+            flag_summary_item_template: drill.flow.flag_summary_item_template.clone(),
+            kicker: drill.kicker.clone(),
+            intro: drill.intro.clone(),
+            who_heading: drill.who_heading.clone(),
+            who_george_title: drill.who_george_title.clone(),
+            who_george_detail: drill.who_george_detail.clone(),
+            who_chuck_title: drill.who_chuck_title.clone(),
+            who_chuck_detail: drill.who_chuck_detail.clone(),
+            who_mixed_title: drill.who_mixed_title.clone(),
+            who_mixed_detail: drill.who_mixed_detail.clone(),
+            how_many_heading: drill.how_many_heading.clone(),
+            count_all_template: drill.count_all_template.clone(),
+            start_label: drill.start_label.clone(),
+            always_label: drill.always_label.clone(),
+            always_line: drill.always_line.clone(),
+            last_session_template: drill.last_session_template.clone(),
+            no_last_session: drill.no_last_session.clone(),
+            progress_template: drill.progress_template.clone(),
+            pill_george: drill.pill_george.clone(),
+            pill_chuck: drill.pill_chuck.clone(),
+            pill_braid: drill.pill_braid.clone(),
+            answer_label: drill.answer_label.clone(),
+            answer_hint: drill.answer_hint.clone(),
+            answer_placeholder: drill.answer_placeholder.clone(),
+            answer_button: drill.answer_button.clone(),
+            dont_recall_button: drill.dont_recall_button.clone(),
+            dont_recall_text: drill.dont_recall_text.clone(),
+            pause_button: drill.pause_button.clone(),
+            pause_note_prefix: drill.pause_note_prefix.clone(),
+            pause_note_emphasis: drill.pause_note_emphasis.clone(),
+            empty_deck: drill.empty_deck.clone(),
+            load_failed: drill.load_failed.clone(),
+            answer_failed: drill.answer_failed.clone(),
+            tactic_braid_suffix: drill.tactic_braid_suffix.clone(),
+            what_you_said_kicker: report.what_you_said_kicker.clone(),
+            read_tag: report.read_tag.clone(),
+            read_footnote: report.read_footnote.clone(),
+            read_unavailable: report.read_unavailable.clone(),
+            points_kicker: report.points_kicker.clone(),
+            receipt_prefix: report.receipt_prefix.clone(),
+            point_no_receipt: report.point_no_receipt.clone(),
+            pair_kicker: report.pair_kicker.clone(),
+            pair_said_label: report.pair_said_label.clone(),
+            pair_admitted_label: report.pair_admitted_label.clone(),
+            check_kicker: report.check_kicker.clone(),
+            check_only_asked: report.check_only_asked.clone(),
+            check_accepted_premise: report.check_accepted_premise.clone(),
+            check_explained_unasked: report.check_explained_unasked.clone(),
+            check_guessed: report.check_guessed.clone(),
+            stronger_summary: report.stronger_summary.clone(),
+            stronger_note_prefix: report.stronger_note_prefix.clone(),
+            stronger_note_emphasis: report.stronger_note_emphasis.clone(),
+            stronger_note_suffix: report.stronger_note_suffix.clone(),
+            stronger_no_receipt: report.stronger_no_receipt.clone(),
+            mark_not_recorded: report.mark_not_recorded.clone(),
+            help_not_recorded: report.help_not_recorded.clone(),
+            next_button: report.next_button.clone(),
+            again_button: report.again_button.clone(),
+            sheet_kicker_template: report.sheet_kicker_template.clone(),
+            sheet_heading_template: report.sheet_heading_template.clone(),
+            sheet_repeat_clause_template: report.sheet_repeat_clause_template.clone(),
+            sheet_nothing_to_repeat: report.sheet_nothing_to_repeat.clone(),
+            sheet_sub_prefix: report.sheet_sub_prefix.clone(),
+            sheet_sub_suffix: report.sheet_sub_suffix.clone(),
+            sheet_col_number: report.sheet_col_number.clone(),
+            sheet_col_from: report.sheet_col_from.clone(),
+            sheet_col_tactic: report.sheet_col_tactic.clone(),
+            sheet_col_question: report.sheet_col_question.clone(),
+            sheet_col_answer: report.sheet_col_answer.clone(),
+            sheet_col_mark: report.sheet_col_mark.clone(),
+            sheet_col_help: report.sheet_col_help.clone(),
+            sheet_from_george: report.sheet_from_george.clone(),
+            sheet_from_george_braid: report.sheet_from_george_braid.clone(),
+            sheet_from_chuck: report.sheet_from_chuck.clone(),
+            mark_fine: report.mark_fine.clone(),
+            mark_repeat: report.mark_repeat.clone(),
+            help_opened: report.help_opened.clone(),
+            help_none: report.help_none.clone(),
+            tactic_none: report.tactic_none.clone(),
+            sheet_again_button: report.sheet_again_button.clone(),
+            print_button: report.print_button.clone(),
+            homelab_line: report.homelab_line.clone(),
+            row_practice_this_label: drill.row.practice_this_label.clone(),
+            row_answered_today_template: drill.row.answered_today_template.clone(),
+            row_skipped_today: drill.row.skipped_today.clone(),
+            row_earlier_template: drill.row.earlier_template.clone(),
+            row_attempt_suffix_template: drill.row.attempt_suffix_template.clone(),
+            redirect_tag: drill.row.redirect_tag.clone(),
+            redirect_stronger_line: drill.row.redirect_stronger_line.clone(),
+            points_to_label: drill.row.points_to_label.clone(),
+            points_to_done_label: drill.row.points_to_done_label.clone(),
+            points_to_reveal_prefix: drill.row.points_to_reveal_prefix.clone(),
+            points_to_sheet_prefix: drill.row.points_to_sheet_prefix.clone(),
+            unfinished_today_word: drill.row.unfinished_today_word.clone(),
+        }
+    }
+}

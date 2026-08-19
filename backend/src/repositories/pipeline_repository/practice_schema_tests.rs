@@ -87,8 +87,17 @@ fn the_parse_sees_the_repositorys_statements() {
          the literal scanner has stopped seeing them",
         statements.len()
     );
-    assert_eq!(inserts().len(), 2, "practice.rs ships two INSERTs");
-    assert_eq!(updates().len(), 3, "practice.rs ships three UPDATEs");
+    assert_eq!(
+        inserts().len(),
+        2,
+        "the covered files ship two INSERTs, both in practice.rs"
+    );
+    assert_eq!(
+        updates().len(),
+        5,
+        "three UPDATEs in practice.rs and two in practice_flow.rs — the second \
+         file joined the guard on 2026-08-19, and this number is what says so"
+    );
 
     for (table, columns) in declared() {
         assert!(
@@ -122,8 +131,8 @@ fn the_parse_reads_columns_and_aliases_out_of_them() {
         .expect("practice.rs ships an INSERT INTO practice_answers");
     assert_eq!(
         answers.1.len(),
-        14,
-        "the practice_answers INSERT names 14 columns; parsed {:?}",
+        15,
+        "the practice_answers INSERT names 15 columns; parsed {:?}",
         answers.1
     );
 

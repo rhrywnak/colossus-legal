@@ -1,99 +1,74 @@
 // =============================================================================
-// PracticePage.tsx — Marie's practice drill (PRACTICE v0, mockup v2)
+// PracticePage.tsx — the start card (screen S0)
 // =============================================================================
 //
-// Four screens, one page, one payload: S0 start · S1 question · S2 reveal ·
-// S3 Chuck's sheet. Everything the drill renders arrives from
-// `GET /api/cases/:slug/scenarios/:id/practice` on mount; the only calls made
-// mid-session are the writes.
+// The card Marie opens on: the accusation by name, who is asking, how many, the
+// deck listed with its per-row controls, the sitting she walked out of, and
+// Start. Nothing on this page answers a question — pressing Start (or a row's
+// own `Practice this one ▸`) opens a sitting and NAVIGATES to its address.
 //
-// ## Why one page and not four routes
+// ## Why the sitting is a different page now (Section B, item B10)
 //
-// A witness moving from a question to its reveal must never wait on a network,
-// and must never see a screen fail between them. Four routes would mean four
-// mounts, four chances to lose her typed answer to a re-render, and an address
-// bar that changes under her while she is reading.
-//
-// ## Where the judging is NOT
-//
-// Nowhere in this file. The red/green sentence comes from the server or does not
-// come at all. The mockup's `judge()` was a mockup; this build has no local
-// fallback, no heuristic and no scoring — the four boxes are Marie's own and the
-// one sentence is the model's.
+// It was four screens at one address, and that is exactly what .401 got wrong:
+// Roman answered question 1, left the page, came back — and started at question
+// 1 again with no sign his answer had been kept. It had been kept; the screen
+// had no address to return him to. A sitting is a thing you can be in the middle
+// of, so it has a URL, and `PracticeSessionPage` renders it.
 //
 // ## Standing Rule 1 on this page
 //
-// Three distinct failures, three distinct screens: the deck failed to load (the
-// stored load-failure sentence), the deck is EMPTY (the stored "seed it"
-// sentence — not a failure at all), and the answer write failed (the stored
-// answer-failure sentence, on the question screen, saying nothing was saved).
+// Four distinct failures, four distinct observables: the deck failed to load
+// (the underlying sentence, since the wording came with the payload that
+// failed), the deck is EMPTY (the stored "seed it" sentence — not a failure at
+// all), the session could not be opened (the failure card), and the resume /
+// start-over write failed (a notice inside the blue box, with the sitting
+// untouched).
 
 import React from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
-import Breadcrumb from "../components/Breadcrumb";
-import PracticeQuestionScreen from "../components/practice/PracticeQuestion";
-import PracticeReveal from "../components/practice/PracticeReveal";
-import PracticeSheetScreen from "../components/practice/PracticeSheet";
 import PracticeStart, { type PracticeWho } from "../components/practice/PracticeStart";
 import * as s from "../components/practice/practiceStyles";
 import {
-  closePracticeAnswer,
-  endPracticeSession,
   fetchPracticeDeck,
-  markHelpOpened,
   startPracticeSession,
-  submitPracticeAnswer,
   wordingOf,
-  type AnswerResult,
   type PracticeDeck,
   type PracticeQuestion,
-  type PracticeSheet,
-  type SelfCheck,
 } from "../services/practice";
-import { scenarioPagePath, trialPrepPath } from "../utils/routePaths";
-import { requeue } from "./practiceQueue";
+import { resumeSitting, startOverSitting } from "../services/practiceFlow";
+import { practicePath, practiceSessionPath } from "../utils/routePaths";
+import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 
-/** Which of the four screens is showing. */
-type Screen = "start" | "question" | "reveal" | "sheet";
-
-/** All four boxes unticked — the state every question starts in. */
-const NO_SELF_CHECK: SelfCheck = {
-  only_asked: false,
-  accepted_premise: false,
-  explained_unasked: false,
-  guessed: false,
-};
+/**
+ * What the loading card says before the store has been read.
+ *
+ * The one sentence on these two pages that is NOT a stored row, and it cannot
+ * be: the wording arrives on the payload this card is waiting for. Every other
+ * literal was removed in v0 for the reason the wording law gives; this one has
+ * nowhere to come from.
+ */
+const LOADING = "Loading…";
 
 const PracticePage: React.FC = () => {
   const { slug = "", scenarioId = "" } = useParams<{ slug: string; scenarioId: string }>();
+  const navigate = useNavigate();
 
   const [deck, setDeck] = React.useState<PracticeDeck | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [screen, setScreen] = React.useState<Screen>("start");
-
   const [who, setWho] = React.useState<PracticeWho>("george");
-  const [sessionId, setSessionId] = React.useState<string | null>(null);
   const [starting, setStarting] = React.useState(false);
+  const [startingOne, setStartingOne] = React.useState(false);
+  const [resuming, setResuming] = React.useState(false);
+  const [resumeError, setResumeError] = React.useState<string | null>(null);
+  const [reloads, setReloads] = React.useState(0);
 
-  const [queue, setQueue] = React.useState<PracticeQuestion[]>([]);
-  const [index, setIndex] = React.useState(0);
-  const [answer, setAnswer] = React.useState("");
-  const [submitting, setSubmitting] = React.useState(false);
-  const [answerError, setAnswerError] = React.useState<string | null>(null);
-  const [result, setResult] = React.useState<AnswerResult | null>(null);
-  const [selfCheck, setSelfCheck] = React.useState<SelfCheck>(NO_SELF_CHECK);
-  const [sheet, setSheet] = React.useState<PracticeSheet | null>(null);
-  const [helpNotRecorded, setHelpNotRecorded] = React.useState(false);
-  const [markError, setMarkError] = React.useState<string | null>(null);
-
-  // mockup v3 · the start screen's two per-row controls, and the one write they
-  // make. Their state lives in a hook of its own — see its header.
   const rowControls = usePracticeDeckControls(setDeck);
 
-  // One fetch on mount. Every failure has an explicit `.catch` and an explicit
-  // screen; nothing here can reject silently.
+  // One fetch on mount, and again after Start over — which changes what the
+  // payload says (the open sitting is gone) and nothing else. `reloads` is the
+  // whole mechanism: bumping it re-runs this effect.
   React.useEffect(() => {
     let cancelled = false;
     setLoadError(null);
@@ -110,45 +85,12 @@ const PracticePage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [slug, scenarioId]);
+  }, [slug, scenarioId, reloads]);
 
-  const crumb = (
-    <Breadcrumb
-      items={[
-        { label: "Dashboard", to: "/" },
-        { label: "Trial Prep", to: trialPrepPath(slug) },
-        ...(deck === null
-          ? []
-          : [{ label: `${deck.code} · ${deck.title}`, to: scenarioPagePath(slug, scenarioId) }]),
-        { label: "Practice" },
-      ]}
-    />
-  );
+  const crumb = <PracticeCrumb slug={slug} scenarioId={scenarioId} deck={deck} />;
 
-  if (loadError !== null) {
-    // The stored sentence is unavailable when the payload itself failed, so this
-    // one notice is composed here — and it names the underlying failure rather
-    // than replacing it with a friendlier lie.
-    return (
-      <div style={s.page} data-surface="practice">
-        {crumb}
-        <section style={s.card} role="alert">
-          <div style={s.feedback}>{loadError}</div>
-        </section>
-      </div>
-    );
-  }
-
-  if (deck === null) {
-    return (
-      <div style={s.page} data-surface="practice">
-        {crumb}
-        <section style={s.card}>
-          <span style={s.progress}>Loading…</span>
-        </section>
-      </div>
-    );
-  }
+  if (loadError !== null) return <PracticeLoadFailure crumb={crumb} message={loadError} />;
+  if (deck === null) return <PracticeLoading crumb={crumb} label={LOADING} />;
 
   const w = (key: string) => wordingOf(deck.wording, key);
 
@@ -156,146 +98,92 @@ const PracticePage: React.FC = () => {
   // runs the seed, and the page says so in the store's own words.
   if (deck.questions.length === 0) {
     return (
-      <div style={s.page} data-surface="practice">
-        {crumb}
-        <section style={s.card}>
-          <div style={s.kicker}>{w("kicker")}</div>
-          <h1 style={s.h1}>
-            {deck.code} · {deck.title}
-          </h1>
-          <p style={s.sub}>{w("empty_deck")}</p>
-        </section>
-      </div>
+      <PracticeFrame crumb={crumb}>
+        <div style={s.kicker}>{w("kicker")}</div>
+        <h1 style={s.h1}>
+          {deck.code} · {deck.title}
+        </h1>
+        <p style={s.sub}>{w("empty_deck")}</p>
+      </PracticeFrame>
     );
   }
 
-  const current = queue[index] ?? null;
-
-  // This side's questions in the order the sitting will deal them, and the ones
-  // it can still deal after today's skips. Both come from `practiceQueue` so the
-  // list she reads and the queue she is dealt cannot drift apart.
   const view = rowControls.view(deck.questions, who);
 
-  const handleStart = () => {
-    setStarting(true);
-    // The queue is settled BEFORE the call so the sitting that is stored and the
-    // sitting that is dealt are the same list — not two slices taken a moment
-    // apart from state that could have moved between them.
-    const dealt = view.available.slice(0, view.count);
+  /**
+   * Open a sitting and go to its address.
+   *
+   * The queue is settled BEFORE the call, so the sitting that is STORED and the
+   * sitting that is dealt are the same list — not two slices taken a moment
+   * apart from state that could have moved between them.
+   */
+  const open = (
+    sideOf: PracticeWho,
+    dealt: PracticeQuestion[],
+    busy: (value: boolean) => void,
+  ) => {
+    busy(true);
     startPracticeSession(slug, scenarioId, {
-      who,
+      who: sideOf,
       queue: dealt.map((q) => q.id),
-      count: view.count,
+      count: dealt.length,
       skippedToday: [...rowControls.skippedToday],
     })
-      .then((id) => {
-        setSessionId(id);
-        setQueue(dealt);
-        setIndex(0);
-        setAnswer("");
-        setAnswerError(null);
-        setScreen("question");
-      })
+      .then((id) => navigate(practiceSessionPath(slug, scenarioId, id)))
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
         console.error("practice: the session could not be started", error);
         setLoadError(error instanceof Error ? error.message : String(error));
       })
-      .finally(() => setStarting(false));
-  };
-
-  const submit = (text: string, dontRecall: boolean) => {
-    if (current === null || sessionId === null) return;
-    setSubmitting(true);
-    setAnswerError(null);
-    // "(nothing typed)" is not composed here — an empty box records as the empty
-    // string, and the sheet prints what she actually typed. Trimming to a
-    // placeholder would put words in a witness's mouth on Chuck's sheet.
-    submitPracticeAnswer({ sessionId, questionId: current.id, answerText: text, dontRecall })
-      .then((answered) => {
-        setResult(answered);
-        setSelfCheck(NO_SELF_CHECK);
-        setScreen("reveal");
-      })
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the answer was not recorded", error);
-        setAnswerError(w("answer_failed"));
-      })
-      .finally(() => setSubmitting(false));
+      .finally(() => busy(false));
   };
 
   /**
-   * Settle the answer she just read, then move on.
+   * A ONE-question sitting on the question she clicked (task A2).
    *
-   * The close write is what puts her four boxes and her mark on the row Chuck's
-   * sheet renders, so it is AWAITED: a `repeat` that failed to land would print
-   * "fine" on the sheet against the one question she asked him to run the mock
-   * cross on.
-   *
-   * ## Why a failure keeps her HERE
-   *
-   * The queue, her answer and the read all live in this component's state. Ending
-   * the session — or replacing the page with a failure card — over a network blip
-   * would cost her the whole sitting. So a failed close leaves everything
-   * standing, says so above the two buttons, and lets her press again.
+   * `who` is the question's own side rather than the filter she happens to be
+   * looking at, because the sitting contains nothing else — recording it as a
+   * "George" sitting holding one of Chuck's would put a wrong word on the row
+   * this evening leaves behind.
    */
-  const advance = async (nextQueue: PracticeQuestion[], mark: "fine" | "repeat") => {
-    if (result !== null) {
-      setMarkError(null);
-      try {
-        await closePracticeAnswer(result.answer_id, mark, selfCheck);
-      } catch (error: unknown) {
-        // eslint-disable-next-line no-console
-        console.error("practice: the mark was not recorded", error);
-        setMarkError(w("mark_not_recorded"));
-        return;
-      }
-    }
-    setQueue(nextQueue);
-    setResult(null);
-    setHelpNotRecorded(false);
-    setMarkError(null);
-    setAnswer("");
-    setAnswerError(null);
-    if (index + 1 >= nextQueue.length) {
-      finish();
-      return;
-    }
-    setIndex(index + 1);
-    setScreen("question");
+  const practiceOne = (question: PracticeQuestion) => {
+    open(question.side === "george" ? "george" : "chuck", [question], setStartingOne);
   };
 
-  const finish = () => {
-    if (sessionId === null) return;
-    endPracticeSession(sessionId)
-      .then((composed) => {
-        setSheet(composed);
-        setScreen("sheet");
+  const resume = () => {
+    if (deck.open_session === null) return;
+    const sessionId = deck.open_session.session_id;
+    setResuming(true);
+    setResumeError(null);
+    resumeSitting(sessionId)
+      .then(() => navigate(practiceSessionPath(slug, scenarioId, sessionId)))
+      .catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error("practice: the sitting could not be resumed", error);
+        setResumeError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setResuming(false));
+  };
+
+  const startOver = () => {
+    if (deck.open_session === null) return;
+    setResuming(true);
+    setResumeError(null);
+    startOverSitting(deck.open_session.session_id)
+      .then(() => {
+        // Re-read rather than patching the payload in place: closing a sitting
+        // changes the last-session line too, and that sentence is composed on
+        // the server. Guessing at it here would be the browser writing a
+        // sentence it holds no template for.
+        setReloads((n) => n + 1);
+        navigate(practicePath(slug, scenarioId), { replace: true });
       })
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
-        console.error("practice: the session could not be closed", error);
-        setLoadError(error instanceof Error ? error.message : String(error));
-      });
-  };
-
-  /**
-   * Record that she opened the drawer, and SAY SO if that write fails.
-   *
-   * The notice is scoped to the drawer rather than raised over the page: what
-   * failed is one cell on Chuck's sheet, and her answer, her boxes and her mark
-   * are all unaffected. Saying nothing would leave the sheet quietly wrong on
-   * the one column Chuck reads to decide where to spend his mock cross.
-   */
-  const handleHelpOpened = () => {
-    if (result === null) return;
-    setHelpNotRecorded(false);
-    markHelpOpened(result.answer_id).catch((error: unknown) => {
-      // eslint-disable-next-line no-console
-      console.error("practice: opening the stronger answer was not recorded", error);
-      setHelpNotRecorded(true);
-    });
+        console.error("practice: the sitting could not be closed", error);
+        setResumeError(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => setResuming(false));
   };
 
   return (
@@ -304,81 +192,26 @@ const PracticePage: React.FC = () => {
     // the screen renders unstyled — which is why `practiceStyles.test.ts` pins
     // that this attribute and that CSS block stay in step.
     <div style={s.page} data-surface="practice">
-      {/* The print stylesheet. Inline styles cannot express a media query, so
-          this one rule set is a real <style> element, scoped by data attribute. */}
-      <style>{s.PRINT_CSS}</style>
-      <div data-practice-no-print>{crumb}</div>
-
-      {screen === "start" && (
-        <PracticeStart
-          code={deck.code}
-          title={deck.title}
-          wording={deck.wording}
-          lastSessionLine={deck.last_session_line}
-          who={who}
-          onWhoChange={setWho}
-          onStart={handleStart}
-          starting={starting}
-          controls={rowControls}
-          view={view}
-        />
-      )}
-
-      {screen === "question" && current !== null && (
-        <PracticeQuestionScreen
-          question={current}
-          wording={deck.wording}
-          position={index + 1}
-          total={queue.length}
-          answer={answer}
-          onAnswerChange={setAnswer}
-          onSubmit={() => submit(answer, false)}
-          onDontRecall={() => {
-            const text = w("dont_recall_text");
-            setAnswer(text);
-            submit(text, true);
-          }}
-          submitting={submitting}
-          error={answerError}
-        />
-      )}
-
-      {screen === "reveal" && current !== null && result !== null && (
-        <PracticeReveal
-          question={current}
-          wording={deck.wording}
-          position={index + 1}
-          total={queue.length}
-          answer={answer}
-          readText={result.read_text}
-          readOk={result.read_ok}
-          points={deck.points}
-          selfCheck={selfCheck}
-          onSelfCheckChange={setSelfCheck}
-          onHelpOpened={handleHelpOpened}
-          helpNotRecorded={helpNotRecorded}
-          markError={markError}
-          // Fire-and-forget at the call site is correct here: `advance` owns its
-          // own failure (it shows the notice and returns), so there is nothing
-          // for the click handler to await or catch.
-          onNext={() => void advance(queue, "fine")}
-          onAgainLater={() => void advance(requeue(queue, current), "repeat")}
-        />
-      )}
-
-      {screen === "sheet" && sheet !== null && (
-        <PracticeSheetScreen
-          sheet={sheet}
-          wording={deck.wording}
-          onPracticeAgain={() => {
-            setScreen("start");
-            setSessionId(null);
-            setSheet(null);
-            setQueue([]);
-            setIndex(0);
-          }}
-        />
-      )}
+      {crumb}
+      <PracticeStart
+        code={deck.code}
+        title={deck.title}
+        wording={deck.wording}
+        lastSessionLine={deck.last_session_line}
+        who={who}
+        onWhoChange={setWho}
+        onStart={() => open(who, view.available.slice(0, view.count), setStarting)}
+        starting={starting}
+        controls={rowControls}
+        view={view}
+        openSession={deck.open_session}
+        onResume={resume}
+        onStartOver={startOver}
+        resuming={resuming}
+        resumeError={resumeError}
+        onPracticeOne={practiceOne}
+        startingOne={startingOne}
+      />
     </div>
   );
 };

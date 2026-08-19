@@ -49,6 +49,18 @@ pub struct PracticeQuestionRecord {
     /// Read with the deck because the start screen renders it on the row and
     /// Chuck's sheet lists it at the foot — one read serves both.
     pub flag_note: Option<String>,
+    /// The stable handle the deck FILE uses (`g1`, `c3`, `r2`). `None` on rows
+    /// seeded before 2026-08-19, until the seed's `--update` path gives them one.
+    pub deck_key: Option<String>,
+    /// `cross`, `direct` or `redirect`. What the question DOES, which `side`
+    /// cannot say: Chuck asks two kinds and they are answered by opposite rules.
+    pub kind: String,
+    /// The `deck_key` of the George question a redirect answers. `None` on every
+    /// question that is not a redirect — the column's CHECK says so.
+    pub follows_key: Option<String>,
+    /// The exhibit this question stands on, as Marie would name it aloud. `None`
+    /// on every question that stands on no document of its own.
+    pub source_line: Option<String>,
 }
 
 /// One of Marie's three talking points, read live from the scenario record.
@@ -87,6 +99,9 @@ pub struct PracticeSheetRow {
     pub answer_text: String,
     pub mark: String,
     pub help_opened: bool,
+    /// What she said she would point to, as stored. `None` on every answer given
+    /// before the control existed, and on one where she never opened it.
+    pub points_to: Option<serde_json::Value>,
 }
 
 /// Everything one answer needs recording. A struct rather than eleven arguments:
@@ -108,6 +123,10 @@ pub struct NewAnswer {
     /// What the model said when this build refused to show it. `None` otherwise.
     pub read_raw_reply: Option<String>,
     pub self_check: serde_json::Value,
+    /// The receipts she said she would point to, as the phrases she was shown.
+    /// `None` = she never opened the control; `Some([])` = she opened it and
+    /// picked nothing. Two different facts about the same answer, kept apart.
+    pub points_to: Option<serde_json::Value>,
     pub mark: String,
 }
 
@@ -119,7 +138,7 @@ pub async fn list_deck(
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note \
+                flag_note, deck_key, kind, follows_key, source_line \
          FROM practice_questions WHERE scenario_id = $1 ORDER BY sort_order",
     )
     .bind(scenario_id)
@@ -136,7 +155,7 @@ pub async fn get_question(
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note \
+                flag_note, deck_key, kind, follows_key, source_line \
          FROM practice_questions WHERE id = $1",
     )
     .bind(question_id)
@@ -291,8 +310,8 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
         "INSERT INTO practice_answers \
          (session_id, question_id, answer_text, dont_recall, read_text, read_ok, read_error, \
           read_input_tokens, read_output_tokens, read_ms, read_model, read_raw_reply, \
-          self_check, mark) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING id",
+          self_check, points_to, mark) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING id",
     )
     .bind(answer.session_id)
     .bind(answer.question_id)
@@ -307,6 +326,7 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
     .bind(answer.read_model.as_deref())
     .bind(answer.read_raw_reply.as_deref())
     .bind(&answer.self_check)
+    .bind(&answer.points_to)
     .bind(&answer.mark)
     .fetch_one(pool)
     .await?;
@@ -361,7 +381,7 @@ pub async fn sheet_rows(
 ) -> Result<Vec<PracticeSheetRow>, PipelineRepoError> {
     sqlx::query_as::<_, PracticeSheetRow>(
         "SELECT q.side, q.braid_rows, q.tactic, q.text AS question, \
-                a.answer_text, a.mark, a.help_opened \
+                a.answer_text, a.mark, a.help_opened, a.points_to \
          FROM practice_answers a JOIN practice_questions q ON q.id = a.question_id \
          WHERE a.session_id = $1 ORDER BY a.answered_at, a.id",
     )

@@ -26,6 +26,7 @@ use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
 use super::deck_file::{DeckError, DeckFile, DeckQuestion, DeckSourceKind};
+use super::seed_rows::{insert_question, WRITER};
 use super::sources::{read_sources, ScenarioSources};
 
 /// Why a seed run could not finish.
@@ -179,6 +180,29 @@ fn resolve_ref(
     })
 }
 
+/// Resolve every question's `source_ref` before anything is opened.
+///
+/// ## Why the whole file is resolved up front
+///
+/// A refusal found half-way through the writes would roll back correctly, but
+/// the operator would read "the database refused" for what is a fixable typo in
+/// a file. Shared with the `--update` path (`super::seed_update`) so both
+/// commands refuse the same file for the same reason, in the same words.
+///
+/// # Errors
+/// [`SeedError::SourceOutOfRange`], naming the question, the kind and the count.
+pub(super) fn resolve_refs(
+    deck: &DeckFile,
+    sources: &ScenarioSources,
+    code: &str,
+) -> Result<Vec<Option<String>>, SeedError> {
+    deck.questions
+        .iter()
+        .enumerate()
+        .map(|(i, question)| resolve_ref(question, i + 1, sources, code))
+        .collect()
+}
+
 /// Plan the deck, prove it, and — with `apply` — write it in one transaction.
 ///
 /// # Errors
@@ -188,13 +212,7 @@ pub async fn run(pool: &PgPool, deck: &DeckFile, apply: bool) -> Result<SeedRepo
     let code = deck.scenario_code.trim().to_string();
     let sources = read_sources(pool, &code).await?;
 
-    // Resolve EVERY ref before a transaction is opened. A refusal found half-way
-    // through the writes would roll back correctly, but the operator would read
-    // "the database refused" for what is a fixable typo in a file.
-    let mut refs: Vec<Option<String>> = Vec::with_capacity(deck.questions.len());
-    for (i, question) in deck.questions.iter().enumerate() {
-        refs.push(resolve_ref(question, i + 1, &sources, &code)?);
-    }
+    let refs = resolve_refs(deck, &sources, &code)?;
 
     // Same rule as a question's source: a receipt naming a point the scenario does
     // not have is a REFUSAL, not a row written under a number nobody can see.
@@ -310,28 +328,13 @@ async fn write_deck(
         .map_err(|source| SeedError::Database { source })?;
 
     for (i, question) in deck.questions.iter().enumerate() {
-        sqlx::query(
-            "INSERT INTO practice_questions \
-             (scenario_id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
-              watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, created_by) \
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)",
+        insert_question(
+            &mut tx,
+            scenario_id,
+            question,
+            refs[i].as_deref(),
+            i32::try_from(i + 1).unwrap_or(i32::MAX),
         )
-        .bind(scenario_id)
-        .bind(question.side.as_column())
-        .bind(question.text.trim())
-        .bind(question.tactic)
-        .bind(question.braid_rows.as_deref().map(str::trim))
-        .bind(question.source_kind.as_column())
-        .bind(refs[i].as_deref())
-        .bind(question.receipt.as_deref().map(str::trim))
-        .bind(question.watch_for.as_deref().map(str::trim))
-        .bind(question.stronger.as_deref().map(str::trim))
-        .bind(question.stronger_lean.as_deref().map(str::trim))
-        .bind(question.pair_said.as_deref().map(str::trim))
-        .bind(question.pair_admitted.as_deref().map(str::trim))
-        .bind(i32::try_from(i + 1).unwrap_or(i32::MAX))
-        .bind("seed_practice_deck")
-        .execute(&mut *tx)
         .await
         .map_err(|source| SeedError::Database { source })?;
     }
@@ -348,7 +351,7 @@ async fn write_deck(
         .bind(scenario_id)
         .bind(i32::try_from(point.position).unwrap_or(i32::MAX))
         .bind(point.text.trim())
-        .bind("seed_practice_deck")
+        .bind(WRITER)
         .execute(&mut *tx)
         .await
         .map_err(|source| SeedError::Database { source })?;

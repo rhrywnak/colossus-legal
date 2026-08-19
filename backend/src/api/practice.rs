@@ -34,8 +34,10 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use super::practice_answers::{
-    post_close_answer, post_help_opened, post_practice_answer, put_question_flag,
+    post_close_answer, post_help_opened, post_practice_answer, post_skip_question,
+    put_question_flag,
 };
+use super::practice_sessions::{get_sitting_route, post_resume, post_start_over};
 
 use crate::{
     auth::AuthUser,
@@ -50,7 +52,9 @@ use crate::{
             end_session, last_ended_session, list_deck, list_point_receipts, list_points,
             session_scenario, sheet_rows, start_session, NewSitting,
         },
-        practice_flow::{list_flagged, session_queue_len},
+        practice_flow::{
+            list_flagged, newest_open_session, open_session_count, row_statuses, session_queue_len,
+        },
     },
     services::{
         practice_page::{deck_payload, DeckSources},
@@ -73,12 +77,19 @@ pub fn routes() -> Router<AppState> {
             post(post_practice_session),
         )
         .route("/practice/answers", post(post_practice_answer))
+        .route("/practice/answers/skip", post(post_skip_question))
         .route("/practice/answers/:answer_id/help", post(post_help_opened))
         .route(
             "/practice/answers/:answer_id/close",
             post(post_close_answer),
         )
         .route("/practice/sessions/:session_id/end", post(post_end_session))
+        .route("/practice/sessions/:session_id", get(get_sitting_route))
+        .route("/practice/sessions/:session_id/resume", post(post_resume))
+        .route(
+            "/practice/sessions/:session_id/start-over",
+            post(post_start_over),
+        )
         // PUT and not POST: writing the same note twice leaves the same row, and
         // clearing is the same call with nothing in it. That is idempotent, which
         // is what PUT means.
@@ -117,18 +128,7 @@ pub async fn get_practice_deck(
             message: format!("scenario {scenario_id} not found"),
         })?;
 
-    let deck = list_deck(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_deck", e))?;
-    let points = list_points(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_points", e))?;
-    let receipts = list_point_receipts(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_point_receipts", e))?;
-    let last = last_ended_session(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("last_ended_session", e))?;
+    let read = read_deck_sources(&state, scenario_id).await?;
 
     let settings = state.settings.current();
     let payload = deck_payload(
@@ -137,10 +137,13 @@ pub async fn get_practice_deck(
             scenario_id,
             code: scenario_code(record.code_ordinal),
             title: record.name,
-            deck,
-            points,
-            receipts: &receipts,
-            last: last.as_ref(),
+            deck: read.deck,
+            points: read.points,
+            receipts: &read.receipts,
+            last: read.last.as_ref(),
+            statuses: &read.statuses,
+            open: read.open.as_ref(),
+            now: chrono::Utc::now(),
         },
     );
 
@@ -149,9 +152,62 @@ pub async fn get_practice_deck(
         %scenario_id,
         questions = payload.questions.len(),
         points = payload.points.len(),
+        answered_questions = read.statuses.len(),
+        receipts = payload.receipts.len(),
+        open_sessions = read.open_total,
         "served the practice deck"
     );
     Ok(Json(payload))
+}
+
+/// Everything one deck payload is read from, in one place.
+///
+/// Six reads, all against the pipeline pool, all fenced by the same scenario.
+/// Gathered into a function so [`get_practice_deck`] stays the four steps it
+/// reads as — fence the case, read the record, read the deck, say what was
+/// served — rather than a straight run of six near-identical `map_err` blocks.
+struct DeckRead {
+    deck: Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
+    points: Vec<crate::repositories::pipeline_repository::practice::PracticePointRecord>,
+    receipts: Vec<crate::repositories::pipeline_repository::practice::PracticePointReceipt>,
+    last: Option<crate::repositories::pipeline_repository::practice::LastSessionRecord>,
+    statuses: Vec<crate::repositories::pipeline_repository::practice_flow::RowStatusRecord>,
+    open: Option<crate::repositories::pipeline_repository::practice_flow::OpenSessionRecord>,
+    /// How many open sittings this scenario carries. Read, and LOGGED, before
+    /// anything closes one: nothing closed an abandoned sitting before Section
+    /// B, so a scenario can carry several — and an operator who only ever sees
+    /// the newest has no way to discover how many there were.
+    open_total: i64,
+}
+
+/// Read all six, or fail naming the read that did.
+///
+/// # Errors
+/// 500 (logged, with the operation named) for any read that fails.
+async fn read_deck_sources(state: &AppState, scenario_id: Uuid) -> Result<DeckRead, AppError> {
+    Ok(DeckRead {
+        deck: list_deck(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_deck", e))?,
+        points: list_points(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_points", e))?,
+        receipts: list_point_receipts(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_point_receipts", e))?,
+        last: last_ended_session(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("last_ended_session", e))?,
+        statuses: row_statuses(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("row_statuses", e))?,
+        open: newest_open_session(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("newest_open_session", e))?,
+        open_total: open_session_count(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("open_session_count", e))?,
+    })
 }
 
 /// Open a session. The client keeps the id for the rest of the sitting.

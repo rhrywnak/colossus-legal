@@ -39,7 +39,20 @@ fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
         pair_admitted: None,
         sort_order: 1,
         flag_note: None,
+        deck_key: Some("g1".to_string()),
+        kind: "cross".to_string(),
+        follows_key: None,
+        source_line: Some("the hearing, p. 34".to_string()),
     }
+}
+
+/// A fixed instant, so a payload's "today" means the same thing on every run.
+fn now() -> chrono::DateTime<chrono::Utc> {
+    use chrono::TimeZone;
+    chrono::Utc
+        .with_ymd_and_hms(2026, 8, 19, 10, 0, 0)
+        .single()
+        .expect("a real instant")
 }
 
 /// A card number becomes the card's own name, from the settings row.
@@ -80,12 +93,17 @@ fn a_question_with_no_card_and_a_card_with_no_name_both_render_no_tag() {
 #[test]
 fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     let s = settings();
-    let dto = question_dto(&s, record(Some(5), Some("Barrage rows 1 · 2 · 5")));
+    let dto = question_dto(
+        &s,
+        now(),
+        &[],
+        record(Some(5), Some("Barrage rows 1 · 2 · 5")),
+    );
 
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
 
-    let plain = question_dto(&s, record(Some(5), None));
+    let plain = question_dto(&s, now(), &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
     assert!(!plain.braid);
 }
@@ -140,6 +158,9 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             points: vec![],
             receipts: &[],
             last: None,
+            statuses: &[],
+            open: None,
+            now: now(),
         },
     );
 
@@ -173,6 +194,9 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             points: vec![],
             receipts: &[],
             last: None,
+            statuses: &[],
+            open: None,
+            now: now(),
         },
     );
     let json = serde_json::to_string(&payload).expect("the payload serializes");
@@ -215,6 +239,9 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
                 },
             ],
             last: None,
+            statuses: &[],
+            open: None,
+            now: now(),
         },
     );
 
@@ -254,6 +281,9 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
                 text: "your certified letter, 16 Nov 2009".to_string(),
             }],
             last: None,
+            statuses: &[],
+            open: None,
+            now: now(),
         },
     );
 
@@ -283,6 +313,9 @@ fn a_point_with_neither_still_names_its_absence() {
                 text: "your certified letter, 16 Nov 2009".to_string(),
             }],
             last: None,
+            statuses: &[],
+            open: None,
+            now: now(),
         },
     );
 

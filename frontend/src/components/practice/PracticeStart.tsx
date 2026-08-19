@@ -13,11 +13,12 @@
 
 import React from "react";
 
-import type { PracticeWording } from "../../services/practice";
+import type { OpenSession, PracticeQuestion, PracticeWording } from "../../services/practice";
 import type { DeckView, PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
+import PracticeResume from "./PracticeResume";
 
 /**
  * The shorter counts the mockup offers, when the deck is longer than they are.
@@ -53,6 +54,18 @@ interface Props {
   controls: PracticeDeckControls;
   /** This side's questions, and what is left of them after today's skips. */
   view: DeckView;
+  /** The sitting she walked out of, or `null` — which withdraws the blue box. */
+  openSession: OpenSession | null;
+  onResume: () => void;
+  onStartOver: () => void;
+  /** True while a resume / start-over write is in flight. */
+  resuming: boolean;
+  /** That write's failure sentence, or null. */
+  resumeError: string | null;
+  /** This scenario's receipts, for the picker under the answer box. */
+  onPracticeOne: (question: PracticeQuestion) => void;
+  /** True while the one-question session POST is in flight. */
+  startingOne: boolean;
 }
 
 /**
@@ -81,6 +94,13 @@ const PracticeStart: React.FC<Props> = ({
   starting,
   controls,
   view,
+  openSession,
+  onResume,
+  onStartOver,
+  resuming,
+  resumeError,
+  onPracticeOne,
+  startingOne,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const available = view.available.length;
@@ -122,6 +142,20 @@ const PracticeStart: React.FC<Props> = ({
         ))}
       </div>
 
+      {/* The unfinished sitting, offered back. It sits ABOVE the count pills —
+          where the mockup draws it — because a witness who left one open should
+          be asked about it before she is asked to configure a new one. */}
+      {openSession !== null && (
+        <PracticeResume
+          wording={wording}
+          session={openSession}
+          onResume={onResume}
+          onStartOver={onStartOver}
+          busy={resuming}
+          error={resumeError}
+        />
+      )}
+
       {/* The count pills FOLLOW what is available (mockup v3): a shorter count
           appears only when it is smaller than the deck she can actually be
           asked, and the last pill always reads "all N" with N = available. A
@@ -155,7 +189,13 @@ const PracticeStart: React.FC<Props> = ({
         </button>
       </p>
 
-      <PracticeDeckList questions={view.ordered} wording={wording} controls={controls} />
+      <PracticeDeckList
+        questions={view.ordered}
+        wording={wording}
+        controls={controls}
+        onPracticeOne={onPracticeOne}
+        startingOne={startingOne}
+      />
 
       <div style={{ ...s.row, marginTop: 22 }}>
         <button

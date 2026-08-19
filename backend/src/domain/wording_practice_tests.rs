@@ -77,12 +77,14 @@ impl PracticeWording {
         // The nested flow block is read by the SAME closure, so its fixture is
         // consulted here too — one builder, one rule, two tables.
         let flow = crate::domain::wording_practice_flow::PracticeFlowWording::for_test_values();
+        let row = crate::domain::wording_practice_row::PracticeRowWording::for_test_values();
         build_practice_wording::<String>(|key| {
             TEST_SEED
                 .iter()
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| (*v).to_string())
                 .or_else(|| flow.get(key).cloned())
+                .or_else(|| row.get(key).cloned())
                 .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
         })
         .expect("every key in PRACTICE_WORDING_KEYS is in TEST_SEED")

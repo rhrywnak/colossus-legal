@@ -12,5 +12,8 @@
 //! touches one. [`deck_file`] is that plan; [`seed`] is that execution.
 
 pub mod deck_file;
+pub mod deck_valid;
 pub mod seed;
+pub mod seed_rows;
+pub mod seed_update;
 pub mod sources;
