@@ -33,7 +33,7 @@ use crate::services::practice_status::{open_session_detail, row_status};
 
 /// The date format the drill's two composed lines use: `Sun 16 Aug`.
 ///
-// CONST: structural — not a per-deployment value, and deliberately not a settings
+// STRUCTURAL: not a per-deployment value, and deliberately not a settings
 // row. Two reasons, and the second is the one that decides it.
 //
 // It is the shape of a date on ONE witness surface — the "last session" line and
@@ -59,11 +59,12 @@ const SESSION_DATE_FORMAT: &str = "%a %-d %b";
 /// her, and inventing a name would be worse than either.
 pub fn tactic_name(settings: &Settings, tactic: Option<i16>) -> Option<String> {
     let card = tactic?;
-    // best-effort: a NEGATIVE card number cannot exist — the column's CHECK
-    // constrains it to 1–7 — so `try_from` failing means the store was edited
-    // around the API. The honest rendering is the same as for a card the
-    // vocabulary is too short to name: NO TAG. See this function's doc for why
-    // that is better than printing the number or inventing a name.
+    // A NEGATIVE card number cannot exist — the column's CHECK constrains it to
+    // 1–7 — so `try_from` failing means the store was edited around the API. The
+    // honest rendering is the same as for a card the vocabulary is too short to
+    // name: NO TAG. See this function's doc for why that is better than printing
+    // the number or inventing a name.
+    // best-effort: a card number the store cannot name yields no tag, never a guess.
     let index = usize::try_from(card).ok()?.checked_sub(1)?;
     settings.practice_read.tactic_names.get(index).cloned()
 }

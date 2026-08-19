@@ -29,7 +29,7 @@ use super::PipelineRepoError;
 
 /// Where [`swap_sort_order`] parks one row while the two exchange numbers.
 //
-// CONST: structural — a SENTINEL, not a threshold. `sort_order` is
+// STRUCTURAL: a SENTINEL, not a threshold. `sort_order` is
 // `UNIQUE (scenario_id, sort_order)` and the deck numbers from 1, so a negative
 // value is one nothing can collide with by construction. Nobody ever sees it:
 // the park and the two writes are in one transaction. It is named so that a

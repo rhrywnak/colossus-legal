@@ -81,7 +81,7 @@ pub struct PracticeReadParams {
 // and until it runs the boot loader refuses to start.
 /// The highest TACTIC_DECK_v1 card number.
 //
-// CONST: structural — the size of a fixed VOCABULARY, not a tunable. The seven
+// STRUCTURAL: the size of a fixed VOCABULARY, not a tunable. The seven
 // cards are a taxonomy of cross-examination moves, the column's own CHECK is
 // `BETWEEN 1 AND 7`, and the settings row `practice_tactic_names` carries
 // exactly seven names. An eighth card is a migration plus a code change plus

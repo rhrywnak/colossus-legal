@@ -17,15 +17,10 @@ use crate::dto::practice_review::{PracticeAttemptDto, PracticeNoteDto};
 use crate::repositories::pipeline_repository::practice_notes::{AttemptRecord, NoteRecord};
 use crate::services::practice_notes::note_dto;
 use crate::services::practice_page::when;
-
-/// The clock one attempt's heading prints: `08:40`.
-//
-// CONST: structural — the same argument `practice_status::CLOCK_FORMAT` carries.
-// It is the shape of a clock on one witness surface, nothing about it varies
-// between DEV and PROD, and a strftime string is the one kind of stored value
-// the settings store cannot validate — a typo renders `08:%M` with every other
-// check green.
-const CLOCK_FORMAT: &str = "%H:%M";
+// ONE clock format for the whole surface. It was declared twice — here and in
+// `practice_status` — which is two places for a strftime string the settings
+// store cannot validate to go wrong independently.
+use crate::services::practice_status::CLOCK_FORMAT;
 
 /// The stored word for one mark. The same three-way match the sheet makes, and
 /// for the same reason: an `else` arm printed a `skipped` row as **fine** before

@@ -27,12 +27,12 @@ use crate::repositories::pipeline_repository::practice_flow::{OpenSessionRecord,
 
 /// The time of day the unfinished line prints: `09:57`.
 //
-// CONST: structural — the same argument the session date format carries in
+// STRUCTURAL: the same argument the session date format carries in
 // `practice_page` — it is the shape of a clock on ONE witness surface, nothing
 // about it varies between DEV and PROD, and a strftime string is the one kind of
 // stored value the settings store cannot validate. A typo does not fail; it
 // renders `09:%M` onto the screen with every other check green.
-const CLOCK_FORMAT: &str = "%H:%M";
+pub(crate) const CLOCK_FORMAT: &str = "%H:%M";
 
 /// The word one stored mark renders as.
 ///
