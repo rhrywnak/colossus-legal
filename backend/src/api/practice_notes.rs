@@ -139,12 +139,23 @@ pub async fn post_note(
     let stored = list_notes(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("list_notes", e))?;
-    let record = stored
-        .into_iter()
-        .find(|n| n.id == id)
-        .ok_or_else(|| AppError::Internal {
-            message: "the note was written but could not be read back".to_string(),
-        })?;
+    let record = stored.into_iter().find(|n| n.id == id).ok_or_else(|| {
+        // Unreachable through the database — the insert returned this id from
+        // the same table this read walks. It is logged with BOTH identifiers
+        // anyway: the `info!` below never runs on this path, so without this an
+        // operator seeing the 500 has no way to tell which note or which
+        // scenario it was about except by correlating timestamps by hand.
+        tracing::error!(
+            %scenario_id,
+            note = %id,
+            "practice: a note was written and could not be read back"
+        );
+        AppError::Internal {
+            message: format!(
+                "note {id} was written to scenario {scenario_id} but could not be read back"
+            ),
+        }
+    })?;
 
     tracing::info!(
         %scenario_id,
