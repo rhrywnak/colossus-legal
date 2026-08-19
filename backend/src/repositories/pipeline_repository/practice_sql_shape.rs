@@ -21,11 +21,47 @@
 
 use std::collections::BTreeMap;
 
-/// The shipped source of `practice.rs`.
+/// Every repository file whose SQL this guard covers.
+///
+/// ## Why `practice_flow.rs` is here (owed by the .401 report, paid here)
+///
+/// The flow module was split out of `practice.rs` under Rule 17 and took an
+/// UPDATE and two SELECTs with it — and this guard kept reading only the file
+/// the split left behind. A column name invented in the module that was moved
+/// would have been invisible to exactly the test written to catch it: not a
+/// build error (the SQL is a `&str`), not a unit failure, but a runtime
+/// "column … does not exist" on the first real request, which is how 2026-08-18
+/// happened in the first place.
+const COVERED: &[&str] = &[
+    "src/repositories/pipeline_repository/practice.rs",
+    "src/repositories/pipeline_repository/practice_flow.rs",
+    // Part B's two, added the day they were written rather than a release later:
+    // this list going stale IS the defect, and it has already happened once.
+    "src/repositories/pipeline_repository/practice_editor.rs",
+    "src/repositories/pipeline_repository/practice_notes.rs",
+    // NOT a repository, and in the cover anyway: the seed writes
+    // `practice_questions` with the widest column list in the codebase, and
+    // leaving it out is what let Part A ship an INSERT naming a `draft_by`
+    // column no migration created.
+    "src/practice/seed_rows.rs",
+];
+
+/// The shipped source of every covered repository file, concatenated.
+///
+/// Joined with a newline rather than parsed per file because the parse below is
+/// per STATEMENT: it finds string literals and reads each one on its own, so a
+/// boundary between two files is no different from a boundary between two
+/// functions.
 fn practice_source() -> String {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("src/repositories/pipeline_repository/practice.rs");
-    std::fs::read_to_string(path).expect("practice.rs is readable")
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    COVERED
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|e| panic!("{relative} is readable: {e}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 /// Is this a character Postgres would accept inside an unquoted identifier?
@@ -142,7 +178,15 @@ pub(super) fn migration_columns(table: &str) -> Vec<String> {
     for path in files {
         let sql = std::fs::read_to_string(&path).expect("migration is UTF-8");
 
-        if let Some(start) = find_table(&sql, "CREATE TABLE ", table) {
+        // `CREATE TABLE` and `CREATE TABLE IF NOT EXISTS` are the same
+        // statement to Postgres and must be the same statement to this parser.
+        // Reading only the first form made every guarded table created the
+        // second way report ZERO columns — which does not fail quietly: every
+        // column the code names is then "undeclared", and the guard accuses the
+        // code of the parser's blindness. Both spellings, explicitly.
+        let create = find_table(&sql, "CREATE TABLE ", table)
+            .or_else(|| find_table(&sql, "CREATE TABLE IF NOT EXISTS ", table));
+        if let Some(start) = create {
             for line in sql[start..].lines().skip(1) {
                 let line = line.trim();
                 if line == ");" {
@@ -368,6 +412,8 @@ pub(super) fn declared() -> BTreeMap<String, Vec<String>> {
         "practice_point_receipts",
         "practice_sessions",
         "practice_answers",
+        "practice_deck_changes",
+        "practice_notes",
     ]
     .iter()
     .map(|t| ((*t).to_string(), migration_columns(t)))

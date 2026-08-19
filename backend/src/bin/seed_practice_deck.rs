@@ -10,7 +10,20 @@
 //!
 //! # 2. Write it:
 //! cargo run --bin seed_practice_deck -- --scenario S-5 --apply
+//!
+//! # 3. Bring an EXISTING deck into line with an edited file (dry run first):
+//! cargo run --bin seed_practice_deck -- --scenario S-5 --update
+//! cargo run --bin seed_practice_deck -- --scenario S-5 --update --apply
 //! ```
+//!
+//! ## The two modes, and why `--update` is not the default
+//!
+//! Without `--update` this tool writes a deck ONCE and refuses to touch one that
+//! already exists — which is what makes a re-run safe on a scenario nobody meant
+//! to change. `--update` is the deliberate second act: it reconciles the stored
+//! deck with the file BY KEY, never deletes a row, and never touches an answer.
+//! Making it the default would mean every accidental re-run rewrote a deck Chuck
+//! had edited on the page.
 //!
 //! ## What it reads, and what it deliberately does not
 //!
@@ -44,6 +57,9 @@ use colossus_legal_backend::oneshot::cli::{
 };
 use colossus_legal_backend::oneshot::exit::{help_text, EXIT_BAD_INPUT, EXIT_OK, EXIT_UNSAFE_PLAN};
 use colossus_legal_backend::practice::seed::{load_deck, render_report, run, SeedError};
+use colossus_legal_backend::practice::seed_update::{
+    render_update_report, run_update, UpdateError,
+};
 use tracing::{error, info, warn};
 
 /// CLI arguments. Field doc comments double as `--help` text.
@@ -72,6 +88,14 @@ struct Args {
     #[arg(long, value_name = "PATH")]
     deck: Option<PathBuf>,
 
+    /// Reconcile an EXISTING deck with the file, matching rows by their key.
+    ///
+    /// Without it the tool writes a deck once and refuses to touch one that is
+    /// already there. With it, rows are updated in place, new keys are inserted,
+    /// nothing is ever deleted, and no answer is touched.
+    #[arg(long)]
+    update: bool,
+
     /// WRITE. Without this the tool plans, proves and changes nothing.
     #[arg(long)]
     apply: bool,
@@ -87,6 +111,33 @@ struct Args {
     /// The pipeline Postgres URL. Falls back to `PIPELINE_DATABASE_URL`.
     #[arg(long, value_name = "URL")]
     database_url: Option<String>,
+}
+
+/// The exit code one [`UpdateError`] earns, and the log line that explains it.
+///
+/// A sibling of [`exit_for`] rather than more arms on it: these are the refusals
+/// of a DIFFERENT act, and the one arm they share defers to that function so the
+/// two commands cannot disagree about what a bad file is worth.
+fn exit_for_update(error: &UpdateError) -> ExitCode {
+    match error {
+        // An operator fixes these in an editor: a file with no keys, or a stored
+        // row this run cannot honestly match to one.
+        UpdateError::FileQuestionHasNoKey { .. } => {
+            error!(error = %error, "the deck cannot drive --update; nothing was written");
+            ExitCode::from(EXIT_BAD_INPUT)
+        }
+        // The tool proved, before touching anything, that reconciling would mean
+        // guessing which stored question a file question is.
+        UpdateError::StoredRowUnmatched { .. } | UpdateError::AmbiguousText { .. } => {
+            error!(error = %error, "the plan is unsafe; nothing was written");
+            ExitCode::from(EXIT_UNSAFE_PLAN)
+        }
+        UpdateError::Seed { source } => exit_for(source),
+        UpdateError::Database { .. } => {
+            error!(error = %error, "the update failed against the database");
+            ExitCode::from(EXIT_UNSAFE_PLAN)
+        }
+    }
 }
 
 /// The exit code one [`SeedError`] earns, and the log line that explains it.
@@ -138,6 +189,8 @@ enum RunFailure {
     Reported(ExitCode),
     /// Not yet logged; `exit_for` says it and picks the code.
     Seed(SeedError),
+    /// Not yet logged; `exit_for_update` says it and picks the code.
+    Update(UpdateError),
 }
 
 /// Do the work. `main` exists to turn its `Result` into a number.
@@ -151,6 +204,16 @@ async fn execute(args: &Args) -> Result<String, RunFailure> {
     let deck = load_deck(&path).map_err(RunFailure::Seed)?;
     let url = pipeline_database_url(args.database_url.as_deref()).map_err(RunFailure::Reported)?;
     let pool = connect_pool(&url).await.map_err(RunFailure::Reported)?;
+
+    if args.update {
+        let report = run_update(&pool, &deck, args.apply)
+            .await
+            .map_err(RunFailure::Update)?;
+        if !args.apply {
+            warn!("DRY RUN — re-run with --apply to update the deck");
+        }
+        return Ok(render_update_report(&report));
+    }
 
     let report = run(&pool, &deck, args.apply)
         .await
@@ -178,5 +241,6 @@ async fn main() -> ExitCode {
         },
         Err(RunFailure::Reported(code)) => code,
         Err(RunFailure::Seed(error)) => exit_for(&error),
+        Err(RunFailure::Update(error)) => exit_for_update(&error),
     }
 }

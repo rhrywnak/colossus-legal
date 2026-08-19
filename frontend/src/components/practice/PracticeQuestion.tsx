@@ -15,7 +15,10 @@ import React from "react";
 
 import type { PracticeQuestion as Question, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
+import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
+import PracticePointsTo from "./PracticePointsTo";
+import PracticeTopBar from "./PracticeTopBar";
 
 interface Props {
   question: Question;
@@ -31,6 +34,15 @@ interface Props {
   submitting: boolean;
   /** The stored failure sentence, or null. Rendered beneath the controls. */
   error: string | null;
+  /** This scenario's receipts, for the "I'd point to…" picker. */
+  receipts: string[];
+  /** What she has picked, and the setter. `[]` until she opens the control. */
+  pointsTo: string[];
+  onPointsToChange: (picked: string[]) => void;
+  /** The three exits at the top of the screen (mockup v3, item B6). */
+  onBack: () => void;
+  onSkip: () => void;
+  onEnd: () => void;
 }
 
 /**
@@ -58,7 +70,13 @@ export const QuestionPills: React.FC<{ question: Question; wording: PracticeWord
   return (
     <span>
       <span style={pillStyle}>{pillText}</span>
-      {/* No tag at all when the question carries no tactic — a Chuck question
+      {/* A redirect wears CHUCK'S pill — he is the one asking — plus a tag of
+          its own saying why. Two facts, and neither can carry the other: the
+          pill answers "who is speaking", the tag answers "what is this for". */}
+      {question.kind === "redirect" && (
+        <span style={f.redirectTag}>{wordingOf(wording, "redirect_tag")}</span>
+      )}
+      {/* No tactic tag at all when the question carries none — a Chuck question
           has no trap in it, and an empty grey box would imply one. */}
       {question.tactic !== null && <span style={s.tacticTag}>{question.tactic}</span>}
     </span>
@@ -98,6 +116,12 @@ const PracticeQuestion: React.FC<Props> = ({
   onDontRecall,
   submitting,
   error,
+  receipts,
+  pointsTo,
+  onPointsToChange,
+  onBack,
+  onSkip,
+  onEnd,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const [paused, setPaused] = React.useState(false);
@@ -108,6 +132,14 @@ const PracticeQuestion: React.FC<Props> = ({
 
   return (
     <section style={s.card}>
+      <PracticeTopBar
+        wording={wording}
+        screen="question"
+        onBack={onBack}
+        onSkip={onSkip}
+        onEnd={onEnd}
+        busy={submitting}
+      />
       <div style={{ ...s.row, justifyContent: "space-between", marginTop: 0 }}>
         <span style={s.progress}>
           {w("progress_template")
@@ -129,6 +161,14 @@ const PracticeQuestion: React.FC<Props> = ({
         placeholder={w("answer_placeholder")}
         onChange={(e) => onAnswerChange(e.target.value)}
         aria-label={w("answer_label")}
+      />
+
+      <PracticePointsTo
+        wording={wording}
+        receipts={receipts}
+        picked={pointsTo}
+        onChange={onPointsToChange}
+        disabled={submitting}
       />
 
       <div style={s.row}>

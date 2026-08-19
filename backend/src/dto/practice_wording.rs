@@ -20,8 +20,10 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::wording_practice::PracticeWording;
-use crate::domain::wording_practice_report::PracticeReportWording;
+// The constructor that flattens the stored blocks into this shape lives in
+// `practice_wording_map`, which is one `impl` block and nothing else. Split on
+// 2026-08-19 when the twelve v1 rows carried this file past Rule 17's limit —
+// see that module's header for why the seam falls where it does.
 
 /// The practice tool's words, as the browser receives them.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,143 +148,114 @@ pub struct PracticeWordingDto {
     pub flag_summary_heading: String,
     pub flag_summary_hint: String,
     pub flag_summary_item_template: String,
-}
 
-impl PracticeWordingDto {
-    /// Flatten the two stored blocks into the one object the page reads.
-    ///
-    /// ## Rust Learning: an inherent constructor instead of `From`
-    ///
-    /// `From` takes ONE value. The natural workaround — `From<(&A, &B)>` for a
-    /// tuple — makes the call site `PracticeWordingDto::from((&a, &b))`, where the
-    /// two references are positional and a transposition would compile the day a
-    /// third block appears. A named constructor with named parameters says which
-    /// is which, and that is the whole reason to prefer it here.
-    pub fn from_blocks(drill: &PracticeWording, report: &PracticeReportWording) -> Self {
-        Self {
-            deck_heading: drill.flow.deck_heading.clone(),
-            deck_count_template: drill.flow.deck_count_template.clone(),
-            deck_skipped_suffix_template: drill.flow.deck_skipped_suffix_template.clone(),
-            deck_hide_link: drill.flow.deck_hide_link.clone(),
-            deck_show_link: drill.flow.deck_show_link.clone(),
-            deck_instruction_template: drill.flow.deck_instruction_template.clone(),
-            skip_today_label: drill.flow.skip_today_label.clone(),
-            skipped_today_label: drill.flow.skipped_today_label.clone(),
-            flag_label: drill.flow.flag_label.clone(),
-            flag_edit_label: drill.flow.flag_edit_label.clone(),
-            flag_placeholder: drill.flow.flag_placeholder.clone(),
-            flag_save_label: drill.flow.flag_save_label.clone(),
-            flag_cancel_label: drill.flow.flag_cancel_label.clone(),
-            flag_shown_template: drill.flow.flag_shown_template.clone(),
-            nothing_left_label: drill.flow.nothing_left_label.clone(),
-            unfinished_label: drill.flow.unfinished_label.clone(),
-            unfinished_detail_template: drill.flow.unfinished_detail_template.clone(),
-            resume_label: drill.flow.resume_label.clone(),
-            start_over_label: drill.flow.start_over_label.clone(),
-            start_over_hint: drill.flow.start_over_hint.clone(),
-            back_label: drill.flow.back_label.clone(),
-            back_hint_question: drill.flow.back_hint_question.clone(),
-            back_hint_reveal: drill.flow.back_hint_reveal.clone(),
-            skip_question_label: drill.flow.skip_question_label.clone(),
-            end_session_label: drill.flow.end_session_label.clone(),
-            skipped_answer_text: drill.flow.skipped_answer_text.clone(),
-            mark_skipped: drill.flow.mark_skipped.clone(),
-            sheet_skipped_clause_template: drill.flow.sheet_skipped_clause_template.clone(),
-            sheet_ended_early_clause: drill.flow.sheet_ended_early_clause.clone(),
-            flag_summary_heading: drill.flow.flag_summary_heading.clone(),
-            flag_summary_hint: drill.flow.flag_summary_hint.clone(),
-            flag_summary_item_template: drill.flow.flag_summary_item_template.clone(),
-            kicker: drill.kicker.clone(),
-            intro: drill.intro.clone(),
-            who_heading: drill.who_heading.clone(),
-            who_george_title: drill.who_george_title.clone(),
-            who_george_detail: drill.who_george_detail.clone(),
-            who_chuck_title: drill.who_chuck_title.clone(),
-            who_chuck_detail: drill.who_chuck_detail.clone(),
-            who_mixed_title: drill.who_mixed_title.clone(),
-            who_mixed_detail: drill.who_mixed_detail.clone(),
-            how_many_heading: drill.how_many_heading.clone(),
-            count_all_template: drill.count_all_template.clone(),
-            start_label: drill.start_label.clone(),
-            always_label: drill.always_label.clone(),
-            always_line: drill.always_line.clone(),
-            last_session_template: drill.last_session_template.clone(),
-            no_last_session: drill.no_last_session.clone(),
-            progress_template: drill.progress_template.clone(),
-            pill_george: drill.pill_george.clone(),
-            pill_chuck: drill.pill_chuck.clone(),
-            pill_braid: drill.pill_braid.clone(),
-            answer_label: drill.answer_label.clone(),
-            answer_hint: drill.answer_hint.clone(),
-            answer_placeholder: drill.answer_placeholder.clone(),
-            answer_button: drill.answer_button.clone(),
-            dont_recall_button: drill.dont_recall_button.clone(),
-            dont_recall_text: drill.dont_recall_text.clone(),
-            pause_button: drill.pause_button.clone(),
-            pause_note_prefix: drill.pause_note_prefix.clone(),
-            pause_note_emphasis: drill.pause_note_emphasis.clone(),
-            empty_deck: drill.empty_deck.clone(),
-            load_failed: drill.load_failed.clone(),
-            answer_failed: drill.answer_failed.clone(),
-            tactic_braid_suffix: drill.tactic_braid_suffix.clone(),
-            what_you_said_kicker: report.what_you_said_kicker.clone(),
-            read_tag: report.read_tag.clone(),
-            read_footnote: report.read_footnote.clone(),
-            read_unavailable: report.read_unavailable.clone(),
-            points_kicker: report.points_kicker.clone(),
-            receipt_prefix: report.receipt_prefix.clone(),
-            point_no_receipt: report.point_no_receipt.clone(),
-            pair_kicker: report.pair_kicker.clone(),
-            pair_said_label: report.pair_said_label.clone(),
-            pair_admitted_label: report.pair_admitted_label.clone(),
-            check_kicker: report.check_kicker.clone(),
-            check_only_asked: report.check_only_asked.clone(),
-            check_accepted_premise: report.check_accepted_premise.clone(),
-            check_explained_unasked: report.check_explained_unasked.clone(),
-            check_guessed: report.check_guessed.clone(),
-            stronger_summary: report.stronger_summary.clone(),
-            stronger_note_prefix: report.stronger_note_prefix.clone(),
-            stronger_note_emphasis: report.stronger_note_emphasis.clone(),
-            stronger_note_suffix: report.stronger_note_suffix.clone(),
-            stronger_no_receipt: report.stronger_no_receipt.clone(),
-            mark_not_recorded: report.mark_not_recorded.clone(),
-            help_not_recorded: report.help_not_recorded.clone(),
-            next_button: report.next_button.clone(),
-            again_button: report.again_button.clone(),
-            sheet_kicker_template: report.sheet_kicker_template.clone(),
-            sheet_heading_template: report.sheet_heading_template.clone(),
-            sheet_repeat_clause_template: report.sheet_repeat_clause_template.clone(),
-            sheet_nothing_to_repeat: report.sheet_nothing_to_repeat.clone(),
-            sheet_sub_prefix: report.sheet_sub_prefix.clone(),
-            sheet_sub_suffix: report.sheet_sub_suffix.clone(),
-            sheet_col_number: report.sheet_col_number.clone(),
-            sheet_col_from: report.sheet_col_from.clone(),
-            sheet_col_tactic: report.sheet_col_tactic.clone(),
-            sheet_col_question: report.sheet_col_question.clone(),
-            sheet_col_answer: report.sheet_col_answer.clone(),
-            sheet_col_mark: report.sheet_col_mark.clone(),
-            sheet_col_help: report.sheet_col_help.clone(),
-            sheet_from_george: report.sheet_from_george.clone(),
-            sheet_from_george_braid: report.sheet_from_george_braid.clone(),
-            sheet_from_chuck: report.sheet_from_chuck.clone(),
-            mark_fine: report.mark_fine.clone(),
-            mark_repeat: report.mark_repeat.clone(),
-            help_opened: report.help_opened.clone(),
-            help_none: report.help_none.clone(),
-            tactic_none: report.tactic_none.clone(),
-            sheet_again_button: report.sheet_again_button.clone(),
-            print_button: report.print_button.clone(),
-            homelab_line: report.homelab_line.clone(),
-        }
-    }
+    // ── v1 (the Chuck review): the words about ONE question ──────────────
+    // Flattened by the same rule as the block above. The `row_` prefix on the
+    // first five is part of the stored key (`practice_row_…`), not a nesting
+    // this file invented — the wire name is the key with `practice_` removed
+    // and nothing else done to it.
+    pub row_practice_this_label: String,
+    pub row_answered_today_template: String,
+    pub row_skipped_today: String,
+    pub row_earlier_template: String,
+    pub row_attempt_suffix_template: String,
+    pub redirect_tag: String,
+    pub redirect_stronger_line: String,
+    pub points_to_label: String,
+    pub points_to_done_label: String,
+    pub points_to_reveal_prefix: String,
+    pub points_to_sheet_prefix: String,
+    pub unfinished_today_word: String,
+
+    // ── Part B: the deck editor and what it records (Chuck's words) ─────
+    // Same flattening rule as every block above: one field per stored key,
+    // the `practice_` prefix dropped and nothing else done to the name.
+    // `note_authors` and `editor_authors` arrive as the stored comma-separated
+    // STRING — the readers split them — so this object stays what its two
+    // tests below say it is: every value a string, every name a key.
+    pub note_authors: String,
+    pub editor_authors: String,
+    pub editor_switch_label: String,
+    pub editor_done_label: String,
+    pub editor_as_label: String,
+    pub editor_as_unset: String,
+    pub editor_edit_label: String,
+    pub editor_hide_label: String,
+    pub editor_unhide_label: String,
+    pub editor_hidden_badge: String,
+    pub editor_up_label: String,
+    pub editor_down_label: String,
+    pub editor_save_label: String,
+    pub editor_cancel_label: String,
+    pub editor_saved_hint_template: String,
+    pub editor_field_question: String,
+    pub editor_field_tactic: String,
+    pub editor_field_follows: String,
+    pub editor_field_watch_for: String,
+    pub editor_field_stronger: String,
+    pub editor_field_side: String,
+    pub editor_field_attach: String,
+    pub editor_side_cross: String,
+    pub editor_side_direct: String,
+    pub editor_side_redirect: String,
+    pub editor_attach_none: String,
+    pub editor_attach_instance_template: String,
+    pub editor_attach_point_template: String,
+    pub editor_add_label: String,
+    pub editor_add_heading: String,
+    pub editor_add_button: String,
+    pub editor_add_hint: String,
+    pub editor_question_placeholder: String,
+    pub editor_failed: String,
+    pub changed_heading_template: String,
+    pub changed_notes_template: String,
+    pub changed_summary: String,
+    pub change_added_template: String,
+    pub change_reworded_template: String,
+    pub change_edited_template: String,
+    pub change_moved_template: String,
+    pub change_hidden_template: String,
+    pub change_unhidden_template: String,
+    pub badge_changed: String,
+    pub badge_draft: String,
+    pub sheet_changes_heading: String,
+    pub sheet_change_item_template: String,
+
+    // ── Part B: notes, and the review page ───────────────────────────────
+    pub notes_heading_template: String,
+    pub notes_scenario_title: String,
+    pub notes_question_title: String,
+    pub notes_hint: String,
+    pub notes_placeholder: String,
+    pub notes_attempt_placeholder: String,
+    pub notes_save_label: String,
+    pub notes_strike_label: String,
+    pub notes_struck_template: String,
+    pub notes_empty: String,
+    pub notes_failed: String,
+    pub notes_author_unset: String,
+    pub row_review_link: String,
+    pub review_progress_template: String,
+    pub review_attempts_kicker: String,
+    pub review_attempt_template: String,
+    pub review_detail_template: String,
+    pub review_boxes_none: String,
+    pub review_no_attempts: String,
+    pub review_practice_again: String,
+    pub review_stronger_heading: String,
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::wording_practice::PracticeWording;
     use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+    use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
     use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+    use crate::domain::wording_practice_report::PracticeReportWording;
     use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+    use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
+    use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 
     fn mirror() -> PracticeWordingDto {
         PracticeWordingDto::from_blocks(
@@ -301,7 +274,10 @@ mod tests {
             value.as_object().expect("an object body").len(),
             PRACTICE_WORDING_KEYS.len()
                 + PRACTICE_FLOW_WORDING_KEYS.len()
-                + PRACTICE_REPORT_WORDING_KEYS.len(),
+                + PRACTICE_REPORT_WORDING_KEYS.len()
+                + PRACTICE_ROW_WORDING_KEYS.len()
+                + PRACTICE_EDITOR_WORDING_KEYS.len()
+                + PRACTICE_REVIEW_WORDING_KEYS.len(),
         );
     }
 
@@ -315,7 +291,10 @@ mod tests {
             assert!(
                 PRACTICE_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_FLOW_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str()),
+                    || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_REVIEW_WORDING_KEYS.contains(&stored.as_str()),
                 "wire field '{key}' implies stored key '{stored}', which is not declared",
             );
         }

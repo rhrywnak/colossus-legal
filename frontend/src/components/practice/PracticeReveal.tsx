@@ -28,8 +28,11 @@ import type {
   SelfCheck,
 } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
+import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
 import { QuestionPills } from "./PracticeQuestion";
+import { RECEIPT_JOIN } from "./PracticePointsTo";
+import PracticeTopBar from "./PracticeTopBar";
 
 interface Props {
   question: Question;
@@ -62,6 +65,13 @@ interface Props {
   markError: string | null;
   onNext: () => void;
   onAgainLater: () => void;
+  /** The receipts she named when she answered. EMPTY withdraws the line. */
+  pointsTo: string[];
+  /** The two exits at the top of the screen (mockup v3, item B6). */
+  onBack: () => void;
+  onEnd: () => void;
+  /** True while the write settling this answer is in flight. */
+  busy: boolean;
 }
 
 /** The four self-check boxes, in the mockup's order. */
@@ -88,6 +98,10 @@ const PracticeReveal: React.FC<Props> = ({
   markError,
   onNext,
   onAgainLater,
+  pointsTo,
+  onBack,
+  onEnd,
+  busy,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
 
@@ -103,6 +117,17 @@ const PracticeReveal: React.FC<Props> = ({
 
   return (
     <section style={s.card}>
+      <PracticeTopBar
+        wording={wording}
+        screen="reveal"
+        onBack={onBack}
+        // The reveal offers no mid-sitting skip: the row already exists and is
+        // already on Chuck's sheet. "Skip" there would mean relabelling an
+        // answer she gave as one she set aside.
+        onSkip={onBack}
+        onEnd={onEnd}
+        busy={busy}
+      />
       <div style={{ ...s.row, justifyContent: "space-between", marginTop: 0 }}>
         <span style={s.progress}>
           {w("progress_template")
@@ -115,6 +140,15 @@ const PracticeReveal: React.FC<Props> = ({
 
       <div style={{ ...s.kicker, marginTop: 16 }}>{w("what_you_said_kicker")}</div>
       <div style={s.yours}>{answer}</div>
+
+      {/* What she said she would reach for. Withdrawn entirely when she named
+          nothing: a prefix with an empty list after it reads as a list that
+          failed to load, and naming no exhibit is not a fault to point at. */}
+      {pointsTo.length > 0 && (
+        <div style={f.pointsToChosen}>
+          {w("points_to_reveal_prefix")} {pointsTo.join(RECEIPT_JOIN)}
+        </div>
+      )}
 
       <div style={feedbackStyle}>
         {readText ?? w("read_unavailable")}
@@ -187,8 +221,18 @@ const PracticeReveal: React.FC<Props> = ({
         }}
       >
         <summary style={s.strongerSummary}>{w("stronger_summary")}</summary>
+        {/* Three states, not two. A stored example is shown as written. A
+            REDIRECT with none shows the line that belongs to a redirect —
+            "Tell it — this is Chuck's time." — because the drill's ordinary
+            "no receipt for this one, that's a Chuck question" sentence is
+            exactly wrong here: a redirect is the one question where telling it
+            at length IS the right answer, and there is nothing missing. Any
+            other question with none shows the honest-gap line. */}
         <div style={s.strongerExample}>
-          {question.stronger ?? w("stronger_no_receipt")}
+          {question.stronger ??
+            (question.kind === "redirect"
+              ? w("redirect_stronger_line")
+              : w("stronger_no_receipt"))}
         </div>
         {question.stronger !== null && question.stronger_lean !== null && (
           <div style={s.strongerLean}>{question.stronger_lean}</div>

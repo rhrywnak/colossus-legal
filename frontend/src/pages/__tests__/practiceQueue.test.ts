@@ -11,12 +11,18 @@ import {
   availableDeck,
   availableFor,
   buildQueue,
+  editorDeck,
   orderedDeck,
   requeue,
   V0_QUESTION_COUNT,
 } from "../practiceQueue";
 
-function question(id: string, side: "george" | "chuck"): PracticeQuestion {
+function question(
+  id: string,
+  side: "george" | "chuck",
+  kind: "cross" | "direct" | "redirect" = side === "george" ? "cross" : "direct",
+  followsKey: string | null = null,
+): PracticeQuestion {
   return {
     id,
     side,
@@ -31,7 +37,22 @@ function question(id: string, side: "george" | "chuck"): PracticeQuestion {
     stronger: null,
     stronger_lean: null,
     flag_note: null,
+    kind,
+    // The key IS the id in these fixtures, which keeps the pairing assertions
+    // readable: `r1` follows `g1` and the reader can see it.
+    deck_key: id,
+    follows_key: followsKey,
+    status: null,
+    status_mark: null,
+    hidden: false,
+    draft_by: null,
+    changed: false,
   };
+}
+
+/** One redirect, on Chuck's side, answering the George question it names. */
+function redirect(id: string, follows: string): PracticeQuestion {
+  return question(id, "chuck", "redirect", follows);
 }
 
 /** The S-5 deck's shape: five George questions, then five of Chuck's. */
@@ -46,6 +67,18 @@ const DECK: PracticeQuestion[] = [
   question("c3", "chuck"),
   question("c4", "chuck"),
   question("c5", "chuck"),
+];
+
+/** A v1 deck: three traps, each with its redirect, plus two of Chuck's direct. */
+const PAIRED: PracticeQuestion[] = [
+  question("g1", "george"),
+  question("g2", "george"),
+  question("g3", "george"),
+  question("c1", "chuck"),
+  question("c2", "chuck"),
+  redirect("r1", "g1"),
+  redirect("r2", "g2"),
+  redirect("r3", "g3"),
 ];
 
 describe("buildQueue", () => {
@@ -66,16 +99,64 @@ describe("buildQueue", () => {
     ]);
   });
 
-  it("alternates the mixed queue starting with George — the shape of a real day", () => {
-    // Not randomised, deliberately: two sittings must be comparable, and the
-    // point of mixing is that she changes register between a hostile question
-    // and a friendly one.
-    expect(buildQueue(DECK, "mixed").map((q) => q.id)).toEqual([
+  it("deals the mixed queue as PAIRS: a trap, then its redirect", () => {
+    // v1's ruling. Not randomised, deliberately — two sittings must be
+    // comparable — and not the v0 alternation either: a redirect is the answer
+    // to the question just asked, and dealing it three questions later drills
+    // something that never happens in a courtroom.
+    expect(buildQueue(PAIRED, "mixed", 6).map((q) => q.id)).toEqual([
       "g1",
-      "c1",
+      "r1",
       "g2",
-      "c2",
+      "r2",
       "g3",
+      "r3",
+    ]);
+  });
+
+  it("deals Chuck's direct questions AFTER every pair", () => {
+    expect(orderedDeck(PAIRED, "mixed").map((q) => q.id)).toEqual([
+      "g1",
+      "r1",
+      "g2",
+      "r2",
+      "g3",
+      "r3",
+      "c1",
+      "c2",
+    ]);
+  });
+
+  it("deals a redirect exactly once, even though it is on Chuck's side too", () => {
+    // The pairs are built from George's list and the tail from Chuck's, and a
+    // redirect belongs to both. Without the dedup she would be asked the same
+    // redirect twice in one sitting — which reads as a bug in the deck.
+    const ids = orderedDeck(PAIRED, "mixed").map((q) => q.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("still deals a redirect whose George question is not in the deck", () => {
+    // A `follows` pointing at a key nobody kept. Leaving it out entirely would
+    // silently drop a question from the drill; it falls to the tail instead,
+    // which is visible.
+    const orphaned = [question("g1", "george"), redirect("r9", "g-gone")];
+    expect(orderedDeck(orphaned, "mixed").map((q) => q.id)).toEqual(["g1", "r9"]);
+  });
+
+  it("keeps the mixed queue alternating when the deck has no redirects at all", () => {
+    // Every deck seeded before 2026-08-19. George's five, then Chuck's five —
+    // the pairs are empty and the tail is the whole of Chuck's side.
+    expect(orderedDeck(DECK, "mixed").map((q) => q.id)).toEqual([
+      "g1",
+      "g2",
+      "g3",
+      "g4",
+      "g5",
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+      "c5",
     ]);
   });
 
@@ -144,6 +225,20 @@ describe("orderedDeck", () => {
     expect(orderedDeck(DECK, "mixed")).toHaveLength(10);
     expect(orderedDeck(DECK, "george")).toHaveLength(5);
   });
+
+  it("puts a redirect on Chuck's side and NOT on George's", () => {
+    // A redirect wears Chuck's pill because Chuck asks it. George's filter is
+    // every CROSS question, which is what "George's side" has always meant —
+    // stated as the kind now because that is the fact it is about.
+    expect(orderedDeck(PAIRED, "george").map((q) => q.id)).toEqual(["g1", "g2", "g3"]);
+    expect(orderedDeck(PAIRED, "chuck").map((q) => q.id)).toEqual([
+      "c1",
+      "c2",
+      "r1",
+      "r2",
+      "r3",
+    ]);
+  });
 });
 
 describe("availableDeck", () => {
@@ -172,5 +267,63 @@ describe("availableDeck", () => {
     const deck = DECK;
     const chuckIds = new Set(orderedDeck(deck, "chuck").map((q) => q.id));
     expect(availableDeck(deck, "george", chuckIds)).toHaveLength(5);
+  });
+});
+
+// ── Part B: a hidden question leaves every list Marie sees ───────────────────
+
+/** The same question, hidden by the deck editor. */
+function hidden(question: PracticeQuestion): PracticeQuestion {
+  return { ...question, hidden: true };
+}
+
+describe("hidden questions", () => {
+  it("are dropped from the list, the queue and the count", () => {
+    // Task B1: a hidden question vanishes from Marie's list and from queues. It
+    // is filtered in `orderedDeck` because that is the ONE ordering the whole
+    // drill shares — a filter on the queue but not the list is how she reads
+    // five questions and is asked four.
+    const deck = [question("g1", "george"), hidden(question("g2", "george")), question("g3", "george")];
+
+    expect(orderedDeck(deck, "george").map((q) => q.id)).toEqual(["g1", "g3"]);
+    expect(buildQueue(deck, "george").map((q) => q.id)).toEqual(["g1", "g3"]);
+    expect(availableFor(deck, "george")).toBe(2);
+    expect(availableDeck(deck, "george", new Set()).map((q) => q.id)).toEqual(["g1", "g3"]);
+  });
+
+  it("are dropped from the mixed pairs too, on either side of a pair", () => {
+    const deck = [
+      question("g1", "george"),
+      question("g2", "george"),
+      redirect("r1", "g1"),
+      hidden(redirect("r2", "g2")),
+    ];
+    expect(orderedDeck(deck, "mixed").map((q) => q.id)).toEqual(["g1", "r1", "g2"]);
+  });
+
+  it("a hidden TRAP takes its pair out with it", () => {
+    // The redirect survives as a question — it is not hidden — but it has no
+    // trap to follow, so it falls to the tail rather than being dropped.
+    const deck = [hidden(question("g1", "george")), redirect("r1", "g1")];
+    expect(orderedDeck(deck, "mixed").map((q) => q.id)).toEqual(["r1"]);
+  });
+
+  it("are still listed for the EDITOR, after the live ones", () => {
+    // The one screen that can put a hidden question back must be able to see
+    // it. Same order and same side filter, with that one step removed.
+    const deck = [question("g1", "george"), hidden(question("g2", "george"))];
+
+    expect(editorDeck(deck, "george").map((q) => q.id)).toEqual(["g1", "g2"]);
+    expect(editorDeck(deck, "chuck")).toEqual([]);
+  });
+
+  it("puts a hidden REDIRECT on Chuck's editor list, not George's", () => {
+    // The editor's side filter has to agree with the live one: a redirect is
+    // Chuck's, and a hidden one appearing under George would be un-unhideable
+    // from the side it belongs to.
+    const deck = [question("g1", "george"), hidden(redirect("r1", "g1"))];
+
+    expect(editorDeck(deck, "george").map((q) => q.id)).toEqual(["g1"]);
+    expect(editorDeck(deck, "chuck").map((q) => q.id)).toEqual(["r1"]);
   });
 });

@@ -24,10 +24,30 @@ const read = (...parts: string[]) => readFileSync(join(SRC, ...parts), "utf8");
 
 const COMPONENTS = [
   "practiceStyles.ts",
+  "practiceDeckStyles.ts",
+  "practiceFlowStyles.ts",
+  "practiceEditorStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",
   "PracticeSheet.tsx",
+  "PracticeDeckList.tsx",
+  "PracticeResume.tsx",
+  "PracticeTopBar.tsx",
+  "PracticePointsTo.tsx",
+  "PracticeDeckRow.tsx",
+  "PracticeRowEdit.tsx",
+  "PracticeAddQuestion.tsx",
+  "PracticeNotes.tsx",
+  "PracticeChanged.tsx",
+];
+
+/** Every file that renders a practice screen and therefore needs the attribute. */
+const PAGES = [
+  "PracticePage.tsx",
+  "PracticeSessionPage.tsx",
+  "PracticeQuestionReviewPage.tsx",
+  "practiceChrome.tsx",
 ];
 
 /** Every `var(--practice-…)` the style module and its components reference. */
@@ -60,16 +80,47 @@ describe("the practice palette", () => {
     expect(tokens).toContain('[data-surface="practice"]');
   });
 
-  it("puts the scoping attribute on every state the page can render", () => {
-    // Loading, the load failure, the empty deck, and the session itself are four
-    // separate returns. One of them missing the attribute is one screen rendering
-    // with no palette — and it would most likely be the failure screen, which is
-    // the one nobody looks at until it matters.
-    const page = read("pages", "PracticePage.tsx");
-    const returns = page.match(/<div style=\{s\.page\}/g) ?? [];
-    const scoped = page.match(/<div style=\{s\.page\} data-surface="practice"/g) ?? [];
-    expect(returns.length).toBeGreaterThanOrEqual(4);
+  it("puts the scoping attribute on every state the pages can render", () => {
+    // Loading, the load failure, the empty deck and the sitting itself are
+    // separate returns, now spread over two pages and the frame they share. One
+    // of them missing the attribute is one screen rendering with no palette —
+    // and it would most likely be the failure screen, which is the one nobody
+    // looks at until it matters.
+    const sources = PAGES.map((f) => read("pages", f)).join("\n");
+    const returns = sources.match(/<div style=\{s\.page\}/g) ?? [];
+    const scoped = sources.match(/<div style=\{s\.page\} data-surface="practice"/g) ?? [];
+    expect(returns.length).toBeGreaterThanOrEqual(3);
     expect(scoped.length).toBe(returns.length);
+  });
+
+  it("declares `font` before `fontSize` wherever a style sets both", () => {
+    // The .401 defect, measured: `font` is a SHORTHAND and setting it resets
+    // `font-size`. React writes a style object's properties in declaration
+    // order, so `{ fontSize: 13, …, font: "inherit" }` renders at the body's
+    // 18px — which is why the mockup check found the start card's row controls
+    // "larger than drawn". Nothing else in the build can see it: both
+    // properties are valid, both are typed, and the screen still renders.
+    let checked = 0;
+    for (const file of COMPONENTS) {
+      const source = read("components", "practice", file);
+      for (const block of source.split(/export const /).slice(1)) {
+        const body = block.slice(0, block.indexOf("};"));
+        const font = body.indexOf('font: "inherit"');
+        const size = body.indexOf("fontSize:");
+        if (font === -1 || size === -1) continue;
+        checked += 1;
+        expect(
+          font,
+          `${file}: ${block.slice(0, block.indexOf(":"))} sets fontSize before the ` +
+            `font shorthand, which resets it — the control will render at 18px`,
+        ).toBeLessThan(size);
+      }
+    }
+    // ANTI-VACUITY: a split that stopped matching would check nothing and pass.
+    // Six style objects set both today (three in the deck styles, three in the
+    // flow styles); the floor is deliberately below that so an honest deletion
+    // does not fail, and above zero so a broken parse does.
+    expect(checked).toBeGreaterThanOrEqual(4);
   });
 
   it("keeps no hex literal in the components themselves", () => {

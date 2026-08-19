@@ -22,6 +22,8 @@ import React from "react";
 
 import type { PracticeSheet as Sheet, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
+import { RECEIPT_JOIN } from "./PracticePointsTo";
+import * as f from "./practiceFlowStyles";
 import * as s from "./practiceStyles";
 
 interface Props {
@@ -97,6 +99,15 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
               <td style={s.cell}>{row.question}</td>
               <td style={s.cell}>
                 <i>{row.answer}</i>
+                {/* What she said she would reach for, under her own words.
+                    Withdrawn entirely when she named nothing: on printed paper a
+                    prefix with an empty list after it reads as data that went
+                    missing, and naming no exhibit is not a fault to print. */}
+                {row.points_to.length > 0 && (
+                  <div style={f.pointsToChosen}>
+                    {w("points_to_sheet_prefix")} {row.points_to.join(RECEIPT_JOIN)}
+                  </div>
+                )}
               </td>
               <td style={{ ...s.cell, ...markStyle(row.mark, w) }}>
                 {row.mark}
@@ -117,6 +128,24 @@ const PracticeSheet: React.FC<Props> = ({ sheet, wording, onPracticeAgain }) => 
           <b>{sheet.flagged_heading}</b> {sheet.flagged_hint}
           <ul>
             {sheet.flagged.map((line) => (
+              <li key={line} style={{ margin: "4px 0" }}>
+                {line}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* The deck edits made on the day of this sitting (task B2). Chuck asked
+          for a question to be re-worded on Thursday morning and drilled her on
+          it that afternoon; the footer is where he sees that is what happened.
+          Withdrawn with its heading when nothing changed — same rule as the
+          flag block above, and the same reason. */}
+      {sheet.changes.length > 0 && (
+        <div style={{ marginTop: 18, fontSize: 15 }}>
+          <b>{sheet.changes_heading}</b>
+          <ul>
+            {sheet.changes.map((line) => (
               <li key={line} style={{ margin: "4px 0" }}>
                 {line}
               </li>

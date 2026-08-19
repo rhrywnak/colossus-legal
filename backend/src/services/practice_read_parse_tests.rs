@@ -220,6 +220,7 @@ fn the_user_message_carries_the_answer_the_points_and_the_card_and_no_more() {
         question: "Weren't you at each other's throats?",
         tactic: Some("false premise"),
         side: "George's side",
+        kind: "cross",
         answer: "Well, we did argue.",
         points: &points,
         watch_for: Some("WATCH FOR — the characterization."),
@@ -228,6 +229,11 @@ fn the_user_message_carries_the_answer_the_points_and_the_card_and_no_more() {
 
     for expected in [
         "Weren't you at each other's throats?",
+        // The KIND is what prompt v2 judges her LENGTH by, and it is not
+        // derivable from the side: Chuck asks both `direct` and `redirect`. A
+        // message that lost this line would have the model judging a redirect
+        // by the cross rule, which is the opposite of Roman's ruling.
+        "THE KIND: cross",
         "false premise",
         "Well, we did argue.",
         "1. I asked in writing to divide Dad's things.",
@@ -254,13 +260,47 @@ fn a_question_with_no_tactic_says_so_rather_than_leaving_the_line_blank() {
         question: "Did you ever refuse to divide the property?",
         tactic: None,
         side: "Chuck",
+        kind: "direct",
         answer: "No.",
         points: &[],
         watch_for: None,
         always: "Tell the truth",
     });
 
+    assert!(message.contains("THE KIND: direct"));
     assert!(message.contains("THE TACTIC: none — this is a direct question"));
     assert!(message.contains("(no watch-for was written for this question)"));
     assert!(message.contains("(none recorded)"));
+}
+
+/// A REDIRECT is sent as itself, not as a direct question.
+///
+/// The third kind, and the one with no earlier equivalent: prompt v2 judges a
+/// redirect by a rule of its own — no length fault at all — and the only thing
+/// that tells the model which rule to apply is this line. `side` cannot: a
+/// redirect and a direct are BOTH Chuck's, so a message that carried only the
+/// side would have the model judging the two identically, and the whole point of
+/// A5 is that they are not.
+#[test]
+fn a_redirect_is_named_as_a_redirect_and_not_as_a_direct_question() {
+    let message = build_user_message(&ReadInputs {
+        question: "Marie, tell the jury about the letter you sent in November 2009.",
+        tactic: None,
+        side: "Chuck",
+        kind: "redirect",
+        answer: "I wrote to Mr. Phillips on November 16, 2009 and asked to divide Dad's things.",
+        points: &[],
+        watch_for: None,
+        always: "Tell the truth",
+    });
+
+    assert!(message.contains("THE KIND: redirect"), "{message}");
+    assert!(
+        !message.contains("THE KIND: direct"),
+        "a redirect must not be sent as a direct question: {message}"
+    );
+    // And it still carries the rest of the shape, so this is not a message that
+    // happens to be right about one line and empty everywhere else.
+    assert!(message.contains("THE QUESTION (Chuck):"), "{message}");
+    assert!(message.contains("HER ANSWER, verbatim:"), "{message}");
 }

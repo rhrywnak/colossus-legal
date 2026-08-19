@@ -15,6 +15,8 @@ import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import PracticePage from "./pages/PracticePage";
+import PracticeQuestionReviewPage from "./pages/PracticeQuestionReviewPage";
+import PracticeSessionPage from "./pages/PracticeSessionPage";
 import BiasExplorer from "./pages/BiasExplorer";
 import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
@@ -89,6 +91,21 @@ const App: React.FC = () => {
                   cannot confuse the two — `practice` is a literal segment where
                   that route has `:scenarioId`, and this one has an id after it. */}
               <Route path="/cases/:slug/trial-prep/practice/:scenarioId" element={<PracticePage />} />
+              {/* PRACTICE flow v1 Section B: the SITTING's own address, so the
+                  browser's Back button and a mid-session reload both work. One
+                  segment longer again, and `session` is a literal where the
+                  parent route ends — neither can shadow the other. */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId"
+                element={<PracticeSessionPage />}
+              />
+              {/* PRACTICE v1 Part B: one question's review page — every attempt
+                  at it, newest first. `question` is a literal where the sibling
+                  has `session`, so neither can shadow the other. */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId"
+                element={<PracticeQuestionReviewPage />}
+              />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/explorer" element={<EvidenceExplorerPage />} />
               <Route path="/bias-explorer" element={<BiasExplorer />} />

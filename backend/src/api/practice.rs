@@ -34,27 +34,34 @@ use std::collections::HashSet;
 use uuid::Uuid;
 
 use super::practice_answers::{
-    post_close_answer, post_help_opened, post_practice_answer, put_question_flag,
+    post_close_answer, post_help_opened, post_practice_answer, post_skip_question,
+    put_question_flag,
 };
+use super::practice_editor::{post_edit_question, post_hide_question, post_move_question};
+use super::practice_editor_add::post_add_question;
+use super::practice_notes::{get_question_review, post_note, post_strike_note};
+use super::practice_sessions::{get_sitting_route, post_end_session, post_resume, post_start_over};
 
 use crate::{
     auth::AuthUser,
     domain::scenario_code::scenario_code,
-    dto::practice::{
-        PracticeDeckPayload, PracticeSheetPayload, StartSessionRequest, StartSessionResponse,
-    },
+    dto::practice::{PracticeDeckPayload, StartSessionRequest, StartSessionResponse},
     error::AppError,
     repositories::pipeline_repository::{
         get_scenario,
         practice::{
-            end_session, last_ended_session, list_deck, list_point_receipts, list_points,
-            session_scenario, sheet_rows, start_session, NewSitting,
+            last_ended_session, list_deck, list_point_receipts, list_points, start_session,
+            NewSitting,
         },
-        practice_flow::{list_flagged, session_queue_len},
+        practice_editor::{changes_since, last_answered_at},
+        practice_flow::{newest_open_session, open_session_count, row_statuses},
+        practice_notes::list_notes,
     },
     services::{
+        practice_changes::{badged, changed_box},
+        practice_editor_options::attach_options,
+        practice_notes::{new_since, scenario_notes},
         practice_page::{deck_payload, DeckSources},
-        practice_sheet::sheet_payload,
     },
     state::AppState,
 };
@@ -73,12 +80,19 @@ pub fn routes() -> Router<AppState> {
             post(post_practice_session),
         )
         .route("/practice/answers", post(post_practice_answer))
+        .route("/practice/answers/skip", post(post_skip_question))
         .route("/practice/answers/:answer_id/help", post(post_help_opened))
         .route(
             "/practice/answers/:answer_id/close",
             post(post_close_answer),
         )
         .route("/practice/sessions/:session_id/end", post(post_end_session))
+        .route("/practice/sessions/:session_id", get(get_sitting_route))
+        .route("/practice/sessions/:session_id/resume", post(post_resume))
+        .route(
+            "/practice/sessions/:session_id/start-over",
+            post(post_start_over),
+        )
         // PUT and not POST: writing the same note twice leaves the same row, and
         // clearing is the same call with nothing in it. That is idempotent, which
         // is what PUT means.
@@ -86,6 +100,44 @@ pub fn routes() -> Router<AppState> {
             "/practice/questions/:question_id/flag",
             put(put_question_flag),
         )
+        .merge(part_b_routes())
+}
+
+/// Part B's seven routes, declared together.
+///
+/// Split from [`routes`] so neither passes Rule 18, and grouped rather than
+/// scattered because they arrived as one task: the deck editor, the notes, and
+/// the review page. The four editor writes address a question by its own
+/// server-minted id, for the same reason the answer routes do; the three that
+/// CREATE or READ something scenario-shaped are case- and scenario-scoped,
+/// because each has to be told where to look.
+fn part_b_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/practice/questions/:question_id/edit",
+            post(post_edit_question),
+        )
+        .route(
+            "/practice/questions/:question_id/move",
+            post(post_move_question),
+        )
+        .route(
+            "/practice/questions/:question_id/hidden",
+            post(post_hide_question),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/questions",
+            post(post_add_question),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/questions/:question_id",
+            get(get_question_review),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/notes",
+            post(post_note),
+        )
+        .route("/practice/notes/:note_id/strike", post(post_strike_note))
 }
 
 /// Turn a repository failure into a 500 that says nothing, having logged
@@ -117,30 +169,37 @@ pub async fn get_practice_deck(
             message: format!("scenario {scenario_id} not found"),
         })?;
 
-    let deck = list_deck(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_deck", e))?;
-    let points = list_points(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_points", e))?;
-    let receipts = list_point_receipts(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_point_receipts", e))?;
-    let last = last_ended_session(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("last_ended_session", e))?;
-
+    let read = read_deck_sources(&state, scenario_id).await?;
     let settings = state.settings.current();
+    let news = read_what_changed(&state, scenario_id, &read).await?;
+    // Composed BEFORE the payload takes ownership of the points. The add form's
+    // picker and the reveal's point list are the same three rows read twice, and
+    // one read is what the payload promises.
+    let attach = attach_options(&settings, &read.deck_for_changes, &read.points);
+
     let payload = deck_payload(
         &settings,
         DeckSources {
             scenario_id,
             code: scenario_code(record.code_ordinal),
             title: record.name,
-            deck,
-            points,
-            receipts: &receipts,
-            last: last.as_ref(),
+            deck: read.deck,
+            points: read.points,
+            receipts: &read.receipts,
+            last: read.last.as_ref(),
+            statuses: &read.statuses,
+            open: read.open.as_ref(),
+            now: chrono::Utc::now(),
+            badged: &badged(&news.changes, &read.answered_at),
+            notes: scenario_notes(&settings, &read.notes),
+            changed: changed_box(
+                &settings,
+                &read.deck_for_changes,
+                &news.changes,
+                news.fresh_notes,
+                news.newest_note_author.as_deref(),
+            ),
+            attach_options: attach,
         },
     );
 
@@ -149,9 +208,113 @@ pub async fn get_practice_deck(
         %scenario_id,
         questions = payload.questions.len(),
         points = payload.points.len(),
+        answered_questions = read.statuses.len(),
+        receipts = payload.receipts.len(),
+        open_sessions = read.open_total,
+        changes_since_last = news.changes.len(),
+        notes = payload.notes.len(),
         "served the practice deck"
     );
     Ok(Json(payload))
+}
+
+/// What has happened to this scenario since her last finished sitting.
+struct WhatChanged {
+    changes: Vec<crate::repositories::pipeline_repository::practice_editor::DeckChangeRecord>,
+    fresh_notes: usize,
+    newest_note_author: Option<String>,
+}
+
+/// Read the deck changes and count the notes that arrived since her last sitting.
+///
+/// ## Domain note: measured from the last ENDED session
+///
+/// The one she is in right now is not a sitting she has finished, and measuring
+/// from it would empty the box the moment she pressed Start — which is exactly
+/// when she has not yet read any of it.
+async fn read_what_changed(
+    state: &AppState,
+    scenario_id: Uuid,
+    read: &DeckRead,
+) -> Result<WhatChanged, AppError> {
+    let since = read.last.as_ref().map(|s| s.ended_at);
+    let changes = changes_since(&state.pipeline_pool, scenario_id, since)
+        .await
+        .map_err(|e| repo_error("changes_since", e))?;
+    let (fresh_notes, newest_note_author) = new_since(&read.notes, since);
+    Ok(WhatChanged {
+        changes,
+        fresh_notes,
+        newest_note_author: newest_note_author.map(str::to_string),
+    })
+}
+
+/// Everything one deck payload is read from, in one place.
+///
+/// Six reads, all against the pipeline pool, all fenced by the same scenario.
+/// Gathered into a function so [`get_practice_deck`] stays the four steps it
+/// reads as — fence the case, read the record, read the deck, say what was
+/// served — rather than a straight run of six near-identical `map_err` blocks.
+struct DeckRead {
+    deck: Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
+    points: Vec<crate::repositories::pipeline_repository::practice::PracticePointRecord>,
+    receipts: Vec<crate::repositories::pipeline_repository::practice::PracticePointReceipt>,
+    last: Option<crate::repositories::pipeline_repository::practice::LastSessionRecord>,
+    statuses: Vec<crate::repositories::pipeline_repository::practice_flow::RowStatusRecord>,
+    open: Option<crate::repositories::pipeline_repository::practice_flow::OpenSessionRecord>,
+    /// The deck again, kept whole for the two readers that need POSITIONS in
+    /// it — the change list's `Q3` and the add form's picker. `deck` itself is
+    /// consumed by the payload, and cloning once here is cheaper than the two
+    /// extra reads the alternative would cost.
+    deck_for_changes:
+        Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
+    /// Every note on the scenario, all three levels. Partitioned by the caller.
+    notes: Vec<crate::repositories::pipeline_repository::practice_notes::NoteRecord>,
+    /// When each question was last answered, for the `changed` badge.
+    answered_at: Vec<(Uuid, chrono::DateTime<chrono::Utc>)>,
+    /// How many open sittings this scenario carries. Read, and LOGGED, before
+    /// anything closes one: nothing closed an abandoned sitting before Section
+    /// B, so a scenario can carry several — and an operator who only ever sees
+    /// the newest has no way to discover how many there were.
+    open_total: i64,
+}
+
+/// Read all six, or fail naming the read that did.
+///
+/// # Errors
+/// 500 (logged, with the operation named) for any read that fails.
+async fn read_deck_sources(state: &AppState, scenario_id: Uuid) -> Result<DeckRead, AppError> {
+    let deck = list_deck(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|e| repo_error("list_deck", e))?;
+    Ok(DeckRead {
+        deck_for_changes: deck.clone(),
+        deck,
+        notes: list_notes(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_notes", e))?,
+        answered_at: last_answered_at(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("last_answered_at", e))?,
+        points: list_points(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_points", e))?,
+        receipts: list_point_receipts(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("list_point_receipts", e))?,
+        last: last_ended_session(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("last_ended_session", e))?,
+        statuses: row_statuses(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("row_statuses", e))?,
+        open: newest_open_session(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("newest_open_session", e))?,
+        open_total: open_session_count(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("open_session_count", e))?,
+    })
 }
 
 /// Open a session. The client keeps the id for the rest of the sitting.
@@ -190,55 +353,6 @@ pub async fn post_practice_session(
         "practice session started"
     );
     Ok(Json(StartSessionResponse { session_id }))
-}
-
-/// Read everything Chuck's sheet is composed from, and compose it.
-///
-/// Split from [`post_end_session`] so that handler is the three steps it reads
-/// as — find the session, close it, show the sheet — while the four reads and
-/// the one comparison that BUILD the sheet sit together, where the reason each
-/// is needed can be argued in one place.
-///
-/// # Errors
-/// 404 when the scenario behind the session has gone; 500 (logged, with the
-/// operation named) for any read that fails.
-async fn compose_sheet(
-    state: &AppState,
-    session_id: Uuid,
-    scenario_id: Uuid,
-) -> Result<PracticeSheetPayload, AppError> {
-    let record = get_scenario(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("get_scenario", e))?
-        .ok_or_else(|| AppError::NotFound {
-            message: format!("scenario {scenario_id} not found"),
-        })?;
-    let rows = sheet_rows(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("sheet_rows", e))?;
-    // The whole deck's flags, not this sitting's: a question she flagged AND
-    // kept out of tonight is the one Roman most needs to see.
-    let flagged = list_flagged(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_flagged", e))?;
-
-    // "Ended early" is a comparison against the queue she STARTED with, which is
-    // why the queue is stored on the session. Unknown (no stored queue) is
-    // reported as NOT early — the sheet never claims a fact it cannot source.
-    let queue_len = session_queue_len(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("session_queue_len", e))?;
-    let ended_early = queue_len.is_some_and(|n| rows.len() < n.max(0) as usize);
-
-    let settings = state.settings.current();
-    Ok(sheet_payload(
-        &settings,
-        &scenario_code(record.code_ordinal),
-        chrono::Utc::now(),
-        rows,
-        ended_early,
-        &flagged,
-    ))
 }
 
 /// Refuse a sitting whose side is unknown or whose questions are not this
@@ -325,34 +439,6 @@ pub(super) fn fence_queue<'a>(
 /// the stored "no system read this time" line and every other box stands. That is
 /// the design's own instruction, and it is also the only behaviour that does not
 /// throw away a witness's typed sentence because a vendor was slow.
-/// Close the session and return Chuck's sheet.
-pub async fn post_end_session(
-    _user: AuthUser,
-    State(state): State<AppState>,
-    Path(session_id): Path<Uuid>,
-) -> Result<Json<PracticeSheetPayload>, AppError> {
-    let scenario_id = session_scenario(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("session_scenario", e))?
-        .ok_or_else(|| AppError::NotFound {
-            message: format!("practice session {session_id} not found"),
-        })?;
-
-    end_session(&state.pipeline_pool, session_id)
-        .await
-        .map_err(|e| repo_error("end_session", e))?;
-
-    let payload = compose_sheet(&state, session_id, scenario_id).await?;
-
-    tracing::info!(
-        %session_id,
-        rows = payload.rows.len(),
-        flagged = payload.flagged.len(),
-        "practice session ended"
-    );
-    Ok(Json(payload))
-}
-
 #[cfg(test)]
 #[path = "practice_tests.rs"]
 mod tests;

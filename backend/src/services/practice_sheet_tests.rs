@@ -6,11 +6,11 @@
 use super::*;
 use chrono::{TimeZone, Utc};
 
-fn settings() -> Settings {
+pub(super) fn settings() -> Settings {
     Settings::for_test()
 }
 
-fn row(
+pub(super) fn row(
     side: &str,
     braid: Option<&str>,
     tactic: Option<i16>,
@@ -25,6 +25,7 @@ fn row(
         answer_text: "her answer".to_string(),
         mark: mark.to_string(),
         help_opened: help,
+        points_to: None,
     }
 }
 
@@ -71,14 +72,17 @@ fn every_cell_arrives_as_a_word_a_lawyer_can_read_on_paper() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![
-            row("george", None, Some(4), "repeat", true),
-            row("chuck", None, None, "fine", false),
-        ],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![
+                row("george", None, Some(4), "repeat", true),
+                row("chuck", None, None, "fine", false),
+            ],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     assert_eq!(payload.kicker, "Session done · S-5 · Mon 17 Aug");
@@ -115,11 +119,14 @@ fn her_answer_is_printed_exactly_as_she_typed_it() {
 
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![r.clone()],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![r.clone()],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
     assert_eq!(payload.rows[0].answer, r.answer_text);
 }
@@ -134,11 +141,14 @@ fn a_session_with_no_answers_still_composes_a_sheet() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
-        vec![],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 17, 20, 0, 0).unwrap(),
+            rows: vec![],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     assert!(payload.rows.is_empty());
@@ -157,15 +167,18 @@ fn a_skipped_row_prints_as_skipped_and_is_counted_as_neither() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![
-            row("george", None, Some(4), "fine", false),
-            row("george", None, Some(2), "skipped", false),
-            row("chuck", None, None, "repeat", false),
-        ],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![
+                row("george", None, Some(4), "fine", false),
+                row("george", None, Some(2), "skipped", false),
+                row("chuck", None, None, "repeat", false),
+            ],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
 
     let marks: Vec<&str> = payload.rows.iter().map(|r| r.mark.as_str()).collect();
@@ -284,11 +297,14 @@ fn an_unflagged_deck_withdraws_the_block_rather_than_printing_an_empty_heading()
 
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![row("george", None, Some(4), "fine", false)],
-        false,
-        &[],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![row("george", None, Some(4), "fine", false)],
+            ended_early: false,
+            flagged: &[],
+            changes: vec![],
+        },
     );
     assert!(payload.flagged.is_empty());
     assert_eq!(payload.flagged_heading, "");
@@ -301,11 +317,14 @@ fn a_flagged_deck_carries_the_blocks_heading_and_hint() {
     let s = settings();
     let payload = sheet_payload(
         &s,
-        "S-5",
-        Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
-        vec![row("george", None, Some(4), "fine", false)],
-        false,
-        &[flagged("george", 1, "too soft")],
+        SheetSources {
+            code: "S-5",
+            ended_at: Utc.with_ymd_and_hms(2026, 8, 18, 12, 0, 0).unwrap(),
+            rows: vec![row("george", None, Some(4), "fine", false)],
+            ended_early: false,
+            flagged: &[flagged("george", 1, "too soft")],
+            changes: vec![],
+        },
     );
 
     assert_eq!(payload.flagged.len(), 1);

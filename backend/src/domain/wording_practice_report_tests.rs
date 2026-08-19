@@ -7,11 +7,24 @@
 // that appear on PAPER, where there is no tooltip and no second click.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
 const SEED_MIGRATION: &str = "pipeline_migrations/20260817213319_practice_session_v0.sql";
+
+/// The migration that CORRECTS one of those rows.
+///
+/// `practice_stronger_summary` shipped carrying a `▸` of its own, and
+/// `<details><summary>` draws a disclosure marker whether or not the label has
+/// one — so the drawer rendered two arrows. The v1 migration edits the row.
+///
+/// It is read here for the reason the card-grammar block reads its own
+/// corrections file: a fixture pinned only to the ORIGINAL insert would go green
+/// while the store holds something else, which is the drift these tests exist to
+/// catch.
+const CORRECTION_MIGRATION: &str =
+    "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql";
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -34,7 +47,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_CHECK_ACCEPTED_PREMISE, "I accepted a word or premise I shouldn't have"),
     (KEY_CHECK_EXPLAINED_UNASKED, "I explained something nobody asked about"),
     (KEY_CHECK_GUESSED, "I guessed at a date, a number, or a name"),
-    (KEY_STRONGER_SUMMARY, "Show a stronger answer ▸"),
+    (KEY_STRONGER_SUMMARY, "Show a stronger answer"),
     (KEY_STRONGER_NOTE_PREFIX, "An example of"),
     (KEY_STRONGER_NOTE_EMPHASIS, "how"),
     (
@@ -114,16 +127,20 @@ impl PracticeReportWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let corrections = std::fs::read_to_string(root.join(CORRECTION_MIGRATION))
+        .expect("the practice v1 correction migration is on disk");
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the practice migration is on disk");
 
     for key in PRACTICE_REPORT_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!(
-                "{key} is declared to the boot loader but seeded by no migration \
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&sql, key))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but seeded by no migration \
                  — the backend would refuse to start"
-            )
-        });
+                )
+            });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)
@@ -230,4 +247,27 @@ fn the_marks_and_the_help_cells_are_distinguishable_on_paper() {
     let w = PracticeReportWording::for_test();
     assert_ne!(w.mark_fine, w.mark_repeat);
     assert_ne!(w.help_opened, w.help_none);
+}
+
+/// The drawer's label carries NO arrow of its own (task A8).
+///
+/// `<details><summary>` draws a disclosure marker, and the marker is the arrow
+/// that matters — it turns when the drawer opens, which a character in a string
+/// cannot do. A `▸` in the label put a second, frozen arrow beside it.
+///
+/// Pinned on the STRING rather than on the rendered markup because the string is
+/// where it went wrong and the store is where it can go wrong again: this row is
+/// editable on the Settings page, and nothing else in the stack would notice a
+/// `▸` typed back into it.
+#[test]
+fn the_stronger_drawer_label_carries_no_arrow_of_its_own() {
+    let w = PracticeReportWording::for_test();
+    for arrow in ['\u{25b8}', '\u{25b6}', '\u{2023}', '\u{203a}'] {
+        assert!(
+            !w.stronger_summary.contains(arrow),
+            "the label draws its own arrow beside the disclosure marker: {}",
+            w.stronger_summary
+        );
+    }
+    assert_eq!(w.stronger_summary, "Show a stronger answer");
 }

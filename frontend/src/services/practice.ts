@@ -59,6 +59,68 @@ export type PracticeQuestion = {
   stronger_lean: string | null;
   /** Marie's one line saying what is wrong with this question. `null` = none. */
   flag_note: string | null;
+  /**
+   * `cross`, `direct` or `redirect` — what the question DOES.
+   *
+   * Not the same as `side`: Chuck asks both `direct` and `redirect`, and they
+   * are dealt, tagged and judged differently. Nothing on this screen infers one
+   * from the other.
+   */
+  kind: string;
+  /** The stable handle the deck file uses (`g1`, `r2`), or `null`. */
+  deck_key: string | null;
+  /** The `deck_key` of the George question a redirect answers, or `null`. */
+  follows_key: string | null;
+  /**
+   * What happened to this question, ALREADY COMPOSED by the server —
+   * "answered today · repeat · attempt 2". `null` renders nothing at all.
+   */
+  status: string | null;
+  /**
+   * The RAW mark behind that status — `fine`, `repeat` or `skipped`, or `null`.
+   *
+   * Sent beside the sentence rather than parsed out of it: the sentence is a
+   * Settings row and can be re-worded, and a screen that coloured itself by
+   * searching it for the word "repeat" would lose its colours the first time
+   * somebody edited the template.
+   */
+  status_mark: string | null;
+  /**
+   * True when the deck editor has hidden this question. Marie's list and every
+   * queue drop it; the editor still shows it, greyed, so it can be put back.
+   */
+  hidden: boolean;
+  /** Who drafted it when nobody has reviewed it (`architect`), or `null`. */
+  draft_by: string | null;
+  /** True when it changed since her last sitting and she has not answered it since. */
+  changed: boolean;
+};
+
+/** One note, as every panel renders it. */
+export type PracticeNote = {
+  id: string;
+  question_id: string | null;
+  answer_id: string | null;
+  author: string;
+  text: string;
+  /** `Tue 18 Aug` — composed, so the browser holds no date format. */
+  when: string;
+  /** `struck Tue 19 Aug`, or `null` while it stands. Its presence strikes it. */
+  struck: string | null;
+};
+
+/** What changed since her last sitting, composed. */
+export type PracticeChanged = {
+  heading: string;
+  /** The plain-words list behind the fold. */
+  items: string[];
+};
+
+/** One thing a new question can be attached to, in the add form's picker. */
+export type PracticeAttachOption = {
+  source_kind: string;
+  source_index: number;
+  label: string;
 };
 
 /** One of Marie's talking points. */
@@ -80,6 +142,13 @@ export type PracticePoint = {
  */
 export type PracticeWording = Record<string, string>;
 
+/** The sitting she walked out of, as the start card offers it back. */
+export type OpenSession = {
+  session_id: string;
+  /** `· today 09:57 · George's side · 1 of 5 answered.` — composed server-side. */
+  detail: string;
+};
+
 /** Everything the page needs, in one response. */
 export type PracticeDeck = {
   scenario_id: string;
@@ -89,6 +158,16 @@ export type PracticeDeck = {
   questions: PracticeQuestion[];
   points: PracticePoint[];
   last_session_line: string;
+  /** What the "I'd point to…" picker offers, composed and de-duplicated. */
+  receipts: string[];
+  /** `null` withdraws the blue resume box entirely. */
+  open_session: OpenSession | null;
+  /** The notes on this SCENARIO, oldest first. */
+  notes: PracticeNote[];
+  /** What changed since her last sitting. `null` withdraws the blue box. */
+  changed: PracticeChanged | null;
+  /** What the editor's add form may attach a new question to. */
+  attach_options: PracticeAttachOption[];
   wording: PracticeWording;
 };
 
@@ -119,6 +198,8 @@ export type PracticeSheetRow = {
   mark: string;
   help_opened: boolean;
   help: string;
+  /** What she said she would point to. EMPTY withdraws the line. */
+  points_to: string[];
 };
 
 /** Chuck's sheet, composed. */
@@ -134,6 +215,10 @@ export type PracticeSheet = {
   /** The block's heading and its sentence. Both empty when `flagged` is. */
   flagged_heading: string;
   flagged_hint: string;
+  /** The deck changes made on the day of this sitting. EMPTY withdraws the block. */
+  changes: string[];
+  /** That block's heading. Empty when `changes` is. */
+  changes_heading: string;
 };
 
 /**
@@ -185,6 +270,9 @@ export async function fetchPracticeDeck(
   if (
     !Array.isArray(parsed.questions) ||
     !Array.isArray(parsed.points) ||
+    !Array.isArray(parsed.receipts) ||
+    !Array.isArray(parsed.notes) ||
+    !Array.isArray(parsed.attach_options) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {
@@ -246,6 +334,14 @@ export async function submitPracticeAnswer(input: {
   questionId: string;
   answerText: string;
   dontRecall: boolean;
+  /**
+   * The receipts she picked, or `null` when she never opened the control.
+   *
+   * `null` and `[]` are DIFFERENT and are sent differently: an empty array says
+   * she looked at the list and reached for nothing, which is a fact about the
+   * answer; `null` says the question of what she would point to never came up.
+   */
+  pointsTo: string[] | null;
 }): Promise<AnswerResult> {
   const response = await authFetch(`${API_BASE_URL}/api/practice/answers`, {
     method: "POST",
@@ -255,6 +351,7 @@ export async function submitPracticeAnswer(input: {
       question_id: input.questionId,
       answer_text: input.answerText,
       dont_recall: input.dontRecall,
+      points_to: input.pointsTo,
     }),
     timeoutMs: READ_TIMEOUT_MS,
   });

@@ -87,8 +87,21 @@ fn the_parse_sees_the_repositorys_statements() {
          the literal scanner has stopped seeing them",
         statements.len()
     );
-    assert_eq!(inserts().len(), 2, "practice.rs ships two INSERTs");
-    assert_eq!(updates().len(), 3, "practice.rs ships three UPDATEs");
+    assert_eq!(
+        inserts().len(),
+        6,
+        "two INSERTs in practice.rs, two in practice_editor.rs, one in \
+         practice_notes.rs, and the seed's — the widest column list in the \
+         codebase, and the one whose absence from this cover let a `draft_by` \
+         no migration created ship in Part A"
+    );
+    assert!(
+        updates().len() >= 12,
+        "the covered files ship at least twelve UPDATEs across practice.rs, \
+         practice_flow.rs, practice_editor.rs, practice_notes.rs and the seed; \
+         parsed {}",
+        updates().len()
+    );
 
     for (table, columns) in declared() {
         assert!(
@@ -122,8 +135,8 @@ fn the_parse_reads_columns_and_aliases_out_of_them() {
         .expect("practice.rs ships an INSERT INTO practice_answers");
     assert_eq!(
         answers.1.len(),
-        14,
-        "the practice_answers INSERT names 14 columns; parsed {:?}",
+        16,
+        "the practice_answers INSERT names 16 columns; parsed {:?}",
         answers.1
     );
 

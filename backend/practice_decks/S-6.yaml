@@ -1,0 +1,264 @@
+# =============================================================================
+# practice_decks/S-6.yaml — the seeded practice deck for scenario S-6
+# =============================================================================
+#
+# "Too many attorneys."
+#
+# Written by the architect on 2026-08-19 from S-6's RULED record on DEV
+# (read-only), and transcribed here into the loader's schema by CC on the
+# architect's own instruction ("keep every string verbatim; map the fields to
+# the loader's schema"). EVERY sentence Marie or Chuck reads below is the
+# architect's, character for character. What CC changed is field NAMES and
+# nothing else — with the two exceptions named at the foot of this header.
+#
+# ## The record this deck is built from (the architect's note, kept verbatim)
+#
+#   instances (the accusation, every time they made it) in page order:
+#     1  C-12   CFS, sworn interrogatory answer "Yes" — Phillips argued Marie 100% responsible for the appeal's administrative cost (CFS Interrogatory Response 08-08-16, p. 9)
+#        paired with our answer C-57 — Phillips: Zolton represented Marie "for a short period"; "I do not recall ever contacting or being contacted" (Phillips Response to Discovery, p. 22)
+#     2  C-117  COA reciting CFS: "fees and costs … substantially driven by Awad's unreasonable demands and behavior" (COA ruling 01-12-2012, p. 5)
+#        paired with C-74 — Phillips under oath: "Those statements were personal conclusions I made…" (Phillips Response to Discovery, p. 30)
+#     3  C-119  probate court as quoted by the COA: "running up the attorney bill … gone through three or four attorneys … repeat and repeat and repeat" (COA ruling, p. 5)
+#        paired with C-147 — COA: "it was the fight over the personal property and the sisters' inability to work together that drove up the fees and expenses" (COA ruling, p. 13)
+#     4  C-52   Phillips, sworn discovery answer "Yes." — he argued Marie 100% responsible for the appeal's administrative cost (Phillips Response to Discovery, p. 16)
+#        paired with C-59 — Phillips: Williams represented Marie "for a short period of time"; "I cannot recall any direct contact" (p. 23)
+#   talking points (Marie's, 3): billing ≈ $500 not $30,000 · COA: the property fight drove the fees · Phillips admitted "personal conclusions"
+#   human fact (Roman): Phillips's billing detail — first-month hours per attorney: Shaw 0.0 · Williams 0.0 · Sharp 0.9 · Buk 1.1 · Penzien 0.0 = 2.0 h ≈ $400 at $200/h; Complaint ¶46/¶94 "at most $500"; exhibit rides COA reply brief Part 2 (not yet in corpus)
+#   watch-list: empty
+#
+# Order is deliberate (R10, general → specific; the braid last), and it is kept.
+#
+# ## The field mapping CC applied
+#
+#   scenario:            → scenario_code:
+#   point_receipts:      → points:
+#   question:            → text:
+#   from:                → receipt:
+#   source: {instance:N} → source_kind: instance / source_index: N
+#   source: {point:N}    → source_kind: point     / source_index: N
+#   follows_key:         → follows:
+#   stronger: null       → the key omitted (the loader reads absence, not null)
+#
+# ## Two things CC decided, both flagged for the architect
+#
+# 1. The braid (g5) is bound to `instance: 3`, as the file says, and NOT
+#    re-bound to `manual`. The architect's note offered that alternative "if the
+#    loader binds one question per instance" — it does not: nothing in
+#    `practice_questions` is unique on `source_ref`, so g2 and g5 may both cite
+#    instance 3, and keeping the real binding is strictly more traceable than
+#    dropping it.
+#
+# 2. `source_line` was ADDED to the five George questions. It is the handle the
+#    "I'd point to…" picker offers under the answer box, and it did not exist
+#    when this file was written. Every one of the five is transcribed verbatim
+#    from the citation the row's own `receipt` already names — no new words. If
+#    the architect wants them struck, deleting five lines is the whole edit.
+#
+# ## How source_index binds a question to the record
+#
+# `source_kind: instance` + `source_index: 2` means "the SECOND of this
+# scenario's ruled accusation instances, in the order they were ruled". The seed
+# resolves that to the instance's real graph node id at apply time. Node ids are
+# NOT written here on purpose: an id in this file would be a DEV-shaped constant
+# in the repo, and it would rot the day a re-ingest re-keys the node — the
+# stale-pointer defect of 2026-08-14. If the scenario has fewer instances than
+# an index names, the seed REFUSES and writes nothing.
+
+scenario_code: S-6
+
+points:
+  - position: 1
+    text: "Phillips's own billing detail — 2.0 hours across every attorney change ≈ $400; pleaded as 'at most $500' (Complaint ¶46, ¶94)"
+  - position: 2
+    text: "Court of Appeals ruling, 12 Jan 2012, p. 13"
+  - position: 3
+    text: "Phillips Response to Discovery, p. 30"
+
+questions:
+
+  # ---------- George's side (cross) — general → specific, the braid last ----------
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 5"
+    tactic: 1            # broad generalization
+    source_kind: instance
+    source_index: 2
+    text: "The fees and costs in your father's estate were driven by your unreasonable demands and behavior — that's what happened, isn't it?"
+    receipt: "Built from what the Court of Appeals recorded CFS maintaining: “the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals ruling, 12 Jan 2012, p. 5"
+    pair_said: "“CFS maintained that the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals, reciting CFS, p. 5"
+    pair_admitted: "“Those statements were personal conclusions I made as a result of a number of different attorneys being retained over a short period of time.” — Phillips, sworn discovery answer, p. 30"
+    watch_for: "WATCH FOR — the generalization. Don't defend “unreasonable,” don't argue it: give the number once. “That's not true. Their own billing records show my attorney changes cost about five hundred dollars.” Stop."
+    stronger: "That's not true. Their own billing records show my changes of attorney cost the estate about five hundred dollars — not thirty thousand."
+    stronger_lean: "leans on point 1"
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 5"
+    tactic: 2            # half-truth
+    source_kind: instance
+    source_index: 3
+    text: "You went through three or four attorneys in this matter, didn't you?"
+    receipt: "Built from the probate court's words as quoted by the Court of Appeals: “Miss Awad has gone through three or four attorneys in this matter.” — Court of Appeals ruling, 12 Jan 2012, p. 5"
+    pair_said: "“…her running up the attorney bill… Miss Awad has gone through three or four attorneys in this matter… repeat and repeat and repeat the work…” — probate court, quoted by the Court of Appeals, p. 5"
+    pair_admitted: "“…it was the fight over the personal property and the sisters' inability to work together that drove up the fees and expenses.” — Court of Appeals, p. 13"
+    watch_for: "WATCH FOR — a true fact, amputated. Yes, you changed attorneys. Supply the missing half in one breath, then stop: “I did. Their own records show that cost about five hundred dollars.” Do not explain why you changed attorneys unless Chuck asks."
+    stronger: "I did change attorneys. Their own billing records show that cost the estate about five hundred dollars."
+    stronger_lean: "leans on point 1"
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "CFS Interrogatory Response, 8 Aug 2016, p. 9"
+    tactic: 6            # authority borrow
+    source_kind: instance
+    source_index: 1
+    text: "Catholic Family Service told the court you were one hundred percent responsible for the costs of that appeal — and they were the ones administering the estate, so they'd know, wouldn't they?"
+    receipt: "Built from CFS's sworn interrogatory answer “Yes” — that Phillips, for CFS, argued Marie was 100% responsible for the appeal's administrative cost. — CFS Interrogatory Response, 8 Aug 2016, p. 9"
+    pair_said: "Q: Did George Phillips on behalf of Catholic Family Services make the argument that Marie Awad is 100% responsible for the appeal's administrative cost…? A: “Yes.” — CFS, sworn interrogatory answer, p. 9"
+    pair_admitted: "“It is my understanding or belief that Mr. Zolton represented Marie Awad for a short period… I do not recall ever contacting or being contacted directly by Mr. Zolton.” — Phillips, sworn discovery answer, p. 22"
+    watch_for: "WATCH FOR — borrowed authority (“they'd know”). You don't have to say whether they'd know. Say what happened: “I know what they argued. The Court of Appeals said it was the fight over the property that drove up the fees.”"
+    stronger: "I know what they argued. The Court of Appeals itself said it was the fight over the personal property that drove up the fees — not my attorneys."
+    stronger_lean: "leans on point 2"
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Phillips Response to Discovery, p. 16"
+    tactic: 7            # echo — repeated until it sounds like fact
+    source_kind: instance
+    source_index: 4
+    text: "Mr. Phillips told the court, more than once, that you were responsible for the estate's administrative costs. You don't dispute he told the court that, do you?"
+    receipt: "Built from Phillips's own sworn discovery answer “Yes.” — that he argued, for CFS, that Marie was 100% responsible for the appeal's administrative cost. — Phillips Response to Discovery, p. 16"
+    pair_said: "Q: Did George Phillips on behalf of Catholic Family Services make the argument that Marie Awad is 100% responsible for the appeal's administrative cost…? A: “Yes.” — Phillips, sworn discovery answer, p. 16"
+    pair_admitted: "“Again, it was my understanding that Mr. Williams represented Marie Awad for a short period of time… I cannot recall any direct contact with Mr. Williams.” — Phillips, sworn discovery answer, p. 23"
+    watch_for: "WATCH FOR — the echo. He wants you to agree the accusation was made so it sounds true. Agree it was SAID, never that it was TRUE: “He did say that — many times. Under oath he called those statements his personal conclusions.”"
+    stronger: "He did tell the court that, many times. Under oath, he admitted those statements were his personal conclusions."
+    stronger_lean: "leans on point 3"
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 12"
+    tactic: 5            # compound · the braid
+    source_kind: instance
+    source_index: 3
+    braid_rows: "Barrage rows 2 (S-6) · 1 (S-5) · 5 (the courts)"
+    text: "Isn't it true you hired attorney after attorney, ran the estate up to thirty thousand dollars in fees, and the Court of Appeals found it was your own conduct that depleted it?"
+    receipt: "A braid — Barrage rows 2 + 1 + 5. Last strand built from: “…it was Awad's actions and the acrimony between the sisters that contributed to the depletion of the estate and the increased fees…” — Court of Appeals ruling, 12 Jan 2012, p. 12"
+    pair_said: "“…it was Awad's actions and the acrimony between the sisters that contributed to the depletion of the estate and the increased fees, not mismanagement by CFS and counsel.” — Court of Appeals, p. 12"
+    pair_admitted: "“…it was the fight over the personal property and the sisters' inability to work together that drove up the fees and expenses.” — Court of Appeals, p. 13 (the same court, naming the property fight — not the attorneys)"
+    watch_for: "WATCH FOR — three accusations in one question. Name the strands, answer one: “That's three different things. Which one are you asking me about?” Never argue with the Court of Appeals on the stand — that's Chuck's job."
+    stronger: "That's three different things. Which one are you asking me about?"
+    stronger_lean: "routing drill — name the strands, answer one; the attorneys strand is this scenario, the 'difficult' strand is S-5, the courts strand is Chuck's"
+
+  # ---------- Chuck's REDIRECT — one per George trap (drafts for Chuck) ----------
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    draft_by: architect
+    source_kind: point
+    source_index: 3
+    text: "Marie, when Mr. Phillips was asked under oath about the things he wrote about you and your attorneys, what did he say they were?"
+    receipt: "Chuck's redirect after the generalization — point 3 (Phillips Response to Discovery, p. 30)."
+    watch_for: "Tell it — this is Chuck's time. His words: “personal conclusions.”"
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g2
+    draft_by: architect
+    source_kind: point
+    source_index: 1
+    text: "Those changes of attorney — what did they actually cost the estate, according to Mr. Phillips's own billing records?"
+    receipt: "Chuck's redirect after the half-truth — point 1 (the billing detail: 2.0 hours ≈ $400; pleaded as at most $500)."
+    watch_for: "Tell it. The number, and whose records it comes from."
+
+  - key: r3
+    side: chuck
+    kind: redirect
+    follows: g3
+    draft_by: architect
+    source_kind: point
+    source_index: 2
+    text: "What did the Court of Appeals itself say drove up the fees in your father's estate?"
+    receipt: "Chuck's redirect after the authority borrow — point 2 (Court of Appeals ruling, p. 13)."
+    watch_for: "Tell it. The court's own words: the fight over the personal property."
+
+  - key: r4
+    side: chuck
+    kind: redirect
+    follows: g4
+    draft_by: architect
+    source_kind: point
+    source_index: 1
+    text: "Of the roughly thirty thousand dollars in fees, how much was actually caused by your changing attorneys?"
+    receipt: "Chuck's redirect after the echo — point 1."
+    watch_for: "Tell it. About five hundred dollars — by their own records."
+
+  - key: r5
+    side: chuck
+    kind: redirect
+    follows: g5
+    draft_by: architect
+    source_kind: point
+    source_index: 1
+    text: "Let's take those one at a time. How many hours do Mr. Phillips's own records show for all of your attorney changes put together?"
+    receipt: "Chuck's redirect after the braid — point 1 (the billing detail: Shaw 0.0 · Williams 0.0 · Sharp 0.9 · Buk 1.1 · Penzien 0.0 = 2.0 hours)."
+    watch_for: "Tell it, one strand at a time. Two hours. Then stop and let Chuck take the next strand."
+
+  # ---------- Chuck's DIRECT — foundation first, then the three points ----------
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "Marie, during the probate case, how many different attorneys represented you?"
+    receipt: "Chuck's direct — the foundation. He asks it before George can."
+    watch_for: "Plain. The number, no reasons yet."
+    stronger: "Five, over the years — some of them only briefly."
+    stronger_lean: "leans on point 1"
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "Tell the jury, briefly, why you changed attorneys."
+    receipt: "Chuck's direct — the reason, asked by the right lawyer."
+    watch_for: "Short and honest. This is the one place the reason belongs — on direct, asked by Chuck, not volunteered on cross."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "What do Mr. Phillips's own billing records show those changes of attorney cost the estate?"
+    receipt: "Chuck's direct — establishes point 1 (the billing detail; Complaint ¶46, ¶94)."
+    watch_for: "The number, and whose records. Chuck will hand up the billing detail when it's in the binder."
+    stronger: "About five hundred dollars — by their own billing records. Not thirty thousand."
+    stronger_lean: "leans on point 1"
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 2
+    text: "What did the Court of Appeals say actually drove up the fees?"
+    receipt: "Chuck's direct — establishes point 2 (Court of Appeals ruling, 12 Jan 2012, p. 13)."
+    watch_for: "The court's words, then stop; Chuck reads the passage."
+    stronger: "The court said it was the fight over the personal property and the sisters not working together — not my attorneys."
+    stronger_lean: "leans on point 2"
+
+  - key: c5
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 3
+    text: "When Mr. Phillips was asked under oath about what he had written about you and your attorneys, what did he say?"
+    receipt: "Chuck's direct — establishes point 3 (Phillips Response to Discovery, p. 30)."
+    watch_for: "His words: “personal conclusions.” Then stop; Chuck reads the admission."
+    stronger: "He said they were his personal conclusions."
+    stronger_lean: "leans on point 3"

@@ -46,15 +46,25 @@ export const deckHeader: CSSProperties = {
 /** `.deck .cnt` — the count beside the heading. */
 export const deckCount: CSSProperties = { fontSize: 14, color: MUTED, fontWeight: 400 };
 
-/** `.deck .dh a` — "Hide the questions" / "Show the questions". */
+/** `.deck .dh a` — "Hide the questions" / "Show the questions".
+ *
+ * ## Why `font` comes FIRST and `fontSize` after it
+ *
+ * `font` is a SHORTHAND: setting it resets `font-size` along with everything
+ * else. React writes a style object's properties in declaration order, so
+ * `{ fontSize: 14, …, font: "inherit" }` sets 14 and then throws it away — the
+ * control renders at the body's 18px. That is exactly what shipped in .401 and
+ * what the mockup check called out as "larger than drawn". The order below is
+ * the fix, and it is the whole fix.
+ */
 export const deckToggle: CSSProperties = {
+  font: "inherit",
   fontSize: 14,
   color: BLUE,
   cursor: "pointer",
   background: "none",
   border: "none",
   padding: 0,
-  font: "inherit",
   textDecoration: "none",
 };
 
@@ -102,15 +112,20 @@ export const questionSkipped: CSSProperties = { opacity: 0.4, textDecoration: "l
 /** `.qrow .ctl` */
 export const rowControls: CSSProperties = { display: "flex", gap: 6, whiteSpace: "nowrap" };
 
-/** `.qrow .ctl button` */
+/** `.qrow .ctl button` — 13px / 5×9, as the mockup draws it.
+ *
+ * `font: "inherit"` FIRST, then `fontSize`. See [`deckToggle`] for why the order
+ * is the whole of it: the shorthand resets the size, and in .401 these buttons
+ * rendered at 18px for that reason.
+ */
 export const rowButton: CSSProperties = {
+  font: "inherit",
   fontSize: 13,
   padding: "5px 9px",
   borderRadius: 8,
   border: "1px solid var(--practice-control-border)",
   background: PAPER,
   color: INK,
-  font: "inherit",
   cursor: "pointer",
 };
 
