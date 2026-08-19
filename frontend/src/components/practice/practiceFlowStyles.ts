@@ -56,7 +56,7 @@ export const topBarLink: CSSProperties = {
 
 /** `.topbar .sep` — the dot between two controls. */
 export const topBarSeparator: CSSProperties = {
-  color: "var(--practice-control-border)",
+  color: "var(--practice-separator)",
   margin: "0 8px",
 };
 
@@ -136,3 +136,28 @@ export const pointsToItem: CSSProperties = {
 
 /** The picked receipts, echoed under the control and on the reveal. */
 export const pointsToChosen: CSSProperties = { fontSize: 14, color: MUTED, marginTop: 8 };
+
+/**
+ * The one rule inline styles cannot express: `.topbar a:hover`.
+ *
+ * The mockup underlines a top-bar link on hover, and that is not decoration —
+ * it is the only thing on the bar that says these blue words are pressable
+ * before you press them. A style OBJECT has no `:hover`, so this is a real
+ * `<style>` element, scoped by the same `data-surface` attribute the palette
+ * is, and keyed on a data attribute rather than a tag so it cannot leak onto
+ * any other link on the page.
+ *
+ * Rendered by both practice pages beside `PRINT_CSS`, for the same reason that
+ * one is: a media query and a pseudo-class are the two things a React style
+ * object cannot carry.
+ */
+export const LINK_CSS = `
+[data-surface="practice"] [data-practice-link]:hover {
+  text-decoration: underline;
+}
+[data-surface="practice"] [data-practice-link]:disabled {
+  cursor: default;
+  opacity: 0.5;
+  text-decoration: none;
+}
+`;

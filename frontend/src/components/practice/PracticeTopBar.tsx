@@ -56,7 +56,13 @@ const PracticeTopBar: React.FC<Props> = ({ wording, screen, onBack, onSkip, onEn
   return (
     <div style={f.topBar}>
       <span>
-        <button type="button" style={f.topBarLink} onClick={onBack} disabled={busy}>
+        <button
+          type="button"
+          style={f.topBarLink}
+          data-practice-link
+          onClick={onBack}
+          disabled={busy}
+        >
           {w("back_label")}
         </button>
         <Separator />
@@ -67,13 +73,25 @@ const PracticeTopBar: React.FC<Props> = ({ wording, screen, onBack, onSkip, onEn
       <span>
         {screen === "question" && (
           <>
-            <button type="button" style={f.topBarLink} onClick={onSkip} disabled={busy}>
+            <button
+              type="button"
+              style={f.topBarLink}
+              data-practice-link
+              onClick={onSkip}
+              disabled={busy}
+            >
               {w("skip_question_label")}
             </button>
             <Separator />
           </>
         )}
-        <button type="button" style={f.topBarLink} onClick={onEnd} disabled={busy}>
+        <button
+          type="button"
+          style={f.topBarLink}
+          data-practice-link
+          onClick={onEnd}
+          disabled={busy}
+        >
           {w("end_session_label")}
         </button>
       </span>

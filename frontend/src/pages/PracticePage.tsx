@@ -28,6 +28,7 @@ import React from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import PracticeStart, { type PracticeWho } from "../components/practice/PracticeStart";
+import * as f from "../components/practice/practiceFlowStyles";
 import * as s from "../components/practice/practiceStyles";
 import {
   fetchPracticeDeck,
@@ -192,6 +193,9 @@ const PracticePage: React.FC = () => {
     // the screen renders unstyled — which is why `practiceStyles.test.ts` pins
     // that this attribute and that CSS block stay in step.
     <div style={s.page} data-surface="practice">
+      {/* The hover rule the top bar and the deck links need; a style object
+          cannot carry a pseudo-class. See `LINK_CSS`. */}
+      <style>{f.LINK_CSS}</style>
       {crumb}
       <PracticeStart
         code={deck.code}

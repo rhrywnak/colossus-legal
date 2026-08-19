@@ -549,6 +549,10 @@
   /* The values the mockup wrote inline rather than as properties. Named here for
      the same reason the nine above are: one place, one edit. */
   --practice-control-border: #c9d1da;
+  /* mockup v3 `.topbar .sep` — the dot between two exits. A shade lighter than
+     the control border it sits beside, and its own token because it is the one
+     colour on the bar that is punctuation rather than an edge. */
+  --practice-separator: #b7c0cc;
   --practice-quiet-bg: #f9fafb;
   --practice-drawer-bg: #fbfcfd;
   --practice-choice-selected-bg: #eef4fd;

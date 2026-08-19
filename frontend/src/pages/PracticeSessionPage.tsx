@@ -33,6 +33,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import PracticeQuestionScreen from "../components/practice/PracticeQuestion";
 import PracticeReveal from "../components/practice/PracticeReveal";
 import PracticeSheetScreen from "../components/practice/PracticeSheet";
+import * as f from "../components/practice/practiceFlowStyles";
 import * as s from "../components/practice/practiceStyles";
 import {
   closePracticeAnswer,
@@ -322,6 +323,7 @@ const PracticeSessionPage: React.FC = () => {
       {/* The print stylesheet. Inline styles cannot express a media query, so
           this one rule set is a real <style> element, scoped by data attribute. */}
       <style>{s.PRINT_CSS}</style>
+      <style>{f.LINK_CSS}</style>
       <div data-practice-no-print>{crumb}</div>
 
       {sheet !== null ? (
