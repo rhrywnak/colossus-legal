@@ -25,6 +25,7 @@
 //! without inventing a `DeckValidator` nobody would otherwise want.
 
 use super::deck_file::{DeckFile, DeckKind, DeckQuestion, DeckSide, DeckSourceKind};
+use crate::domain::practice_params::TACTIC_CARD_MAX;
 
 /// Why a deck file cannot be used.
 ///
@@ -288,7 +289,7 @@ impl DeckQuestion {
             return Err(DeckError::BlankText { position });
         }
         if let Some(tactic) = self.tactic {
-            if !(1..=7).contains(&tactic) {
+            if !(1..=TACTIC_CARD_MAX).contains(&tactic) {
                 return Err(DeckError::UnknownTactic { position, tactic });
             }
         }

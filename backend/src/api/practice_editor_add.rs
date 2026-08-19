@@ -18,6 +18,7 @@ use axum::{
 
 use crate::{
     auth::AuthUser,
+    domain::practice_params::TACTIC_CARD_MAX,
     dto::practice_review::{AddQuestionRequest, DeckChangeResponse},
     error::AppError,
     repositories::pipeline_repository::{
@@ -156,10 +157,10 @@ fn side_and_kind(kind: &str) -> Result<(&'static str, &'static str), AppError> {
 /// question, which is the opposite of what the tag means.
 fn fence_tactic(kind: &str, tactic: Option<i16>) -> Result<Option<i16>, AppError> {
     match (kind, tactic) {
-        ("cross", Some(t)) if (1..=7).contains(&t) => Ok(Some(t)),
+        ("cross", Some(t)) if (1..=TACTIC_CARD_MAX).contains(&t) => Ok(Some(t)),
         ("cross", None) => Ok(None),
         ("cross", Some(t)) => Err(AppError::BadRequest {
-            message: "tactic must be a card number from 1 to 7".to_string(),
+            message: format!("tactic must be a card number from 1 to {TACTIC_CARD_MAX}"),
             details: serde_json::json!({ "field": "tactic", "value": t }),
         }),
         (_, Some(_)) => Err(AppError::BadRequest {

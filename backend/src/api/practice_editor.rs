@@ -29,6 +29,7 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
+    domain::practice_params::TACTIC_CARD_MAX,
     dto::practice_review::{
         DeckChangeResponse, EditQuestionRequest, HideQuestionRequest, MoveQuestionRequest,
     },
@@ -142,7 +143,7 @@ async fn write_field(
         let tactic = match value {
             None => None,
             Some(raw) => Some(raw.parse::<i16>().map_err(|_| AppError::BadRequest {
-                message: "tactic must be a card number from 1 to 7".to_string(),
+                message: format!("tactic must be a card number from 1 to {TACTIC_CARD_MAX}"),
                 details: serde_json::json!({ "field": "value", "value": raw }),
             })?),
         };

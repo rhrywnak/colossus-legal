@@ -11,7 +11,9 @@
 // helpers, so what is pinned is what the browser actually receives.
 
 use super::*;
-use crate::repositories::pipeline_repository::practice::PracticePointReceipt;
+use crate::repositories::pipeline_repository::practice::{
+    PracticePointReceipt, PracticePointRecord,
+};
 use uuid::Uuid;
 
 // The three fixtures the sibling already owns. `pub(super)` there reaches into
@@ -194,4 +196,74 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
         "a question nobody has answered renders NOTHING, not an empty line"
     );
     assert!(payload.questions[1].status_mark.is_none());
+}
+
+/// The review page's mapper drops the status and the badge, and keeps the rest.
+///
+/// `question_dto_for` exists precisely so ONE question on a page with no list
+/// does not inherit two facts that are about a LIST: `answered today · repeat`
+/// is the row's report on the start card, and `changed` asks her to re-read the
+/// deck. Both would be noise beside the question they describe.
+///
+/// Everything else must survive: the review page renders the same pills, the
+/// same tactic tag and the same redirect badge the drill does, and a second
+/// mapper is exactly how those would drift apart.
+#[test]
+fn the_review_pages_mapper_drops_the_status_and_the_badge_and_keeps_the_rest() {
+    let mut record = record(Some(4), Some("Barrage rows 1 · 2"));
+    record.kind = "redirect".to_string();
+    record.draft_by = Some("architect".to_string());
+
+    let dto = question_dto_for(&settings(), record);
+
+    assert!(
+        dto.status.is_none(),
+        "a list's report has no meaning on one question"
+    );
+    assert!(dto.status_mark.is_none());
+    assert!(
+        !dto.changed,
+        "the re-read badge is about the list, not the question"
+    );
+
+    assert_eq!(dto.tactic.as_deref(), Some("false premise · braid"));
+    assert!(dto.braid);
+    assert_eq!(dto.kind, "redirect");
+    assert_eq!(dto.draft_by.as_deref(), Some("architect"));
+    assert!(!dto.hidden);
+}
+
+/// One point, with its receipt, for a caller outside the payload.
+///
+/// The precedence itself is proved through `deck_payload` above; this pins the
+/// FUNCTION `practice_notes` imports, so the review page and the start card
+/// cannot end up showing a point two different ways.
+#[test]
+fn the_point_mapper_carries_the_receipt_and_names_its_absence() {
+    let backed = point_dto(
+        PracticePointRecord {
+            position: 1,
+            text: "I asked in writing.".to_string(),
+            exhibit: None,
+        },
+        &[seeded(1, "your certified letter, 16 Nov 2009")],
+    );
+    assert_eq!(backed.position, 1);
+    assert_eq!(backed.text, "I asked in writing.");
+    assert_eq!(
+        backed.exhibit.as_deref(),
+        Some("your certified letter, 16 Nov 2009")
+    );
+
+    // A point nobody paired and nobody seeded carries NONE — and the screen
+    // then prints the stored named-absence line rather than a blank.
+    let bare = point_dto(
+        PracticePointRecord {
+            position: 2,
+            text: "They got my letter.".to_string(),
+            exhibit: None,
+        },
+        &[],
+    );
+    assert!(bare.exhibit.is_none());
 }

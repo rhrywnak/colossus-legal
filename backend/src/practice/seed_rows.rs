@@ -20,7 +20,7 @@ use super::deck_file::DeckQuestion;
 
 /// Who the `created_by` / `updated_by` columns name for rows this tool writes.
 ///
-// CONST (structural): the name of the PROGRAM, not a deployment value. It answers
+// CONST: structural — the name of the PROGRAM, not a deployment value. It answers
 // "what wrote this row" in an audit, and it changes only when this binary is
 // renamed — which is a code change by definition.
 pub(super) const WRITER: &str = "seed_practice_deck";

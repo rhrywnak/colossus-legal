@@ -27,6 +27,16 @@ use uuid::Uuid;
 
 use super::PipelineRepoError;
 
+/// Where [`swap_sort_order`] parks one row while the two exchange numbers.
+//
+// CONST: structural — a SENTINEL, not a threshold. `sort_order` is
+// `UNIQUE (scenario_id, sort_order)` and the deck numbers from 1, so a negative
+// value is one nothing can collide with by construction. Nobody ever sees it:
+// the park and the two writes are in one transaction. It is named so that a
+// reader searching for "why is there a negative sort_order" finds the reason
+// rather than a bare -1 in a loop.
+const SORT_ORDER_PARK: i32 = -1;
+
 /// One recorded edit, as Marie's "what changed" list and Chuck's sheet read it.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct DeckChangeRecord {
@@ -142,7 +152,7 @@ pub async fn swap_sort_order(
         .fetch_one(&mut **tx)
         .await?;
 
-    for (id, order) in [(first, -1), (second, a.0), (first, b.0)] {
+    for (id, order) in [(first, SORT_ORDER_PARK), (second, a.0), (first, b.0)] {
         sqlx::query(
             "UPDATE practice_questions SET sort_order = $2, updated_at = NOW() WHERE id = $1",
         )

@@ -79,6 +79,20 @@ pub struct PracticeReadParams {
 // `settings_store::REQUIRED_KEYS` — which is the ONE boot check, so a parameter
 // missing from it is a parameter nothing verifies. Renaming one is a migration,
 // and until it runs the boot loader refuses to start.
+/// The highest TACTIC_DECK_v1 card number.
+//
+// CONST: structural — the size of a fixed VOCABULARY, not a tunable. The seven
+// cards are a taxonomy of cross-examination moves, the column's own CHECK is
+// `BETWEEN 1 AND 7`, and the settings row `practice_tactic_names` carries
+// exactly seven names. An eighth card is a migration plus a code change plus
+// seven new sentences — never a value somebody raises on the Settings page,
+// which would immediately let a question wear a tag the vocabulary cannot name.
+//
+// Held HERE, beside the vocabulary it counts, so the three places that fence a
+// card number (the deck file's validator, the editor's edit path and its add
+// path) cannot drift apart the way they had when this was three literals.
+pub const TACTIC_CARD_MAX: i16 = 7;
+
 pub const KEY_PRACTICE_READ_PROMPT_FILE: &str = "practice_read_prompt_file";
 pub const KEY_PRACTICE_READ_MODEL: &str = "practice_read_model";
 pub const KEY_PRACTICE_READ_MAX_TOKENS: &str = "practice_read_max_tokens";

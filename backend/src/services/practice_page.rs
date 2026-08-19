@@ -33,7 +33,7 @@ use crate::services::practice_status::{open_session_detail, row_status};
 
 /// The date format the drill's two composed lines use: `Sun 16 Aug`.
 ///
-// CONST (structural): not a per-deployment value, and deliberately not a settings
+// CONST: structural — not a per-deployment value, and deliberately not a settings
 // row. Two reasons, and the second is the one that decides it.
 //
 // It is the shape of a date on ONE witness surface — the "last session" line and

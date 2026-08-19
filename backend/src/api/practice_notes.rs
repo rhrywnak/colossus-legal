@@ -183,9 +183,15 @@ pub async fn post_strike_note(
     let touched = strike_note(&state.pipeline_pool, note_id, &author)
         .await
         .map_err(|e| repo_error("strike_note", e))?;
+    // `strike_note` returns TRUE for a note that was already struck — striking
+    // twice keeps the first striking, because the moment somebody withdrew a
+    // note is not something a second press should move. So `false` means one
+    // thing only: no note carries that id.
     if !touched {
         return Err(AppError::NotFound {
-            message: format!("practice note {note_id} not found"),
+            message: format!(
+                "practice note {note_id} does not exist — reload the panel to see the                  notes as they stand"
+            ),
         });
     }
     // Read for the log only: an operator seeing a strike wants to know which

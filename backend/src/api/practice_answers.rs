@@ -260,7 +260,7 @@ pub async fn post_skip_question(
             // honest reason here is that none was asked for. Leaving it NULL
             // would make a skip indistinguishable from a call that vanished.
             //
-            // CONST (structural): a DIAGNOSTIC marker in a log column, not a
+            // CONST: structural — a DIAGNOSTIC marker in a log column, not a
             // sentence anybody reads on a screen — which is exactly what
             // distinguishes it from `skipped_answer_text` two lines above, a
             // stored row because Marie's answer cell prints it. Every other
