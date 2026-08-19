@@ -296,3 +296,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
 #[cfg(test)]
 #[path = "practice_page_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "practice_picker_tests.rs"]
+mod picker_tests;

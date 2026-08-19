@@ -10,7 +10,7 @@ use crate::repositories::pipeline_repository::practice::{
 };
 use chrono::TimeZone;
 
-fn settings() -> Settings {
+pub(super) fn settings() -> Settings {
     Settings::for_test()
 }
 
@@ -22,7 +22,7 @@ fn point(position: i32, exhibit: Option<&str>) -> PracticePointRecord {
     }
 }
 
-fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
+pub(super) fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
     PracticeQuestionRecord {
         id: Uuid::nil(),
         side: "george".to_string(),
@@ -47,7 +47,7 @@ fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuestionRecord {
 }
 
 /// A fixed instant, so a payload's "today" means the same thing on every run.
-fn now() -> chrono::DateTime<chrono::Utc> {
+pub(super) fn now() -> chrono::DateTime<chrono::Utc> {
     use chrono::TimeZone;
     chrono::Utc
         .with_ymd_and_hms(2026, 8, 19, 10, 0, 0)
@@ -323,166 +323,5 @@ fn a_point_with_neither_still_names_its_absence() {
     assert_eq!(
         s.practice_report_wording.point_no_receipt, "No receipt recorded for this point.",
         "and the screen has the sentence to print in its place"
-    );
-}
-
-/// A deck row with a `source_line`, for the picker tests.
-fn sourced(source_line: Option<&str>) -> PracticeQuestionRecord {
-    let mut row = record(Some(4), None);
-    row.source_line = source_line.map(str::to_string);
-    row
-}
-
-/// One seeded point receipt.
-fn seeded(position: i32, text: &str) -> PracticePointReceipt {
-    PracticePointReceipt {
-        position,
-        text: text.to_string(),
-    }
-}
-
-/// Build a payload with nothing but the two things the picker reads.
-fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) -> Vec<String> {
-    deck_payload(
-        &settings(),
-        DeckSources {
-            scenario_id: Uuid::nil(),
-            code: "S-5".to_string(),
-            title: "an accusation".to_string(),
-            deck,
-            points: vec![],
-            receipts,
-            last: None,
-            statuses: &[],
-            open: None,
-            now: now(),
-        },
-    )
-    .receipts
-}
-
-/// Her POINTS' receipts come first, then the exhibits her questions stand on.
-///
-/// The order is the argument: the three receipts under her own points are what
-/// her case rests on, and a picker that buried them below five hearing pages
-/// would have her scrolling past her own letter to find it.
-#[test]
-fn the_picker_lists_her_points_receipts_before_the_questions_exhibits() {
-    let list = picker(
-        vec![
-            sourced(Some("Hearing, 15 Dec 2009, p. 34")),
-            sourced(Some("Court of Appeals, 12 Jan 2012, p. 11")),
-        ],
-        &[
-            seeded(1, "your certified letter, 16 Nov 2009"),
-            seeded(2, "CFS Interrogatory Response, p. 10"),
-        ],
-    );
-
-    assert_eq!(
-        list,
-        vec![
-            "your certified letter, 16 Nov 2009".to_string(),
-            "CFS Interrogatory Response, p. 10".to_string(),
-            "Hearing, 15 Dec 2009, p. 34".to_string(),
-            "Court of Appeals, 12 Jan 2012, p. 11".to_string(),
-        ]
-    );
-}
-
-/// The same exhibit behind two questions is offered ONCE.
-///
-/// The S-5 case exactly: the hearing backs more than one question. A list
-/// offering the same page twice is a list she stops reading.
-#[test]
-fn the_picker_offers_a_shared_exhibit_only_once() {
-    let list = picker(
-        vec![
-            sourced(Some("Hearing, 15 Dec 2009, p. 34")),
-            sourced(Some("Hearing, 15 Dec 2009, p. 34")),
-            sourced(Some("Phillips Response to Discovery, p. 5")),
-        ],
-        &[],
-    );
-
-    assert_eq!(
-        list,
-        vec![
-            "Hearing, 15 Dec 2009, p. 34".to_string(),
-            "Phillips Response to Discovery, p. 5".to_string(),
-        ]
-    );
-}
-
-/// A question that stands on no document of its own contributes nothing.
-///
-/// Every Chuck question is in this state: it stands on her POINTS, which the
-/// picker already lists from the seeded receipts. An entry for it would list the
-/// same exhibit twice under two names.
-#[test]
-fn a_question_with_no_source_line_adds_nothing_to_the_picker() {
-    let list = picker(
-        vec![
-            sourced(None),
-            sourced(Some("Court of Appeals, p. 11")),
-            sourced(None),
-        ],
-        &[],
-    );
-
-    assert_eq!(list, vec!["Court of Appeals, p. 11".to_string()]);
-}
-
-/// A scenario with neither receipts nor source lines offers an EMPTY list.
-///
-/// Not a failure, and not a placeholder: the control withdraws itself entirely
-/// rather than opening onto an empty box, which would read as a list that failed
-/// to load.
-#[test]
-fn a_scenario_with_nothing_to_point_at_yields_an_empty_picker() {
-    assert!(picker(vec![sourced(None)], &[]).is_empty());
-}
-
-/// The status on a row is COMPOSED, and absent on a question nobody answered.
-#[test]
-fn a_row_carries_its_composed_status_or_none_at_all() {
-    use crate::repositories::pipeline_repository::practice_flow::RowStatusRecord;
-
-    let answered = record(Some(4), None);
-    let untouched = {
-        let mut row = record(Some(4), None);
-        row.id = Uuid::from_u128(9);
-        row
-    };
-    let statuses = vec![RowStatusRecord {
-        question_id: answered.id,
-        mark: "repeat".to_string(),
-        answered_at: now(),
-        attempts: 2,
-    }];
-
-    let payload = deck_payload(
-        &settings(),
-        DeckSources {
-            scenario_id: Uuid::nil(),
-            code: "S-5".to_string(),
-            title: "an accusation".to_string(),
-            deck: vec![answered, untouched],
-            points: vec![],
-            receipts: &[],
-            last: None,
-            statuses: &statuses,
-            open: None,
-            now: now(),
-        },
-    );
-
-    assert_eq!(
-        payload.questions[0].status.as_deref(),
-        Some("answered today · repeat · attempt 2")
-    );
-    assert!(
-        payload.questions[1].status.is_none(),
-        "a question nobody has answered renders NOTHING, not an empty line"
     );
 }
