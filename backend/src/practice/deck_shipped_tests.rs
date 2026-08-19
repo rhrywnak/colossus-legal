@@ -167,3 +167,80 @@ fn the_shipped_s5_deck_parses_and_holds_the_v1_decks_fifteen_questions() {
     assert_eq!(deck.points[1].text, "CFS Interrogatory Response, p. 10");
     assert_eq!(deck.points[2].text, "CFS Interrogatory Response, p. 14");
 }
+
+/// THE SHIPPED S-6 DECK PARSES, AND IS THE FIFTEEN QUESTIONS THE ARCHITECT WROTE.
+///
+/// S-6 arrived on 2026-08-19 written in the architect's own shorthand and was
+/// transcribed into the loader's schema by hand. A transcription is exactly the
+/// operation this test exists to catch: every string is correct in the source
+/// file and one field name is wrong in the copy, which serde reports as a
+/// missing field at SEED time — against the live database, on the morning Chuck
+/// reads the deck.
+#[test]
+fn the_shipped_s6_deck_parses_and_holds_the_architects_fifteen_questions() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let raw = std::fs::read_to_string(root.join("practice_decks/S-6.yaml"))
+        .expect("the S-6 deck is on disk");
+    let deck: DeckFile = serde_yaml::from_str(&raw).expect("the S-6 deck parses");
+
+    deck.validate().expect("the S-6 deck is valid");
+    assert_eq!(deck.scenario_code, "S-6");
+    assert_eq!(deck.questions.len(), 15);
+    assert_eq!(deck.points.len(), 3, "one receipt per talking point");
+
+    let of = |kind: DeckKind| {
+        deck.questions
+            .iter()
+            .filter(|q| q.resolved_kind() == kind)
+            .count()
+    };
+    assert_eq!(of(DeckKind::Cross), 5, "five George traps");
+    assert_eq!(of(DeckKind::Redirect), 5, "one redirect per trap");
+    assert_eq!(of(DeckKind::Direct), 5, "Chuck's direct");
+
+    // The five instance bindings the architect's header names, and no index the
+    // scenario cannot have: S-6 carries four ruled instances, so an index of 5
+    // would be a refusal at seed time against DEV rather than here.
+    for q in deck
+        .questions
+        .iter()
+        .filter(|q| q.resolved_kind() == DeckKind::Cross)
+    {
+        assert_eq!(q.source_kind, DeckSourceKind::Instance);
+        let index = q
+            .source_index
+            .expect("a cross question binds to an instance");
+        assert!(
+            (1..=4).contains(&index),
+            "S-6 has four ruled instances; {} names instance {index}",
+            q.key.as_deref().unwrap_or("?")
+        );
+        assert!(q.pair_said.is_some() && q.pair_admitted.is_some());
+        assert!(
+            q.source_line.is_some(),
+            "the picker needs a handle per exhibit"
+        );
+    }
+
+    // Every redirect names a trap that is in this file, and carries no stored
+    // example — the drawer shows the redirect line instead.
+    for q in deck
+        .questions
+        .iter()
+        .filter(|q| q.resolved_kind() == DeckKind::Redirect)
+    {
+        assert!(q.stronger.is_none());
+        assert_eq!(q.draft_by.as_deref(), Some("architect"));
+    }
+
+    // The braid is g5, it is the LAST George question (R10: general → specific,
+    // the braid last), and it is the only one naming barrage rows.
+    let braids: Vec<_> = deck
+        .questions
+        .iter()
+        .filter(|q| q.braid_rows.is_some())
+        .collect();
+    assert_eq!(braids.len(), 1);
+    assert_eq!(braids[0].key.as_deref(), Some("g5"));
+    assert_eq!(braids[0].tactic, Some(5), "a braid is card 5, compound");
+}
