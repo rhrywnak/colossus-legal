@@ -40,6 +40,7 @@ import {
   endPracticeSession,
   fetchPracticeDeck,
   markHelpOpened,
+  PracticeAnswerError,
   submitPracticeAnswer,
   wordingOf,
   type AnswerResult,
@@ -74,12 +75,30 @@ const NO_SELF_CHECK: SelfCheck = {
  * cannot be rendered, and rendering a placeholder for it would be the screen
  * inventing a question. It is left out, and the resulting queue is shorter,
  * which the progress line then says truthfully.
+ *
+ * ## Why a HIDDEN question is dropped too (hotfix §3.6)
+ *
+ * Chuck can hide a question while this sitting still has it queued and not yet
+ * dealt. In .402 the sitting asked it anyway — a question the deck no longer
+ * holds, put to a witness. `sitting.hidden` is the server's list of exactly
+ * those, and they are walked past.
+ *
+ * Nothing is written here. Ending the sitting is what records each one as a
+ * sheet row reading `hidden before asked`, on the server, in one statement
+ * (`practice_hidden_queue::record_hidden_marks`) — so a reload cannot write it
+ * twice and a browser that never reaches the end cannot leave it unwritten.
+ *
+ * A question hidden AFTER she answered it is untouched: her answer row is
+ * already there, so `record_hidden_marks`' `NOT EXISTS` clause passes over it
+ * and the sheet prints what she actually said.
  */
 export function resumeAt(
   deck: PracticeQuestion[],
   sitting: Sitting,
 ): { queue: PracticeQuestion[]; index: number } {
+  const hidden = new Set(sitting.hidden);
   const queue = sitting.queue
+    .filter((id) => !hidden.has(id))
     .map((id) => deck.find((q) => q.id === id))
     .filter((q): q is PracticeQuestion => q !== undefined);
 
@@ -113,6 +132,7 @@ const PracticeSessionPage: React.FC = () => {
   const [answer, setAnswer] = React.useState("");
   const [pointsTo, setPointsTo] = React.useState<string[]>([]);
   const [submitting, setSubmitting] = React.useState(false);
+  const inFlight = React.useRef(false);
   const [answerError, setAnswerError] = React.useState<string | null>(null);
   const [result, setResult] = React.useState<AnswerResult | null>(null);
   const [selfCheck, setSelfCheck] = React.useState<SelfCheck>(NO_SELF_CHECK);
@@ -164,6 +184,17 @@ const PracticeSessionPage: React.FC = () => {
 
   const submit = (text: string, dontRecall: boolean) => {
     if (current === null) return;
+    // ## Why a ref and not the `submitting` state
+    //
+    // `setSubmitting(true)` does not disable the button until React re-renders.
+    // Two clicks inside one frame — a double-click, or a slow network and an
+    // impatient hand — both see `submitting === false` and both POST, and the
+    // sitting gets two answer rows for one question. A ref is written
+    // SYNCHRONOUSLY, so the second click reads the first click's write. The
+    // state still drives the disabled attribute; this only closes the gap
+    // before the paint.
+    if (inFlight.current) return;
+    inFlight.current = true;
     setSubmitting(true);
     setAnswerError(null);
     // "(nothing typed)" is not composed here — an empty box records as the empty
@@ -187,9 +218,19 @@ const PracticeSessionPage: React.FC = () => {
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
         console.error("practice: the answer was not recorded", error);
-        setAnswerError(w("answer_failed"));
+        // 409 is not a failure to write — it is the SERVER refusing a second
+        // answer to a question this sitting has already answered, which happens
+        // when the same sitting is open in two tabs. Naming that is the
+        // difference between "try again" (which will fail again forever) and
+        // "reload, this tab is behind".
+        const duplicate =
+          error instanceof PracticeAnswerError && error.status === 409;
+        setAnswerError(w(duplicate ? "answer_already_recorded" : "answer_failed"));
       })
-      .finally(() => setSubmitting(false));
+      .finally(() => {
+        inFlight.current = false;
+        setSubmitting(false);
+      });
   };
 
   /**

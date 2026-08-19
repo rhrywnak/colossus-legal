@@ -32,11 +32,12 @@ pub struct PracticeReviewWording {
     pub notes_placeholder: String,
     pub notes_attempt_placeholder: String,
     pub notes_save_label: String,
+    /// Why Save is disabled on an empty note box (hotfix §1's hard rule).
+    pub notes_empty_hint: String,
     pub notes_strike_label: String,
     pub notes_struck_template: String,
     pub notes_empty: String,
     pub notes_failed: String,
-    pub notes_author_unset: String,
     pub row_review_link: String,
     pub review_progress_template: String,
     pub review_attempts_kicker: String,
@@ -46,6 +47,9 @@ pub struct PracticeReviewWording {
     pub review_no_attempts: String,
     pub review_practice_again: String,
     pub review_stronger_heading: String,
+    /// Under one attempt whose question has been re-worded since. The header
+    /// shows the CURRENT question; this says what she was actually asked.
+    pub review_asked_as_template: String,
 }
 
 pub(crate) const KEY_NOTES_HEADING_TEMPLATE: &str = "practice_notes_heading_template";
@@ -55,11 +59,11 @@ pub(crate) const KEY_NOTES_HINT: &str = "practice_notes_hint";
 pub(crate) const KEY_NOTES_PLACEHOLDER: &str = "practice_notes_placeholder";
 pub(crate) const KEY_NOTES_ATTEMPT_PLACEHOLDER: &str = "practice_notes_attempt_placeholder";
 pub(crate) const KEY_NOTES_SAVE_LABEL: &str = "practice_notes_save_label";
+pub(crate) const KEY_NOTES_EMPTY_HINT: &str = "practice_notes_empty_hint";
 pub(crate) const KEY_NOTES_STRIKE_LABEL: &str = "practice_notes_strike_label";
 pub(crate) const KEY_NOTES_STRUCK_TEMPLATE: &str = "practice_notes_struck_template";
 pub(crate) const KEY_NOTES_EMPTY: &str = "practice_notes_empty";
 pub(crate) const KEY_NOTES_FAILED: &str = "practice_notes_failed";
-pub(crate) const KEY_NOTES_AUTHOR_UNSET: &str = "practice_notes_author_unset";
 pub(crate) const KEY_ROW_REVIEW_LINK: &str = "practice_row_review_link";
 pub(crate) const KEY_REVIEW_PROGRESS_TEMPLATE: &str = "practice_review_progress_template";
 pub(crate) const KEY_REVIEW_ATTEMPTS_KICKER: &str = "practice_review_attempts_kicker";
@@ -72,7 +76,10 @@ pub(crate) const KEY_REVIEW_STRONGER_HEADING: &str = "practice_review_stronger_h
 
 /// Every key in this block, so a missing one is caught at boot BY NAME rather
 /// than as a blank control in front of the person editing.
+pub(crate) const KEY_REVIEW_ASKED_AS_TEMPLATE: &str = "practice_review_asked_as_template";
+
 pub const PRACTICE_REVIEW_WORDING_KEYS: &[&str] = &[
+    KEY_REVIEW_ASKED_AS_TEMPLATE,
     KEY_NOTES_HEADING_TEMPLATE,
     KEY_NOTES_SCENARIO_TITLE,
     KEY_NOTES_QUESTION_TITLE,
@@ -80,11 +87,11 @@ pub const PRACTICE_REVIEW_WORDING_KEYS: &[&str] = &[
     KEY_NOTES_PLACEHOLDER,
     KEY_NOTES_ATTEMPT_PLACEHOLDER,
     KEY_NOTES_SAVE_LABEL,
+    KEY_NOTES_EMPTY_HINT,
     KEY_NOTES_STRIKE_LABEL,
     KEY_NOTES_STRUCK_TEMPLATE,
     KEY_NOTES_EMPTY,
     KEY_NOTES_FAILED,
-    KEY_NOTES_AUTHOR_UNSET,
     KEY_ROW_REVIEW_LINK,
     KEY_REVIEW_PROGRESS_TEMPLATE,
     KEY_REVIEW_ATTEMPTS_KICKER,
@@ -105,6 +112,7 @@ pub fn build_practice_review_wording<E>(
     read: impl Fn(&str) -> Result<String, E>,
 ) -> Result<PracticeReviewWording, E> {
     Ok(PracticeReviewWording {
+        review_asked_as_template: read(KEY_REVIEW_ASKED_AS_TEMPLATE)?,
         notes_heading_template: read(KEY_NOTES_HEADING_TEMPLATE)?,
         notes_scenario_title: read(KEY_NOTES_SCENARIO_TITLE)?,
         notes_question_title: read(KEY_NOTES_QUESTION_TITLE)?,
@@ -112,11 +120,11 @@ pub fn build_practice_review_wording<E>(
         notes_placeholder: read(KEY_NOTES_PLACEHOLDER)?,
         notes_attempt_placeholder: read(KEY_NOTES_ATTEMPT_PLACEHOLDER)?,
         notes_save_label: read(KEY_NOTES_SAVE_LABEL)?,
+        notes_empty_hint: read(KEY_NOTES_EMPTY_HINT)?,
         notes_strike_label: read(KEY_NOTES_STRIKE_LABEL)?,
         notes_struck_template: read(KEY_NOTES_STRUCK_TEMPLATE)?,
         notes_empty: read(KEY_NOTES_EMPTY)?,
         notes_failed: read(KEY_NOTES_FAILED)?,
-        notes_author_unset: read(KEY_NOTES_AUTHOR_UNSET)?,
         row_review_link: read(KEY_ROW_REVIEW_LINK)?,
         review_progress_template: read(KEY_REVIEW_PROGRESS_TEMPLATE)?,
         review_attempts_kicker: read(KEY_REVIEW_ATTEMPTS_KICKER)?,

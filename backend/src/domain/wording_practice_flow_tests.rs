@@ -21,6 +21,15 @@ use std::collections::HashMap;
 const SEED_MIGRATION: &str =
     "pipeline_migrations/20260818093139_practice_flow_v1_deck_controls_and_session_queue.sql";
 
+/// The hotfix that seeds the rows added on 2026-08-19 evening.
+///
+/// A block's rows can arrive in more than one migration — this one carries the
+/// hints the attribution/edit-mode hotfix added. Reading only the ORIGINAL seed
+/// would make every new key look un-seeded and fail this test for a row that is
+/// on disk two files along.
+const HOTFIX_MIGRATION: &str =
+    "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -55,7 +64,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SHEET_ENDED_EARLY_CLAUSE, "Ended early."),
     (KEY_FLAG_SUMMARY_HEADING, "Flagged before the session"),
     (KEY_FLAG_SUMMARY_HINT, "— questions Marie said don't fit; Roman/Chuck decide what to do with them:"),
-    (KEY_FLAG_SUMMARY_ITEM_TEMPLATE, "{id} — “{question}” → {note}"),];
+    (KEY_FLAG_SUMMARY_ITEM_TEMPLATE, "{id} — “{question}” → {note}"),    (KEY_MARK_HIDDEN_BEFORE_ASKED, "hidden before asked"),
+];
 
 impl PracticeFlowWording {
     /// The fixture, built through the PRODUCTION builder — so a fixture the real
@@ -98,13 +108,18 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the practice flow migration is on disk");
 
+    let hotfix = std::fs::read_to_string(root.join(HOTFIX_MIGRATION))
+        .expect("the attribution hotfix migration is on disk");
+
     for key in PRACTICE_FLOW_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!(
-                "{key} is declared to the boot loader but seeded by no migration \
+        let seeded = seeded_value_in(&sql, key)
+            .or_else(|| seeded_value_in(&hotfix, key))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but seeded by no migration \
                  — the backend would refuse to start"
-            )
-        });
+                )
+            });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)

@@ -7,6 +7,18 @@
 // Skip today · Flag) and the editor's (▲▼ · Edit · Hide) — plus the status line,
 // the badges, and the inline field stack when a row is being edited.
 //
+// ## The two things that stop being links in edit mode (hotfix §2)
+//
+// The question TEXT and the status line's `review` link both leave the page: one
+// opens a one-question sitting, the other navigates to the review page. In .402
+// they stayed live inside the editor, so Roman's first click on a question he
+// meant to EDIT threw away the edit and started a drill.
+//
+// Both become plain text while `editor.editing` is on — not a disabled button
+// but no button at all. A disabled control here would be a fourth greyed thing
+// on a row that already has three, saying "you may not read this question",
+// which is not true; she may, just not from inside the editor.
+//
 // ## Every string comes from the payload
 //
 // Not one literal sentence. `w()` reads the store and THROWS by name on a
@@ -155,15 +167,21 @@ const PracticeDeckRow: React.FC<Props> = ({
             `<button>` and not an `<a>`: it runs a handler that opens a session,
             it does not navigate to a URL — and an anchor with no href is not
             reachable by keyboard, which on a witness surface is not a detail. */}
-        <button
-          type="button"
-          style={{ ...e.questionLink, ...d.questionText, ...muted }}
-          data-practice-question
-          onClick={onPracticeOne}
-          disabled={startingOne}
-        >
-          {question.text}
-        </button>
+        {editor.editing ? (
+          <div style={{ ...d.questionText, ...muted }} data-practice-question>
+            {question.text}
+          </div>
+        ) : (
+          <button
+            type="button"
+            style={{ ...e.questionLink, ...d.questionText, ...muted }}
+            data-practice-question
+            onClick={onPracticeOne}
+            disabled={startingOne}
+          >
+            {question.text}
+          </button>
+        )}
         {question.receipt !== null && (
           <div style={{ ...d.questionSource, ...muted }}>{question.receipt}</div>
         )}
@@ -180,10 +198,21 @@ const PracticeDeckRow: React.FC<Props> = ({
               ...(e.statusColour[question.status_mark ?? ""] ?? {}),
             }}
           >
-            {question.status}{" "}
-            <button type="button" style={e.reviewLink} data-practice-link onClick={onReview}>
-              {w("row_review_link")}
-            </button>
+            {question.status}
+            {/* The status stays; only the way OUT of the page goes. */}
+            {!editor.editing && (
+              <>
+                {" "}
+                <button
+                  type="button"
+                  style={e.reviewLink}
+                  data-practice-link
+                  onClick={onReview}
+                >
+                  {w("row_review_link")}
+                </button>
+              </>
+            )}
           </div>
         )}
 

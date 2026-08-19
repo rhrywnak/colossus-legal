@@ -63,7 +63,11 @@ pub struct NewChange<'a> {
     pub field: Option<&'a str>,
     pub before_value: Option<&'a str>,
     pub after_value: Option<&'a str>,
+    /// The display name a screen prints beside the change.
     pub changed_by: &'a str,
+    /// The signed-in username behind that name — the identity that survives a
+    /// rename. Both, for the reason the migration's header gives.
+    pub changed_by_id: &'a str,
 }
 
 /// Record one edit. Always called inside the same transaction as the edit.
@@ -73,8 +77,9 @@ pub async fn log_change(
 ) -> Result<(), PipelineRepoError> {
     sqlx::query(
         "INSERT INTO practice_deck_changes \
-         (scenario_id, question_id, change_kind, field, before_value, after_value, changed_by) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7)",
+         (scenario_id, question_id, change_kind, field, before_value, after_value, changed_by, \
+          changed_by_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
     )
     .bind(change.scenario_id)
     .bind(change.question_id)
@@ -83,6 +88,7 @@ pub async fn log_change(
     .bind(change.before_value)
     .bind(change.after_value)
     .bind(change.changed_by)
+    .bind(change.changed_by_id)
     .execute(&mut **tx)
     .await?;
     Ok(())

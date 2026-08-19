@@ -44,7 +44,7 @@ function question(id: string): PracticeQuestion {
 
 const DECK = ["g1", "g2", "g3"].map(question);
 
-function sitting(queue: string[], answered: string[]): Sitting {
+function sitting(queue: string[], answered: string[], hidden: string[] = []): Sitting {
   return {
     session_id: "s1",
     scenario_id: "sc1",
@@ -52,6 +52,7 @@ function sitting(queue: string[], answered: string[]): Sitting {
     queue,
     answered,
     ended: false,
+    hidden,
   };
 }
 
@@ -115,5 +116,27 @@ describe("resumeAt", () => {
     const { queue, index } = resumeAt(DECK, sitting([], []));
     expect(queue).toEqual([]);
     expect(index).toBe(0);
+  });
+
+  // ── hotfix §3.6 ───────────────────────────────────────────────────────────
+  it("walks past a question hidden while this sitting had it queued", () => {
+    // Chuck hid g2 after the sitting was dealt. .402 asked it anyway.
+    const { queue, index } = resumeAt(DECK, sitting(["g1", "g2", "g3"], ["g1"], ["g2"]));
+    expect(queue.map((q) => q.id)).toEqual(["g1", "g3"]);
+    // g1 is answered, so she lands on g3 — g2 is not a stop she pauses at.
+    expect(index).toBe(1);
+  });
+
+  it("leaves an ALREADY-ANSWERED hidden question's place alone", () => {
+    // She answered g1 and g2; g2 was hidden afterwards. Her answers stand, the
+    // sheet still prints them, and the queue simply no longer offers it back.
+    const { queue, index } = resumeAt(DECK, sitting(["g1", "g2", "g3"], ["g1", "g2"], ["g2"]));
+    expect(queue.map((q) => q.id)).toEqual(["g1", "g3"]);
+    expect(index).toBe(1);
+  });
+
+  it("hides nothing when the list is empty, which is the normal case", () => {
+    const { queue } = resumeAt(DECK, sitting(["g1", "g2", "g3"], []));
+    expect(queue).toHaveLength(3);
   });
 });

@@ -7,14 +7,24 @@
 // this one ▸, Skip today, and Flag.
 //
 // Mockup v4 puts a SWITCH in the header: "Edit the deck" turns the same list
-// into Chuck's editor — arrows, Edit, Hide, and + Add a question — with
-// "Editing as" beside it. The list is the same list; only the controls change.
+// into Chuck's editor — arrows, Edit, Hide, and + Add a question. The list is
+// the same list; only the controls change.
 //
-// ## Who sees what
+// ## Who signs a change (changed 2026-08-19)
 //
-// Marie never presses Edit the deck. There is one login, so nothing enforces
-// that in the browser — "Editing as" is the honest substitute, and the SERVER
-// refuses a change signed by somebody the store does not list as an editor.
+// Nobody is asked. The "Editing as ⟨Chuck⟩" dropdown that used to sit beside the
+// switch is gone: every write already arrives authenticated and the server signs
+// the change from the session. The picker's real cost was not the pixels — the
+// editor hook refused every write while it was unset, silently, so Edit appeared
+// to work and did nothing.
+//
+// ## Edit mode is a MODE
+//
+// While the switch is on, this list's own fold is disabled and the row text
+// stops being a link (see `PracticeDeckRow`), because both leave a half-finished
+// edit behind. Turning the switch OFF with a row's fields still open asks first,
+// naming the row — saved changes are already written and are not at risk; the
+// one still in the fields is.
 //
 // ## Every string here comes from the payload
 //
@@ -31,7 +41,6 @@ import type {
 import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
-import { authorsOf } from "./PracticeNotes";
 import PracticeAddQuestion from "./PracticeAddQuestion";
 import PracticeDeckRow from "./PracticeDeckRow";
 import * as d from "./practiceDeckStyles";
@@ -79,32 +88,6 @@ const Instruction: React.FC<{ wording: PracticeWording }> = ({ wording }) => {
   );
 };
 
-/** "Editing as ⟨Chuck⟩", shown only once the editor is open. */
-const EditingAs: React.FC<{ wording: PracticeWording; editor: PracticeEditor }> = ({
-  wording,
-  editor,
-}) => {
-  const w = (key: string) => wordingOf(wording, key);
-  return (
-    <span>
-      {w("editor_as_label")}{" "}
-      <select
-        style={e.editSelect}
-        value={editor.editingAs}
-        onChange={(event) => editor.setEditingAs(event.target.value)}
-        aria-label={w("editor_as_label")}
-      >
-        <option value="">{w("editor_as_unset")}</option>
-        {authorsOf(wording, "editor_authors").map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
-    </span>
-  );
-};
-
 const PracticeDeckList: React.FC<Props> = ({
   questions,
   wording,
@@ -131,6 +114,45 @@ const PracticeDeckList: React.FC<Props> = ({
   const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
 
+  /**
+   * Turn the editor off, asking first if a row's fields are still open.
+   *
+   * `window.confirm` and not a custom dialog: this is a one-line yes/no about
+   * discarding one row's unsaved fields, it must block the state change, and a
+   * bespoke modal here would be a second confirm implementation for the same
+   * question the browser already answers. The sentence is the STORE'S, with the
+   * row's number in it — "the unsaved edit" without saying which row is a
+   * question a person cannot answer with two rows on screen.
+   */
+  const leaveEditing = () => {
+    if (fieldsFor !== null) {
+      const n = questions.findIndex((q) => q.id === fieldsFor) + 1;
+      const asked = w("editor_discard_confirm_template").replace("{n}", String(n));
+      if (!window.confirm(asked)) return;
+      setFieldsFor(null);
+    }
+    editor.toggleEditing();
+  };
+
+  /**
+   * Warn on RELOAD or tab-close while a row's fields are open.
+   *
+   * Standing Rule 1's shape for a browser event: the only thing a page may do
+   * here is set `returnValue`, and the browser prints its own sentence — ours is
+   * not allowed through. It covers reload and close, which is where an open edit
+   * is actually lost; edit mode itself is deliberately NOT restored on reload
+   * (it is a mode, not a place), so there is nothing to come back to.
+   */
+  React.useEffect(() => {
+    if (!editor.editing || fieldsFor === null) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [editor.editing, fieldsFor]);
+
   const george = questions.filter((q) => q.side === "george").length;
   const skippedHere = questions.filter((q) => skippedToday.has(q.id)).length;
 
@@ -155,22 +177,26 @@ const PracticeDeckList: React.FC<Props> = ({
           {w("deck_heading")} <span style={d.deckCount}>{count}</span>
         </b>
         <span style={e.editBar}>
-          {editor.editing && <EditingAs wording={wording} editor={editor} />}
           <button
             type="button"
             style={e.editSwitch}
             data-practice-link
             aria-pressed={editor.editing}
-            onClick={editor.toggleEditing}
+            onClick={editor.editing ? leaveEditing : editor.toggleEditing}
           >
             {editor.editing ? w("editor_done_label") : w("editor_switch_label")}
           </button>
           <span style={{ color: "var(--practice-separator)" }}>·</span>
+          {/* Locked in edit mode: folding the list away with a row's fields
+              open is losing the edit without being asked. It carries the
+              store's reason rather than refusing in silence. */}
           <button
             type="button"
-            style={d.deckToggle}
+            style={{ ...d.deckToggle, ...(editor.editing ? e.lockedControl : {}) }}
             data-practice-link
             aria-expanded={open}
+            disabled={editor.editing}
+            title={editor.editing ? w("editor_busy_hint") : undefined}
             onClick={() => setOpen((was) => !was)}
           >
             {open ? w("deck_hide_link") : w("deck_show_link")}

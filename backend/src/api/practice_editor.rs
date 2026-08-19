@@ -40,30 +40,11 @@ use crate::{
             log_change, set_field, set_hidden, set_tactic, swap_sort_order, NewChange,
         },
     },
-    services::practice_notes::{editor_list, is_editor},
+    services::practice_notes::attribution,
     state::AppState,
 };
 
 use super::practice::repo_error;
-
-/// Refuse a change nobody has signed.
-///
-/// # Errors
-/// 400 naming the stored list of editors.
-pub(super) fn fence_editor(state: &AppState, editing_as: &str) -> Result<String, AppError> {
-    let settings = state.settings.current();
-    if !is_editor(&settings, editing_as.trim()) {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "\"{}\" is not one of the people who may edit this deck ({})",
-                editing_as.trim(),
-                editor_list(&settings)
-            ),
-            details: serde_json::json!({ "field": "editing_as", "value": editing_as }),
-        });
-    }
-    Ok(editing_as.trim().to_string())
-}
 
 /// Read one question, or 404 naming it.
 async fn require_question(
@@ -166,12 +147,12 @@ async fn write_field(
 /// 400 for an unsigned change, an unknown field, or a blank question text;
 /// 404 when no question carries that id.
 pub async fn post_edit_question(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(question_id): Path<Uuid>,
     Json(body): Json<EditQuestionRequest>,
 ) -> Result<Json<DeckChangeResponse>, AppError> {
-    let by = fence_editor(&state, &body.editing_as)?;
+    let (by_id, by) = attribution(&user);
     let question = require_question(&state, question_id).await?;
 
     // A blank optional field CLEARS it; a blank question text is refused. The
@@ -189,33 +170,60 @@ pub async fn post_edit_question(
         });
     }
 
-    let before = current(&question, &body.field);
+    commit_edit(&state, &question, &body, value, (&by_id, &by)).await?;
+
+    tracing::info!(%question_id, field = %body.field, by = %by, "practice deck: a question was edited");
+    Ok(Json(DeckChangeResponse { question_id }))
+}
+
+/// Write one field and log the change, in ONE transaction.
+///
+/// The sibling of [`commit_move`], and for the same reason: an edit that
+/// changed the question and failed to log it would leave Marie reading new words
+/// with nothing telling her they were new — which is the entire promise of the
+/// `changed` badge. Both writes land or neither does.
+///
+/// `before` is read from the record the caller already fetched rather than
+/// re-queried inside the transaction: it is the value the change row must
+/// record as the OLD one, and re-reading it here would race with a second
+/// editor's write and log a `before` that was never on screen.
+///
+/// # Errors
+/// 500 when any of begin, write, log or commit fails; each names its own step.
+async fn commit_edit(
+    state: &AppState,
+    question: &PracticeQuestionRecord,
+    body: &EditQuestionRequest,
+    value: Option<&str>,
+    attribution: (&str, &str),
+) -> Result<(), AppError> {
+    let (by_id, by) = attribution;
+    let before = current(question, &body.field);
     let mut tx = state
         .pipeline_pool
         .begin()
         .await
         .map_err(|e| repo_error("begin", e))?;
 
-    write_field(&mut tx, question_id, &body.field, value).await?;
+    write_field(&mut tx, question.id, &body.field, value).await?;
 
     log_change(
         &mut tx,
         &NewChange {
             scenario_id: question.scenario_id,
-            question_id,
+            question_id: question.id,
             change_kind: kind_for(&body.field),
             field: Some(&body.field),
             before_value: before.as_deref(),
             after_value: value,
-            changed_by: &by,
+            changed_by: by,
+            changed_by_id: by_id,
         },
     )
     .await
     .map_err(|e| repo_error("log_change", e))?;
 
-    tx.commit().await.map_err(|e| repo_error("commit", e))?;
-    tracing::info!(%question_id, field = %body.field, by = %by, "practice deck: a question was edited");
-    Ok(Json(DeckChangeResponse { question_id }))
+    tx.commit().await.map_err(|e| repo_error("commit", e))
 }
 
 /// The question one arrow would swap with, or `None` at the end of a side.
@@ -256,12 +264,12 @@ fn neighbour_of<'a>(
 /// keeps Mixed's pairs intact, because a redirect follows its trap by key rather
 /// than by position.
 pub async fn post_move_question(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(question_id): Path<Uuid>,
     Json(body): Json<MoveQuestionRequest>,
 ) -> Result<Json<DeckChangeResponse>, AppError> {
-    let by = fence_editor(&state, &body.editing_as)?;
+    let (by_id, by) = attribution(&user);
     let question = require_question(&state, question_id).await?;
     let scenario_id = question.scenario_id;
 
@@ -276,42 +284,77 @@ pub async fn post_move_question(
         return Ok(Json(DeckChangeResponse { question_id }));
     };
 
-    let mut tx = state
-        .pipeline_pool
-        .begin()
-        .await
-        .map_err(|e| repo_error("begin", e))?;
-    swap_sort_order(&mut tx, question_id, neighbour.id)
-        .await
-        .map_err(|e| repo_error("swap_sort_order", e))?;
-    log_change(
-        &mut tx,
-        &NewChange {
-            scenario_id,
-            question_id,
-            change_kind: "moved",
-            field: None,
-            before_value: Some(&question.sort_order.to_string()),
-            after_value: Some(&neighbour.sort_order.to_string()),
-            changed_by: &by,
-        },
-    )
-    .await
-    .map_err(|e| repo_error("log_change", e))?;
-    tx.commit().await.map_err(|e| repo_error("commit", e))?;
+    commit_move(&state, &question, neighbour, (&by_id, &by)).await?;
 
     tracing::info!(%question_id, direction = %body.direction, by = %by, "practice deck: a question moved");
     Ok(Json(DeckChangeResponse { question_id }))
 }
 
+/// Swap two questions' places and log the change, in ONE transaction.
+///
+/// ## Why the swap and the log cannot be two calls
+///
+/// A move that swapped the rows and failed to log would leave the deck in an
+/// order nobody can account for — and "Changed since your last sitting" would
+/// tell Marie nothing had moved while the questions sat in a different order in
+/// front of her. Both writes land or neither does.
+///
+/// ## Rust Learning: `&mut tx` passed to each write
+///
+/// `begin()` hands back a `Transaction`, and sqlx's executor trait is
+/// implemented for `&mut Transaction` — so each write BORROWS the transaction
+/// rather than consuming it, and the same one is still available afterwards to
+/// `commit()`. Passing `tx` by value to the first write would move it, and the
+/// second call would not compile: the borrow checker enforcing, at build time,
+/// that a half-finished transaction cannot be used.
+///
+/// `attribution` arrives as a `(&str, &str)` pair — the id and the display name
+/// — rather than as two positional parameters, so the two cannot be swapped at a
+/// call site without the types complaining.
+///
+/// # Errors
+/// 500 when any of begin, swap, log or commit fails; each names its own step.
+async fn commit_move(
+    state: &AppState,
+    question: &PracticeQuestionRecord,
+    neighbour: &PracticeQuestionRecord,
+    attribution: (&str, &str),
+) -> Result<(), AppError> {
+    let (by_id, by) = attribution;
+    let mut tx = state
+        .pipeline_pool
+        .begin()
+        .await
+        .map_err(|e| repo_error("begin", e))?;
+    swap_sort_order(&mut tx, question.id, neighbour.id)
+        .await
+        .map_err(|e| repo_error("swap_sort_order", e))?;
+    log_change(
+        &mut tx,
+        &NewChange {
+            scenario_id: question.scenario_id,
+            question_id: question.id,
+            change_kind: "moved",
+            field: None,
+            before_value: Some(&question.sort_order.to_string()),
+            after_value: Some(&neighbour.sort_order.to_string()),
+            changed_by: by,
+            changed_by_id: by_id,
+        },
+    )
+    .await
+    .map_err(|e| repo_error("log_change", e))?;
+    tx.commit().await.map_err(|e| repo_error("commit", e))
+}
+
 /// Hide one question, or put it back. Never a delete.
 pub async fn post_hide_question(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(question_id): Path<Uuid>,
     Json(body): Json<HideQuestionRequest>,
 ) -> Result<Json<DeckChangeResponse>, AppError> {
-    let by = fence_editor(&state, &body.editing_as)?;
+    let (by_id, by) = attribution(&user);
     let question = require_question(&state, question_id).await?;
 
     let mut tx = state
@@ -332,6 +375,7 @@ pub async fn post_hide_question(
             before_value: None,
             after_value: None,
             changed_by: &by,
+            changed_by_id: &by_id,
         },
     )
     .await

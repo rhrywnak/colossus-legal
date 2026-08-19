@@ -29,7 +29,6 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use std::collections::HashSet;
 
 use uuid::Uuid;
 
@@ -39,6 +38,7 @@ use super::practice_answers::{
 };
 use super::practice_editor::{post_edit_question, post_hide_question, post_move_question};
 use super::practice_editor_add::post_add_question;
+use super::practice_fences::check_sitting;
 use super::practice_notes::{get_question_review, post_note, post_strike_note};
 use super::practice_sessions::{get_sitting_route, post_end_session, post_resume, post_start_over};
 
@@ -60,6 +60,7 @@ use crate::{
     services::{
         practice_changes::{badged, changed_box},
         practice_editor_options::attach_options,
+        practice_notes::attribution,
         practice_notes::{new_since, scenario_notes},
         practice_page::{deck_payload, DeckSources},
     },
@@ -155,7 +156,7 @@ pub(super) fn repo_error(operation: &'static str, error: impl std::fmt::Display)
 /// yet — seed it" in the store's words. A scenario that does not exist, or one
 /// reached through the wrong case, is a 404. Two states, two observables.
 pub async fn get_practice_deck(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
 ) -> Result<Json<PracticeDeckPayload>, AppError> {
@@ -169,8 +170,17 @@ pub async fn get_practice_deck(
             message: format!("scenario {scenario_id} not found"),
         })?;
 
-    let read = read_deck_sources(&state, scenario_id).await?;
     let settings = state.settings.current();
+    // Every per-user read on this page is keyed to the signed-in user, and every
+    // "today" is compared in the case's own zone. See `row_statuses`.
+    let (user_id, _) = attribution(&user);
+    let read = read_deck_sources(
+        &state,
+        scenario_id,
+        &user_id,
+        &settings.practice_read.case_timezone,
+    )
+    .await?;
     let news = read_what_changed(&state, scenario_id, &read).await?;
     // Composed BEFORE the payload takes ownership of the points. The add form's
     // picker and the reveal's point list are the same three rows read twice, and
@@ -189,7 +199,6 @@ pub async fn get_practice_deck(
             last: read.last.as_ref(),
             statuses: &read.statuses,
             open: read.open.as_ref(),
-            now: chrono::Utc::now(),
             badged: &badged(&news.changes, &read.answered_at),
             notes: scenario_notes(&settings, &read.notes),
             changed: changed_box(
@@ -283,7 +292,12 @@ struct DeckRead {
 ///
 /// # Errors
 /// 500 (logged, with the operation named) for any read that fails.
-async fn read_deck_sources(state: &AppState, scenario_id: Uuid) -> Result<DeckRead, AppError> {
+async fn read_deck_sources(
+    state: &AppState,
+    scenario_id: Uuid,
+    user_id: &str,
+    timezone: &str,
+) -> Result<DeckRead, AppError> {
     let deck = list_deck(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("list_deck", e))?;
@@ -305,10 +319,10 @@ async fn read_deck_sources(state: &AppState, scenario_id: Uuid) -> Result<DeckRe
         last: last_ended_session(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("last_ended_session", e))?,
-        statuses: row_statuses(&state.pipeline_pool, scenario_id)
+        statuses: row_statuses(&state.pipeline_pool, scenario_id, user_id, timezone)
             .await
             .map_err(|e| repo_error("row_statuses", e))?,
-        open: newest_open_session(&state.pipeline_pool, scenario_id)
+        open: newest_open_session(&state.pipeline_pool, scenario_id, user_id, timezone)
             .await
             .map_err(|e| repo_error("newest_open_session", e))?,
         open_total: open_session_count(&state.pipeline_pool, scenario_id)
@@ -319,7 +333,7 @@ async fn read_deck_sources(state: &AppState, scenario_id: Uuid) -> Result<DeckRe
 
 /// Open a session. The client keeps the id for the rest of the sitting.
 pub async fn post_practice_session(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
     Json(body): Json<StartSessionRequest>,
@@ -328,6 +342,8 @@ pub async fn post_practice_session(
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
 
     check_sitting(&state, scenario_id, &body).await?;
+    // The sitting belongs to whoever opened it. See `NewSitting` for why.
+    let (user_id, user_name) = attribution(&user);
 
     let queue = serde_json::json!(body.queue);
     let skipped_today = serde_json::json!(body.skipped_today);
@@ -336,6 +352,8 @@ pub async fn post_practice_session(
         scenario_id,
         &body.who,
         &NewSitting {
+            user_id: &user_id,
+            user_name: &user_name,
             count: body.count,
             queue: &queue,
             skipped_today: &skipped_today,
@@ -355,90 +373,6 @@ pub async fn post_practice_session(
     Ok(Json(StartSessionResponse { session_id }))
 }
 
-/// Refuse a sitting whose side is unknown or whose questions are not this
-/// scenario's.
-///
-/// Split from the handler so that function stays the four steps it reads as
-/// (fence the case, check the sitting, store it, say so) — and because these are
-/// the two refusals that are about what a CLIENT sent, which is a different
-/// subject from recording a sitting.
-///
-/// # Errors
-/// 400 with the offending field and value, both times.
-async fn check_sitting(
-    state: &AppState,
-    scenario_id: Uuid,
-    body: &StartSessionRequest,
-) -> Result<(), AppError> {
-    // The column has a CHECK, but a CHECK violation is a 500 with a constraint
-    // name in it. Refusing here makes a bad `who` a 400 that says which values
-    // exist — the difference between a client bug found in review and one found
-    // in a log at midnight.
-    if !matches!(body.who.as_str(), "george" | "chuck" | "mixed") {
-        return Err(AppError::BadRequest {
-            message: "who must be george, chuck or mixed".to_string(),
-            details: serde_json::json!({ "field": "who", "value": body.who }),
-        });
-    }
-
-    // FENCE: every id the browser sent must belong to THIS scenario's deck.
-    //
-    // The queue is composed on screen, so without this a client could open a
-    // sitting whose queue named another scenario's questions — and Chuck's
-    // sheet would then carry a question Marie was never asked, with nothing on
-    // the page looking wrong. Same reasoning as `fence_answer`, applied at the
-    // moment the sitting is recorded rather than one answer at a time.
-    let deck = list_deck(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_deck", e))?;
-    let known: HashSet<Uuid> = deck.iter().map(|q| q.id).collect();
-    if let Some(stray) = fence_queue(&body.queue, &body.skipped_today, &known) {
-        return Err(AppError::BadRequest {
-            message: "every question in the sitting must be in this scenario's deck".to_string(),
-            details: serde_json::json!({ "field": "queue", "value": stray.to_string() }),
-        });
-    }
-    Ok(())
-}
-
-/// The first id in the sitting that this scenario's deck does not contain.
-///
-/// ## Why this fence exists
-///
-/// The queue and today's skips are both composed in the BROWSER — the order is
-/// the drill, and the screen is what knows it. That makes them client input.
-/// Without this check a sitting could be opened whose queue named another
-/// scenario's questions, and Chuck's sheet would then carry a question Marie was
-/// never asked, with nothing on the page looking wrong. Same reasoning as
-/// [`super::practice_answers`]'s per-answer fence, applied once at the moment
-/// the sitting is recorded.
-///
-/// `skipped_today` is fenced too, and deliberately: it is written to the row as
-/// the record of what she was offered, so a foreign id there is a lie in the
-/// record even though it deals no question.
-///
-/// Returns `None` when everything belongs — which is also the answer for an
-/// empty sitting, because a sitting that deals nothing names nothing foreign.
-pub(super) fn fence_queue<'a>(
-    queue: &'a [Uuid],
-    skipped_today: &'a [Uuid],
-    known: &HashSet<Uuid>,
-) -> Option<&'a Uuid> {
-    queue
-        .iter()
-        .chain(skipped_today.iter())
-        .find(|id| !known.contains(id))
-}
-
-/// Record one answer, and ask the model for its one sentence.
-///
-/// ## Why the read cannot fail this request
-///
-/// Her answer is worth recording whatever the model does. A failed read is
-/// stored as `read_text = NULL` with the reason in `read_error`; the screen shows
-/// the stored "no system read this time" line and every other box stands. That is
-/// the design's own instruction, and it is also the only behaviour that does not
-/// throw away a witness's typed sentence because a vendor was slow.
 #[cfg(test)]
 #[path = "practice_tests.rs"]
 mod tests;

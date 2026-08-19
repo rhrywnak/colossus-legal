@@ -100,17 +100,29 @@ pub fn heading(
 /// It was that, and widening the stored vocabulary to three values in the flow
 /// v1 migration turned the `else` into a silent liar: a `skipped` row printed on
 /// Chuck's sheet as **fine**, which is the sheet telling him she answered a
-/// question she had set aside. An exhaustive match over the three stored values
-/// cannot do that, and the fallback arm now names what it saw.
+/// question she had set aside. An exhaustive match over the stored values cannot
+/// do that, and the fallback arm names what it saw.
+///
+/// The vocabulary has since been widened AGAIN, to four (`hidden`, 2026-08-19),
+/// which is the second half of the argument: the arm below was added with the
+/// migration, and if it had not been, the fallback would have printed the raw
+/// word rather than a pass.
 fn mark_cell(settings: &Settings, mark: &str) -> String {
     let w = &settings.practice_report_wording;
     match mark {
         "repeat" => w.mark_repeat.clone(),
         "skipped" => settings.practice_wording.flow.mark_skipped.clone(),
+        // Hidden from the deck while this sitting still had it queued. NOT
+        // `skipped`: that is her act, and this was the editor's.
+        "hidden" => settings
+            .practice_wording
+            .flow
+            .mark_hidden_before_asked
+            .clone(),
         "fine" => w.mark_fine.clone(),
-        // The CHECK constraint permits exactly three values, so this is
-        // unreachable through the database. It renders the raw value rather
-        // than guessing at "fine": a fourth mark added to the migration and not
+        // The CHECK constraint permits exactly the four values above, so this
+        // is unreachable through the database. It renders the raw value rather
+        // than guessing at "fine": a FIFTH mark added to the migration and not
         // to this match must be VISIBLE on the sheet, not disguised as a pass.
         other => other.to_string(),
     }

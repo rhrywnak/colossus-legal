@@ -96,7 +96,7 @@ pub fn question_dto_for(
     settings: &Settings,
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    question_dto(settings, Utc::now(), &[], &[], record)
+    question_dto(settings, &[], &[], record)
 }
 
 /// One talking point with its receipt, for a caller outside this module.
@@ -118,13 +118,12 @@ pub fn point_dto(
 /// under a question reads as a status that failed to load.
 fn question_dto(
     settings: &Settings,
-    now: DateTime<Utc>,
     statuses: &[RowStatusRecord],
     badged: &[Uuid],
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
     let found = statuses.iter().find(|s| s.question_id == record.id);
-    let status = found.map(|s| row_status(settings, now, s));
+    let status = found.map(|s| row_status(settings, s));
     let status_mark = found.map(|s| s.mark.clone());
     PracticeQuestionDto {
         tactic: tactic_tag(settings, &record),
@@ -270,10 +269,6 @@ pub struct DeckSources<'a> {
     pub statuses: &'a [RowStatusRecord],
     /// The sitting she walked out of, if there is one.
     pub open: Option<&'a OpenSessionRecord>,
-    /// Now, taken once by the caller so every "today" on one payload agrees.
-    /// Passed rather than read here so the composition stays testable without a
-    /// clock — the same reason the sheet takes its `ended_at`.
-    pub now: DateTime<Utc>,
     /// The questions wearing the `changed` badge, decided by
     /// `services::practice_changes::badged`.
     pub badged: &'a [Uuid],
@@ -301,7 +296,6 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         last,
         statuses,
         open,
-        now,
         badged,
         notes,
         changed,
@@ -315,7 +309,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, now, statuses, badged, record))
+            .map(|record| question_dto(settings, statuses, badged, record))
             .collect(),
         points: points
             .into_iter()
@@ -332,7 +326,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         attach_options,
         open_session: open.map(|record| OpenSessionDto {
             session_id: record.id,
-            detail: open_session_detail(settings, now, record),
+            detail: open_session_detail(settings, record),
         }),
         wording: PracticeWordingDto::from_blocks(
             &settings.practice_wording,

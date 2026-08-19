@@ -64,6 +64,7 @@ pub mod models;
 pub mod practice;
 pub mod practice_editor;
 pub mod practice_flow;
+pub mod practice_hidden_queue;
 pub mod practice_notes;
 pub mod report_queries;
 pub mod review;

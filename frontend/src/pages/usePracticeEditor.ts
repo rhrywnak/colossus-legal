@@ -7,13 +7,26 @@
 // deck between sittings — and it would otherwise carry `PracticePage` past Rule
 // 17 twice over.
 //
-// ## Why `editingAs` lives here and gates every write
+// ## What signs a change, since 2026-08-19
 //
-// There is one login, and "Editing as Chuck" is the honest substitute for the
-// account separation this build does not have. The record is only worth anything
-// if it is impossible to change the deck without signing it, so the hook refuses
-// to call anything while nobody is chosen — and the SERVER refuses too, which is
-// what makes this more than a courtesy.
+// This hook used to hold an `editingAs` string, filled by a "Who is editing?"
+// dropdown, and `run` returned early — silently — while it was `""`. That is the
+// defect Roman hit in the first minute of .402: Edit, the arrows and Hide all
+// appeared enabled and did nothing, and no sentence anywhere said why.
+//
+// The premise was wrong. Chuck and Marie have Authentik logins; every write
+// already arrives authenticated, and the server now signs each change from the
+// session. So the picker is gone, the early return is gone, and `ready` is
+// simply "no write in flight". There is no state in which a control on this
+// editor is enabled and does nothing.
+//
+// ## Why edit mode is a MODE
+//
+// `editing` is not decoration. While it is on, the start card's own controls —
+// Start, the count pills, the side cards, the fold, Resume, Start over — are
+// disabled, because every one of them navigates away from a half-finished edit.
+// The hook owns the flag; `PracticeStart` reads it and disables. See §2 of
+// CC_TASK_PRACTICE_V1_HOTFIX_WORKFLOW_v1.
 //
 // ## Why every write ends in a reload
 //
@@ -37,11 +50,9 @@ import {
 export interface PracticeEditor {
   /** True while the list is showing the editor rather than Marie's controls. */
   editing: boolean;
+  /** Turn the editor on, or off. The caller confirms an open inline edit first. */
   toggleEditing: () => void;
-  /** Who is signing changes. `""` until somebody is chosen. */
-  editingAs: string;
-  setEditingAs: (who: string) => void;
-  /** True when a write may be attempted — signed, and none in flight. */
+  /** True when a write may be attempted — i.e. none is in flight. */
   ready: boolean;
   /** True while a write is in flight, so every control can say so. */
   busy: boolean;
@@ -69,19 +80,20 @@ export function usePracticeEditor(
   failureSentence: () => string,
 ): PracticeEditor {
   const [editing, setEditing] = React.useState(false);
-  const [editingAs, setEditingAs] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   /**
-   * Run one write, or refuse it because nobody has signed.
+   * Run one write.
    *
    * All four go through here, so the busy flag, the failure sentence and the
    * reload cannot be forgotten on one of four paths — which is exactly how an
-   * editor ends up with one control that silently does nothing.
+   * editor ends up with one control that silently does nothing. There is no
+   * guard clause: this function ALWAYS attempts the write, and says so if it
+   * fails. The guard that used to sit here (`if (editingAs === "") return;`) is
+   * the bug this hotfix exists to remove.
    */
   const run = (what: string, write: () => Promise<unknown>) => {
-    if (editingAs === "") return;
     setBusy(true);
     setError(null);
     write()
@@ -97,21 +109,19 @@ export function usePracticeEditor(
   return {
     editing,
     toggleEditing: () => setEditing((was) => !was),
-    editingAs,
-    setEditingAs,
-    ready: editingAs !== "" && !busy,
+    ready: !busy,
     busy,
     error,
     edit: (questionId, field, value) =>
-      run("an edit", () => editQuestion(questionId, field, value, editingAs)),
+      run("an edit", () => editQuestion(questionId, field, value)),
     move: (questionId, direction) =>
-      run("a move", () => moveQuestion(questionId, direction, editingAs)),
+      run("a move", () => moveQuestion(questionId, direction)),
     hide: (questionId, hidden) =>
-      run("a hide", () => hideQuestion(questionId, hidden, editingAs)),
+      run("a hide", () => hideQuestion(questionId, hidden)),
     // The only write that needs the case and the scenario: the other three
     // address a question by its own server-minted id, and only a CREATE has to
     // be told where to put the new row.
     add: (question) =>
-      run("an add", () => addQuestion(slug, scenarioId, question, editingAs)),
+      run("an add", () => addQuestion(slug, scenarioId, question)),
   };
 }

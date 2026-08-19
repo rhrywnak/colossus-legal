@@ -29,12 +29,8 @@
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PracticeEditorWording {
-    pub note_authors: String,
-    pub editor_authors: String,
     pub editor_switch_label: String,
     pub editor_done_label: String,
-    pub editor_as_label: String,
-    pub editor_as_unset: String,
     pub editor_edit_label: String,
     pub editor_hide_label: String,
     pub editor_unhide_label: String,
@@ -76,14 +72,16 @@ pub struct PracticeEditorWording {
     pub badge_draft: String,
     pub sheet_changes_heading: String,
     pub sheet_change_item_template: String,
+    /// The hint on every control the editor disables. Hard rule from this
+    /// task: no control on a practice page may silently do nothing.
+    pub editor_busy_hint: String,
+    /// Asked when the editor is left with an inline edit still open. Saved
+    /// changes are already written and are not at risk.
+    pub editor_discard_confirm_template: String,
 }
 
-pub(crate) const KEY_NOTE_AUTHORS: &str = "practice_note_authors";
-pub(crate) const KEY_EDITOR_AUTHORS: &str = "practice_editor_authors";
 pub(crate) const KEY_EDITOR_SWITCH_LABEL: &str = "practice_editor_switch_label";
 pub(crate) const KEY_EDITOR_DONE_LABEL: &str = "practice_editor_done_label";
-pub(crate) const KEY_EDITOR_AS_LABEL: &str = "practice_editor_as_label";
-pub(crate) const KEY_EDITOR_AS_UNSET: &str = "practice_editor_as_unset";
 pub(crate) const KEY_EDITOR_EDIT_LABEL: &str = "practice_editor_edit_label";
 pub(crate) const KEY_EDITOR_HIDE_LABEL: &str = "practice_editor_hide_label";
 pub(crate) const KEY_EDITOR_UNHIDE_LABEL: &str = "practice_editor_unhide_label";
@@ -129,13 +127,16 @@ pub(crate) const KEY_SHEET_CHANGE_ITEM_TEMPLATE: &str = "practice_sheet_change_i
 
 /// Every key in this block, so a missing one is caught at boot BY NAME rather
 /// than as a blank control in front of the person editing.
+pub(crate) const KEY_EDITOR_BUSY_HINT: &str = "practice_editor_busy_hint";
+
+pub(crate) const KEY_EDITOR_DISCARD_CONFIRM_TEMPLATE: &str =
+    "practice_editor_discard_confirm_template";
+
 pub const PRACTICE_EDITOR_WORDING_KEYS: &[&str] = &[
-    KEY_NOTE_AUTHORS,
-    KEY_EDITOR_AUTHORS,
+    KEY_EDITOR_DISCARD_CONFIRM_TEMPLATE,
+    KEY_EDITOR_BUSY_HINT,
     KEY_EDITOR_SWITCH_LABEL,
     KEY_EDITOR_DONE_LABEL,
-    KEY_EDITOR_AS_LABEL,
-    KEY_EDITOR_AS_UNSET,
     KEY_EDITOR_EDIT_LABEL,
     KEY_EDITOR_HIDE_LABEL,
     KEY_EDITOR_UNHIDE_LABEL,
@@ -188,12 +189,10 @@ pub fn build_practice_editor_wording<E>(
     read: impl Fn(&str) -> Result<String, E>,
 ) -> Result<PracticeEditorWording, E> {
     Ok(PracticeEditorWording {
-        note_authors: read(KEY_NOTE_AUTHORS)?,
-        editor_authors: read(KEY_EDITOR_AUTHORS)?,
+        editor_discard_confirm_template: read(KEY_EDITOR_DISCARD_CONFIRM_TEMPLATE)?,
+        editor_busy_hint: read(KEY_EDITOR_BUSY_HINT)?,
         editor_switch_label: read(KEY_EDITOR_SWITCH_LABEL)?,
         editor_done_label: read(KEY_EDITOR_DONE_LABEL)?,
-        editor_as_label: read(KEY_EDITOR_AS_LABEL)?,
-        editor_as_unset: read(KEY_EDITOR_AS_UNSET)?,
         editor_edit_label: read(KEY_EDITOR_EDIT_LABEL)?,
         editor_hide_label: read(KEY_EDITOR_HIDE_LABEL)?,
         editor_unhide_label: read(KEY_EDITOR_UNHIDE_LABEL)?,

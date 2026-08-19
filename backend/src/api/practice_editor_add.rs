@@ -25,11 +25,11 @@ use crate::{
         practice::{list_deck, PracticeQuestionRecord},
         practice_editor::{insert_question, log_change, next_sort_order, NewChange, NewQuestion},
     },
+    services::practice_notes::attribution,
     state::AppState,
 };
 
 use super::practice::repo_error;
-use super::practice_editor::fence_editor;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
 /// Add a question somebody typed on the page.
@@ -39,21 +39,21 @@ use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 /// no `follows`, or a `follows` naming no cross question in this deck; 404 when
 /// the scenario does not exist or is reached through the wrong case.
 pub async fn post_add_question(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
     Json(body): Json<AddQuestionRequest>,
 ) -> Result<Json<DeckChangeResponse>, AppError> {
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
-    let by = fence_editor(&state, &body.editing_as)?;
+    let (by_id, by) = attribution(&user);
 
     let deck = list_deck(&state.pipeline_pool, scenario_id)
         .await
         .map_err(|e| repo_error("list_deck", e))?;
     let plan = plan_question(&state, &body, &deck)?;
 
-    let question_id = write_question(&state, scenario_id, &body, &plan, &by).await?;
+    let question_id = write_question(&state, scenario_id, &body, &plan, &by, &by_id).await?;
 
     tracing::info!(%scenario_id, %question_id, kind = %plan.kind, by = %by, "practice deck: a question was added");
     Ok(Json(DeckChangeResponse { question_id }))
@@ -71,6 +71,7 @@ async fn write_question(
     body: &AddQuestionRequest,
     plan: &AddPlan,
     by: &str,
+    by_id: &str,
 ) -> Result<uuid::Uuid, AppError> {
     let mut tx = state
         .pipeline_pool
@@ -117,6 +118,7 @@ async fn write_question(
             // question's row may have moved by the time the list is read.
             after_value: Some(plan.side),
             changed_by: by,
+            changed_by_id: by_id,
         },
     )
     .await

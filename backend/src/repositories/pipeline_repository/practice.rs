@@ -267,14 +267,16 @@ pub async fn start_session(
 ) -> Result<Uuid, PipelineRepoError> {
     let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_sessions \
-         (scenario_id, who, count, queue, skipped_today) \
-         VALUES ($1,$2,$3,$4,$5) RETURNING id",
+         (scenario_id, who, count, queue, skipped_today, user_id, user_name) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
     )
     .bind(scenario_id)
     .bind(who)
     .bind(sitting.count)
     .bind(sitting.queue)
     .bind(sitting.skipped_today)
+    .bind(sitting.user_id)
+    .bind(sitting.user_name)
     .fetch_one(pool)
     .await?;
     Ok(row.0)
@@ -288,6 +290,14 @@ pub async fn start_session(
 /// recording the questions she kept OUT as the ones she was dealt.
 #[derive(Debug, Clone, Copy)]
 pub struct NewSitting<'a> {
+    /// The signed-in username this sitting belongs to, and the display name.
+    ///
+    /// Stored because "Changed since YOUR last sitting" is a comparison against
+    /// a particular person's last sitting. With no user on the row it compared
+    /// against anybody's — so Chuck opening the page cleared the box for Marie,
+    /// who had not read a word of it.
+    pub user_id: &'a str,
+    pub user_name: &'a str,
     /// What she chose off the count pills, or `None` when nothing chose.
     pub count: Option<i32>,
     /// The dealt question ids, in order, as a JSON array.

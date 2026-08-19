@@ -37,13 +37,47 @@ export const V0_QUESTION_COUNT = 5;
  * A side with fewer questions than the target yields a SHORTER queue rather than
  * a padded one: five questions is a target, not a promise, and repeating a
  * question to reach a number would be the system inventing a rep.
+ *
+ * ## Domain note: on MIXED, the count counts questions ASKED OF HER
+ *
+ * A plain `slice(0, 5)` over the mixed order cut mid-pair: `g1 · r1 · g2 · r2 ·
+ * g3` — a trap left standing with the redirect that repairs it never dealt. In
+ * a drill about recovering from a trap, stopping between the trap and the
+ * recovery is the one place the queue must not end.
+ *
+ * So the count is of the questions PUT TO her — George's cross and Chuck's
+ * direct. A redirect is not one of those: it is what Chuck asks to repair the
+ * trap she was just put through, it rides with its trap, and it is not counted
+ * against her five. When George's side runs out before the count does, Chuck's
+ * direct questions fill the rest, which is the old behaviour and stays.
+ *
+ * The consequence is deliberate and worth saying out loud: "5" on a deck with
+ * five traps and five redirects deals TEN screens. The progress line counts what
+ * it deals, so it says 10 and not 5 — the pill chose the drill, not the number
+ * of times she presses Answer.
  */
 export function buildQueue(
   deck: PracticeQuestion[],
   who: "george" | "chuck" | "mixed",
   limit: number = V0_QUESTION_COUNT,
 ): PracticeQuestion[] {
-  return orderedDeck(deck, who).slice(0, limit);
+  const ordered = orderedDeck(deck, who);
+  if (who !== "mixed") return ordered.slice(0, limit);
+
+  // Walk the mixed order counting only the asked-of-her questions, and stop the
+  // moment the NEXT one would exceed the limit. Because redirects immediately
+  // follow their trap, taking everything up to that point keeps every pair
+  // whole without the loop having to know what a pair is.
+  let asked = 0;
+  const queue: PracticeQuestion[] = [];
+  for (const question of ordered) {
+    if (question.kind !== "redirect") {
+      if (asked === limit) break;
+      asked += 1;
+    }
+    queue.push(question);
+  }
+  return queue;
 }
 
 /**

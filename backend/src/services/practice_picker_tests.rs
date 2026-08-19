@@ -51,7 +51,6 @@ fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) 
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,
@@ -158,6 +157,7 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
         question_id: answered.id,
         mark: "repeat".to_string(),
         answered_at: now(),
+        answered_today: true,
         attempts: 2,
     }];
 
@@ -173,7 +173,6 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
             last: None,
             statuses: &statuses,
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,

@@ -23,11 +23,15 @@ fn at(day: u32, hour: u32, minute: u32) -> DateTime<Utc> {
         .expect("a real instant")
 }
 
-fn status(mark: &str, answered_at: DateTime<Utc>, attempts: i64) -> RowStatusRecord {
+/// One newest-attempt row. `today` is what POSTGRES decided, in the case's own
+/// timezone — the Rust side no longer compares dates at all, which is the whole
+/// of the fix: it was comparing in UTC and ending Marie's day at 20:00 local.
+fn status(mark: &str, answered_at: DateTime<Utc>, attempts: i64, today: bool) -> RowStatusRecord {
     RowStatusRecord {
         question_id: Uuid::nil(),
         mark: mark.to_string(),
         answered_at,
+        answered_today: today,
         attempts,
     }
 }
@@ -35,18 +39,14 @@ fn status(mark: &str, answered_at: DateTime<Utc>, attempts: i64) -> RowStatusRec
 #[test]
 fn an_answer_today_reads_as_today_and_names_the_mark() {
     let settings = Settings::for_test();
-    let line = row_status(&settings, at(19, 21, 0), &status("fine", at(19, 20, 0), 1));
+    let line = row_status(&settings, &status("fine", at(19, 20, 0), 1, true));
     assert_eq!(line, "answered today · fine");
 }
 
 #[test]
 fn a_repeat_today_names_the_repeat_and_not_the_fine() {
     let settings = Settings::for_test();
-    let line = row_status(
-        &settings,
-        at(19, 21, 0),
-        &status("repeat", at(19, 20, 0), 1),
-    );
+    let line = row_status(&settings, &status("repeat", at(19, 20, 0), 1, true));
     assert_eq!(line, "answered today · repeat");
 }
 
@@ -58,11 +58,7 @@ fn a_repeat_today_names_the_repeat_and_not_the_fine() {
 #[test]
 fn a_skip_today_is_its_own_sentence_and_never_answered() {
     let settings = Settings::for_test();
-    let line = row_status(
-        &settings,
-        at(19, 21, 0),
-        &status("skipped", at(19, 20, 0), 1),
-    );
+    let line = row_status(&settings, &status("skipped", at(19, 20, 0), 1, true));
     assert_eq!(line, "skipped today");
     assert!(!line.contains("answered"));
 }
@@ -70,7 +66,7 @@ fn a_skip_today_is_its_own_sentence_and_never_answered() {
 #[test]
 fn an_answer_on_an_earlier_day_is_dated_rather_than_called_today() {
     let settings = Settings::for_test();
-    let line = row_status(&settings, at(19, 9, 0), &status("repeat", at(18, 21, 0), 1));
+    let line = row_status(&settings, &status("repeat", at(18, 21, 0), 1, false));
     assert_eq!(line, "last: Tue 18 Aug · repeat");
 }
 
@@ -81,8 +77,8 @@ fn an_answer_on_an_earlier_day_is_dated_rather_than_called_today() {
 #[test]
 fn the_attempt_count_appears_only_above_one() {
     let settings = Settings::for_test();
-    let once = row_status(&settings, at(19, 21, 0), &status("fine", at(19, 20, 0), 1));
-    let twice = row_status(&settings, at(19, 21, 0), &status("fine", at(19, 20, 0), 2));
+    let once = row_status(&settings, &status("fine", at(19, 20, 0), 1, true));
+    let twice = row_status(&settings, &status("fine", at(19, 20, 0), 2, true));
     assert_eq!(once, "answered today · fine");
     assert_eq!(twice, "answered today · fine · attempt 2");
 }
@@ -97,11 +93,11 @@ fn the_attempt_count_appears_only_above_one() {
 fn no_status_ships_a_raw_placeholder() {
     let settings = Settings::for_test();
     for record in [
-        status("fine", at(19, 20, 0), 3),
-        status("repeat", at(18, 20, 0), 2),
-        status("skipped", at(19, 20, 0), 1),
+        status("fine", at(19, 20, 0), 3, true),
+        status("repeat", at(18, 20, 0), 2, false),
+        status("skipped", at(19, 20, 0), 1, true),
     ] {
-        let line = row_status(&settings, at(19, 21, 0), &record);
+        let line = row_status(&settings, &record);
         assert!(!line.contains('{'), "a placeholder survived: {line}");
     }
 }
@@ -111,11 +107,13 @@ fn open(
     who: &str,
     answered: i64,
     queue_len: Option<i32>,
+    today: bool,
 ) -> OpenSessionRecord {
     OpenSessionRecord {
         id: Uuid::nil(),
         who: who.to_string(),
         started_at,
+        started_today: today,
         answered,
         queue_len,
     }
@@ -124,22 +122,14 @@ fn open(
 #[test]
 fn a_sitting_started_today_says_today_and_the_clock() {
     let settings = Settings::for_test();
-    let line = open_session_detail(
-        &settings,
-        at(19, 10, 30),
-        &open(at(19, 9, 57), "george", 1, Some(5)),
-    );
+    let line = open_session_detail(&settings, &open(at(19, 9, 57), "george", 1, Some(5), true));
     assert_eq!(line, "· today 09:57 · George's side · 1 of 5 answered.");
 }
 
 #[test]
 fn a_sitting_left_on_another_day_is_dated() {
     let settings = Settings::for_test();
-    let line = open_session_detail(
-        &settings,
-        at(19, 10, 30),
-        &open(at(18, 21, 5), "mixed", 3, Some(10)),
-    );
+    let line = open_session_detail(&settings, &open(at(18, 21, 5), "mixed", 3, Some(10), false));
     assert_eq!(line, "· Tue 18 Aug 21:05 · Mixed · 3 of 10 answered.");
 }
 
@@ -151,11 +141,7 @@ fn a_sitting_left_on_another_day_is_dated() {
 #[test]
 fn a_sitting_with_no_stored_queue_refuses_to_invent_a_total() {
     let settings = Settings::for_test();
-    let line = open_session_detail(
-        &settings,
-        at(19, 10, 30),
-        &open(at(19, 9, 0), "chuck", 2, None),
-    );
+    let line = open_session_detail(&settings, &open(at(19, 9, 0), "chuck", 2, None, true));
     assert_eq!(line, "· today 09:00 · Chuck · 2 of — answered.");
     assert!(!line.contains("of 0"));
 }
@@ -170,8 +156,7 @@ fn an_unknown_side_renders_itself() {
     let settings = Settings::for_test();
     let line = open_session_detail(
         &settings,
-        at(19, 10, 0),
-        &open(at(19, 9, 0), "someone_else", 0, Some(1)),
+        &open(at(19, 9, 0), "someone_else", 0, Some(1), true),
     );
     assert!(
         line.contains("someone_else"),

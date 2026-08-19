@@ -98,7 +98,6 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     let s = settings();
     let dto = question_dto(
         &s,
-        now(),
         &[],
         &[],
         record(Some(5), Some("Barrage rows 1 · 2 · 5")),
@@ -107,7 +106,7 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
 
-    let plain = question_dto(&s, now(), &[], &[], record(Some(5), None));
+    let plain = question_dto(&s, &[], &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
     assert!(!plain.braid);
 }
@@ -164,7 +163,6 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,
@@ -204,7 +202,6 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,
@@ -253,7 +250,6 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,
@@ -299,7 +295,6 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,
@@ -335,7 +330,6 @@ fn a_point_with_neither_still_names_its_absence() {
             last: None,
             statuses: &[],
             open: None,
-            now: now(),
             badged: &[],
             notes: vec![],
             changed: None,

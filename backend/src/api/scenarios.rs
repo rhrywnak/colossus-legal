@@ -271,7 +271,6 @@ pub async fn list_scenarios(
 /// `NotFound`, so a scenario cannot be read through a different case's path. This
 /// is the read-side of the same path-as-fence invariant `create_scenario` holds
 /// on the write side.
-#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
 pub async fn get_scenario_by_id(
     user: Option<AuthUser>,
     State(state): State<AppState>,
@@ -570,6 +569,8 @@ pub async fn update_scenario(
     Ok((StatusCode::OK, Json(to_dto(record))))
 }
 
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id))]
+
 /// `DELETE /cases/:slug/scenarios/:scenario_id` — hard-delete one scenario.
 ///
 /// Scenarios are disposable prep artifacts (the evidence lives in the graph, not
@@ -610,6 +611,8 @@ pub async fn delete_scenario(
         message: "scenario_id must be a valid UUID".to_string(),
         details: json!({ "field": "scenario_id" }),
     })?;
+
+    crate::api::practice_fences::refuse_if_practised(&state, id).await?;
 
     // The store delete returns the row count (a no-such-row is Ok(0), NOT an
     // error). A genuine store fault (Err) is a 500 we log with context; the `?`

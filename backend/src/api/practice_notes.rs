@@ -17,9 +17,7 @@ use uuid::Uuid;
 use crate::{
     auth::AuthUser,
     domain::scenario_code::scenario_code,
-    dto::practice_review::{
-        NewNoteRequest, PracticeNoteDto, PracticeReviewPayload, StrikeNoteRequest,
-    },
+    dto::practice_review::{NewNoteRequest, PracticeNoteDto, PracticeReviewPayload},
     error::AppError,
     repositories::pipeline_repository::{
         get_scenario,
@@ -29,7 +27,7 @@ use crate::{
         },
     },
     services::{
-        practice_notes::{author_list, is_note_author, note_dto},
+        practice_notes::{attribution, note_dto},
         practice_page::{point_dto, question_dto_for},
         practice_review::{attempts, progress, question_notes},
     },
@@ -38,25 +36,6 @@ use crate::{
 
 use super::practice::repo_error;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
-
-/// Refuse a note nobody has signed.
-///
-/// # Errors
-/// 400 naming the stored list of authors.
-fn fence_author(state: &AppState, author: &str) -> Result<String, AppError> {
-    let settings = state.settings.current();
-    if !is_note_author(&settings, author.trim()) {
-        return Err(AppError::BadRequest {
-            message: format!(
-                "\"{}\" is not one of the people who may write a note here ({})",
-                author.trim(),
-                author_list(&settings)
-            ),
-            details: serde_json::json!({ "field": "author", "value": author }),
-        });
-    }
-    Ok(author.trim().to_string())
-}
 
 /// Prove a note before it is written, and hand back its trimmed text.
 ///
@@ -109,14 +88,14 @@ async fn fence_note<'a>(
 /// 400 for an unknown author or anything [`fence_note`] refuses; 404 when the
 /// scenario does not exist.
 pub async fn post_note(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
     Json(body): Json<NewNoteRequest>,
 ) -> Result<Json<PracticeNoteDto>, AppError> {
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
-    let author = fence_author(&state, &body.author)?;
+    let (author_id, author) = attribution(&user);
 
     let text = fence_note(&state, scenario_id, &body).await?;
 
@@ -127,6 +106,7 @@ pub async fn post_note(
             question_id: body.question_id,
             answer_id: body.answer_id,
             author: &author,
+            author_id: &author_id,
             text,
         },
     )
@@ -173,12 +153,13 @@ pub async fn post_note(
 /// # Errors
 /// 400 for an unknown author; 404 when no note carries that id.
 pub async fn post_strike_note(
-    _user: AuthUser,
+    user: AuthUser,
     State(state): State<AppState>,
     Path(note_id): Path<Uuid>,
-    Json(body): Json<StrikeNoteRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let author = fence_author(&state, &body.author)?;
+    // Only the NAME is recorded on a strike: `struck_by` prints beside the
+    // note and the id would be a second column nothing reads.
+    let (_, author) = attribution(&user);
 
     let touched = strike_note(&state.pipeline_pool, note_id, &author)
         .await
@@ -275,13 +256,20 @@ pub async fn get_question_review(
 
     let read = read_review_sources(&state, scenario_id, question_id).await?;
     let settings = state.settings.current();
+    // Taken BEFORE the record is moved into its DTO. One clone of one string,
+    // and the alternative — reordering the struct literal so the borrow happens
+    // first — is a correctness argument that depends on field order, which is
+    // the kind of thing a later edit silently breaks.
+    let current_text = question.text.clone();
     let payload = PracticeReviewPayload {
         scenario_id,
         code: scenario_code(record.code_ordinal),
         title: record.name,
         question: question_dto_for(&settings, question),
         progress: progress(&settings, read.position),
-        attempts: attempts(&settings, &read.rows, &read.notes),
+        // The question as it reads TODAY. Each attempt is compared against it,
+        // and only the ones worded differently print `asked as:`.
+        attempts: attempts(&settings, &read.rows, &read.notes, &current_text),
         points: read
             .points
             .into_iter()

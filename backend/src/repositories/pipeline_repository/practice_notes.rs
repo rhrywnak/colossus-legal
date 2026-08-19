@@ -49,20 +49,25 @@ pub struct NewNote<'a> {
     /// `None` unless the note is about one attempt. A note on an attempt must
     /// also name its question — the table has a CHECK saying so.
     pub answer_id: Option<Uuid>,
+    /// The display name the panel prints.
     pub author: &'a str,
+    /// The signed-in username behind it.
+    pub author_id: &'a str,
     pub text: &'a str,
 }
 
 /// Write one note. Returns its id.
 pub async fn insert_note(pool: &PgPool, note: &NewNote<'_>) -> Result<Uuid, PipelineRepoError> {
     let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO practice_notes (scenario_id, question_id, answer_id, author, text) \
-         VALUES ($1,$2,$3,$4,$5) RETURNING id",
+        "INSERT INTO practice_notes \
+         (scenario_id, question_id, answer_id, author, author_id, text) \
+         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
     )
     .bind(note.scenario_id)
     .bind(note.question_id)
     .bind(note.answer_id)
     .bind(note.author)
+    .bind(note.author_id)
     .bind(note.text)
     .fetch_one(pool)
     .await?;

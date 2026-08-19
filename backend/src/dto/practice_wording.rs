@@ -148,6 +148,7 @@ pub struct PracticeWordingDto {
     pub flag_summary_heading: String,
     pub flag_summary_hint: String,
     pub flag_summary_item_template: String,
+    pub mark_hidden_before_asked: String,
 
     // ── v1 (the Chuck review): the words about ONE question ──────────────
     // Flattened by the same rule as the block above. The `row_` prefix on the
@@ -166,6 +167,8 @@ pub struct PracticeWordingDto {
     pub points_to_reveal_prefix: String,
     pub points_to_sheet_prefix: String,
     pub unfinished_today_word: String,
+    pub answer_empty_hint: String,
+    pub answer_already_recorded: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,
@@ -173,12 +176,8 @@ pub struct PracticeWordingDto {
     // `note_authors` and `editor_authors` arrive as the stored comma-separated
     // STRING — the readers split them — so this object stays what its two
     // tests below say it is: every value a string, every name a key.
-    pub note_authors: String,
-    pub editor_authors: String,
     pub editor_switch_label: String,
     pub editor_done_label: String,
-    pub editor_as_label: String,
-    pub editor_as_unset: String,
     pub editor_edit_label: String,
     pub editor_hide_label: String,
     pub editor_unhide_label: String,
@@ -220,6 +219,8 @@ pub struct PracticeWordingDto {
     pub badge_draft: String,
     pub sheet_changes_heading: String,
     pub sheet_change_item_template: String,
+    pub editor_busy_hint: String,
+    pub editor_discard_confirm_template: String,
 
     // ── Part B: notes, and the review page ───────────────────────────────
     pub notes_heading_template: String,
@@ -229,11 +230,11 @@ pub struct PracticeWordingDto {
     pub notes_placeholder: String,
     pub notes_attempt_placeholder: String,
     pub notes_save_label: String,
+    pub notes_empty_hint: String,
     pub notes_strike_label: String,
     pub notes_struck_template: String,
     pub notes_empty: String,
     pub notes_failed: String,
-    pub notes_author_unset: String,
     pub row_review_link: String,
     pub review_progress_template: String,
     pub review_attempts_kicker: String,
@@ -242,6 +243,7 @@ pub struct PracticeWordingDto {
     pub review_boxes_none: String,
     pub review_no_attempts: String,
     pub review_practice_again: String,
+    pub review_asked_as_template: String,
     pub review_stronger_heading: String,
 }
 

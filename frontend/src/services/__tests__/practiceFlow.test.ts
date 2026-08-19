@@ -45,6 +45,8 @@ function sitting(overrides: Record<string, unknown> = {}) {
     queue: ["q1", "q2"],
     answered: ["q1"],
     ended: false,
+    // Normally empty: the ids Chuck hid after this sitting was dealt.
+    hidden: [],
     ...overrides,
   };
 }
@@ -107,7 +109,15 @@ describe("fetchSitting", () => {
   });
 
   it("refuses a body missing its side", async () => {
-    okFetch({ session_id: SESSION, queue: [], answered: [] });
+    okFetch({ session_id: SESSION, queue: [], answered: [], hidden: [] });
+    await expect(fetchSitting(SESSION)).rejects.toThrow(/contract mismatch/);
+  });
+
+  it("refuses a body missing its HIDDEN list", async () => {
+    // Absent is not the same as empty. A backend that stopped sending this
+    // would leave the sitting asking questions Chuck took out of the deck —
+    // the .402 defect, silently restored — so the guard names it too.
+    okFetch({ session_id: SESSION, who: "george", queue: [], answered: [] });
     await expect(fetchSitting(SESSION)).rejects.toThrow(/contract mismatch/);
   });
 });

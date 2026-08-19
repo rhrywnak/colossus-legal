@@ -22,6 +22,8 @@ import React from "react";
 import type { PracticeQuestion, PracticeWording } from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { EditableField } from "../../services/practiceEditor";
+import { useAuth } from "../../context/AuthContext";
+import { signedInAs } from "../../services/practiceEditor";
 import { wordingOf } from "../../services/practice";
 import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
@@ -45,6 +47,7 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({
 );
 
 const PracticeRowEdit: React.FC<Props> = ({ question, wording, editor, onClose }) => {
+  const { user } = useAuth();
   const w = (key: string) => wordingOf(wording, key);
 
   // The stored values as they stand, so Save can tell what actually moved.
@@ -136,8 +139,11 @@ const PracticeRowEdit: React.FC<Props> = ({ question, wording, editor, onClose }
         <button type="button" style={s.button} onClick={onClose}>
           {w("editor_cancel_label")}
         </button>
+        {/* The signature is the LOGIN's, and this only prints it — the server
+            writes it from the session either way, so a slow /api/me cannot
+            leave a change unsigned, only this sentence briefly nameless. */}
         <span style={{ ...s.sub, fontSize: 13 }}>
-          {w("editor_saved_hint_template").replace("{who}", editor.editingAs)}
+          {w("editor_saved_hint_template").replace("{who}", signedInAs(user))}
         </span>
       </div>
     </div>

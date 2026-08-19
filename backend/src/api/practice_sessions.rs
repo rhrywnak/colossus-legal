@@ -42,6 +42,9 @@ use crate::{
         answered_question_ids, close_open_sessions_except, get_sitting, list_flagged,
         session_queue_len,
     },
+    repositories::pipeline_repository::practice_hidden_queue::{
+        hidden_in_queue, record_hidden_marks,
+    },
     services::{
         practice_changes::sheet_lines,
         practice_sheet::{sheet_payload, SheetSources},
@@ -121,6 +124,9 @@ async fn sitting_payload(state: &AppState, session_id: Uuid) -> Result<SittingPa
             .await
             .map_err(|e| repo_error("answered_question_ids", e))?,
         ended: sitting.ended_at.is_some(),
+        hidden: hidden_in_queue(&state.pipeline_pool, session_id)
+            .await
+            .map_err(|e| repo_error("hidden_in_queue", e))?,
     })
 }
 
@@ -263,12 +269,21 @@ pub async fn post_end_session(
         .await
         .map_err(|e| repo_error("end_session", e))?;
 
+    // BEFORE the sheet is composed, not after: a question Chuck hid while this
+    // sitting had it queued gets its own row saying so, and a sheet composed
+    // first would simply be one row short with nothing explaining the gap.
+    // Normally writes nothing.
+    let hidden_rows = record_hidden_marks(&state.pipeline_pool, session_id)
+        .await
+        .map_err(|e| repo_error("record_hidden_marks", e))?;
+
     let payload = compose_sheet(&state, session_id, scenario_id).await?;
 
     tracing::info!(
         %session_id,
         rows = payload.rows.len(),
         flagged = payload.flagged.len(),
+        hidden_rows,
         "practice session ended"
     );
     Ok(Json(payload))

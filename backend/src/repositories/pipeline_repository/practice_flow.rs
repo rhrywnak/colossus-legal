@@ -115,13 +115,28 @@ pub struct OpenSessionRecord {
     pub id: Uuid,
     pub who: String,
     pub started_at: chrono::DateTime<chrono::Utc>,
+    /// Was it started TODAY, in the case's own timezone?
+    ///
+    /// Computed by Postgres rather than in Rust, because Rust here has no tz
+    /// database and Postgres has the whole one. See `row_statuses` for the
+    /// defect that made this necessary.
+    pub started_today: bool,
     pub answered: i64,
     /// The stored queue's length. `None` on a session opened before flow v1 —
     /// the line then says how many she answered and refuses to invent a total.
     pub queue_len: Option<i32>,
 }
 
-/// The NEWEST sitting this scenario has open, or `None`.
+/// The newest sitting THIS USER has open on this scenario, or `None`.
+///
+/// ## Why `user_id` and not "any open sitting"
+///
+/// It offered anybody's. Chuck opening the page to edit the deck would be shown
+/// Marie's half-finished sitting and could Resume into it, or press Start over
+/// and close it — on her work, under his login. A sitting belongs to whoever
+/// opened it, and sittings opened before 2026-08-19 carry no user at all, so
+/// they match nobody and are simply never offered back. That is the honest
+/// outcome: nobody can say whose they were.
 ///
 /// ## Domain note: newest, and the rest are closed when she chooses
 ///
@@ -134,18 +149,24 @@ pub struct OpenSessionRecord {
 pub async fn newest_open_session(
     pool: &PgPool,
     scenario_id: Uuid,
+    user_id: &str,
+    timezone: &str,
 ) -> Result<Option<OpenSessionRecord>, PipelineRepoError> {
     sqlx::query_as::<_, OpenSessionRecord>(
         "SELECT s.id, s.who, s.started_at, \
+                (s.started_at AT TIME ZONE $3)::date = (NOW() AT TIME ZONE $3)::date \
+                    AS started_today, \
                 COUNT(a.id) AS answered, \
                 jsonb_array_length(s.queue) AS queue_len \
          FROM practice_sessions s \
          LEFT JOIN practice_answers a ON a.session_id = s.id \
-         WHERE s.scenario_id = $1 AND s.ended_at IS NULL \
+         WHERE s.scenario_id = $1 AND s.ended_at IS NULL AND s.user_id = $2 \
          GROUP BY s.id, s.who, s.started_at, s.queue \
          ORDER BY s.started_at DESC LIMIT 1",
     )
     .bind(scenario_id)
+    .bind(user_id)
+    .bind(timezone)
     .fetch_optional(pool)
     .await
     .map_err(PipelineRepoError::from)
@@ -243,6 +264,16 @@ pub struct RowStatusRecord {
     pub question_id: Uuid,
     pub mark: String,
     pub answered_at: chrono::DateTime<chrono::Utc>,
+    /// Was this attempt made TODAY, in the case's own timezone?
+    ///
+    /// ## The defect this closes
+    ///
+    /// It was compared in UTC. Marie practises in the evening in Michigan, so at
+    /// 20:00 EDT every answer she had just given flipped from `answered today`
+    /// to `last: Wed 19 Aug` — four hours before her day ended. Postgres does
+    /// the comparing because it carries the tz database and this backend does
+    /// not; the zone is a settings row (`practice_case_timezone`).
+    pub answered_today: bool,
     pub attempts: i64,
 }
 
@@ -254,7 +285,15 @@ pub struct RowStatusRecord {
 /// be ten round trips for a screen that is one payload by design — and the deck
 /// payload is fetched once on mount precisely so a witness never waits.
 ///
-/// ## Domain note: every sitting counts, not just tonight's
+/// ## Domain note: THIS USER's sittings, and every one of them
+///
+/// `answered today · repeat` is a report on what SHE did. Counting Chuck's test
+/// answers into it would tell Marie she had answered a question she has never
+/// seen. Sittings recorded before 2026-08-19 carry no user, so they match
+/// nobody — an answer from before today shows no status until it is answered
+/// again, which is stated in the report rather than papered over.
+///
+/// Every sitting of hers counts, not just tonight's
 ///
 /// `attempt 2` means the second time she has ever answered this question, and
 /// `last: Tue 18 Aug` names a sitting that is over. Scoping this to the open
@@ -262,6 +301,8 @@ pub struct RowStatusRecord {
 pub async fn row_statuses(
     pool: &PgPool,
     scenario_id: Uuid,
+    user_id: &str,
+    timezone: &str,
 ) -> Result<Vec<RowStatusRecord>, PipelineRepoError> {
     // DISTINCT ON keeps the first row of each question under the ORDER BY, which
     // is the newest attempt. The window function is evaluated over the whole
@@ -270,13 +311,59 @@ pub async fn row_statuses(
     sqlx::query_as::<_, RowStatusRecord>(
         "SELECT DISTINCT ON (a.question_id) \
                 a.question_id, a.mark, a.answered_at, \
+                (a.answered_at AT TIME ZONE $3)::date = (NOW() AT TIME ZONE $3)::date \
+                    AS answered_today, \
                 COUNT(*) OVER (PARTITION BY a.question_id) AS attempts \
          FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
-         WHERE s.scenario_id = $1 \
+         WHERE s.scenario_id = $1 AND s.user_id = $2 \
          ORDER BY a.question_id, a.answered_at DESC, a.id DESC",
     )
     .bind(scenario_id)
+    .bind(user_id)
+    .bind(timezone)
     .fetch_all(pool)
     .await
     .map_err(PipelineRepoError::from)
+}
+
+/// How many practice ANSWERS this scenario holds, across every sitting.
+///
+/// Read before a scenario is deleted. See the delete handler for why the answer
+/// decides whether the delete happens at all.
+pub async fn answer_count_for_scenario(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<i64, PipelineRepoError> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT COUNT(a.id) FROM practice_answers a \
+         JOIN practice_sessions s ON s.id = a.session_id \
+         WHERE s.scenario_id = $1",
+    )
+    .bind(scenario_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
+/// The mark on the NEWEST answer this sitting holds for one question, if any.
+///
+/// `None` = this sitting has never answered it. `Some("repeat")` = she asked for
+/// it again, so answering it a second time is the feature rather than a
+/// duplicate. Anything else is a settled row — see the caller for the two-tabs
+/// case this exists for.
+pub async fn last_mark_in_session(
+    pool: &PgPool,
+    session_id: Uuid,
+    question_id: Uuid,
+) -> Result<Option<String>, PipelineRepoError> {
+    let row: Option<(String,)> = sqlx::query_as(
+        "SELECT mark FROM practice_answers \
+         WHERE session_id = $1 AND question_id = $2 \
+         ORDER BY answered_at DESC, id DESC LIMIT 1",
+    )
+    .bind(session_id)
+    .bind(question_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
 }

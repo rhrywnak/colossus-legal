@@ -30,51 +30,39 @@ import { wordingOf } from "../../services/practice";
 import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 
-/** The people the store lets sign a note, split from the stored vocabulary. */
-export function authorsOf(wording: PracticeWording, key: string): string[] {
-  return wordingOf(wording, key)
-    .split(",")
-    .map((name) => name.trim())
-    .filter((name) => name !== "");
-}
+// ## The author picker is gone (2026-08-19)
+//
+// This panel used to open with a "who is writing this?" dropdown, filled from a
+// stored `practice_note_authors` list, and Save stayed disabled until a name was
+// picked. Both are removed. Every request already arrives authenticated, so the
+// server writes the signed-in user; and an allow-list of display names would have
+// been a way to lock a real signed-in user out of writing a note about a
+// witness's testimony, silently, because Authentik spells their name differently
+// than a settings row does. The settings rows are DELETED by the hotfix
+// migration rather than left lying about unread.
 
 interface AddProps {
   wording: PracticeWording;
   /** The stored placeholder — a different sentence on an attempt. */
   placeholderKey: string;
-  onSave: (author: string, text: string) => void;
+  onSave: (text: string) => void;
   /** True while a write is in flight. */
   saving: boolean;
 }
 
 /**
- * The author picker, the input and Save.
+ * The input and Save. The author is the signed-in user; nothing asks.
  *
- * Save stays DISABLED until an author is chosen and something is typed. An
- * unsigned note is one nobody can answer, and a blank one is refused by the
- * server anyway — disabling is the honest way to say so before the click.
+ * Save stays DISABLED while a write is in flight or the box is empty — the
+ * server refuses a blank note anyway, and disabling is the honest way to say so
+ * before the click rather than after it.
  */
 export const NoteAdd: React.FC<AddProps> = ({ wording, placeholderKey, onSave, saving }) => {
   const w = (key: string) => wordingOf(wording, key);
-  const [author, setAuthor] = React.useState("");
   const [text, setText] = React.useState("");
-  const authors = authorsOf(wording, "note_authors");
 
   return (
     <div style={e.noteAdd}>
-      <select
-        style={e.noteControl}
-        value={author}
-        onChange={(event) => setAuthor(event.target.value)}
-        aria-label={w("notes_author_unset")}
-      >
-        <option value="">{w("notes_author_unset")}</option>
-        {authors.map((name) => (
-          <option key={name} value={name}>
-            {name}
-          </option>
-        ))}
-      </select>
       <input
         style={e.noteInput}
         placeholder={w(placeholderKey)}
@@ -85,9 +73,10 @@ export const NoteAdd: React.FC<AddProps> = ({ wording, placeholderKey, onSave, s
       <button
         type="button"
         style={e.noteControl}
-        disabled={saving || author === "" || text.trim() === ""}
+        disabled={saving || text.trim() === ""}
+        title={text.trim() === "" ? w("notes_empty_hint") : undefined}
         onClick={() => {
-          onSave(author, text.trim());
+          onSave(text.trim());
           setText("");
         }}
       >
@@ -139,7 +128,7 @@ interface Props {
   notes: PracticeNote[];
   /** `notes_scenario_title` or `notes_question_title`. */
   titleKey: string;
-  onSave: (author: string, text: string) => void;
+  onSave: (text: string) => void;
   onStrike: (note: PracticeNote) => void;
   saving: boolean;
   /** The last write's failure sentence, or null. Never swallowed. */
