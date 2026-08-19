@@ -14,6 +14,9 @@ import React, { useEffect, useState } from "react";
 import { useParams, useSearchParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
+import PageTabs from "../components/PageTabs";
+import { PROOF_TABS } from "./proofTabs";
+import { proofMatrixPath } from "../utils/routePaths";
 import {
   ExcludedCard,
   EmptyState,
@@ -210,10 +213,14 @@ const ProofReviewPage: React.FC = () => {
       <Breadcrumb
         items={[
           { label: "Dashboard", to: "/" },
-          { label: "Proof Matrix", to: `/cases/${slug}/proof-matrix` },
+          { label: "Proof Matrix", to: proofMatrixPath(slug) },
           { label: "Proof Review" },
         ]}
       />
+      {/* The same bar the matrix draws. This page is reached only AS that tab
+          now — its own route redirects here — so the bar is how a reader gets
+          back to the matrix half without the breadcrumb. */}
+      <PageTabs tabs={PROOF_TABS} />
       <div style={{ marginBottom: "1.25rem" }}>
         <h1 className="count-header" style={{ margin: 0 }}>
           Proof Review

@@ -29,6 +29,7 @@ import {
   editQuestion,
   hideQuestion,
   moveQuestion,
+  reorderQuestion,
   type EditableField,
   type NewQuestion,
 } from "../services/practiceEditor";
@@ -50,6 +51,8 @@ export interface PracticeEditor {
   edit: (questionId: string, field: EditableField, value: string | null) => void;
   move: (questionId: string, direction: "up" | "down") => void;
   hide: (questionId: string, hidden: boolean) => void;
+  /** Place a question where a drag dropped it. `before === null` = end of side. */
+  reorder: (questionId: string, before: string | null) => void;
   add: (question: NewQuestion) => void;
 }
 
@@ -106,6 +109,8 @@ export function usePracticeEditor(
       run("an edit", () => editQuestion(questionId, field, value, editingAs)),
     move: (questionId, direction) =>
       run("a move", () => moveQuestion(questionId, direction, editingAs)),
+    reorder: (questionId, before) =>
+      run("a drag", () => reorderQuestion(questionId, before)),
     hide: (questionId, hidden) =>
       run("a hide", () => hideQuestion(questionId, hidden, editingAs)),
     // The only write that needs the case and the scenario: the other three

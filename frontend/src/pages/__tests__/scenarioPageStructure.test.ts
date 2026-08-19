@@ -75,7 +75,13 @@ describe("no PDF renders on the scenario page (D2)", () => {
       .filter((name) => name.endsWith(".tsx"))
       .filter((name) => read("pages", name).includes("PdfViewer"));
 
-    expect(importers.sort()).toEqual(["DocumentWorkspace.tsx", "DocumentWorkspaceTabs.tsx"]);
+    // `DocumentWorkspace.tsx` was the OTHER name in this list until the nav
+    // cleanup removed it. It was the superseded page — `/documents/:id` has
+    // rendered `DocumentWorkspaceTabs.tsx` since the rebuild, and nothing
+    // imported the old one. The assertion's PURPOSE is unchanged: it stops
+    // someone "cleaning up" the viewer this feature depends on, and it does that
+    // by naming every surface allowed to hold one.
+    expect(importers.sort()).toEqual(["DocumentWorkspaceTabs.tsx"]);
   });
 });
 
@@ -463,28 +469,18 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     expect(hook).not.toContain(".catch(\n");
   });
 
-  it("the override never composes case vocabulary in the browser", () => {
-    // The badge's words arrive composed ("System", "roman · 4 Aug 2026"). The
-    // ICONS are the list's own control vocabulary, exactly like the state chip's.
-    // A date formatted here would read differently per locale, which is not a
-    // property a legal record may have.
-    const line = read("components", "QuestionLine.tsx");
-    expect(line).toContain("authorship.label");
-    for (const forbidden of ["toLocaleDateString", "toLocaleString", "Intl.DateTimeFormat"]) {
-      expect(line, `${forbidden} would compose the badge's date in the browser`).not.toContain(
-        forbidden,
-      );
-    }
-  });
-
-  it("a correction re-reads rather than patching the card in place", () => {
-    // The question shown is composed server-side from the graph's sentence and
-    // the override table. Rebuilding that composition in the browser would be the
-    // client deciding how authorship reads.
-    const queue = read("components", "CardQueue.tsx");
-    expect(queue).toContain("await saveQuestionOverride(slug, graphNodeId, text);");
-    expect(queue).toContain("await load();");
-  });
+  // RETIRED with `QuestionLine` (nav cleanup Part 2, Roman's ruling 4).
+  //
+  // This asserted that `CardQueue.correctQuestion` re-read the card rather than
+  // patching it in the browser. The handler is gone: the only component that
+  // ever rendered a question editor was `QuestionLine`, nothing rendered
+  // `QuestionLine`, and the two `CandidateCard` props feeding it went nowhere.
+  //
+  // The SERVICE functions it called — `saveQuestionOverride` and
+  // `revertQuestionOverride` — are deliberately left in place, along with the
+  // backend endpoints behind them. Retiring an unreachable editor is a nav
+  // cleanup; retiring a backend feature is not, and nobody ruled on that. Both
+  // are now unreferenced from the frontend and are named in the report.
 
   /**
    * The source between two markers, or a loud failure.

@@ -2,6 +2,7 @@
 // by the v2 pipeline review system. Remove when v1 is fully deprecated.
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { documentPath } from "../../utils/routePaths";
 import { AuditHealthResponse, AuditCheck, getAuditHealth } from "../../services/admin";
 import { cardStyle, btnPrimary, msgError } from "./adminStyles";
 
@@ -90,7 +91,11 @@ const AdminAudit: React.FC = () => {
                 check={check}
                 isExpanded={!!expanded[check.name]}
                 onToggle={() => toggle(check.name)}
-                onNavigate={(id) => navigate(`/admin/documents/${id}/audit`)}
+                // `/admin/documents/:id/audit` has NEVER been declared in
+                // App.tsx — following this link landed on the 404 page. Part 1
+                // found it live. The document workspace is the page that
+                // actually shows a document's audit state.
+                onNavigate={(id) => navigate(documentPath(id))}
               />
             ))}
           </div>

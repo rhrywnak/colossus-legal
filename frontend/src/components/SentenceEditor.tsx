@@ -7,10 +7,15 @@
 // editor is "the same leaf pattern as AccusationTextBlock — build it once, use
 // it for both sentences".
 //
-// It now serves three callers:
+// It now serves two callers:
 //   · the working view's accusation sentence   (AccusationSection)
-//   · the rehearsal page's accusation sentence (RehearsalAccusationBlock)
 //   · the rehearsal page's "What this is"      (RehearsalScenarioBlocks)
+//
+// It served a third, `RehearsalAccusationBlock`, until the 08-10 prep-page change
+// (1bbf354) replaced that block with `PrepTopBlock` and left it unimported. The
+// nav cleanup removed it; git holds it. The naming here is kept accurate rather
+// than left pointing at a file that no longer exists — a comment naming a
+// deleted component is how the next reader loses ten minutes.
 //
 // ## What this block exists to stop
 //

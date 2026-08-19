@@ -19,6 +19,10 @@ use std::collections::HashMap;
 const SEED_MIGRATION: &str =
     "pipeline_migrations/20260819113610_practice_v1_part_b_deck_editor_notes_and_review.sql";
 
+/// The nav cleanup added one row to this block: the deck editor's drag grip.
+const NAV_MIGRATION: &str =
+    "pipeline_migrations/20260819152958_nav_cleanup_scenario_header_buttons.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -30,6 +34,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_EDITOR_AS_UNSET, "Who is editing?"),
     (KEY_EDITOR_EDIT_LABEL, "Edit"),
     (KEY_EDITOR_HIDE_LABEL, "Hide"),
+    (KEY_EDITOR_DRAG_HINT, "Drag to re-order within this side"),
     (KEY_EDITOR_UNHIDE_LABEL, "Unhide"),
     (KEY_EDITOR_HIDDEN_BADGE, "hidden"),
     (KEY_EDITOR_UP_LABEL, "Move up"),
@@ -127,8 +132,16 @@ impl PracticeEditorWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    // Two files: Part B seeded the block, and the nav cleanup added the drag
+    // grip's hint when the deck gained drag re-ordering. Concatenated because
+    // WHICH migration seeded a row is migration history — only the VALUE is what
+    // this test pins.
+    let nav = std::fs::read_to_string(root.join(NAV_MIGRATION))
+        .expect("the nav cleanup migration is on disk");
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the Part B migration is on disk");
+
+    let sql = format!("{sql}\n{nav}");
 
     for key in PRACTICE_EDITOR_WORDING_KEYS {
         let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {

@@ -30,8 +30,11 @@
 // =============================================================================
 
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 import Breadcrumb from "../components/Breadcrumb";
+import PageTabs, { activeTab } from "../components/PageTabs";
+import { PROOF_TABS } from "./proofTabs";
+import ProofReviewPage from "./ProofReviewPage";
 import CountSelector from "../components/CountSelector";
 import MatrixRowWithDetail from "../components/MatrixRowWithDetail";
 import {
@@ -263,8 +266,19 @@ const ProofMatrixContent: React.FC<{
 const ProofMatrixPage: React.FC = () => {
   const { slug: slugParam } = useParams<{ slug: string }>();
   const slug = slugParam ?? DEFAULT_CASE_SLUG;
+  const [search] = useSearchParams();
+  const tab = activeTab(PROOF_TABS, search);
   const { sortedCounts, loading, error, allegationTotals, matrixWording } =
     useProofMatrixData(slug);
+
+  // The review half is a whole page of its own and reads its own data. It is
+  // returned BEFORE the matrix's loading and error gates: those describe the
+  // matrix's fetch, and making the review tab wait behind them would show
+  // "Loading Proof Matrix..." over a panel that is not the matrix.
+  // Rendered BARE. `ProofReviewPage` already carries its own container,
+  // breadcrumb, heading and tab bar — wrapping it in this page's chrome would
+  // draw two breadcrumbs and two containers, one nested in the other.
+  if (tab === "review") return <ProofReviewPage />;
 
   if (loading) return <div style={MESSAGE_STYLE}>Loading Proof Matrix...</div>;
   if (error) return <div style={ERROR_STYLE}>{error}</div>;
@@ -285,6 +299,7 @@ const ProofMatrixPage: React.FC = () => {
       <Breadcrumb
         items={[{ label: "Dashboard", to: "/" }, { label: "Proof Matrix" }]}
       />
+      <PageTabs tabs={PROOF_TABS} />
       <div style={{ marginBottom: "1.25rem" }}>
         <h1 className="count-header" style={{ margin: 0 }}>
           Proof Matrix

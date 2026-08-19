@@ -68,8 +68,6 @@ const candidateMarkup = (card = dressed()) =>
       compact={false}
       onSelect={() => {}}
       onRule={() => {}}
-      onCorrectQuestion={async () => {}}
-      onRevertQuestion={async () => {}}
       linkOptions={options}
       onSaveLinks={async () => {}}
       onUnlink={() => {}}

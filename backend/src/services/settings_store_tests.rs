@@ -642,10 +642,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
-        47,
-        "PRACTICE v1 Part B, mockup v4: the deck editor, the two author \
-         vocabularies, the change vocabulary, the badges, and the changed-since \
-         box"
+        48,
+        "PRACTICE v1 Part B, mockup v4, plus the nav cleanup's drag grip: the \
+         deck editor, the two author vocabularies, the change vocabulary, the \
+         badges, and the changed-since box"
     );
     assert_eq!(
         PRACTICE_REVIEW_WORDING_KEYS.len(),

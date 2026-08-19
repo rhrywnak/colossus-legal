@@ -66,7 +66,7 @@ pub(super) fn fence_editor(state: &AppState, editing_as: &str) -> Result<String,
 }
 
 /// Read one question, or 404 naming it.
-async fn require_question(
+pub(super) async fn require_question(
     state: &AppState,
     question_id: Uuid,
 ) -> Result<PracticeQuestionRecord, AppError> {

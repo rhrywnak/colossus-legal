@@ -16,7 +16,7 @@ use axum::{extract::State, http::StatusCode, Json};
 use crate::auth::AuthUser;
 use crate::state::AppState;
 
-use super::dto::{AvailableFilters, BiasQueryFilters, BiasQueryResult};
+use super::dto::AvailableFilters;
 use super::repository::{BiasRepository, BiasRepositoryError};
 
 /// `GET /api/bias/available-filters`
@@ -58,50 +58,6 @@ pub async fn get_available_filters(
                 operation = "bias.available_filters",
                 error = ?e,
                 "Failed to fetch available bias filters"
-            );
-            Err(map_error(&e))
-        }
-    }
-}
-
-/// `POST /api/bias/query`
-///
-/// Runs the structured bias query and returns matching Evidence
-/// instances. The request body is a `BiasQueryFilters` JSON object;
-/// every field is optional, and an empty body `{}` returns the
-/// unfiltered result.
-pub async fn post_bias_query(
-    user: Option<AuthUser>,
-    State(state): State<AppState>,
-    Json(filters): Json<BiasQueryFilters>,
-) -> Result<Json<BiasQueryResult>, StatusCode> {
-    if let Some(ref u) = user {
-        tracing::info!(
-            actor_id = ?filters.actor_id,
-            pattern_tag = ?filters.pattern_tag,
-            subject_id = ?filters.subject_id,
-            "{} POST /api/bias/query",
-            u.username
-        );
-    }
-
-    let repo = BiasRepository::new(state.graph.clone());
-
-    match repo.run_query(&filters).await {
-        Ok((total_count, total_unfiltered, instances)) => Ok(Json(BiasQueryResult {
-            total_count,
-            total_unfiltered,
-            instances,
-            applied_filters: filters,
-        })),
-        Err(e) => {
-            tracing::error!(
-                operation = "bias.run_query",
-                actor_id = ?filters.actor_id,
-                pattern_tag = ?filters.pattern_tag,
-                subject_id = ?filters.subject_id,
-                error = ?e,
-                "Failed to run bias query"
             );
             Err(map_error(&e))
         }

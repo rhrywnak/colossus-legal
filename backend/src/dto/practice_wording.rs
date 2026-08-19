@@ -181,6 +181,7 @@ pub struct PracticeWordingDto {
     pub editor_as_unset: String,
     pub editor_edit_label: String,
     pub editor_hide_label: String,
+    pub editor_drag_hint: String,
     pub editor_unhide_label: String,
     pub editor_hidden_badge: String,
     pub editor_up_label: String,

@@ -1,7 +1,6 @@
 pub mod allegation_detail_repository;
 pub mod allegation_options_repository;
 pub mod allegation_repository;
-pub mod analysis_repository;
 pub mod audit_repository;
 pub mod case_header_builder;
 pub mod case_header_repository;
@@ -50,7 +49,6 @@ pub mod schema_repository;
 
 pub use allegation_detail_repository::AllegationDetailRepository;
 pub use allegation_repository::AllegationRepository;
-pub use analysis_repository::AnalysisRepository;
 pub use case_repository::CaseRepository;
 pub use case_summary_repository::CaseSummaryRepository;
 pub use contradiction_repository::ContradictionRepository;

@@ -19,7 +19,7 @@ use neo4rs::{query, Graph};
 use thiserror::Error;
 
 use super::aggregation::{AggregationState, BiasRow};
-use super::dto::{ActorOption, AvailableFilters, BiasInstance, BiasQueryFilters};
+use super::dto::{ActorOption, AvailableFilters, BiasInstance};
 
 // ─── Error ──────────────────────────────────────────────────────────────────
 
@@ -189,25 +189,6 @@ impl BiasRepository {
         Ok(subjects)
     }
 
-    /// Count the unfiltered total of tagged Evidence nodes in the graph.
-    ///
-    /// Used by the "Filtered: X of Y" counter so the user knows how many
-    /// total instances exist regardless of current filter selections.
-    /// Cheap because Neo4j caches a single label-and-property scan.
-    async fn count_total_unfiltered(&self) -> Result<i64, BiasRepositoryError> {
-        let cypher = "
-            MATCH (e:Evidence)
-            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
-            RETURN count(e) AS total_unfiltered
-        ";
-
-        let mut result = self.graph.execute(query(cypher)).await?;
-        if let Some(row) = result.next().await? {
-            return Ok(row.get::<i64>("total_unfiltered").unwrap_or(0));
-        }
-        Ok(0)
-    }
-
     /// Cypher: distinct trimmed pattern tags across all tagged Evidence.
     ///
     /// `split(e.pattern_tags, ',')` returns a list of raw tokens. `UNWIND`
@@ -236,91 +217,6 @@ impl BiasRepository {
         }
 
         Ok(tags)
-    }
-
-    /// Run the structured bias query with optional actor, pattern, and
-    /// subject filters, and report the total unfiltered count alongside.
-    ///
-    /// The filtered query and the total-unfiltered count run **concurrently**
-    /// via `tokio::try_join!` (see the `available_filters` doc comment for
-    /// the rationale). Both queries hit the same Neo4j instance through
-    /// the pooled `Graph` handle.
-    ///
-    /// The filter Cypher is parameterised — values flow in via
-    /// `query.param(...)` so none of `actor_id`, `pattern_tag`, or
-    /// `subject_id` is ever interpolated into the Cypher string. That is
-    /// what makes the endpoint safe against Cypher injection.
-    ///
-    /// ## Why `EXISTS { ... }` for the subject filter
-    ///
-    /// The OPTIONAL MATCH `(e)-[:ABOUT]->(subject)` below pulls **every**
-    /// ABOUT subject for display on each card. If we filtered subjects
-    /// with a constraining MATCH (e.g. `MATCH (e)-[:ABOUT]->(target {id: $subject_id})`),
-    /// the displayed `about` list would silently shrink to just the
-    /// matching subject — Marie's name would appear on the card, but
-    /// Phillips and CFS, who the same Evidence is also about, would
-    /// vanish from the rendered "About:" line. EXISTS is a presence
-    /// check that does not bind into the result, so the displayed
-    /// subjects stay complete. (Standing Rule 1: "Marie present alongside
-    /// other subjects" must remain observable.)
-    ///
-    /// ## Result aggregation
-    ///
-    /// The Cypher returns one row per (Evidence, ABOUT-subject) pair. We
-    /// group rows by `evidence_id` in Rust to build one `BiasInstance` per
-    /// matching Evidence, with all distinct ABOUT subjects collected into
-    /// the `about` list. (Doing the aggregation here rather than in Cypher
-    /// keeps the query simple and avoids `collect()` semantics interacting
-    /// poorly with multiple OPTIONAL MATCHes.)
-    ///
-    /// `total_count` is the deduped count of distinct Evidence nodes the
-    /// filter matched. `total_unfiltered` is the count of all tagged
-    /// Evidence regardless of filters.
-    pub async fn run_query(
-        &self,
-        filters: &BiasQueryFilters,
-    ) -> Result<(i64, i64, Vec<BiasInstance>), BiasRepositoryError> {
-        let (filtered, total_unfiltered) = tokio::try_join!(
-            self.execute_filtered_query(filters),
-            self.count_total_unfiltered(),
-        )?;
-        let (total_count, instances) = filtered;
-        Ok((total_count, total_unfiltered, instances))
-    }
-
-    /// Execute just the filtered Cypher and return `(total_count, instances)`.
-    ///
-    /// Split out from `run_query` so the parallel total-unfiltered count
-    /// can run alongside it under `tokio::try_join!`. Carries no public
-    /// surface — `run_query` is the only caller.
-    async fn execute_filtered_query(
-        &self,
-        filters: &BiasQueryFilters,
-    ) -> Result<(i64, Vec<BiasInstance>), BiasRepositoryError> {
-        let cypher = super::queries::filtered_evidence();
-
-        // ## Rust Learning: parameter binding with neo4rs
-        // `.param(name, value)` binds a value the driver will substitute at
-        // execution time. `Option<&str>` becomes a Cypher NULL when the
-        // option is None, which is exactly the semantics our WHERE clauses
-        // rely on (`$actor_id IS NULL OR ...`).
-        let q = query(&cypher)
-            .param("actor_id", filters.actor_id.as_deref())
-            .param("pattern_tag", filters.pattern_tag.as_deref())
-            .param("subject_id", filters.subject_id.as_deref());
-
-        let mut result = self.graph.execute(q).await?;
-        let mut state = AggregationState::new();
-
-        while let Some(row) = result.next().await? {
-            let extracted = match BiasRow::from_row(&row) {
-                Some(r) => r,
-                None => continue,
-            };
-            state.absorb(extracted);
-        }
-
-        Ok(state.finish())
     }
 
     /// Fetch full card content for a fixed set of Evidence ids.

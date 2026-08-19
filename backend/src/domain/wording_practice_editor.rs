@@ -37,6 +37,8 @@ pub struct PracticeEditorWording {
     pub editor_as_unset: String,
     pub editor_edit_label: String,
     pub editor_hide_label: String,
+    /// The drag grip's hint, in edit mode. Both `title` and `aria-label`.
+    pub editor_drag_hint: String,
     pub editor_unhide_label: String,
     pub editor_hidden_badge: String,
     pub editor_up_label: String,
@@ -86,6 +88,7 @@ pub(crate) const KEY_EDITOR_AS_LABEL: &str = "practice_editor_as_label";
 pub(crate) const KEY_EDITOR_AS_UNSET: &str = "practice_editor_as_unset";
 pub(crate) const KEY_EDITOR_EDIT_LABEL: &str = "practice_editor_edit_label";
 pub(crate) const KEY_EDITOR_HIDE_LABEL: &str = "practice_editor_hide_label";
+pub(crate) const KEY_EDITOR_DRAG_HINT: &str = "practice_editor_drag_hint";
 pub(crate) const KEY_EDITOR_UNHIDE_LABEL: &str = "practice_editor_unhide_label";
 pub(crate) const KEY_EDITOR_HIDDEN_BADGE: &str = "practice_editor_hidden_badge";
 pub(crate) const KEY_EDITOR_UP_LABEL: &str = "practice_editor_up_label";
@@ -138,6 +141,7 @@ pub const PRACTICE_EDITOR_WORDING_KEYS: &[&str] = &[
     KEY_EDITOR_AS_UNSET,
     KEY_EDITOR_EDIT_LABEL,
     KEY_EDITOR_HIDE_LABEL,
+    KEY_EDITOR_DRAG_HINT,
     KEY_EDITOR_UNHIDE_LABEL,
     KEY_EDITOR_HIDDEN_BADGE,
     KEY_EDITOR_UP_LABEL,
@@ -196,6 +200,7 @@ pub fn build_practice_editor_wording<E>(
         editor_as_unset: read(KEY_EDITOR_AS_UNSET)?,
         editor_edit_label: read(KEY_EDITOR_EDIT_LABEL)?,
         editor_hide_label: read(KEY_EDITOR_HIDE_LABEL)?,
+        editor_drag_hint: read(KEY_EDITOR_DRAG_HINT)?,
         editor_unhide_label: read(KEY_EDITOR_UNHIDE_LABEL)?,
         editor_hidden_badge: read(KEY_EDITOR_HIDDEN_BADGE)?,
         editor_up_label: read(KEY_EDITOR_UP_LABEL)?,

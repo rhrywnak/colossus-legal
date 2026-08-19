@@ -29,7 +29,6 @@ pub mod admin_status;
 pub mod admin_upload;
 pub mod admin_verify;
 pub mod allegations;
-pub mod analysis;
 pub mod ask;
 pub mod case;
 pub mod case_header;
@@ -58,6 +57,7 @@ pub mod practice_answers;
 pub mod practice_editor;
 pub mod practice_editor_add;
 pub mod practice_notes;
+pub mod practice_reorder;
 pub mod practice_sessions;
 pub mod proof_matrix;
 pub mod proof_review;
@@ -137,11 +137,13 @@ fn session_routes() -> Router<AppState> {
         .route("/logout", get(logout::logout))
 }
 
-/// Case-level reads: the analysis dashboard, the legacy case summary, and the
-/// slug-scoped case header + causes-of-action endpoints.
+/// Case-level reads: the legacy case summary and the slug-scoped case header +
+/// causes-of-action endpoints.
+///
+/// `GET /analysis` was removed with the Evidence explorer (nav cleanup Part 2):
+/// its only callers were that page and its parts, both retired.
 fn case_routes() -> Router<AppState> {
     Router::new()
-        .route("/analysis", get(analysis::get_analysis))
         .route("/case", get(case::get_case))
         .route("/case-summary", get(case_summary::get_case_summary))
         .route("/cases/:slug", get(case_header::get_case_by_slug))
@@ -334,15 +336,17 @@ fn admin_ops_routes() -> Router<AppState> {
 /// Interactive / RAG routes: Bias Explorer reads, semantic search, ask,
 /// chat models, and Q&A history + rating.
 ///
-/// Bias Explorer routes live in `crate::bias::handlers` (the bias module owns
-/// its own DTOs, repository, and handlers as a self-contained feature).
+/// The bias module keeps its FILTER half and loses its query half (nav cleanup
+/// Part 2). `POST /bias/query` served the Bias Explorer page and nothing else,
+/// and the page is removed. `GET /bias/available-filters` STAYS: it is read by
+/// `ScenarioCreateForm` and `ScenarioIdentityModal` so the people they offer
+/// match the filter's — a live scenario surface, not an explorer remnant.
 fn interaction_routes() -> Router<AppState> {
     Router::new()
         .route(
             "/bias/available-filters",
             get(bias_handlers::get_available_filters),
         )
-        .route("/bias/query", post(bias_handlers::post_bias_query))
         .route("/search", post(search::semantic_search))
         .route("/ask", post(ask::ask_the_case))
         .route("/chat/models", get(chat_models::list_chat_models))

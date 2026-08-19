@@ -169,6 +169,7 @@ impl PracticeWordingDto {
             editor_as_unset: drill.editor.editor_as_unset.clone(),
             editor_edit_label: drill.editor.editor_edit_label.clone(),
             editor_hide_label: drill.editor.editor_hide_label.clone(),
+            editor_drag_hint: drill.editor.editor_drag_hint.clone(),
             editor_unhide_label: drill.editor.editor_unhide_label.clone(),
             editor_hidden_badge: drill.editor.editor_hidden_badge.clone(),
             editor_up_label: drill.editor.editor_up_label.clone(),

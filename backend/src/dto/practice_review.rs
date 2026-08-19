@@ -206,3 +206,24 @@ pub struct NewNoteRequest {
 pub struct StrikeNoteRequest {
     pub author: String,
 }
+
+/// Place one question at an arbitrary position in its side (nav cleanup Part 2).
+///
+/// ## Why this is not a field on `MoveQuestionRequest`
+///
+/// The ▲▼ arrows and a drag are different operations, not two spellings of one.
+/// "Move one step" cannot fail to name a position; "put this here" can, and it
+/// re-sequences a whole side where the arrows swap two rows. Folding them into
+/// one request would mean a `direction` that is sometimes required and a
+/// `before` that is sometimes required, with nothing in the type saying which —
+/// the shape where a client sends both and the server picks.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReorderQuestionRequest {
+    /// The question this one lands immediately ABOVE.
+    ///
+    /// `None` means the end of the side, which is what dropping past the last
+    /// row means. Both are legitimate; neither is an error.
+    #[serde(default)]
+    pub before: Option<Uuid>,
+}

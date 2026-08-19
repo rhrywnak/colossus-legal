@@ -15,7 +15,7 @@
 // on. It is the disk/code consistency pattern of Rule 21.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migrations that seed these rows, concatenated before the search.
@@ -35,6 +35,19 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
     "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
     "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
+];
+
+/// Migrations that CORRECT a value one of the seeds above already wrote.
+///
+/// Searched BEFORE the seeds, so the newest word wins. Without this the fixture
+/// pins whatever the original INSERT said and goes green forever, while the live
+/// store holds something else entirely — which is not a hypothetical: the
+/// scenario header's `Practice ▸` and this fixture's `Practice ▸` would have
+/// agreed with each other and disagreed with every screen in the product.
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    // Nav cleanup Part 2 (Roman, 2026-08-19): the two header controls stop
+    // ending in glyphs that point at each other.
+    "pipeline_migrations/20260819152958_nav_cleanup_scenario_header_buttons.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -126,7 +139,7 @@ const TEST_SEED: &[(&str, &str)] = &[
         "Not in rehearsal — this scenario is {status}. Switch it to Ready on \
          this page first.",
     ),
-    (KEY_PRACTICE_LINK_LABEL, "Practice \u{25b8}"),
+    (KEY_PRACTICE_LINK_LABEL, "Practice"),
 ];
 
 impl ScenarioAuthoringWording {
@@ -161,21 +174,30 @@ impl ScenarioAuthoringWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql: String = SEED_MIGRATIONS
-        .iter()
-        .map(|relative| {
-            std::fs::read_to_string(root.join(relative))
-                .unwrap_or_else(|_| panic!("{relative} is on disk"))
-        })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let read_all = |files: &[&str]| -> String {
+        files
+            .iter()
+            .map(|relative| {
+                std::fs::read_to_string(root.join(relative))
+                    .unwrap_or_else(|_| panic!("{relative} is on disk"))
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let sql = read_all(SEED_MIGRATIONS);
+    let corrections = read_all(CORRECTION_MIGRATIONS);
 
     let fixture = ScenarioAuthoringWording::for_test_values();
 
     for key in SCENARIO_AUTHORING_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!("{key} is declared to the boot loader but the migration seeds no row for it")
-        });
+        // Corrections first: a value UPDATEd after its INSERT is the one the
+        // store actually holds, and searching the seeds first would pin the
+        // superseded string.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&sql, key))
+            .unwrap_or_else(|| {
+                panic!("{key} is declared to the boot loader but the migration seeds no row for it")
+            });
         let in_fixture = fixture
             .get(*key)
             .unwrap_or_else(|| panic!("{key} is missing from TEST_SEED"));

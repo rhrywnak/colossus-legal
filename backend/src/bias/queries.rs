@@ -74,62 +74,6 @@ pub(super) fn subjects_with_tagged_statements() -> String {
     )
 }
 
-/// The filtered Evidence list — the Bias Explorer's main read.
-///
-/// Every filter is an `IS NULL OR …` predicate over a bound parameter, so one
-/// query serves all eight filter combinations and an absent filter is a Cypher
-/// NULL rather than a different query.
-///
-/// The subject filter is an `EXISTS { … }` subquery rather than a constraining
-/// `MATCH`, deliberately: the `OPTIONAL MATCH (e)-[:ABOUT]->(subject)` below it
-/// must still return **every** subject of a matching statement, not only the one
-/// filtered on. A constraining MATCH would silently narrow the `about` list on
-/// each card to the filtered subject.
-///
-/// `document_type` is projected from **`d.doc_type`** — the property the write
-/// paths actually set. See `bias::dto::DocumentRef` for why the wire name and
-/// the graph property differ.
-pub(super) fn filtered_evidence() -> String {
-    format!(
-        "
-            MATCH (e:Evidence)
-            WHERE e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''
-            MATCH (e)-[:{stated_by}]->(actor)
-            WHERE $actor_id IS NULL OR actor.id = $actor_id
-            WITH e, actor
-            WHERE $pattern_tag IS NULL
-               OR ANY(t IN split(e.pattern_tags, ',') WHERE trim(t) = $pattern_tag)
-            WITH e, actor
-            WHERE $subject_id IS NULL
-               OR EXISTS {{
-                    MATCH (e)-[:{about}]->(s)
-                    WHERE s.id = $subject_id
-               }}
-            OPTIONAL MATCH (e)-[:{about}]->(subject)
-            OPTIONAL MATCH (e)-[:{contained_in}]->(d:Document)
-            RETURN
-              e.id AS evidence_id,
-              coalesce(e.title, '') AS title,
-              e.verbatim_quote AS verbatim_quote,
-              e.page_number AS page_number,
-              e.pattern_tags AS pattern_tags_raw,
-              actor.id AS actor_id,
-              coalesce(actor.name, '') AS actor_name,
-              labels(actor)[0] AS actor_type,
-              subject.id AS subject_id,
-              subject.name AS subject_name,
-              CASE WHEN subject IS NULL THEN NULL ELSE labels(subject)[0] END AS subject_type,
-              d.id AS document_id,
-              d.title AS document_title,
-              d.doc_type AS document_type
-            ORDER BY actor.name, coalesce(d.title, ''), coalesce(e.page_number, 0)
-        ",
-        stated_by = schema::STATED_BY,
-        about = schema::ABOUT,
-        contained_in = schema::CONTAINED_IN,
-    )
-}
-
 /// Hydrate a known set of Evidence ids — the curation panel's read.
 ///
 /// RETURN columns are a SUPERSET of [`filtered_evidence`]'s: this query and
@@ -251,75 +195,18 @@ mod tests {
         assert!(actors_with_tagged_statements().contains(&format!("-[:{}]->", schema::STATED_BY)));
         assert!(subjects_with_tagged_statements().contains(&format!("-[:{}]->", schema::ABOUT)));
 
-        let filtered = filtered_evidence();
-        assert!(filtered.contains(&format!("-[:{}]->(actor)", schema::STATED_BY)));
-        assert!(filtered.contains(&format!("-[:{}]->(subject)", schema::ABOUT)));
-        assert!(filtered.contains(&format!("-[:{}]->(d:Document)", schema::CONTAINED_IN)));
+        // `filtered_evidence()` was the third query asserted here and is
+        // removed with `POST /api/bias/query` (nav cleanup Part 2). The two
+        // FILTER queries above stay, and so does the rule they pin: every
+        // relationship name is interpolated from `neo4j::schema`, so a rename
+        // there flows here at compile time.
+        assert!(evidence_by_ids().contains(&format!("-[:{}]->(d:Document)", schema::CONTAINED_IN)));
     }
 
-    /// The `EXISTS { … }` braces survive `format!` as single braces. A missed
-    /// escape is a compile error, but a doubled one that rendered `{{` into the
-    /// query would be a runtime Cypher syntax error — so pin the rendered text.
-    #[test]
-    fn exists_subquery_renders_single_braces() {
-        let q = filtered_evidence();
-        assert!(
-            q.contains("OR EXISTS {\n"),
-            "EXISTS block must open with one brace"
-        );
-        assert!(
-            !q.contains("{{"),
-            "no doubled braces may reach the query text"
-        );
-        assert!(
-            !q.contains("}}"),
-            "no doubled braces may reach the query text"
-        );
-    }
-
-    /// The subject filter must stay an `EXISTS` subquery. Rewriting it as a
-    /// constraining `MATCH (e)-[:ABOUT]->(target {id: $subject_id})` would also
-    /// narrow the `about` list rendered on each card — a silent data loss, not a
-    /// visible failure.
-    #[test]
-    fn subject_filter_stays_an_exists_subquery_not_a_constraining_match() {
-        let q = filtered_evidence();
-        assert!(q.contains("$subject_id IS NULL"));
-        assert!(q.contains("OR EXISTS {"));
-        assert!(
-            q.contains(&format!(
-                "OPTIONAL MATCH (e)-[:{}]->(subject)",
-                schema::ABOUT
-            )),
-            "the unfiltered subject projection must survive"
-        );
-    }
-
-    /// Every filter is optional and NULL-tolerant, so one query serves all eight
-    /// combinations. A filter that lost its `IS NULL` guard would silently return
-    /// nothing when unset instead of everything.
-    #[test]
-    fn every_filter_is_null_tolerant() {
-        let q = filtered_evidence();
-        for guard in [
-            "$actor_id IS NULL OR actor.id = $actor_id",
-            "$pattern_tag IS NULL",
-            "$subject_id IS NULL",
-        ] {
-            assert!(q.contains(guard), "missing NULL guard: {guard}");
-        }
-    }
-
-    /// The document type is read from `doc_type`, the property the write paths
-    /// set — never `document_type`, which has never existed on a Document node.
-    /// The repo-wide scan in `neo4j::schema` enforces this globally; this pins it
-    /// at the query that regressed.
-    #[test]
-    fn document_type_is_projected_from_the_real_property() {
-        let q = filtered_evidence();
-        assert!(q.contains("d.doc_type AS document_type"));
-        assert!(!q.contains("d.document_type"));
-    }
+    // `document_type_is_projected_from_the_real_property` was asserted against
+    // `filtered_evidence()` and is removed with it. The rule it pinned — read
+    // `d.doc_type`, never `d.document_type` — is enforced repo-wide by the scan
+    // in `neo4j::schema`, and the two surviving hydrate queries assert it below.
 
     /// Tagged-only is the defining scope of this surface: an Evidence node with
     /// no `pattern_tags` is not a bias instance and must not appear in any of the
@@ -328,10 +215,13 @@ mod tests {
     fn every_query_is_scoped_to_tagged_evidence() {
         // `all_evidence_about_subject` is deliberately excluded — see its own
         // test; it is the exhaustive pool and must NOT be tag-gated.
+        // Two queries, not three: `filtered_evidence()` went with the Bias
+        // Explorer's query endpoint. `all_evidence_about_subject` is still
+        // deliberately excluded — see its own test; it is the exhaustive pool
+        // and must NOT be tag-gated.
         for q in [
             actors_with_tagged_statements(),
             subjects_with_tagged_statements(),
-            filtered_evidence(),
         ] {
             assert!(q.contains("e.pattern_tags IS NOT NULL AND e.pattern_tags <> ''"));
         }
@@ -387,7 +277,6 @@ mod tests {
         for q in [
             actors_with_tagged_statements(),
             subjects_with_tagged_statements(),
-            filtered_evidence(),
             evidence_by_ids(),
             all_evidence_about_subject(),
         ] {
