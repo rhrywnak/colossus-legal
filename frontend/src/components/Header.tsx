@@ -2,56 +2,10 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { logout } from "../services/auth";
-import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
-import NavDropdown, { type NavLeaf } from "./NavDropdown";
+import { ADMIN_ITEMS, isActivePath as isActive, NAV_ITEMS } from "./navItems";
+import NavDropdown from "./NavDropdown";
 
 const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
-
-// ─── Navigation items ────────────────────────────────────────────────────────
-// Most items are a flat link (`path`); two are dropdown GROUPS (`children`),
-// each rendered by the shared NavDropdown component:
-//   • "Proof Matrix ▾" — Matrix grid · Proof Review · Evidence explorer
-//   • "Trial Prep ▾"   — War Room dashboard · Bias · People
-// Evidence/Bias/People keep their existing routes/pages — only their nav
-// PLACEMENT moved under these groups. The case-scoped leaves (Matrix, Proof
-// Review, War Room) carry a `:slug` param resolved to DEFAULT_CASE_SLUG, the
-// single-case constant Home uses. `NavLeaf` is imported from NavDropdown.
-type NavItem = { label: string; path?: string; children?: NavLeaf[] };
-
-const NAV_ITEMS: NavItem[] = [
-  { label: "Home", path: "/" },
-  {
-    label: "Proof Matrix",
-    children: [
-      { label: "Matrix", path: `/cases/${DEFAULT_CASE_SLUG}/proof-matrix` },
-      { label: "Proof Review", path: `/cases/${DEFAULT_CASE_SLUG}/proof-review` },
-      { label: "Evidence", path: "/explorer" },
-    ],
-  },
-  {
-    label: "Trial Prep",
-    children: [
-      { label: "War Room", path: `/cases/${DEFAULT_CASE_SLUG}/trial-prep` },
-      { label: "Bias", path: "/bias-explorer" },
-      { label: "People", path: "/people" },
-    ],
-  },
-  // Top-level, not nested under a group: the whole point of Case Health is that
-  // the connection rate is impossible to overlook, and a leaf two clicks deep
-  // inside a dropdown would reintroduce exactly the invisibility it exists to
-  // remove. Case-scoped, so it carries the same `:slug` param as the leaves above.
-  { label: "Case Health", path: `/cases/${DEFAULT_CASE_SLUG}/case-health` },
-  { label: "Documents", path: "/documents" },
-  { label: "Chat", path: "/ask" },
-];
-
-// Admin-only items — shown when user.permissions.is_admin
-const ADMIN_ITEMS = [
-  { label: "Admin", path: "/admin" },
-  // The configuration surface required by v2 §2b. Admin-gated by the same flag
-  // as the rest of this list; the backend enforces it on both routes regardless.
-  { label: "Settings", path: "/settings" },
-];
 
 // ─── Styles ──────────────────────────────────────────────────────────────────
 /**
@@ -172,12 +126,6 @@ const dropdownDivider: React.CSSProperties = {
   height: "1px", backgroundColor: "var(--border-default)", margin: "0.25rem 0",
 };
 
-// ─── Helper: is this nav item active? ────────────────────────────────────────
-function isActive(itemPath: string, currentPath: string): boolean {
-  if (itemPath === "/") return currentPath === "/";
-  return currentPath === itemPath || currentPath.startsWith(itemPath + "/");
-}
-
 // ─── Component ───────────────────────────────────────────────────────────────
 const Header: React.FC = () => {
   const location = useLocation();
@@ -250,27 +198,17 @@ const Header: React.FC = () => {
             </Link>
           ),
         )}
-        {user?.permissions.is_admin && ADMIN_ITEMS.map((item) => (
-          <Link
-            key={item.path}
-            to={item.path}
-            style={isActive(item.path, location.pathname) ? navLinkActive : navLinkBase}
-            onMouseEnter={(e) => {
-              if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "var(--text-primary)";
-                e.currentTarget.style.backgroundColor = "var(--bg-page)";
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive(item.path, location.pathname)) {
-                e.currentTarget.style.color = "var(--text-muted)";
-                e.currentTarget.style.backgroundColor = "transparent";
-              }
-            }}
-          >
-            {item.label}
-          </Link>
-        ))}
+        {/* Admin is a GROUP now, not two flat links. Same dropdown component
+            as Trial Prep — one implementation of "a menu", so Esc, the
+            click-outside dismissal and the ARIA state cannot be right in one
+            menu and missing from the other. */}
+        {user?.permissions.is_admin && (
+          <NavDropdown
+            label="Admin"
+            items={ADMIN_ITEMS}
+            currentPath={location.pathname}
+          />
+        )}
       </nav>
 
       {/* Right — User dropdown */}

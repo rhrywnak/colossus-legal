@@ -1,6 +1,8 @@
 import React from "react";
-import { Navigate, Route, Routes, useLocation } from "react-router-dom";
+import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
 import Header from "./components/Header";
+import { DEFAULT_CASE_SLUG } from "./services/caseHeader";
+import { proofMatrixPath, proofReviewTabPath } from "./utils/routePaths";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
 import AllegationsPage from "./pages/AllegationsPage";
@@ -9,7 +11,6 @@ import AllegationDetailPage from "./pages/AllegationDetailPage";
 import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
-import ProofReviewPage from "./pages/ProofReviewPage";
 import RehearsalPage from "./pages/RehearsalPage";
 import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
@@ -17,8 +18,6 @@ import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import PracticePage from "./pages/PracticePage";
 import PracticeQuestionReviewPage from "./pages/PracticeQuestionReviewPage";
 import PracticeSessionPage from "./pages/PracticeSessionPage";
-import BiasExplorer from "./pages/BiasExplorer";
-import EvidenceExplorerPage from "./pages/EvidenceExplorerPage";
 import GraphPage from "./pages/GraphPage";
 import QueriesPage from "./pages/QueriesPage";
 import AskPage from "./pages/AskPage";
@@ -39,17 +38,53 @@ import TimelinePage from "./pages/TimelinePage";
 /**
  * Redirect that preserves the query string while changing the path.
  *
- * ## React Learning: why a wrapper instead of `<Navigate to="/explorer">`
- * A bare `<Navigate to="/explorer" replace />` drops the current URL's `?query`.
- * The Phase 2D Count tables link to `/evidence?element_id=…`, and `/evidence`
- * is an alias that redirects to the real Evidence tab at `/explorer` — so a bare
- * redirect would silently lose `element_id` on the hop. `useLocation()` exposes
- * the live location, and `Navigate`'s `to` accepts a `{ pathname, search }`
- * object, so we forward the search string verbatim to the target path.
+ * ## React Learning: why a wrapper instead of `<Navigate to="/somewhere">`
+ * A bare `<Navigate to="…" replace />` drops the current URL's `?query`. The
+ * Phase 2D Count tables link to `/evidence?element_id=…`; `useLocation()`
+ * exposes the live location, and `Navigate`'s `to` accepts a
+ * `{ pathname, search }` object, so we forward the search string verbatim.
  */
 const RedirectPreservingQuery: React.FC<{ to: string }> = ({ to }) => {
   const location = useLocation();
   return <Navigate to={{ pathname: to, search: location.search }} replace />;
+};
+
+// ─── The one-release redirects (nav cleanup, Part 2) ─────────────────────────
+//
+// ## REMOVED IN v2.1 — every redirect in this block
+//
+// Each address below was real in v2.0 and is not real in v2.1. They exist so a
+// bookmark Roman or Chuck already has lands on the page that replaced it rather
+// than on the 404, for exactly one release. Each is pinned by a test in
+// `utils/__tests__/routePaths.test.ts`; deleting one without deleting its test
+// is a red build.
+//
+// The two `/pipeline*` redirects below them predate this task and were undated.
+// They are dated with the rest here rather than left as the one undated pair in
+// a block that is otherwise explicit about when it dies.
+//
+// `/explorer` and `/evidence` point at the proof matrix for the DEFAULT case:
+// they were case-less addresses and the matrix is not, so the slug has to come
+// from somewhere. `DEFAULT_CASE_SLUG` is the same constant Home and the nav
+// table use — this app is single-case, and the constant is where that fact is
+// already written down.
+const REDIRECT_TO_MATRIX = proofMatrixPath(DEFAULT_CASE_SLUG);
+
+/**
+ * `/cases/:slug/proof-review` → the matrix, opened on its review tab.
+ *
+ * A component and not a bare `<Navigate to="…">` because the destination is
+ * case-scoped: the slug has to be read off the route that matched before it can
+ * be composed into the new address. Falling back to the default slug rather than
+ * 404-ing on a missing param — the route cannot match without one, so the
+ * fallback is unreachable, and an unreachable branch that lands somewhere real
+ * is better than one that throws.
+ *
+ * REMOVED IN v2.1 with the route above it.
+ */
+const ProofReviewTabRedirect: React.FC = () => {
+  const { slug } = useParams<{ slug: string }>();
+  return <Navigate to={proofReviewTabPath(slug ?? DEFAULT_CASE_SLUG)} replace />;
 };
 
 const App: React.FC = () => {
@@ -68,7 +103,15 @@ const App: React.FC = () => {
               <Route path="/claims" element={<MotionClaimsPage />} />
               <Route path="/documents" element={<DocumentsPage />} />
               <Route path="/documents/:id" element={<DocumentWorkspaceTabs />} />
-              <Route path="/evidence" element={<RedirectPreservingQuery to="/explorer" />} />
+              {/* REMOVED IN v2.1 — Evidence is gone; the matrix answers the
+                  same question. Query preserved: the Count tables link here
+                  with `?element_id=…`. */}
+              <Route path="/evidence" element={<RedirectPreservingQuery to={REDIRECT_TO_MATRIX} />} />
+              <Route path="/explorer" element={<RedirectPreservingQuery to={REDIRECT_TO_MATRIX} />} />
+              {/* REMOVED IN v2.1 — the Bias page is gone and nothing replaces
+                  it, so Home is the honest destination. The bias FILTER half of
+                  the backend stays and is used by the scenario surfaces. */}
+              <Route path="/bias-explorer" element={<Navigate to="/" replace />} />
               <Route path="/damages" element={<HarmsPage />} />
               <Route path="/people" element={<People />} />
               <Route path="/people/:id" element={<PersonDetailPage />} />
@@ -78,7 +121,11 @@ const App: React.FC = () => {
               <Route path="/cases/:slug/counts/:countId" element={<CountDetailPage />} />
               <Route path="/cases/:slug/case-health" element={<CaseHealthPage />} />
               <Route path="/cases/:slug/proof-matrix" element={<ProofMatrixPage />} />
-              <Route path="/cases/:slug/proof-review" element={<ProofReviewPage />} />
+              {/* REMOVED IN v2.1 — Proof Review is a TAB on the matrix now.
+                  `ProofReviewTabRedirect` is a component rather than a bare
+                  `<Navigate>` because the target is case-scoped: the slug has to
+                  be read off the matched route before it can be re-composed. */}
+              <Route path="/cases/:slug/proof-review" element={<ProofReviewTabRedirect />} />
               <Route path="/cases/:slug/rehearsal" element={<RehearsalPage />} />
               {/* Task 2.11 B2: the per-scenario rehearsal address. Selects within
                   the payload the page already loaded; a code nobody declared
@@ -107,15 +154,24 @@ const App: React.FC = () => {
                 element={<PracticeQuestionReviewPage />}
               />
               <Route path="/contradictions" element={<ContradictionsPage />} />
-              <Route path="/explorer" element={<EvidenceExplorerPage />} />
-              <Route path="/bias-explorer" element={<BiasExplorer />} />
               <Route path="/graph" element={<GraphPage />} />
               <Route path="/queries" element={<QueriesPage />} />
               <Route path="/search" element={<SearchPage />} />
               <Route path="/ask" element={<AskPage />} />
               <Route path="/timeline" element={<TimelinePage />} />
-              <Route path="/admin" element={<Admin />} />
-              <Route path="/settings" element={<SettingsPage />} />
+              {/* Admin: five ADDRESSES where there were nine tabs in component
+                  state. A tab nobody can bookmark, return to with Back, or link
+                  to is a place that does not exist as far as the browser is
+                  concerned. */}
+              <Route path="/admin" element={<Admin group="overview" />} />
+              <Route path="/admin/prompts" element={<Admin group="prompts" />} />
+              <Route path="/admin/data" element={<Admin group="data" />} />
+              <Route path="/admin/logs" element={<Admin group="logs" />} />
+              <Route path="/admin/settings" element={<SettingsPage />} />
+              {/* REMOVED IN v2.1 — Settings moved under Admin. Roman's bookmark. */}
+              <Route path="/settings" element={<Navigate to="/admin/settings" replace />} />
+              {/* REMOVED IN v2.1 — predates this task, dated with the rest
+                  rather than left as the one undated pair in the block. */}
               <Route path="/pipeline" element={<Navigate to="/documents" replace />} />
               <Route path="/pipeline/:id" element={<Navigate to="/documents" replace />} />
               {/* Catch-all, and it must stay LAST: React Router v6 ranks routes by

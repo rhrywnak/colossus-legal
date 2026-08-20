@@ -265,3 +265,24 @@ export async function fetchQuestionReview(
   }
   return parsed as PracticeReview;
 }
+
+/**
+ * Place one question where a drag dropped it.
+ *
+ * `before` is the question it lands immediately ABOVE; `null` means the end of
+ * its side. A drop that names no position (onto itself, or across sides) is a
+ * 200 that changed nothing — see the handler's note on why it is not a 400.
+ *
+ * A separate call from `moveQuestion` because they are different operations:
+ * the arrows move one step and swap two rows, this re-sequences a side.
+ */
+export async function reorderQuestion(
+  questionId: string,
+  before: string | null,
+): Promise<void> {
+  const response = await post(
+    `/api/practice/questions/${encodeURIComponent(questionId)}/reorder`,
+    { before },
+  );
+  await orThrow<unknown>(response, "That question was not moved");
+}

@@ -648,12 +648,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
-        45,
-        "PRACTICE v1 Part B, mockup v4 + the 08-19 hotfix: the deck editor, the \
-         change vocabulary, the badges, and the changed-since box. Part B's two \
-         'Editing as' strings were retired with the picker; the hotfix's busy \
-         hint and discard confirm took their places, so the count is unchanged \
-         from Part B by coincidence and not by accident"
+        46,
+        "PRACTICE v1 Part B (45), plus the nav cleanup's drag grip. Part B's two \
+         'Editing as' strings were retired with the picker and the hotfix's busy \
+         hint and discard confirm took their places, so the hotfix was net zero; \
+         the drag grip is the one addition on top"
     );
     assert_eq!(
         PRACTICE_REVIEW_WORDING_KEYS.len(),

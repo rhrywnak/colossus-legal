@@ -30,6 +30,7 @@ import type { PracticeQuestion, PracticeWording } from "../../services/practice"
 import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
+import { DragHandle, reorderProps, useDropTarget } from "../dragReorder";
 import * as d from "./practiceDeckStyles";
 import * as e from "./practiceEditorStyles";
 import PracticeRowEdit from "./PracticeRowEdit";
@@ -91,6 +92,10 @@ interface Props {
   /** True when this row's inline field stack is open. */
   fieldsOpen: boolean;
   onToggleFields: () => void;
+  /** The row a drag picked up, or null. The list owns it — a drop needs both ends. */
+  dragging: string | null;
+  onPickUp: () => void;
+  onDropHere: () => void;
 }
 
 const PracticeDeckRow: React.FC<Props> = ({
@@ -110,6 +115,9 @@ const PracticeDeckRow: React.FC<Props> = ({
   startingOne,
   fieldsOpen,
   onToggleFields,
+  dragging,
+  onPickUp,
+  onDropHere,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const skipped = controls.skippedToday.has(question.id);
@@ -119,14 +127,30 @@ const PracticeDeckRow: React.FC<Props> = ({
   // cannot put back. A HIDDEN row is greyed instead — only the editor sees it
   // at all, and it is not struck because nothing about it is crossed out.
   const muted = skipped ? d.questionSkipped : question.hidden ? e.hiddenRow : undefined;
+  const [dropOver, setDropOver] = useDropTarget();
+  // Drag is an EDIT-MODE affordance only. Outside it the row's controls are
+  // Marie's, and a deck that re-ordered itself under her hand while she was
+  // reading it would be the page rewriting the questions she is about to face.
+  const canDrag = editor.editing && editor.ready;
 
   return (
     <div
+      {...reorderProps({
+        enabled: canDrag,
+        onPickUp,
+        onDropHere,
+        onHover: setDropOver,
+      })}
       style={{
         ...d.questionRow,
         ...(editor.editing ? { gridTemplateColumns: "34px 56px 1fr auto" } : {}),
         ...(flagged ? d.questionRowFlagged : {}),
         ...(last ? d.questionRowLast : {}),
+        // Where the drop would land. Only on OTHER rows: highlighting the row
+        // being dragged would say it is about to move onto itself.
+        ...(dropOver && dragging !== null && dragging !== question.id
+          ? { borderTop: "2px solid var(--practice-navy)" }
+          : {}),
       }}
     >
       <div style={d.questionNumber}>{number}</div>
@@ -135,6 +159,11 @@ const PracticeDeckRow: React.FC<Props> = ({
           fourth grid column for it rather than overlaying the number. */}
       {editor.editing && (
         <div>
+          {/* The grip, and then the arrows under it. Both do the same job: the
+              drag is faster with a mouse, the arrows are the KEYBOARD path and
+              stay for exactly that reason — a re-order that only a mouse can
+              perform is one Chuck cannot do from the keyboard at all. */}
+          <DragHandle hint={w("editor_drag_hint")} style={{ fontSize: 13 }} />
           <button
             type="button"
             style={e.arrowButton}

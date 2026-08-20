@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { allegationsPath } from "../utils/routePaths";
 import {
   getAllegationDetail,
   AllegationDetailResponse,
@@ -41,7 +42,11 @@ const AllegationDetailPage: React.FC = () => {
     if (idx > 0) {
       navigate(-1);
     } else {
-      navigate("/explorer");
+      // Cold start — a bookmark, with no history to go back to. This used to
+      // point at `/explorer` (the Evidence explorer), which the nav cleanup
+      // removes; the allegation LIST is where this page belongs and is already
+      // its own breadcrumb parent, so Back and the breadcrumb now agree.
+      navigate(allegationsPath());
     }
   };
 

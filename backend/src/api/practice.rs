@@ -122,6 +122,13 @@ fn part_b_routes() -> Router<AppState> {
             "/practice/questions/:question_id/move",
             post(post_move_question),
         )
+        // The drag's endpoint. A sibling of `/move` rather than a flag on it —
+        // one step and "put it here" are different operations, and the DTO says
+        // so rather than a comment.
+        .route(
+            "/practice/questions/:question_id/reorder",
+            post(super::practice_reorder::post_reorder_question),
+        )
         .route(
             "/practice/questions/:question_id/hidden",
             post(post_hide_question),

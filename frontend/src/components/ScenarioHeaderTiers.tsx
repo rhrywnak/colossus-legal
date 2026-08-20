@@ -6,7 +6,7 @@
 //
 //   eyebrow   SCENARIO
 //   left      S-2 · name · direction chip · [status segmented control]
-//   right     ✎ Edit · Rehearsal view → · Practice ▸ · | · Delete
+//   right     ✎ Edit · Rehearsal view · Practice · | · Delete
 //
 // ## What changed from 1.7C
 //
@@ -18,7 +18,7 @@
 //   label to learn the status — see `ScenarioStatusControl` for the full reasoning.
 // * The status control sits in the IDENTITY row, not the actions row. It is a
 //   statement about what this scenario IS, and v3 groups it with the name.
-// * "Rehearsal mode →" reads "Rehearsal view →", the mockup's wording, with its
+// * "Rehearsal mode →" reads "Rehearsal view", the mockup's wording, with its
 //   explanatory title attribute.
 // * `align-items: center` (v3) rather than `baseline` (1.7C) — the control and the
 //   chip are boxes now, and baseline alignment made them sit low against the title.
@@ -128,11 +128,36 @@ const deleteButtonStyle: React.CSSProperties = {
 };
 
 /** Mockup `.link`: accent, 13.5px, no underline. */
-const linkStyle: React.CSSProperties = {
-  color: "var(--accent-primary)",
-  fontSize: "13.5px",
+/**
+ * `Rehearsal view` — a BUTTON-shaped link, secondary, beside `✎ Edit`.
+ *
+ * ## Roman's ruling (2026-08-19 evening)
+ *
+ * They read as one arrow pointing at the other: `Rehearsal view →` and
+ * `Practice ▸` sat side by side, each ending in a glyph that points right, and
+ * the eye joined them into a single control with a decoration in the middle. So
+ * both lose their glyph and become plain buttons — the same size and shape as
+ * `✎ Edit`, which they sit next to and have always been visually unlike.
+ *
+ * Secondary, because it is the read-only study page; `Practice` beside it is
+ * where the work happens and takes the primary weight.
+ *
+ * `display: inline-block` and not the ghost button as-is: these are `<Link>`s,
+ * and an anchor is inline by default, so the button's vertical padding would
+ * not affect layout and the two would sit a few pixels above the real button.
+ */
+const secondaryActionStyle: React.CSSProperties = {
+  ...ghostButtonStyle,
+  display: "inline-block",
   textDecoration: "none",
   whiteSpace: "nowrap",
+};
+
+/** `Practice` — the primary of the pair. Same size, accent fill. */
+const primaryActionStyle: React.CSSProperties = {
+  ...secondaryActionStyle,
+  background: "var(--accent-primary)",
+  color: "var(--bg-surface)",
 };
 
 /**
@@ -143,8 +168,8 @@ const linkStyle: React.CSSProperties = {
  * that will not go anywhere does not read as one that will. An accent-coloured
  * link that silently does nothing is worse than either state alone.
  */
-const blockedLinkStyle: React.CSSProperties = {
-  ...linkStyle,
+const blockedActionStyle: React.CSSProperties = {
+  ...secondaryActionStyle,
   color: "var(--text-disabled)",
   cursor: "not-allowed",
 };
@@ -294,10 +319,10 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
           (ready ? (
             <Link
               to={rehearsalScenarioPath(slug, code)}
-              style={linkStyle}
+              style={secondaryActionStyle}
               title="Marie's testimony-prep view — shows scenarios marked Ready"
             >
-              Rehearsal view →
+              Rehearsal view
             </Link>
           ) : (
             // A `<span>`, not a disabled `<button>` or an `<a>` with no href: it
@@ -305,8 +330,8 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
             // exist yet. The reason sits in the title AND beside it, because the
             // hover-tooltip-as-only-explanation is exactly what let the broken
             // version look alive for eleven days.
-            <span style={blockedLinkStyle} title={blockedReason}>
-              Rehearsal view →
+            <span style={blockedActionStyle} title={blockedReason}>
+              Rehearsal view
             </span>
           ))}
         {blockedReason !== null && !ready && (
@@ -335,7 +360,7 @@ const ScenarioHeaderTiers: React.FC<Props> = ({
         {practiceLabel !== null && (
           <Link
             to={practicePath(slug, scenarioId)}
-            style={linkStyle}
+            style={primaryActionStyle}
             title="Twenty minutes, one accusation — Marie answers, and Chuck gets the sheet"
           >
             {practiceLabel}

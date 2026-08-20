@@ -90,7 +90,6 @@ import { matchesChip, type ChipFilter } from "./evidenceCardModel";
 import { rulingAcknowledgment, type RulingReceipt } from "./rulingAcknowledgment";
 import { keyboardShouldRule } from "./queueRegion";
 import type { AllegationOptions } from "../services/evidenceLinks";
-import { revertQuestionOverride, saveQuestionOverride } from "../services/evidenceSummary";
 
 // ─── §2c visual language ────────────────────────────────────────────────────
 
@@ -433,22 +432,6 @@ const CardQueue: React.FC<Props> = ({
   // A failure is re-thrown so the editor can keep the human's text on screen
   // beside the message; swallowing it here would close the editor over a
   // correction that was never stored.
-  const correctQuestion = useCallback(
-    async (graphNodeId: string, text: string) => {
-      await saveQuestionOverride(slug, graphNodeId, text);
-      await load();
-    },
-    [slug, load],
-  );
-
-  const revertQuestion = useCallback(
-    async (graphNodeId: string) => {
-      await revertQuestionOverride(slug, graphNodeId);
-      await load();
-    },
-    [slug, load],
-  );
-
   const selected = state.cards[state.index];
   const selectedId = selected?.graph_node_id ?? null;
 
@@ -561,8 +544,6 @@ const CardQueue: React.FC<Props> = ({
               )
             : null
         }
-        onCorrectQuestion={correctQuestion}
-        onRevertQuestion={revertQuestion}
         linkOptions={linkOptions}
         // A link names its card, exactly as a ruling does (ruling R1). The id
         // comes up from the card's own render scope; this queue never guesses.

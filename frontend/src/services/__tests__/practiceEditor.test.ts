@@ -23,6 +23,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   addQuestion,
+  reorderQuestion,
   signedInAs,
   editQuestion,
   fetchQuestionReview,
@@ -121,6 +122,48 @@ describe("moveQuestion", () => {
   it("reports a failure as a question that was NOT moved", async () => {
     failFetch(500);
     await expect(moveQuestion(QUESTION, "down")).rejects.toThrow(
+      /was not moved \(HTTP 500/,
+    );
+  });
+});
+
+describe("reorderQuestion", () => {
+  it("POSTs the neighbour the dropped question lands above", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+    await reorderQuestion(QUESTION, "55555555-5555-5555-5555-555555555555");
+
+    const [url, options] = mock.mock.calls[0];
+    // Spelled out rather than composed from the same constant the code uses:
+    // the .377 defect was a client calling a path the router did not serve.
+    expect(url).toContain(`/api/practice/questions/${QUESTION}/reorder`);
+    expect(options.method).toBe("POST");
+    expect(JSON.parse(options.body)).toEqual({
+      before: "55555555-5555-5555-5555-555555555555",
+    });
+  });
+
+  it("sends null for a drop past the last row", async () => {
+    // `null` means the end of the side. It must reach the wire AS null — an
+    // omitted field would be indistinguishable from a malformed request, and
+    // the server's `#[serde(default)]` would read it as the same thing by luck
+    // rather than by contract.
+    const mock = okFetch({ question_id: QUESTION });
+    await reorderQuestion(QUESTION, null);
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ before: null });
+  });
+
+  it("escapes the id rather than letting a slash become a path segment", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+    await reorderQuestion("id/with/slashes", null);
+    expect(mock.mock.calls[0][0]).toContain("id%2Fwith%2Fslashes");
+  });
+
+  it("reports a failure as a question that was NOT moved", async () => {
+    // The same sentence `moveQuestion` uses, deliberately: to the person who
+    // dragged it, the arrows and the drag are one operation, and two different
+    // failure sentences for it would read as two different problems.
+    failFetch(500);
+    await expect(reorderQuestion(QUESTION, null)).rejects.toThrow(
       /was not moved \(HTTP 500/,
     );
   });

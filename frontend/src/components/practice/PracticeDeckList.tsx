@@ -43,6 +43,7 @@ import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
 import PracticeAddQuestion from "./PracticeAddQuestion";
 import PracticeDeckRow from "./PracticeDeckRow";
+import { dropPosition } from "../dragReorder";
 import * as d from "./practiceDeckStyles";
 import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
@@ -113,6 +114,9 @@ const PracticeDeckList: React.FC<Props> = ({
   // Which row has its EDITOR fields open, and whether the add form is showing.
   const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
   const [adding, setAdding] = React.useState(false);
+  // Which row a drag picked up. Held HERE and not on the row, because a drop is
+  // a fact about two rows and only the list knows both.
+  const [dragging, setDragging] = React.useState<string | null>(null);
 
   /**
    * Turn the editor off, asking first if a row's fields are still open.
@@ -234,6 +238,17 @@ const PracticeDeckList: React.FC<Props> = ({
               onPracticeOne={() => onPracticeOne(question)}
               onReview={() => onReview(question)}
               startingOne={startingOne}
+              dragging={dragging}
+              onPickUp={() => setDragging(question.id)}
+              onDropHere={() => {
+                if (dragging === null) return;
+                // The browser computes NEIGHBOURS, never an ordinal — the
+                // position is the server's, derived from what is stored. Same
+                // rule the scenario-facts drag follows.
+                const landing = dropPosition(questions, (q) => q.id, dragging, question.id);
+                setDragging(null);
+                if (landing !== null) editor.reorder(dragging, landing.before);
+              }}
               fieldsOpen={fieldsFor === question.id}
               onToggleFields={() =>
                 setFieldsFor((was) => (was === question.id ? null : question.id))

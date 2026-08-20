@@ -47,7 +47,7 @@ use crate::{
 use super::practice::repo_error;
 
 /// Read one question, or 404 naming it.
-async fn require_question(
+pub(super) async fn require_question(
     state: &AppState,
     question_id: Uuid,
 ) -> Result<PracticeQuestionRecord, AppError> {

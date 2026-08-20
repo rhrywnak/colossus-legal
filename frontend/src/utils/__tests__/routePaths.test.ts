@@ -43,12 +43,27 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
+  adminDataPath,
+  adminLogsPath,
+  adminPath,
+  adminPromptsPath,
+  adminSettingsPath,
+  allegationsPath,
+  askPath,
+  caseHealthPath,
+  documentPath,
+  documentsPath,
+  homePath,
+  peoplePath,
   practicePath,
   practiceQuestionPath,
   practiceSessionPath,
   rehearsalPath,
+  proofMatrixPath,
+  proofReviewTabPath,
   rehearsalScenarioPath,
   scenarioPagePath,
+  timelinePath,
   trialPrepPath,
 } from "../routePaths";
 
@@ -177,7 +192,59 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
     emit: () => practiceQuestionPath("awad v cfs", "id/with/slashes", "qid/with/slashes"),
   },
+  // ── The navigation bar (nav cleanup, Part 2) ─────────────────────────────
+  //
+  // Every path in `NAV_ITEMS` / `ADMIN_ITEMS` is one of these builders, so the
+  // whole bar is covered by the assertion below. That is what makes the
+  // removals in that task safe to do in one sweep: a menu entry left pointing
+  // at a route that no longer exists is a RED TEST here, not a 404 in front of
+  // Chuck.
+  { name: "homePath", route: "/", emit: homePath },
+  { name: "documentsPath", route: "/documents", emit: documentsPath },
+  { name: "documentPath", route: "/documents/:id", emit: () => documentPath("doc-1") },
+  {
+    name: "documentPath (id needs escaping)",
+    route: "/documents/:id",
+    emit: () => documentPath("id/with/slashes"),
+  },
+  { name: "askPath", route: "/ask", emit: askPath },
+  { name: "peoplePath", route: "/people", emit: peoplePath },
+  { name: "timelinePath", route: "/timeline", emit: timelinePath },
+  { name: "allegationsPath", route: "/allegations", emit: allegationsPath },
+  {
+    name: "proofMatrixPath",
+    route: "/cases/:slug/proof-matrix",
+    emit: () => proofMatrixPath("awad-v-cfs"),
+  },
+  {
+    name: "proofMatrixPath (slug needs escaping)",
+    route: "/cases/:slug/proof-matrix",
+    emit: () => proofMatrixPath("awad v cfs/2"),
+  },
+  {
+    name: "caseHealthPath",
+    route: "/cases/:slug/case-health",
+    emit: () => caseHealthPath("awad-v-cfs"),
+  },
+  { name: "adminPath", route: "/admin", emit: adminPath },
+  { name: "adminPromptsPath", route: "/admin/prompts", emit: adminPromptsPath },
+  { name: "adminDataPath", route: "/admin/data", emit: adminDataPath },
+  { name: "adminLogsPath", route: "/admin/logs", emit: adminLogsPath },
+  { name: "adminSettingsPath", route: "/admin/settings", emit: adminSettingsPath },
 ];
+
+/**
+ * The one builder that emits a QUERY as well as a path.
+ *
+ * Kept out of `BUILDERS` because that table's assertion compares whole strings
+ * against declared routes, and `?tab=review` is not part of any route — it is a
+ * state of the page the path names. Asserted separately, on both halves.
+ */
+const TAB_BUILDER = {
+  name: "proofReviewTabPath",
+  route: "/cases/:slug/proof-matrix",
+  emit: () => proofReviewTabPath("awad-v-cfs"),
+};
 
 describe("the route-side URL guard", () => {
   it.each(BUILDERS)("$name emits a path App.tsx actually declares", ({ route, emit }) => {
@@ -186,6 +253,18 @@ describe("the route-side URL guard", () => {
     // that drifted onto a DIFFERENT real route would pass a null check while
     // sending the reader somewhere nobody asked for.
     expect(routeFor(path), `${path} matches no declared route — it would 404`).toBe(route);
+  });
+
+  it("proofReviewTabPath lands on the matrix, carrying its tab", () => {
+    const emitted = TAB_BUILDER.emit();
+    const [path, query] = emitted.split("?");
+    expect(routeFor(path), `${path} matches no declared route — it would 404`).toBe(
+      TAB_BUILDER.route,
+    );
+    // The query half is the whole point: without it the redirect from the old
+    // `/…/proof-review` address lands on the matrix's DEFAULT tab, and Roman's
+    // bookmark quietly stops going where it used to.
+    expect(query).toBe("tab=review");
   });
 
   it("emits no path under /scenarios/ — the .382 defect, by name", () => {

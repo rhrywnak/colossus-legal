@@ -10,6 +10,7 @@ import AdminPrompts from "../components/admin/AdminPrompts";
 import AdminSchemas from "../components/admin/AdminSchemas";
 import AdminSystemPrompts from "../components/admin/AdminSystemPrompts";
 import { AdminStatusResponse, getAdminStatus } from "../services/admin";
+import { ADMIN_GROUPS, defaultPanel, type AdminGroup, type AdminPanel } from "./adminGroups";
 
 // ── Styles ────────────────────────────────────────────────────────────────────
 
@@ -49,28 +50,6 @@ const deniedStyle: React.CSSProperties = {
   fontSize: "0.9rem",
 };
 
-type Tab =
-  | "metrics"
-  | "indexing"
-  | "chats"
-  | "audit"
-  | "models"
-  | "profiles"
-  | "prompts"
-  | "schemas"
-  | "systemPrompts";
-
-const TABS: { id: Tab; label: string }[] = [
-  { id: "metrics", label: "Metrics" },
-  { id: "indexing", label: "Indexing" },
-  { id: "chats", label: "Chats" },
-  { id: "audit", label: "Audit" },
-  { id: "models", label: "Models" },
-  { id: "profiles", label: "Profiles" },
-  { id: "prompts", label: "Prompts" },
-  { id: "schemas", label: "Schemas" },
-  { id: "systemPrompts", label: "System Prompts" },
-];
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -104,16 +83,43 @@ const statusDotStyle = (ok: boolean): React.CSSProperties => ({
   marginRight: "0.3rem",
 });
 
-const Admin: React.FC = () => {
+/**
+ * One admin area. Which one is decided by the ROUTE, not by a click.
+ *
+ * `group` arrives as a prop from `App.tsx` rather than being read from
+ * `useParams`: the five groups are five declared routes with fixed paths, so
+ * the value is known statically at the route and a param would let a typo in the
+ * URL produce a group nothing in `ADMIN_GROUPS` describes.
+ */
+const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
   const { user, loading } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>("metrics");
+  const spec = ADMIN_GROUPS[group];
+  const [activePanel, setActivePanel] = useState<AdminPanel | null>(defaultPanel(group));
   const [status, setStatus] = useState<AdminStatusResponse | null>(null);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
-  // Fetch backend status on mount (only if admin)
+  // Moving between groups is a route change, and React re-uses this component
+  // across it — so without this the sub-tab from the group just left would
+  // survive into the new one and render a panel that group does not list.
   useEffect(() => {
-    if (!loading && user?.permissions.is_admin) {
-      getAdminStatus().then(setStatus).catch(() => {});
-    }
+    setActivePanel(defaultPanel(group));
+  }, [group]);
+
+  // Fetch backend status on mount (only if admin).
+  //
+  // Standing Rule 1: the `.catch(() => {})` this replaces swallowed the failure
+  // whole — the status strip simply did not appear, which is indistinguishable
+  // from "this group does not show one". A failed status read now says so.
+  useEffect(() => {
+    if (loading || !user?.permissions.is_admin) return;
+    setStatusError(null);
+    getAdminStatus()
+      .then(setStatus)
+      .catch((error: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error("admin: the backend status could not be read", error);
+        setStatusError("The backend status could not be read. The stores may still be up.");
+      });
   }, [loading, user]);
 
   // Read environment/version from runtime config (injected by Ansible)
@@ -144,14 +150,19 @@ const Admin: React.FC = () => {
     <div style={{ paddingTop: "1.5rem", paddingBottom: "3rem" }}>
       <div style={{ display: "flex", alignItems: "center", gap: "0.75rem", margin: "0 0 0.5rem" }}>
         <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text-primary)", margin: 0, letterSpacing: "-0.02em" }}>
-          Admin
+          {spec.heading}
         </h1>
         <span style={envBadgeStyle(environment)}>{environment}</span>
         <span style={{ fontSize: "0.76rem", color: "var(--text-muted)", fontWeight: 500 }}>v{version}</span>
       </div>
 
-      {/* Backend connectivity status */}
-      {status && (
+      {/* Backend connectivity status — Overview and Data only. */}
+      {spec.stores && statusError !== null && (
+        <div style={{ marginBottom: "1rem", fontSize: "0.76rem", color: "var(--state-danger-strong)" }} role="alert">
+          {statusError}
+        </div>
+      )}
+      {spec.stores && status && (
         <div style={{ display: "flex", gap: "1rem", marginBottom: "1rem", fontSize: "0.76rem", color: "var(--text-secondary)" }}>
           <span><span style={statusDotStyle(status.neo4j_connected)} />Neo4j</span>
           <span><span style={statusDotStyle(status.qdrant_connected)} />Qdrant</span>
@@ -159,29 +170,34 @@ const Admin: React.FC = () => {
         </div>
       )}
 
-      {/* Tabs */}
-      <div style={tabBarStyle}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.id}
-            style={activeTab === tab.id ? tabActive : tabBase}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* Sub-tabs. A group with ONE panel draws no bar: a single tab is a
+          control that cannot do anything, and rendering it would be the page
+          offering a choice it does not have. */}
+      {spec.panels.length > 1 && (
+        <div style={tabBarStyle}>
+          {spec.panels.map((panel) => (
+            <button
+              key={panel.id}
+              style={activePanel === panel.id ? tabActive : tabBase}
+              aria-pressed={activePanel === panel.id}
+              onClick={() => setActivePanel(panel.id)}
+            >
+              {panel.label}
+            </button>
+          ))}
+        </div>
+      )}
 
-      {/* Panels */}
-      {activeTab === "metrics" && <AdminMetrics />}
-      {activeTab === "indexing" && <AdminIndex />}
-      {activeTab === "chats" && <AdminChats />}
-      {activeTab === "audit" && <AdminAudit />}
-      {activeTab === "models" && <AdminModels />}
-      {activeTab === "profiles" && <AdminProfiles />}
-      {activeTab === "prompts" && <AdminPrompts />}
-      {activeTab === "schemas" && <AdminSchemas />}
-      {activeTab === "systemPrompts" && <AdminSystemPrompts />}
+      {/* Panels — every one of the nine unchanged inside, re-homed only. */}
+      {activePanel === "metrics" && <AdminMetrics />}
+      {activePanel === "indexing" && <AdminIndex />}
+      {activePanel === "chats" && <AdminChats />}
+      {activePanel === "audit" && <AdminAudit />}
+      {activePanel === "models" && <AdminModels />}
+      {activePanel === "profiles" && <AdminProfiles />}
+      {activePanel === "prompts" && <AdminPrompts />}
+      {activePanel === "schemas" && <AdminSchemas />}
+      {activePanel === "systemPrompts" && <AdminSystemPrompts />}
     </div>
   );
 };

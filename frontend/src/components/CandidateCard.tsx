@@ -174,11 +174,6 @@ export const CandidateCard: React.FC<{
   onRule: (key: RulingKey) => void;
   /** True when I or E was just refused on THIS card (the reducer's `notice`). */
   keyboardRefused?: boolean;
-  /** Save a human's correction of THIS card's question (task 1.7F Part B).
-   *  Already bound to this card's id by the list, exactly as `onRule` is. */
-  onCorrectQuestion: (text: string) => Promise<void>;
-  /** Restore the machine's own question by deleting the correction. */
-  onRevertQuestion: () => Promise<void>;
   /** The accusations THIS card's link panel offers, and its words (task 2.10). */
   linkOptions: AllegationOptions | null;
   /** Save this card's links. Bound by the list, exactly as `onRule` is. */
@@ -227,22 +222,6 @@ export const CandidateCard: React.FC<{
   onSelect,
   onRule,
   keyboardRefused = false,
-  // RECEIVED AND DELIBERATELY NOT USED — do not "clean these up" (task R1).
-  //
-  // `QuestionLine` (task 1.7F Part B) is a complete, tested component that edits
-  // a card's question, and NOTHING RENDERS IT: the only reference to it outside
-  // its own file is a structure test. These two handlers are wired all the way
-  // from `CardQueue` through `CandidateList` to here and then stop, which is the
-  // same dead-wire shape as `ThemeScanPanel.onFactsChanged` — the defect .390
-  // exists to fix, one feature over.
-  //
-  // Deleting them would silently retire a built feature, which is not a call a
-  // dead-binding sweep gets to make. Renamed with the `_` the compiler ignores so
-  // the contract stays visible and the finding stays reportable. Filed for the
-  // architect; NOT fixed here, because wiring an unreachable editor into a
-  // witness-facing card is a design decision, not a lint.
-  onCorrectQuestion: _onCorrectQuestion,
-  onRevertQuestion: _onRevertQuestion,
   linkOptions,
   onSaveLinks,
   onUnlink,

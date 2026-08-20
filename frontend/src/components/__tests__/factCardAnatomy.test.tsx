@@ -220,8 +220,6 @@ describe("the controls do not scroll away (Piece 3)", () => {
         compact={false}
         onSelect={() => {}}
         onRule={() => {}}
-        onCorrectQuestion={async () => {}}
-        onRevertQuestion={async () => {}}
         linkOptions={options}
         onSaveLinks={async () => {}}
         onUnlink={() => {}}

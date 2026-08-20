@@ -220,3 +220,163 @@ export function practiceQuestionPath(
     `${encodeURIComponent(scenarioId)}/question/${encodeURIComponent(questionId)}`
   );
 }
+
+// ─── The navigation bar's own addresses (nav cleanup, Part 2) ────────────────
+//
+// ## Why the BAR moved in here, and what it buys
+//
+// Part 1 of the nav cleanup measured 30 hand-composed navigation call sites
+// across 16 targets that did not go through this file — and every path the nav
+// task touches was among them. `Header.tsx` held `/explorer`, `/bias-explorer`,
+// `/settings` and a template-literal `/cases/${slug}/proof-matrix` as JSX
+// literals, which is exactly the half-signed contract the .382 defect was.
+//
+// Putting the nav table through these builders means the guard test below
+// (`__tests__/routePaths.test.ts`) covers the whole bar for free: removing a
+// route while a menu entry still points at it is a RED TEST, not a 404 in front
+// of Chuck. That is the entire reason the removals in this task are safe to make
+// in one sweep.
+//
+// The builders that take no argument still exist as functions rather than
+// constants. It is deliberate: the guard enumerates BUILDERS and calls each one,
+// so a path that is a bare exported string would need a second mechanism to be
+// checked. One shape, one guard.
+
+/** The dashboard. Declared in `App.tsx` as `/`. */
+export function homePath(): string {
+  return "/";
+}
+
+/** The document list. Declared as `/documents`. */
+export function documentsPath(): string {
+  return "/documents";
+}
+
+/**
+ * One document's workspace — the tabbed page.
+ *
+ * Declared as `/documents/:id`. This is where `AdminAudit`'s per-document link
+ * now goes: it used to compose `/admin/documents/:id/audit`, an address
+ * `App.tsx` has never declared, so following it landed on the 404 page. Part 1
+ * found it live; this builder is what stops it recurring.
+ *
+ * @param id the document's id, escaped here — pass it raw
+ */
+export function documentPath(id: string): string {
+  return `/documents/${encodeURIComponent(id)}`;
+}
+
+/** The RAG chat. Declared as `/ask`. The bar calls it "Chat". */
+export function askPath(): string {
+  return "/ask";
+}
+
+/** Everyone in the case. Declared as `/people`. */
+export function peoplePath(): string {
+  return "/people";
+}
+
+/** The case timeline. Declared as `/timeline`. */
+export function timelinePath(): string {
+  return "/timeline";
+}
+
+/**
+ * The allegation list.
+ *
+ * Declared as `/allegations`. Reached from `AllegationDetailPage`'s Back button
+ * when the page was opened COLD (a bookmark, with no history to go back to).
+ * That fallback used to be `/explorer`, which this task removes — so the
+ * re-point had to happen first, and it points at the list the page belongs to
+ * and already names as its own breadcrumb parent.
+ */
+export function allegationsPath(): string {
+  return "/allegations";
+}
+
+/**
+ * The proof matrix for one case.
+ *
+ * Declared as `/cases/:slug/proof-matrix`. **The address does not change in this
+ * task** — Roman's ruling 8. Only its menu placement and breadcrumb move.
+ *
+ * @param slug the case slug, escaped here
+ */
+export function proofMatrixPath(slug: string): string {
+  return `/cases/${encodeURIComponent(slug)}/proof-matrix`;
+}
+
+/**
+ * The proof matrix, opened on its Proof Review TAB.
+ *
+ * ## Why a query parameter and not a route
+ *
+ * Proof Review stops being a page and becomes a tab on the matrix (design §2).
+ * A tab is a state of one page, not a second address — but `/…/proof-review` is
+ * a real bookmark Roman has, so it must land somewhere exact rather than on the
+ * matrix's default tab. `?tab=review` is that: one address, one page, and a
+ * redirect from the old route that arrives on the right half of it.
+ *
+ * The guard compares PATHS, so the query string is stripped before the
+ * comparison — see the builder's entry in the test.
+ *
+ * @param slug the case slug, escaped here
+ */
+export function proofReviewTabPath(slug: string): string {
+  return `${proofMatrixPath(slug)}?tab=review`;
+}
+
+/**
+ * Case health — the connection rate that must not be easy to overlook.
+ *
+ * Declared as `/cases/:slug/case-health`. Address unchanged (ruling 8); it moves
+ * from a top-level bar item into Trial Prep ▾.
+ *
+ * @param slug the case slug, escaped here
+ */
+export function caseHealthPath(slug: string): string {
+  return `/cases/${encodeURIComponent(slug)}/case-health`;
+}
+
+// ─── Admin, which becomes five addresses instead of nine tabs ────────────────
+//
+// The admin surface was ONE route (`/admin`) with nine tabs held in component
+// state, so no tab was addressable, bookmarkable, or reachable by Back. The five
+// groups below are real routes. The tabs WITHIN a group stay component state,
+// which is the right level: "which of the five admin areas" is a place, "which
+// of five prompt tables" is a view of it.
+
+/** Admin overview — today's Metrics tab. Declared as `/admin`. */
+export function adminPath(): string {
+  return "/admin";
+}
+
+/**
+ * Prompt Management — Prompts · System Prompts · Profiles · Schemas · Models,
+ * the five existing admin tables re-homed under one address, unchanged inside.
+ *
+ * Declared as `/admin/prompts`.
+ */
+export function adminPromptsPath(): string {
+  return "/admin/prompts";
+}
+
+/** Data — the store status and Indexing. Declared as `/admin/data`. */
+export function adminDataPath(): string {
+  return "/admin/data";
+}
+
+/** Logs — Chats and Audit. Declared as `/admin/logs`. */
+export function adminLogsPath(): string {
+  return "/admin/logs";
+}
+
+/**
+ * Settings, at its new address.
+ *
+ * Declared as `/admin/settings`. The page itself is UNCHANGED inside; only where
+ * it hangs moved. `/settings` redirects here for one release (removed in v2.1).
+ */
+export function adminSettingsPath(): string {
+  return "/admin/settings";
+}

@@ -28,6 +28,14 @@ const SEED_MIGRATION: &str =
 const HOTFIX_MIGRATION: &str =
     "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql";
 
+/// The nav cleanup added one row to this block: the deck editor's drag grip.
+///
+/// Three files now, which is the point of naming each one: this block's rows
+/// arrived in three separate tasks, and a test that read only the first would
+/// call the other two un-seeded.
+const NAV_MIGRATION: &str =
+    "pipeline_migrations/20260819152958_nav_cleanup_scenario_header_buttons.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -35,6 +43,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_EDITOR_DONE_LABEL, "Done editing"),
     (KEY_EDITOR_EDIT_LABEL, "Edit"),
     (KEY_EDITOR_HIDE_LABEL, "Hide"),
+    (KEY_EDITOR_DRAG_HINT, "Drag to re-order within this side"),
     (KEY_EDITOR_UNHIDE_LABEL, "Unhide"),
     (KEY_EDITOR_HIDDEN_BADGE, "hidden"),
     (KEY_EDITOR_UP_LABEL, "Move up"),
@@ -137,11 +146,17 @@ impl PracticeEditorWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
+    // THREE files, and each is named: Part B seeded the block, the 08-19
+    // attribution hotfix added the busy hint and the discard confirm, and the
+    // nav cleanup added the drag grip. Concatenated because WHICH migration
+    // seeded a row is migration history — only the VALUE is what this test pins.
+    let part_b = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the Part B migration is on disk");
-
     let hotfix = std::fs::read_to_string(root.join(HOTFIX_MIGRATION))
         .expect("the attribution hotfix migration is on disk");
+    let nav = std::fs::read_to_string(root.join(NAV_MIGRATION))
+        .expect("the nav cleanup migration is on disk");
+    let sql = format!("{part_b}\n{nav}");
 
     for key in PRACTICE_EDITOR_WORDING_KEYS {
         let seeded = seeded_value_in(&sql, key)

@@ -100,12 +100,6 @@ const CandidateList: React.FC<{
    * the target travels with the button, so no shared position can decide it.
    */
   onRule: (key: RulingKey, graphNodeId: string) => void;
-  /** Save a correction of one NAMED card's question (task 1.7F Part B). Bound
-   *  per card below, on the same principle as `onRule`: the target travels with
-   *  the control, never through a shared position. */
-  onCorrectQuestion: (graphNodeId: string, text: string) => Promise<void>;
-  /** Restore the machine's question on one named card. */
-  onRevertQuestion: (graphNodeId: string) => Promise<void>;
   /** The accusations the link panels offer, and their words (task 2.10). `null`
    *  while loading or after a failed read — no panel is rendered then. */
   linkOptions: AllegationOptions | null;
@@ -152,8 +146,6 @@ const CandidateList: React.FC<{
   filtered,
   onSelect,
   onRule,
-  onCorrectQuestion,
-  onRevertQuestion,
   linkOptions,
   onFilterChip,
   onSaveLinks,
@@ -247,8 +239,6 @@ const CandidateList: React.FC<{
               // this iteration's scope. Every card in the list gets live controls
               // and each one can only ever rule itself.
               onRule={(key) => onRule(key, card.graph_node_id)}
-              onCorrectQuestion={(text) => onCorrectQuestion(card.graph_node_id, text)}
-              onRevertQuestion={() => onRevertQuestion(card.graph_node_id)}
               linkOptions={linkOptions}
               onFilterChip={onFilterChip}
               // THE SAME FIX AS `onRule`, one line lower: the handler closes over

@@ -66,6 +66,7 @@ pub mod practice_editor;
 pub mod practice_flow;
 pub mod practice_hidden_queue;
 pub mod practice_notes;
+pub mod practice_reorder;
 pub mod report_queries;
 pub mod review;
 pub mod review_actions;
