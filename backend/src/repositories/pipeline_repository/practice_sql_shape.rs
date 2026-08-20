@@ -34,6 +34,12 @@ use std::collections::BTreeMap;
 /// happened in the first place.
 const COVERED: &[&str] = &[
     "src/repositories/pipeline_repository/practice.rs",
+    // T1's answer-write half, split out of `practice.rs` under Rule 17 on the day
+    // it was written. In the cover the same day, for the reason `practice_flow.rs`
+    // is: a split that leaves its SQL behind makes the moved statements invisible
+    // to exactly the test written to catch them — and this one took an INSERT and
+    // an UPDATE naming fifteen columns between them.
+    "src/repositories/pipeline_repository/practice_answers.rs",
     "src/repositories/pipeline_repository/practice_flow.rs",
     // Part B's two, added the day they were written rather than a release later:
     // this list going stale IS the defect, and it has already happened once.

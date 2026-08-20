@@ -62,6 +62,7 @@ pub mod extraction_relationships;
 pub mod extraction_runs;
 pub mod models;
 pub mod practice;
+pub mod practice_answers;
 pub mod practice_editor;
 pub mod practice_flow;
 pub mod practice_hidden_queue;

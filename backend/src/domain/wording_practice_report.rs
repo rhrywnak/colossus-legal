@@ -38,6 +38,21 @@ pub struct PracticeReportWording {
     /// the points, the pair and the watch-for all still stand — the session is
     /// not degraded by a model being down, it just says one less thing.
     pub read_unavailable: String,
+    /// What the read says when it DECLINES rather than guesses.
+    ///
+    /// Domain note: this is not [`Self::read_unavailable`], and the difference is
+    /// the whole point of the abstain arm. That line stands in when no read was
+    /// attempted or none arrived — the machine was silent. This one is the read
+    /// SPEAKING, saying it will not judge an answer on what it was given. When the
+    /// model is the one declining, its own plain-English reason follows this line.
+    pub read_abstain_line: String,
+    /// The stored read for the one-click "I don't recall." control.
+    ///
+    /// Domain note: no model is called for it. The button sends a sentence this
+    /// system wrote, and paying a model to judge our own words bought a sentence
+    /// about a sentence at full token cost. It opens with the OK word, which is
+    /// the correct verdict: "I don't recall" is a COMPLETE answer when it is true.
+    pub read_dont_recall_line: String,
     /// Over the three talking points, which are read live from the scenario
     /// record.
     pub points_kicker: String,
@@ -154,6 +169,8 @@ pub(crate) const KEY_WHAT_YOU_SAID_KICKER: &str = "practice_what_you_said_kicker
 pub(crate) const KEY_READ_TAG: &str = "practice_read_tag";
 pub(crate) const KEY_READ_FOOTNOTE: &str = "practice_read_footnote";
 pub(crate) const KEY_READ_UNAVAILABLE: &str = "practice_read_unavailable";
+pub(crate) const KEY_READ_ABSTAIN_LINE: &str = "practice_read_abstain_line";
+pub(crate) const KEY_READ_DONT_RECALL_LINE: &str = "practice_read_dont_recall_line";
 pub(crate) const KEY_POINTS_KICKER: &str = "practice_points_kicker";
 pub(crate) const KEY_RECEIPT_PREFIX: &str = "practice_receipt_prefix";
 pub(crate) const KEY_POINT_NO_RECEIPT: &str = "practice_point_no_receipt";
@@ -206,6 +223,8 @@ pub const PRACTICE_REPORT_WORDING_KEYS: &[&str] = &[
     KEY_READ_TAG,
     KEY_READ_FOOTNOTE,
     KEY_READ_UNAVAILABLE,
+    KEY_READ_ABSTAIN_LINE,
+    KEY_READ_DONT_RECALL_LINE,
     KEY_POINTS_KICKER,
     KEY_RECEIPT_PREFIX,
     KEY_POINT_NO_RECEIPT,
@@ -274,6 +293,8 @@ pub fn build_practice_report_wording<E>(
         read_tag: read(KEY_READ_TAG)?,
         read_footnote: read(KEY_READ_FOOTNOTE)?,
         read_unavailable: read(KEY_READ_UNAVAILABLE)?,
+        read_abstain_line: read(KEY_READ_ABSTAIN_LINE)?,
+        read_dont_recall_line: read(KEY_READ_DONT_RECALL_LINE)?,
         points_kicker: read(KEY_POINTS_KICKER)?,
         receipt_prefix: read(KEY_RECEIPT_PREFIX)?,
         point_no_receipt: read(KEY_POINT_NO_RECEIPT)?,

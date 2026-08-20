@@ -15,8 +15,9 @@ use super::*;
 // module still counts them, because the count is what proves the seed and the
 // code describe the same store.
 use crate::domain::practice_params::{
-    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
-    KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, PRACTICE_PARAM_KEYS,
+    KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
+    KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
+    KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, PRACTICE_PARAM_KEYS,
 };
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
@@ -156,10 +157,12 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // them on a screen.
             (
                 "practice_read_prompt_file",
-                // v2 as of 2026-08-19: Roman's ruling on the anchor and on
-                // redirect length is a change to what the model is TOLD, so it
-                // is a new file and a pointer moved. v1 stays on disk.
-                "practice_read_prompt_v2.md".to_string(),
+                // v3 as of 2026-08-20 (T1): the read returns three parts and is
+                // given her receipts, which is a change to what the model is TOLD
+                // and to what it may say back — so a new file and a pointer moved.
+                // v1 and v2 both stay on disk; pointing this row back at v2 is the
+                // whole of the T1 rollback.
+                "practice_read_prompt_v3.md".to_string(),
             ),
             ("practice_read_model", "claude-opus-5".to_string()),
             // The case's own timezone — what "today" means on a deck row. Case
@@ -305,6 +308,38 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(5.0),
             Some(60.0),
+        ),
+        // T1's three per-part ceilings and the pointer count (2026-08-20). The
+        // read stopped being one sentence, so the single whole-reply cap above
+        // stopped being the rule — it is kept because pointing prompt_file back
+        // at v2 is the rollback, and the v2 path reads it.
+        row(
+            KEY_PRACTICE_READ_MAX_WORDS_CALL,
+            "12",
+            ValueKind::Count,
+            Some(3.0),
+            Some(40.0),
+        ),
+        row(
+            KEY_PRACTICE_READ_MAX_WORDS_WHY,
+            "55",
+            ValueKind::Count,
+            Some(10.0),
+            Some(150.0),
+        ),
+        row(
+            KEY_PRACTICE_READ_MAX_WORDS_POINTER,
+            "20",
+            ValueKind::Count,
+            Some(5.0),
+            Some(60.0),
+        ),
+        row(
+            KEY_PRACTICE_READ_MAX_POINTERS,
+            "3",
+            ValueKind::Count,
+            Some(0.0),
+            Some(5.0),
         ),
         row(
             KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE,
@@ -539,7 +574,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        28,
+        32,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -662,9 +697,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
-        48,
+        50,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
-         surfaces that answer her back"
+         surfaces that answer her back, plus T1's two read lines (2026-08-20): \
+         the read declining in its own voice, and the stored line the \
+         don't-recall button earns without a model call"
     );
     assert_eq!(
         seeded().len(),
@@ -1116,6 +1153,11 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // The attribution hotfix: the twentieth not-wording parameter
         // (practice_case_timezone) and the six hints that came with it.
         "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql",
+        // T1's four per-part ceilings. In the list on the day they were written:
+        // this list going stale is the drift the test exists to catch, and a
+        // parameter seeded by a migration nothing here reads would leave the
+        // fixture free to say anything at all about it.
+        "pipeline_migrations/20260820165501_practice_read_t1_per_part_storage.sql",
     ]
     .iter()
     .map(|relative| {

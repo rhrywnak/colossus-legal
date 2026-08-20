@@ -141,11 +141,17 @@ fn the_parse_reads_columns_and_aliases_out_of_them() {
     let answers = inserts()
         .into_iter()
         .find(|(t, _, _)| t == "practice_answers")
-        .expect("practice.rs ships an INSERT INTO practice_answers");
+        .expect("the cover ships an INSERT INTO practice_answers");
     assert_eq!(
         answers.1.len(),
-        16,
-        "the practice_answers INSERT names 16 columns; parsed {:?}",
+        9,
+        "the practice_answers INSERT names 9 columns; parsed {:?}. It named 16 \
+         until T1 (2026-08-20), when the answer row started being written BEFORE \
+         the model is called — the seven read columns it used to carry are now \
+         written by `attach_read`, and an eighth (read_error) stayed to hold the \
+         in-flight marker. A count back at 16 means the read has crept back into \
+         the insert, which would put a vendor's latency between a witness and her \
+         own typed answer again.",
         answers.1
     );
 

@@ -266,7 +266,14 @@ pub(crate) fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
 /// that corrected a row some other way would not be found — and the count
 /// assertion below is what would catch that, by leaving the fixture disagreeing.
 pub(crate) fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
-    let at = sql.find(&format!("key           = '{key}'"))?;
+    // `rfind` and not `find`: the caller concatenates the migrations IN ORDER, and
+    // a key corrected TWICE ends up holding the LAST correction. Searching
+    // forwards returned the first one — which was harmless for as long as no key
+    // had been corrected twice, and stopped being harmless on 2026-08-20 when T1
+    // moved `practice_read_prompt_file` from v2 to v3 and this reported v2. A
+    // fixture pinned to a superseded correction is the exact drift these helpers
+    // exist to catch, reported as a pass.
+    let at = sql.rfind(&format!("key           = '{key}'"))?;
     // The SET clause precedes the WHERE in an UPDATE, so scan backwards.
     let before = &sql[..at];
     let set = before.rfind("SET value         = '")?;

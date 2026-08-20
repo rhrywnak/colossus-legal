@@ -109,6 +109,8 @@ impl PracticeWordingDto {
             read_tag: report.read_tag.clone(),
             read_footnote: report.read_footnote.clone(),
             read_unavailable: report.read_unavailable.clone(),
+            read_abstain_line: report.read_abstain_line.clone(),
+            read_dont_recall_line: report.read_dont_recall_line.clone(),
             points_kicker: report.points_kicker.clone(),
             receipt_prefix: report.receipt_prefix.clone(),
             point_no_receipt: report.point_no_receipt.clone(),

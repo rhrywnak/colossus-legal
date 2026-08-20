@@ -116,37 +116,6 @@ pub struct PracticeSheetRow {
     pub points_to: Option<serde_json::Value>,
 }
 
-/// Everything one answer needs recording. A struct rather than eleven arguments:
-/// `insert_answer(pool, a, b, true, false, None, …)` is unreadable at the call
-/// site and one transposition away from logging the wrong booleans.
-#[derive(Debug, Clone)]
-pub struct NewAnswer {
-    pub session_id: Uuid,
-    pub question_id: Uuid,
-    pub answer_text: String,
-    pub dont_recall: bool,
-    pub read_text: Option<String>,
-    pub read_ok: Option<bool>,
-    pub read_error: Option<String>,
-    pub read_input_tokens: Option<i32>,
-    pub read_output_tokens: Option<i32>,
-    pub read_ms: Option<i32>,
-    pub read_model: Option<String>,
-    /// What the model said when this build refused to show it. `None` otherwise.
-    pub read_raw_reply: Option<String>,
-    pub self_check: serde_json::Value,
-    /// The receipts she said she would point to, as the phrases she was shown.
-    /// `None` = she never opened the control; `Some([])` = she opened it and
-    /// picked nothing. Two different facts about the same answer, kept apart.
-    pub points_to: Option<serde_json::Value>,
-    /// The question AS ASKED, copied here at answer time. Chuck's sheet and the
-    /// review page print this rather than joining the deck's current text: an
-    /// answer is a moment, and a later edit must not re-write what she was
-    /// asked.
-    pub question_text: String,
-    pub mark: String,
-}
-
 /// The scenario's deck, in the order it is dealt.
 pub async fn list_deck(
     pool: &PgPool,
@@ -328,78 +297,6 @@ pub async fn end_session(pool: &PgPool, session_id: Uuid) -> Result<(), Pipeline
         .execute(pool)
         .await?;
     Ok(())
-}
-
-/// Record one answered question. Returns the answer's id, which the drawer's
-/// help flag later addresses.
-pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, PipelineRepoError> {
-    let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO practice_answers \
-         (session_id, question_id, answer_text, dont_recall, read_text, read_ok, read_error, \
-          read_input_tokens, read_output_tokens, read_ms, read_model, read_raw_reply, \
-          self_check, points_to, question_text, mark) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING id",
-    )
-    .bind(answer.session_id)
-    .bind(answer.question_id)
-    .bind(&answer.answer_text)
-    .bind(answer.dont_recall)
-    .bind(answer.read_text.as_deref())
-    .bind(answer.read_ok)
-    .bind(answer.read_error.as_deref())
-    .bind(answer.read_input_tokens)
-    .bind(answer.read_output_tokens)
-    .bind(answer.read_ms)
-    .bind(answer.read_model.as_deref())
-    .bind(answer.read_raw_reply.as_deref())
-    .bind(&answer.self_check)
-    .bind(&answer.points_to)
-    .bind(&answer.question_text)
-    .bind(&answer.mark)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.0)
-}
-
-/// Record that she opened the stronger-answer drawer.
-///
-/// Returns whether a row was touched, so the route can tell "recorded" from "no
-/// such answer" rather than reporting success for a write that hit nothing.
-pub async fn mark_help_opened(pool: &PgPool, answer_id: Uuid) -> Result<bool, PipelineRepoError> {
-    let done = sqlx::query("UPDATE practice_answers SET help_opened = TRUE WHERE id = $1")
-        .bind(answer_id)
-        .execute(pool)
-        .await?;
-    Ok(done.rows_affected() == 1)
-}
-
-/// Settle an answer when Marie leaves the reveal: her four boxes, and the mark.
-///
-/// ## Why the answer is written in TWO steps and not one
-///
-/// The read has to exist before she can react to it, and her four boxes and her
-/// "ask me this one again later" both happen AFTER she has read it. One write
-/// would mean either recording her answer before the model saw it (losing the
-/// read) or holding her typed answer in the browser until she pressed a button
-/// (losing it if she walked away). So the row is created when she answers —
-/// which is the moment worth surviving a closed laptop — and settled when she
-/// moves on.
-///
-/// Returns whether a row was touched, so the route can tell "settled" from "no
-/// such answer" rather than reporting success for a write that hit nothing.
-pub async fn close_answer(
-    pool: &PgPool,
-    answer_id: Uuid,
-    mark: &str,
-    self_check: &serde_json::Value,
-) -> Result<bool, PipelineRepoError> {
-    let done = sqlx::query("UPDATE practice_answers SET mark = $2, self_check = $3 WHERE id = $1")
-        .bind(answer_id)
-        .bind(mark)
-        .bind(self_check)
-        .execute(pool)
-        .await?;
-    Ok(done.rows_affected() == 1)
 }
 
 /// The session's answers, in the order she gave them — Chuck's sheet.

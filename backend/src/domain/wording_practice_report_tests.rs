@@ -26,6 +26,16 @@ const SEED_MIGRATION: &str = "pipeline_migrations/20260817213319_practice_sessio
 const CORRECTION_MIGRATION: &str =
     "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql";
 
+/// The migration that seeds T1's two rows (2026-08-20).
+///
+/// A SECOND seed file and not an edit to the first, because where a row was
+/// seeded is a fact about migration history and only its VALUE is what these
+/// tests pin — the same reasoning `settings_store_tests` gives for concatenating
+/// its own list. The abstain line and the don't-recall line arrived with the
+/// three-part read; v0 could not have seeded them.
+const T1_SEED_MIGRATION: &str =
+    "pipeline_migrations/20260820165501_practice_read_t1_per_part_storage.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -36,6 +46,11 @@ const TEST_SEED: &[(&str, &str)] = &[
         "one sentence, against your points, the watch-for and the ALWAYS card. It names the tactic. The boxes below are yours.",
     ),
     (KEY_READ_UNAVAILABLE, "no system read this time"),
+    (KEY_READ_ABSTAIN_LINE, "I can't read this one."),
+    (
+        KEY_READ_DONT_RECALL_LINE,
+        "Fine. \"I don't recall\" is a complete answer.",
+    ),
     (KEY_POINTS_KICKER, "Your points — in your own words"),
     (KEY_RECEIPT_PREFIX, "Backed by:"),
     (KEY_POINT_NO_RECEIPT, "No receipt recorded for this point."),
@@ -131,10 +146,13 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the practice v1 correction migration is on disk");
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the practice migration is on disk");
+    let t1 = std::fs::read_to_string(root.join(T1_SEED_MIGRATION))
+        .expect("the T1 per-part storage migration is on disk");
 
     for key in PRACTICE_REPORT_WORDING_KEYS {
         let seeded = corrected_value_in(&corrections, key)
             .or_else(|| seeded_value_in(&sql, key))
+            .or_else(|| seeded_value_in(&t1, key))
             .unwrap_or_else(|| {
                 panic!(
                     "{key} is declared to the boot loader but seeded by no migration \

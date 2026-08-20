@@ -135,7 +135,7 @@ fn the_answer_route_is_the_path_the_task_names() {
 /// made of spaces" — which would print as an empty complaint on Chuck's sheet.
 #[test]
 fn a_blank_flag_note_clears_and_a_real_one_is_stored_trimmed() {
-    use crate::api::practice_answers::normalize_flag_note;
+    use crate::api::practice_flag::normalize_flag_note;
 
     assert_eq!(normalize_flag_note(None), None);
     assert_eq!(normalize_flag_note(Some(String::new())), None);
@@ -205,4 +205,59 @@ fn a_sitting_naming_a_question_outside_the_deck_is_refused() {
 
     // An empty sitting names nothing foreign.
     assert_eq!(fence_queue(&[], &[], &known), None);
+}
+
+/// The don't-recall short-circuit fires on the STORED LINE and nothing looser.
+///
+/// ## Why every one of these cases matters
+///
+/// This is the only place in the answer path where the model is not called at
+/// all, so both directions of a mistake are expensive and neither is visible:
+///
+/// - too LOOSE, and a real answer that happens to begin "I don't recall" gets a
+///   canned line instead of a read. Marie would be told her answer was complete
+///   by a build that never looked at it.
+/// - too STRICT, and the button pays for a model call on every press — a sentence
+///   about a sentence this system wrote, at roughly 2,090 input tokens a time
+///   **[measured on DEV]**. Defeated by a single trailing newline from a browser,
+///   and nobody would ever notice.
+#[test]
+fn the_dont_recall_short_circuit_matches_the_stored_line_and_nothing_looser() {
+    use crate::api::practice_answers::is_stored_dont_recall;
+    const STORED: &str = "I don't recall.";
+
+    assert!(
+        is_stored_dont_recall(STORED, STORED),
+        "the exact stored line is what the button sends"
+    );
+    assert!(
+        is_stored_dont_recall(STORED, "I don't recall.\n"),
+        "a browser's trailing newline must not cost a paid call"
+    );
+    assert!(
+        is_stored_dont_recall(STORED, "  I don't recall.  "),
+        "surrounding whitespace is not a different answer"
+    );
+
+    // Everything below is a REAL answer and must reach the model.
+    assert!(
+        !is_stored_dont_recall(STORED, "I don't recall. But I did write to them."),
+        "an answer that BEGINS with the phrase and goes on is a real answer"
+    );
+    assert!(
+        !is_stored_dont_recall(STORED, "i don't recall."),
+        "case-insensitive matching would swallow something she typed herself"
+    );
+    assert!(
+        !is_stored_dont_recall(STORED, "Honestly, I don't recall."),
+        "containment is not equality"
+    );
+    assert!(
+        !is_stored_dont_recall(STORED, ""),
+        "an empty answer is refused by the fence, never short-circuited"
+    );
+    assert!(
+        !is_stored_dont_recall(STORED, "I do not recall."),
+        "a paraphrase is her wording and earns a read"
+    );
 }

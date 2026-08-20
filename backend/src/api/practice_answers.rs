@@ -25,28 +25,41 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{
-        AnswerRequest, AnswerResponse, CloseAnswerRequest, FlagRequest, FlagResponse,
-        SkipQuestionRequest,
-    },
+    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, SkipQuestionRequest},
     error::AppError,
     repositories::pipeline_repository::{
-        practice::{
-            close_answer, get_question, insert_answer, list_deck, list_points, mark_help_opened,
-            session_scenario, NewAnswer, PracticeQuestionRecord,
-        },
-        practice_flow::set_flag,
+        practice::{get_question, list_deck, session_scenario, PracticeQuestionRecord},
+        practice_answers::{attach_read, close_answer, insert_answer, mark_help_opened, NewAnswer},
     },
     services::{
-        practice_page::tactic_name,
-        practice_read::{read_answer, ReadOutcome},
-        practice_read_parse::ReadInputs,
+        practice_read::read_answer, practice_read_gather::gather_payload,
+        practice_read_outcome::ReadOutcome,
     },
     state::AppState,
 };
 
 use super::practice::repo_error;
 use super::practice_fences::{fence_answer_text, fence_not_already_answered};
+
+/// Why a row that has just been opened carries no read.
+///
+/// ## Domain note: the state the two-write shape creates, named rather than blank
+///
+/// Before T1 a row with `read_text IS NULL` always had `read_error IS NOT NULL` —
+/// every failure arm filled it, so "no read and no reason" was unreachable
+/// **[measured: 0 of 12 rows on DEV]**. Writing the answer before the call makes
+/// that combination the shape of a read IN FLIGHT — and also the shape of a
+/// backend that died mid-read. Two operationally distinct states sharing one
+/// observable is what Standing Rule 1 forbids, so the insert says which it is and
+/// `attach_read` clears it.
+///
+/// STRUCTURAL, like the skip marker below it: a DIAGNOSTIC in a log column, not a
+/// sentence anybody reads on a screen, and composed by this build from a fact it
+/// knows about itself. A settings row here would let an operator edit what a past
+/// crash is recorded as having been.
+// STRUCTURAL: a diagnostic marker in a log column, never wording on a screen.
+// CONST: structural — see the doc comment above for why it is not a settings row.
+const READ_IN_FLIGHT: &str = "no read yet: the answer was recorded and the model is being asked";
 
 /// The four boxes as an answer row OPENS: none ticked.
 ///
@@ -65,15 +78,19 @@ fn unticked_self_check() -> serde_json::Value {
     })
 }
 
-/// Record one answer, and ask the model for its one sentence.
+/// Record one answer, then ask the model to read it.
 ///
 /// ## Why the read cannot fail this request
 ///
-/// Her answer is worth recording whatever the model does. A failed read is
-/// stored as `read_text = NULL` with the reason in `read_error`; the screen shows
-/// the stored "no system read this time" line and every other box stands. That is
-/// the design's own instruction, and it is also the only behaviour that does not
-/// throw away a witness's typed sentence because a vendor was slow.
+/// Her answer is worth recording whatever the model does — and since T1 it is
+/// recorded FIRST. The row is committed before a single token is sent, so a
+/// vendor that is slow, down, or returns something unusable costs her a read and
+/// never an answer. A failed read is attached as an abstain with the reason in
+/// `read_abstain_reason`; every other box on the reveal stands.
+///
+/// # Errors
+/// 404/400 from the fences, 409 for a second answer to a settled question, 500
+/// only if the answer itself cannot be written.
 pub async fn post_practice_answer(
     _user: AuthUser,
     State(state): State<AppState>,
@@ -82,34 +99,29 @@ pub async fn post_practice_answer(
     let (scenario_id, question) = fence_answer(&state, body.session_id, body.question_id).await?;
     fence_answer_text(&body)?;
     fence_not_already_answered(&state, body.session_id, question.id).await?;
-    let outcome = read_for(&state, scenario_id, &question, &body.answer_text).await;
-    // `None` when the control was never opened; `Some([])` when she opened it
-    // and picked nothing. The column keeps the two apart, so the mapping does
-    // too — collapsing them would tell Chuck she considered the exhibits and
-    // reached for none, on an answer where she never saw the list.
-    let points_to = body.points_to.map(|picked| serde_json::json!(picked));
 
+    // `None` when the control was never opened; `Some([])` when she opened it
+    // and picked nothing. The column keeps the two apart, so the payload does
+    // too — collapsing them would tell the model she considered the exhibits and
+    // reached for none, on an answer where she never saw the list.
+    let points_to_json = body
+        .points_to
+        .as_ref()
+        .map(|picked| serde_json::json!(picked));
+
+    // STEP ONE: her answer, on disk, before anything is asked of anybody.
     let answer_id = insert_answer(
         &state.pipeline_pool,
         &NewAnswer {
             session_id: body.session_id,
             question_id: question.id,
-            answer_text: body.answer_text,
+            answer_text: body.answer_text.clone(),
             dont_recall: body.dont_recall,
-            read_text: outcome.text.clone(),
-            read_ok: outcome.ok,
-            read_error: outcome.error,
-            read_input_tokens: outcome.input_tokens,
-            read_output_tokens: outcome.output_tokens,
-            read_ms: outcome.ms,
-            read_model: outcome.model,
-            read_raw_reply: outcome.raw_reply,
             // The row opens PROVISIONAL: no boxes ticked, and marked fine. Both
             // are settled by `post_close_answer` when she leaves the reveal,
-            // which is the first moment either is known. Recording her typed
-            // answer now is what survives a closed laptop.
+            // which is the first moment either is known.
             self_check: unticked_self_check(),
-            points_to,
+            points_to: points_to_json,
             // The question AS ASKED, copied onto the answer now. Chuck's sheet
             // and the review page print this rather than joining the deck's
             // current text — Chuck edits the deck on Thursday, and a sheet that
@@ -117,16 +129,110 @@ pub async fn post_practice_answer(
             // question she was never asked.
             question_text: question.text.clone(),
             mark: "fine".to_string(),
+            read_error: Some(READ_IN_FLIGHT.to_string()),
         },
     )
     .await
     .map_err(|e| repo_error("insert_answer", e))?;
+
+    // STEP TWO: the read.
+    let outcome = read_for(
+        &state,
+        scenario_id,
+        &question,
+        &body.answer_text,
+        body.points_to.as_ref(),
+    )
+    .await;
+
+    // STEP THREE: attach it. A failure HERE must not 500 — her answer is already
+    // committed, and telling her it was lost would be the exact lie the two-write
+    // shape exists to prevent. The row keeps its in-flight marker, which is the
+    // honest record of what happened, and she sees the same "no read" surface as
+    // every other read failure.
+    match attach_read(&state.pipeline_pool, answer_id, &outcome.to_row()).await {
+        Ok(true) => {}
+        Ok(false) => tracing::error!(
+            %answer_id,
+            "practice: the read named an answer row that vanished between two writes"
+        ),
+        Err(e) => tracing::error!(
+            %answer_id, error = %e,
+            "practice: her answer is recorded and its read could not be attached"
+        ),
+    }
 
     Ok(Json(AnswerResponse {
         answer_id,
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
+}
+
+/// Ask the model to read one typed answer — or decline, honestly, without one.
+///
+/// Three arms, and the first two never reach a model:
+///
+/// 1. **The stored "I don't recall." line.** No call. See [`ReadOutcome::stored`].
+/// 2. **An input that failed to load.** No call, and an ABSTAIN rather than a
+///    read composed against material that silently went missing.
+/// 3. Everything else, including a one-word answer like `test`, which goes to the
+///    model and comes back on the abstain arm. A length rule here would be wrong:
+///    `"Yes."` is a complete answer on direct.
+///
+/// Never fails: every arm is inside the returned outcome.
+async fn read_for(
+    state: &AppState,
+    scenario_id: Uuid,
+    question: &PracticeQuestionRecord,
+    answer_text: &str,
+    points_to: Option<&Vec<String>>,
+) -> ReadOutcome {
+    let settings = state.settings.current();
+
+    if is_stored_dont_recall(&settings.practice_wording.dont_recall_text, answer_text) {
+        tracing::info!(
+            question = %question.id,
+            "practice read: the stored don't-recall line — no model call"
+        );
+        return ReadOutcome::stored(
+            settings
+                .practice_report_wording
+                .read_dont_recall_line
+                .clone(),
+        );
+    }
+
+    match gather_payload(state, scenario_id, question, answer_text, points_to).await {
+        Ok(payload) => read_answer(state, &payload).await,
+        Err(failure) => {
+            tracing::error!(
+                question = %question.id, %scenario_id, reason = %failure,
+                "practice read: abstaining — an input the read is judged against did not load"
+            );
+            ReadOutcome::from_payload_failure(
+                &settings.practice_report_wording.read_abstain_line,
+                &failure,
+            )
+        }
+    }
+}
+
+/// Is this answer the sentence the "I don't recall." button sends?
+///
+/// ## Domain note: TRIMMED equality, and nothing looser
+///
+/// The comparison is against the stored line and no other rule. Not a prefix, not
+/// a case-insensitive match, not "contains" — because an answer that BEGINS with
+/// "I don't recall" and goes on to say something is a real answer and must be
+/// read. Only the exact stored sentence, which this system wrote and this system
+/// therefore has nothing to learn from.
+///
+/// Trimmed because a browser may send a trailing newline, and a short-circuit
+/// defeated by one whitespace character would be a silent per-click cost nobody
+/// would ever notice.
+pub(super) fn is_stored_dont_recall(stored: &str, answer_text: &str) -> bool {
+    answer_text.trim() == stored.trim()
 }
 
 /// Prove the answer belongs where it says it does, and return what it is about.
@@ -177,61 +283,6 @@ async fn fence_answer(
     Ok((scenario_id, question))
 }
 
-/// Ask the model for its one sentence about this answer.
-///
-/// Gathers the four things the read is judged against — the question, its
-/// tactic, her three points and the watch-for — plus the ALWAYS card, which is
-/// read from the same store the screen renders it from so the floor the model
-/// judges by and the floor she sees are one row.
-///
-/// Never fails: every failure arm is inside the returned outcome. See
-/// `services::practice_read` for why a slow vendor must not discard her answer.
-async fn read_for(
-    state: &AppState,
-    scenario_id: Uuid,
-    question: &PracticeQuestionRecord,
-    answer_text: &str,
-) -> ReadOutcome {
-    let settings = state.settings.current();
-    // A failure here costs the read its points, not the answer its row: the
-    // outcome the caller stores says so, and the screen shows the stored
-    // "no system read this time" line.
-    let points: Vec<String> = match list_points(&state.pipeline_pool, scenario_id).await {
-        Ok(rows) => rows.into_iter().map(|p| p.text).collect(),
-        Err(e) => {
-            tracing::error!(error = %e, %scenario_id, "practice: the read ran without her points");
-            Vec::new()
-        }
-    };
-
-    let side = if question.side == "george" {
-        settings.practice_wording.pill_george.clone()
-    } else {
-        settings.practice_wording.pill_chuck.clone()
-    };
-    let tactic = tactic_name(&settings, question.tactic);
-
-    read_answer(
-        state,
-        &ReadInputs {
-            question: &question.text,
-            tactic: tactic.as_deref(),
-            side: &side,
-            // Prompt v2 judges a CROSS answer, a DIRECT answer and a REDIRECT
-            // answer by three different rules — a paragraph on cross is
-            // "that's redirect", a paragraph on redirect is no fault at all —
-            // so the kind is sent as itself rather than inferred from `side`,
-            // which cannot tell Chuck's two apart.
-            kind: &question.kind,
-            answer: answer_text,
-            points: &points,
-            watch_for: question.watch_for.as_deref(),
-            always: &settings.practice_wording.always_line,
-        },
-    )
-    .await
-}
-
 /// She was dealt this question and set it aside: "Skip this one — doesn't fit".
 ///
 /// ## Why this writes a ROW at all
@@ -266,8 +317,6 @@ pub async fn post_skip_question(
             question_id: question.id,
             answer_text: settings.practice_wording.flow.skipped_answer_text.clone(),
             dont_recall: false,
-            read_text: None,
-            read_ok: None,
             // NOT an error: `read_error` says why a read is ABSENT, and the
             // honest reason here is that none was asked for. Leaving it NULL
             // would make a skip indistinguishable from a call that vanished.
@@ -281,12 +330,12 @@ pub async fn post_skip_question(
             // one of them arriving from the settings store would mean an
             // operator could edit what a past failure is recorded as having
             // been. It changes only when this code path changes.
+            //
+            // A skip writes its marker at INSERT and never calls `attach_read`,
+            // which is what keeps it distinct from the in-flight marker three
+            // screens up: one says a read is coming, the other says none was ever
+            // asked for.
             read_error: Some("no read: the question was skipped mid-sitting".to_string()),
-            read_input_tokens: None,
-            read_output_tokens: None,
-            read_ms: None,
-            read_model: None,
-            read_raw_reply: None,
             self_check: unticked_self_check(),
             points_to: None,
             question_text: question.text.clone(),
@@ -391,65 +440,4 @@ pub async fn post_close_answer(
         });
     }
     Ok(Json(serde_json::json!({ "mark": body.mark })))
-}
-
-/// Store — or clear — Marie's flag on one question.
-///
-/// ## Why a blank note CLEARS rather than 400s
-///
-/// The screen has ONE control for both acts: she opens the note, empties it, and
-/// saves. A refusal there would leave her looking at a flag she has just decided
-/// is wrong with no way to remove it, and a second "unflag" endpoint would be a
-/// second way to say the same thing — two routes to keep in step for one act.
-///
-/// The note is trimmed, and a note that is nothing but whitespace IS blank: a
-/// flag reading `" "` prints as an empty complaint on Chuck's sheet.
-///
-/// # Errors
-/// 404 when no question carries that id — never a silent success for a write
-/// that touched no row.
-pub async fn put_question_flag(
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path(question_id): Path<Uuid>,
-    Json(body): Json<FlagRequest>,
-) -> Result<Json<FlagResponse>, AppError> {
-    let stored = normalize_flag_note(body.note);
-
-    let touched = set_flag(
-        &state.pipeline_pool,
-        question_id,
-        stored.as_deref(),
-        &user.username,
-    )
-    .await
-    .map_err(|e| repo_error("set_flag", e))?;
-
-    if !touched {
-        return Err(AppError::NotFound {
-            message: format!("practice question {question_id} not found"),
-        });
-    }
-
-    tracing::info!(
-        %question_id,
-        user = %user.username,
-        cleared = stored.is_none(),
-        "practice: flag written"
-    );
-    Ok(Json(FlagResponse { flag_note: stored }))
-}
-
-/// What a submitted note becomes: `None` to clear, or the trimmed line.
-///
-/// ## Why whitespace is BLANK and not a note
-///
-/// A flag reading `" "` prints as an empty complaint at the foot of Chuck's
-/// sheet — a row saying Marie objected to a question, with nothing where the
-/// objection should be. Trimming to nothing and clearing is the honest reading
-/// of an empty box.
-pub(super) fn normalize_flag_note(note: Option<String>) -> Option<String> {
-    let note = note?;
-    let trimmed = note.trim();
-    (!trimmed.is_empty()).then(|| trimmed.to_string())
 }

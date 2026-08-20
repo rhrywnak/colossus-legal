@@ -70,6 +70,13 @@ pub struct PracticeWordingDto {
     pub read_tag: String,
     pub read_footnote: String,
     pub read_unavailable: String,
+    /// The read declining, in its own voice. Not on any screen until T4 —
+    /// T1 composes it into `read_text`, which the reveal already renders — and
+    /// on the wire regardless, because this mirror carries every declared
+    /// wording key and a hole in it is how a key stops being editable.
+    pub read_abstain_line: String,
+    /// The stored read for the one-click "I don't recall." control.
+    pub read_dont_recall_line: String,
     pub points_kicker: String,
     pub receipt_prefix: String,
     pub point_no_receipt: String,

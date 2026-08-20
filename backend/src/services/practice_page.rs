@@ -225,7 +225,19 @@ pub fn when(at: DateTime<Utc>, timezone: &str) -> String {
 /// Putting the pairing first is what stops the stand-in becoming a second truth:
 /// the v1 editor takes over by being used, with nothing to migrate and no stale
 /// row left speaking over a human's own words.
-fn point_receipt(point: &PracticePointRecord, seeded: &[PracticePointReceipt]) -> Option<String> {
+///
+/// ## Why this is `pub(crate)` since T1
+///
+/// The READ cites these receipts by key, and the model must cite the phrase Marie
+/// is looking at. A second copy of this precedence in the read path would agree
+/// with the screen today — **[measured 2026-08-20: no point on either live
+/// scenario has a paired `exhibit`, so every receipt comes from the seeded
+/// table]** — and diverge silently the moment Roman's backfill lands. One
+/// function, two callers.
+pub(crate) fn point_receipt(
+    point: &PracticePointRecord,
+    seeded: &[PracticePointReceipt],
+) -> Option<String> {
     point.exhibit.clone().or_else(|| {
         seeded
             .iter()

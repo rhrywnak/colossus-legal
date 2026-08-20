@@ -34,11 +34,11 @@ use uuid::Uuid;
 
 use super::practice_answers::{
     post_close_answer, post_help_opened, post_practice_answer, post_skip_question,
-    put_question_flag,
 };
 use super::practice_editor::{post_edit_question, post_hide_question, post_move_question};
 use super::practice_editor_add::post_add_question;
 use super::practice_fences::check_sitting;
+use super::practice_flag::put_question_flag;
 use super::practice_notes::{get_question_review, post_note, post_strike_note};
 use super::practice_sessions::{get_sitting_route, post_end_session, post_resume, post_start_over};
 
