@@ -54,6 +54,11 @@ const COVERED: &[&str] = &[
     // — a table renamed in a migration and not here would be a tool that fails
     // on a witness's practice record at the moment somebody runs it.
     "src/practice/reset.rs",
+    // The `--update` path'''s write half. In the cover as of the .403 order fix,
+    // which added an UPDATE of `practice_questions.sort_order` — the same
+    // reasoning as the seed above: a column renamed in a migration and not here
+    // is a one-shot that fails at the moment an operator runs it on a real deck.
+    "src/practice/seed_update_write.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.

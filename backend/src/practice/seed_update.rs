@@ -31,7 +31,7 @@ use uuid::Uuid;
 
 use super::deck_file::DeckFile;
 use super::seed::{resolve_refs, SeedError};
-use super::seed_rows::{insert_question, set_deck_key, update_question};
+use super::seed_update_write::apply_update;
 use super::sources::read_sources;
 
 /// Why an `--update` run could not finish.
@@ -294,60 +294,6 @@ fn match_unkeyed<'a>(
         }
     }
     Ok(out)
-}
-
-/// Write the plan: the one-time keys, then every update and insert, in one
-/// transaction.
-///
-/// One transaction for the reason the first seed gives: a half-updated deck is
-/// worse than an un-updated one, because the page renders it confidently.
-async fn apply_update(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    deck: &DeckFile,
-    refs: &[Option<String>],
-    assignments: &[(Uuid, &str, String)],
-    key_of: &[(Uuid, String)],
-) -> Result<(), UpdateError> {
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|source| UpdateError::Database { source })?;
-
-    for (id, key, _) in assignments {
-        set_deck_key(&mut tx, *id, key)
-            .await
-            .map_err(|source| UpdateError::Database { source })?;
-    }
-
-    for (i, question) in deck.questions.iter().enumerate() {
-        let key = question.key.as_deref().map(str::trim).unwrap_or_default();
-        let sort_order = i32::try_from(i + 1).unwrap_or(i32::MAX);
-        let existing = key_of
-            .iter()
-            .find(|(_, held)| held == key)
-            .map(|(id, _)| *id);
-        let written = match existing {
-            Some(id) => {
-                update_question(&mut tx, id, question, refs[i].as_deref(), sort_order).await
-            }
-            None => {
-                insert_question(
-                    &mut tx,
-                    scenario_id,
-                    question,
-                    refs[i].as_deref(),
-                    sort_order,
-                )
-                .await
-            }
-        };
-        written.map_err(|source| UpdateError::Database { source })?;
-    }
-
-    tx.commit()
-        .await
-        .map_err(|source| UpdateError::Database { source })
 }
 
 /// Render the count proof the operator reads and the report file holds.
