@@ -244,3 +244,95 @@ fn the_shipped_s6_deck_parses_and_holds_the_architects_fifteen_questions() {
     assert_eq!(braids[0].key.as_deref(), Some("g5"));
     assert_eq!(braids[0].tactic, Some(5), "a braid is card 5, compound");
 }
+
+// ─── The RULED order, pinned on disk (build .403 bundle, §C) ────────────────
+//
+// ## Why the order is a test and not a convention
+//
+// `sort_order` is written from the position of each question in the YAML, so
+// the file IS the order — and until now nothing asserted what that order was.
+// The decks could be re-sequenced by an editor tidying a file, and the only
+// symptom would be Marie being asked the conclusion before the facts it rests
+// on, which is precisely the sequence the 08-19 ruling exists to prevent.
+//
+// ## Domain note: why this order and not deck-key order
+//
+// Roman's ruling of 2026-08-19 evening: the defense's cross leads with the FACTS
+// it can prove, then the conclusion it wants drawn from them, then the braid
+// that ties three rows together. A witness who meets the conclusion first has
+// nothing to answer it with. The keys (`g1`…`g5`) are the order the questions
+// were WRITTEN in; they are stable handles, deliberately not re-numbered, and
+// they no longer describe the order they are asked in.
+//
+// Chuck's direct questions come next (foundation, then her three points), and
+// the redirects last — each still bound to its defense question by
+// `follows_key`, which is what lets Mixed re-pair them.
+
+/// The order a deck's keys appear in, which is the order `sort_order` gets.
+fn shipped_key_order(file: &str) -> Vec<String> {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let raw = std::fs::read_to_string(root.join(file)).unwrap_or_else(|e| panic!("{file}: {e}"));
+    let deck: DeckFile = serde_yaml::from_str(&raw).expect("the deck parses");
+    deck.questions
+        .iter()
+        .map(|q| q.key.clone().unwrap_or_default())
+        .collect()
+}
+
+/// S-6: facts first, the conclusion, the braid — then Chuck, then the redirects.
+#[test]
+fn the_shipped_s6_deck_is_in_the_ruled_order() {
+    assert_eq!(
+        shipped_key_order("practice_decks/S-6.yaml"),
+        [
+            "g2", "g4", "g3", "g1", "g5", // the defense: facts → conclusion → braid
+            "c1", "c2", "c3", "c4", "c5", // Chuck: foundation → her three points
+            "r1", "r2", "r3", "r4", "r5", // Chuck again, after each defense question
+        ]
+    );
+}
+
+/// S-5: the same shape, its own facts-first sequence.
+///
+/// g3 (never came in, and it was stipulated) · g4 (multiple contacts) · g2 (he
+/// was right about that) · g1 (at each other's throats — the conclusion) · g5
+/// (the braid).
+#[test]
+fn the_shipped_s5_deck_is_in_the_ruled_order() {
+    assert_eq!(
+        shipped_key_order("practice_decks/S-5.yaml"),
+        [
+            "g3", "g4", "g2", "g1", "g5", //
+            "c1", "c2", "c3", "c4", "c5", //
+            "r1", "r2", "r3", "r4", "r5", //
+        ]
+    );
+}
+
+/// Every redirect still names a defense question that EXISTS, after the re-order.
+///
+/// The pairing is by `follows_key`, not by position, so re-ordering cannot break
+/// it — but that is the claim, and this is what makes it a checked one. A
+/// redirect whose target was renamed would fall out of Mixed's pairs silently
+/// and be dealt at the end instead, which reads as a deck bug rather than a
+/// broken link.
+#[test]
+fn every_redirect_still_follows_a_question_the_deck_holds() {
+    for file in ["practice_decks/S-5.yaml", "practice_decks/S-6.yaml"] {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let raw = std::fs::read_to_string(root.join(file)).expect("the deck is on disk");
+        let deck: DeckFile = serde_yaml::from_str(&raw).expect("the deck parses");
+        let keys: Vec<String> = deck
+            .questions
+            .iter()
+            .filter_map(|q| q.key.clone())
+            .collect();
+        for q in deck.questions.iter().filter(|q| q.follows.is_some()) {
+            let target = q.follows.clone().unwrap_or_default();
+            assert!(
+                keys.contains(&target),
+                "{file}: a redirect follows `{target}`, which the deck does not hold"
+            );
+        }
+    }
+}

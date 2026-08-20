@@ -222,6 +222,22 @@ const PracticeDeckList: React.FC<Props> = ({
           )}
 
           {questions.map((question, i) => (
+            <React.Fragment key={question.id}>
+              {/* The Chuck-view break. A redirect wears Chuck's pill because
+                  Chuck asks it — but it is not a question he OPENS with, it is
+                  one he asks to repair what the defense just did. Ten rows run
+                  together would read as ten opening questions.
+
+                  Only where the kind CHANGES, and only on a list that actually
+                  holds both: in Mixed the redirects are interleaved with their
+                  defense questions, and a header before each one would fire five
+                  times. `questions[i - 1]` is the row above as RENDERED, so this
+                  follows whatever order the deck is in rather than assuming one. */}
+              {question.kind === "redirect" &&
+                (i === 0 || questions[i - 1].kind !== "redirect") &&
+                questions.some((q) => q.kind !== "redirect") && (
+                  <div style={d.redirectsSubheader}>{w("redirects_subheader")}</div>
+                )}
             <PracticeDeckRow
               key={question.id}
               question={question}
@@ -254,6 +270,7 @@ const PracticeDeckList: React.FC<Props> = ({
                 setFieldsFor((was) => (was === question.id ? null : question.id))
               }
             />
+            </React.Fragment>
           ))}
 
           {editor.editing &&

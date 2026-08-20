@@ -28,10 +28,13 @@ pub fn note_dto(settings: &Settings, record: &NoteRecord) -> PracticeNoteDto {
         answer_id: record.answer_id,
         author: record.author.clone(),
         text: record.text.clone(),
-        when: when(record.created_at),
-        struck: record
-            .struck_at
-            .map(|at| render(&w.notes_struck_template, &[("when", &when(at))])),
+        when: when(record.created_at, &settings.practice_read.case_timezone),
+        struck: record.struck_at.map(|at| {
+            render(
+                &w.notes_struck_template,
+                &[("when", &when(at, &settings.practice_read.case_timezone))],
+            )
+        }),
     }
 }
 

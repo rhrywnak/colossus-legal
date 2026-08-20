@@ -123,14 +123,14 @@ fn open(
 fn a_sitting_started_today_says_today_and_the_clock() {
     let settings = Settings::for_test();
     let line = open_session_detail(&settings, &open(at(19, 9, 57), "george", 1, Some(5), true));
-    assert_eq!(line, "· today 09:57 · George's side · 1 of 5 answered.");
+    assert_eq!(line, "· today 5:57 am · the defense · 1 of 5 answered.");
 }
 
 #[test]
 fn a_sitting_left_on_another_day_is_dated() {
     let settings = Settings::for_test();
     let line = open_session_detail(&settings, &open(at(18, 21, 5), "mixed", 3, Some(10), false));
-    assert_eq!(line, "· Tue 18 Aug 21:05 · Mixed · 3 of 10 answered.");
+    assert_eq!(line, "· Tue 18 Aug 5:05 pm · Mixed · 3 of 10 answered.");
 }
 
 /// A sitting with no stored queue reports the dash, not a zero.
@@ -142,7 +142,7 @@ fn a_sitting_left_on_another_day_is_dated() {
 fn a_sitting_with_no_stored_queue_refuses_to_invent_a_total() {
     let settings = Settings::for_test();
     let line = open_session_detail(&settings, &open(at(19, 9, 0), "chuck", 2, None, true));
-    assert_eq!(line, "· today 09:00 · Chuck · 2 of — answered.");
+    assert_eq!(line, "· today 5:00 am · Chuck · 2 of — answered.");
     assert!(!line.contains("of 0"));
 }
 

@@ -291,33 +291,46 @@ pub fn sheet_payload(settings: &Settings, sources: SheetSources<'_>) -> Practice
     PracticeSheetPayload {
         kicker: render(
             &w.sheet_kicker_template,
-            &[("code", code), ("when", &when(ended_at))],
+            &[
+                ("code", code),
+                (
+                    "when",
+                    &when(ended_at, &settings.practice_read.case_timezone),
+                ),
+            ],
         ),
         heading: heading(settings, rendered.len(), repeats, skipped, ended_early),
         rows: rendered,
         flagged: lines,
-        flagged_heading: if flagged.is_empty() {
-            String::new()
-        } else {
-            flow.flag_summary_heading.clone()
-        },
-        flagged_hint: if flagged.is_empty() {
-            String::new()
-        } else {
-            flow.flag_summary_hint.clone()
-        },
-        // Same withdrawal rule as the flag block, for the same reason: a heading
-        // over an empty list reads as a list that failed to load.
-        changes_heading: if changes.is_empty() {
-            String::new()
-        } else {
-            settings
-                .practice_wording
-                .editor
-                .sheet_changes_heading
-                .clone()
-        },
+        flagged_heading: withdrawn_if_empty(flagged.is_empty(), &flow.flag_summary_heading),
+        flagged_hint: withdrawn_if_empty(flagged.is_empty(), &flow.flag_summary_hint),
+        // Same withdrawal rule as the flag block, for the same reason.
+        changes_heading: withdrawn_if_empty(
+            changes.is_empty(),
+            &settings.practice_wording.editor.sheet_changes_heading,
+        ),
         changes,
+    }
+}
+
+/// A heading, or the empty string when the list under it is empty.
+///
+/// ## Domain note: why an empty heading and not an empty LIST
+///
+/// A heading over nothing reads as a list that failed to load — the reader
+/// assumes something was meant to be there and is missing. Withdrawing the
+/// heading with its contents says the honest thing: there were no flags, so
+/// there is no flag section, and nothing went wrong.
+///
+/// Three sites used the same six-line `if`, which is what pushed this function
+/// past Rule 18 when the timezone threading arrived. One helper, one rule, and
+/// a name that says what the rule IS rather than leaving a reader to infer it
+/// from three copies.
+fn withdrawn_if_empty(is_empty: bool, heading: &str) -> String {
+    if is_empty {
+        String::new()
+    } else {
+        heading.to_string()
     }
 }
 

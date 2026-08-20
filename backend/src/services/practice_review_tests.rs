@@ -85,7 +85,7 @@ fn attempts_are_numbered_from_the_first_and_returned_newest_first() {
 fn an_attempt_heading_carries_the_day_and_the_clock() {
     let s = Settings::for_test();
     let out = attempts(&s, &[attempt(1, 19, "fine")], &[], ASKED);
-    assert_eq!(out[0].heading, "attempt 1 · Wed 19 Aug 08:40");
+    assert_eq!(out[0].heading, "attempt 1 · Wed 19 Aug 4:40 am");
     assert!(!out[0].heading.contains('{'), "a placeholder survived");
 }
 

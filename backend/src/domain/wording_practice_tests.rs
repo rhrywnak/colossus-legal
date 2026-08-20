@@ -11,11 +11,22 @@
 // not a cosmetic defect on that screen — it is a witness being coached by a typo.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
 const SEED_MIGRATION: &str = "pipeline_migrations/20260817213319_practice_session_v0.sql";
+
+/// Migrations that CORRECT a value the seed already wrote, or add a row to this
+/// block later.
+///
+/// Searched BEFORE the seed, so the newest word wins. Without this the fixture
+/// pins whatever the original INSERT said and goes green forever while the store
+/// holds something else — the trap `scenario_practice_link_label` fell into on
+/// 08-19, where fixture and code agreed with each other and disagreed with every
+/// screen in the product.
+const CORRECTION_MIGRATIONS: &[&str] =
+    &["pipeline_migrations/20260819202208_build_403_labels_and_chuck_view.sql"];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -26,14 +37,21 @@ const TEST_SEED: &[(&str, &str)] = &[
         "Twenty minutes, one accusation, no clock, nobody watching. Answer out loud first, then type it in a sentence or two. You'll see your own three points after every answer.",
     ),
     (KEY_WHO_HEADING, "Who's asking?"),
-    (KEY_WHO_GEORGE_TITLE, "George's side (cross)"),
+    (KEY_WHO_GEORGE_TITLE, "The defense asks"),
     (
         KEY_WHO_GEORGE_DETAIL,
-        "Questions built from what they actually said in the record — the attack, turned into a question.",
+        "Built from what they actually said in the record — the attack, turned into a question.",
     ),
-    (KEY_WHO_CHUCK_TITLE, "Chuck (direct)"),
+    (KEY_WHO_CHUCK_TITLE, "Chuck asks"),
     (KEY_WHO_CHUCK_DETAIL, "The questions Chuck asks so you can tell it in your own words."),
     (KEY_WHO_MIXED_TITLE, "Mixed"),
+    (KEY_WHO_GEORGE_TERM, "cross"),
+    (KEY_WHO_CHUCK_TERM, "direct"),
+    (KEY_WHO_REDIRECT_TERM, "redirect"),
+    (
+        KEY_REDIRECTS_SUBHEADER,
+        "Redirects — asked after the defense's questions (dealt in Mixed)",
+    ),
     (KEY_WHO_MIXED_DETAIL, "Both, in no fixed order — closest to the real day."),
     (KEY_HOW_MANY_HEADING, "How many questions?"),
     (KEY_COUNT_ALL_TEMPLATE, "all {n}"),
@@ -46,9 +64,9 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_LAST_SESSION_TEMPLATE, "Last session: {when} · {count} questions · {repeat} to repeat"),
     (KEY_NO_LAST_SESSION, "No session on this one yet."),
     (KEY_PROGRESS_TEMPLATE, "Question {n} of {total}"),
-    (KEY_PILL_GEORGE, "George's side"),
+    (KEY_PILL_GEORGE, "the defense"),
     (KEY_PILL_CHUCK, "Chuck"),
-    (KEY_PILL_BRAID, "George's side · a braid"),
+    (KEY_PILL_BRAID, "the defense · a braid"),
     (KEY_ANSWER_LABEL, "Your answer"),
     (KEY_ANSWER_HINT, "— say it out loud, then type it."),
     (
@@ -117,14 +135,28 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the practice migration is on disk");
+    let corrections: String = CORRECTION_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     for key in PRACTICE_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!(
-                "{key} is declared to the boot loader but seeded by no migration \
-                 — the backend would refuse to start"
-            )
-        });
+        // Corrections first, then later INSERTs, then the original seed. A value
+        // UPDATEd after its INSERT is the one the store actually holds, and
+        // searching the seed first would pin the superseded string.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&corrections, key))
+            .or_else(|| seeded_value_in(&sql, key))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but seeded by no migration \
+                     — the backend would refuse to start"
+                )
+            });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)

@@ -76,21 +76,7 @@ points:
 
 questions:
 
-  # ---------- George's side (cross) — general → specific, the braid last ----------
-  - key: g1
-    side: george
-    kind: cross
-    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 5"
-    tactic: 1            # broad generalization
-    source_kind: instance
-    source_index: 2
-    text: "The fees and costs in your father's estate were driven by your unreasonable demands and behavior — that's what happened, isn't it?"
-    receipt: "Built from what the Court of Appeals recorded CFS maintaining: “the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals ruling, 12 Jan 2012, p. 5"
-    pair_said: "“CFS maintained that the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals, reciting CFS, p. 5"
-    pair_admitted: "“Those statements were personal conclusions I made as a result of a number of different attorneys being retained over a short period of time.” — Phillips, sworn discovery answer, p. 30"
-    watch_for: "WATCH FOR — the generalization. Don't defend “unreasonable,” don't argue it: give the number once. “That's not true. Their own billing records show my attorney changes cost about five hundred dollars.” Stop."
-    stronger: "That's not true. Their own billing records show my changes of attorney cost the estate about five hundred dollars — not thirty thousand."
-    stronger_lean: "leans on point 1"
+  # ---------- The defense asks (cross) — facts first, the conclusion, then the braid ----------
 
   - key: g2
     side: george
@@ -107,6 +93,21 @@ questions:
     stronger: "I did change attorneys. Their own billing records show that cost the estate about five hundred dollars."
     stronger_lean: "leans on point 1"
 
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Phillips Response to Discovery, p. 16"
+    tactic: 7            # echo — repeated until it sounds like fact
+    source_kind: instance
+    source_index: 4
+    text: "Mr. Phillips told the court, more than once, that you were responsible for the estate's administrative costs. You don't dispute he told the court that, do you?"
+    receipt: "Built from Phillips's own sworn discovery answer “Yes.” — that he argued, for CFS, that Marie was 100% responsible for the appeal's administrative cost. — Phillips Response to Discovery, p. 16"
+    pair_said: "Q: Did George Phillips on behalf of Catholic Family Services make the argument that Marie Awad is 100% responsible for the appeal's administrative cost…? A: “Yes.” — Phillips, sworn discovery answer, p. 16"
+    pair_admitted: "“Again, it was my understanding that Mr. Williams represented Marie Awad for a short period of time… I cannot recall any direct contact with Mr. Williams.” — Phillips, sworn discovery answer, p. 23"
+    watch_for: "WATCH FOR — the echo. He wants you to agree the accusation was made so it sounds true. Agree it was SAID, never that it was TRUE: “He did say that — many times. Under oath he called those statements his personal conclusions.”"
+    stronger: "He did tell the court that, many times. Under oath, he admitted those statements were his personal conclusions."
+    stronger_lean: "leans on point 3"
+
   - key: g3
     side: george
     kind: cross
@@ -122,20 +123,20 @@ questions:
     stronger: "I know what they argued. The Court of Appeals itself said it was the fight over the personal property that drove up the fees — not my attorneys."
     stronger_lean: "leans on point 2"
 
-  - key: g4
+  - key: g1
     side: george
     kind: cross
-    source_line: "Phillips Response to Discovery, p. 16"
-    tactic: 7            # echo — repeated until it sounds like fact
+    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 5"
+    tactic: 1            # broad generalization
     source_kind: instance
-    source_index: 4
-    text: "Mr. Phillips told the court, more than once, that you were responsible for the estate's administrative costs. You don't dispute he told the court that, do you?"
-    receipt: "Built from Phillips's own sworn discovery answer “Yes.” — that he argued, for CFS, that Marie was 100% responsible for the appeal's administrative cost. — Phillips Response to Discovery, p. 16"
-    pair_said: "Q: Did George Phillips on behalf of Catholic Family Services make the argument that Marie Awad is 100% responsible for the appeal's administrative cost…? A: “Yes.” — Phillips, sworn discovery answer, p. 16"
-    pair_admitted: "“Again, it was my understanding that Mr. Williams represented Marie Awad for a short period of time… I cannot recall any direct contact with Mr. Williams.” — Phillips, sworn discovery answer, p. 23"
-    watch_for: "WATCH FOR — the echo. He wants you to agree the accusation was made so it sounds true. Agree it was SAID, never that it was TRUE: “He did say that — many times. Under oath he called those statements his personal conclusions.”"
-    stronger: "He did tell the court that, many times. Under oath, he admitted those statements were his personal conclusions."
-    stronger_lean: "leans on point 3"
+    source_index: 2
+    text: "The fees and costs in your father's estate were driven by your unreasonable demands and behavior — that's what happened, isn't it?"
+    receipt: "Built from what the Court of Appeals recorded CFS maintaining: “the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals ruling, 12 Jan 2012, p. 5"
+    pair_said: "“CFS maintained that the fees and costs associated with probating the estate were substantially driven by Awad's unreasonable demands and behavior.” — Court of Appeals, reciting CFS, p. 5"
+    pair_admitted: "“Those statements were personal conclusions I made as a result of a number of different attorneys being retained over a short period of time.” — Phillips, sworn discovery answer, p. 30"
+    watch_for: "WATCH FOR — the generalization. Don't defend “unreasonable,” don't argue it: give the number once. “That's not true. Their own billing records show my attorney changes cost about five hundred dollars.” Stop."
+    stronger: "That's not true. Their own billing records show my changes of attorney cost the estate about five hundred dollars — not thirty thousand."
+    stronger_lean: "leans on point 1"
 
   - key: g5
     side: george
@@ -153,7 +154,63 @@ questions:
     stronger: "That's three different things. Which one are you asking me about?"
     stronger_lean: "routing drill — name the strands, answer one; the attorneys strand is this scenario, the 'difficult' strand is S-5, the courts strand is Chuck's"
 
-  # ---------- Chuck's REDIRECT — one per George trap (drafts for Chuck) ----------
+  # ---------- Chuck asks (direct) — foundation, then her three points ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "Marie, during the probate case, how many different attorneys represented you?"
+    receipt: "Chuck's direct — the foundation. He asks it before George can."
+    watch_for: "Plain. The number, no reasons yet."
+    stronger: "Five, over the years — some of them only briefly."
+    stronger_lean: "leans on point 1"
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "Tell the jury, briefly, why you changed attorneys."
+    receipt: "Chuck's direct — the reason, asked by the right lawyer."
+    watch_for: "Short and honest. This is the one place the reason belongs — on direct, asked by Chuck, not volunteered on cross."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 1
+    text: "What do Mr. Phillips's own billing records show those changes of attorney cost the estate?"
+    receipt: "Chuck's direct — establishes point 1 (the billing detail; Complaint ¶46, ¶94)."
+    watch_for: "The number, and whose records. Chuck will hand up the billing detail when it's in the binder."
+    stronger: "About five hundred dollars — by their own billing records. Not thirty thousand."
+    stronger_lean: "leans on point 1"
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 2
+    text: "What did the Court of Appeals say actually drove up the fees?"
+    receipt: "Chuck's direct — establishes point 2 (Court of Appeals ruling, 12 Jan 2012, p. 13)."
+    watch_for: "The court's words, then stop; Chuck reads the passage."
+    stronger: "The court said it was the fight over the personal property and the sisters not working together — not my attorneys."
+    stronger_lean: "leans on point 2"
+
+  - key: c5
+    side: chuck
+    kind: direct
+    source_kind: point
+    source_index: 3
+    text: "When Mr. Phillips was asked under oath about what he had written about you and your attorneys, what did he say?"
+    receipt: "Chuck's direct — establishes point 3 (Phillips Response to Discovery, p. 30)."
+    watch_for: "His words: “personal conclusions.” Then stop; Chuck reads the admission."
+    stronger: "He said they were his personal conclusions."
+    stronger_lean: "leans on point 3"
+
+  # ---------- Chuck, after the defense (redirect) — one per defense question ----------
+
   - key: r1
     side: chuck
     kind: redirect
@@ -208,57 +265,3 @@ questions:
     text: "Let's take those one at a time. How many hours do Mr. Phillips's own records show for all of your attorney changes put together?"
     receipt: "Chuck's redirect after the braid — point 1 (the billing detail: Shaw 0.0 · Williams 0.0 · Sharp 0.9 · Buk 1.1 · Penzien 0.0 = 2.0 hours)."
     watch_for: "Tell it, one strand at a time. Two hours. Then stop and let Chuck take the next strand."
-
-  # ---------- Chuck's DIRECT — foundation first, then the three points ----------
-  - key: c1
-    side: chuck
-    kind: direct
-    source_kind: point
-    source_index: 1
-    text: "Marie, during the probate case, how many different attorneys represented you?"
-    receipt: "Chuck's direct — the foundation. He asks it before George can."
-    watch_for: "Plain. The number, no reasons yet."
-    stronger: "Five, over the years — some of them only briefly."
-    stronger_lean: "leans on point 1"
-
-  - key: c2
-    side: chuck
-    kind: direct
-    source_kind: point
-    source_index: 1
-    text: "Tell the jury, briefly, why you changed attorneys."
-    receipt: "Chuck's direct — the reason, asked by the right lawyer."
-    watch_for: "Short and honest. This is the one place the reason belongs — on direct, asked by Chuck, not volunteered on cross."
-
-  - key: c3
-    side: chuck
-    kind: direct
-    source_kind: point
-    source_index: 1
-    text: "What do Mr. Phillips's own billing records show those changes of attorney cost the estate?"
-    receipt: "Chuck's direct — establishes point 1 (the billing detail; Complaint ¶46, ¶94)."
-    watch_for: "The number, and whose records. Chuck will hand up the billing detail when it's in the binder."
-    stronger: "About five hundred dollars — by their own billing records. Not thirty thousand."
-    stronger_lean: "leans on point 1"
-
-  - key: c4
-    side: chuck
-    kind: direct
-    source_kind: point
-    source_index: 2
-    text: "What did the Court of Appeals say actually drove up the fees?"
-    receipt: "Chuck's direct — establishes point 2 (Court of Appeals ruling, 12 Jan 2012, p. 13)."
-    watch_for: "The court's words, then stop; Chuck reads the passage."
-    stronger: "The court said it was the fight over the personal property and the sisters not working together — not my attorneys."
-    stronger_lean: "leans on point 2"
-
-  - key: c5
-    side: chuck
-    kind: direct
-    source_kind: point
-    source_index: 3
-    text: "When Mr. Phillips was asked under oath about what he had written about you and your attorneys, what did he say?"
-    receipt: "Chuck's direct — establishes point 3 (Phillips Response to Discovery, p. 30)."
-    watch_for: "His words: “personal conclusions.” Then stop; Chuck reads the admission."
-    stronger: "He said they were his personal conclusions."
-    stronger_lean: "leans on point 3"

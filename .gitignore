@@ -59,3 +59,9 @@ backend/test_audit/
 *_output.txt
 query-*.json
 run_*.py
+
+# One-shot maintenance tools write their count proof beside the checkout
+# (`practice_reset_report.txt`, `practice_deck_seed_report.txt`, …). The proof is
+# real output an operator reads and keeps — it is just not source, and six of
+# them have been sitting untracked in `backend/` since the merge tooling ran.
+*_report.txt

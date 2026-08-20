@@ -25,15 +25,6 @@ use crate::domain::settings::Settings;
 use crate::domain::wording_templates::render;
 use crate::repositories::pipeline_repository::practice_flow::{OpenSessionRecord, RowStatusRecord};
 
-/// The time of day the unfinished line prints: `09:57`.
-//
-// STRUCTURAL: the same argument the session date format carries in
-// `practice_page` — it is the shape of a clock on ONE witness surface, nothing
-// about it varies between DEV and PROD, and a strftime string is the one kind of
-// stored value the settings store cannot validate. A typo does not fail; it
-// renders `09:%M` onto the screen with every other check green.
-pub(crate) const CLOCK_FORMAT: &str = "%H:%M";
-
 /// The word one stored mark renders as.
 ///
 /// ## Why this is a match over all three and not "repeat or fine"
@@ -91,7 +82,13 @@ pub fn row_status(settings: &Settings, record: &RowStatusRecord) -> String {
         render(
             &row.earlier_template,
             &[
-                ("when", &super::practice_page::when(record.answered_at)),
+                (
+                    "when",
+                    &super::practice_page::when(
+                        record.answered_at,
+                        &settings.practice_read.case_timezone,
+                    ),
+                ),
                 ("mark", &mark),
             ],
         )
@@ -143,16 +140,23 @@ pub fn open_session_detail(settings: &Settings, record: &OpenSessionRecord) -> S
     )
 }
 
-/// `today 09:57`, or `Mon 18 Aug 09:57` for a sitting she left on another day.
+/// `today 5:36 pm`, or `Mon 18 Aug 5:36 pm` for a sitting she left another day.
+///
+/// Both halves are the CASE's, not UTC: the word "today" comes from a comparison
+/// Postgres made in the case's zone (the 08-19 hotfix), and the clock beside it
+/// is rendered in the same zone here. Before this they could disagree — an
+/// answer given at 8 pm read `today 00:15`, which is a sentence about two
+/// different days.
 fn started_at_phrase(settings: &Settings, today: bool, at: DateTime<Utc>) -> String {
-    let clock = at.format(CLOCK_FORMAT).to_string();
+    let tz = &settings.practice_read.case_timezone;
+    let clock = crate::services::practice_clock::local_clock(at, tz);
     if today {
         format!(
             "{} {clock}",
             settings.practice_wording.row.unfinished_today_word
         )
     } else {
-        format!("{} {clock}", super::practice_page::when(at))
+        format!("{} {clock}", super::practice_page::when(at, tz))
     }
 }
 
