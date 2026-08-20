@@ -147,10 +147,10 @@ const PracticePage: React.FC = () => {
   const view = rowControls.view(deck.questions, who);
 
   /** Write one note on this scenario, and re-read so the counts follow. */
-  const writeNote = (author: string, text: string) => {
+  const writeNote = (text: string) => {
     setSavingNote(true);
     setNoteError(null);
-    saveNote(slug, scenarioId, { questionId: null, answerId: null }, author, text)
+    saveNote(slug, scenarioId, { questionId: null, answerId: null }, text)
       .then(() => reload())
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
@@ -161,10 +161,10 @@ const PracticePage: React.FC = () => {
   };
 
   /** Strike one note through. Never a delete. */
-  const strike = (note: { id: string; author: string }) => {
+  const strike = (note: { id: string }) => {
     setSavingNote(true);
     setNoteError(null);
-    strikeNote(note.id, note.author)
+    strikeNote(note.id)
       .then(() => reload())
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console

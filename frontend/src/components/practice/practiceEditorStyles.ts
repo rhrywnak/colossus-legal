@@ -127,13 +127,24 @@ export const editBar: CSSProperties = {
   fontSize: 14,
 };
 
-/** `.editbar select` */
-export const editSelect: CSSProperties = {
-  font: "inherit",
-  fontSize: 14,
-  padding: "4px 6px",
-  border: "1px solid var(--practice-control-border)",
-  borderRadius: 6,
+/**
+ * Every control edit mode locks — Start, the pills, the side cards, the fold,
+ * Resume, Start over.
+ *
+ * ## Why the cursor and not only the colour
+ *
+ * A control that is dimmer but still shows a pointer reads as "clickable, just
+ * quiet". `not-allowed` is the one cue a person gets from the mouse BEFORE the
+ * click, and `title` (the store's `editor_busy_hint`) is what they get on the
+ * hover after it. `disabled` on the element is what actually refuses.
+ *
+ * The `font` shorthand is not used here: this object is SPREAD over another
+ * control's style, and `font: "inherit"` would reset the size that control had
+ * already set — the .401 defect, in the one place it could still happen.
+ */
+export const lockedControl: CSSProperties = {
+  opacity: 0.4,
+  cursor: "not-allowed",
 };
 
 /** `.switch` — "Edit the deck" / "Done editing". */
@@ -230,6 +241,12 @@ export const note: CSSProperties = {
   padding: "8px 0",
   borderBottom: `1px solid ${LINE}`,
   fontSize: 15,
+  // A grid track's default `min-width: auto` refuses to shrink below its
+  // longest unbreakable word, so one pasted URL in a note would push the panel
+  // sideways and take the page's horizontal scrollbar with it. `anywhere` lets
+  // the break happen inside the word; `minWidth: 0` lets the track allow it.
+  minWidth: 0,
+  overflowWrap: "anywhere",
 };
 
 /** `.note .who` */

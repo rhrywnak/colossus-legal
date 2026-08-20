@@ -80,6 +80,14 @@ export interface Sitting {
   answered: string[];
   /** True when the sitting is already closed. */
   ended: boolean;
+  /**
+   * The queued ids that have since been HIDDEN from the deck.
+   *
+   * Chuck can hide a question while a sitting still has it waiting. The sitting
+   * walks past these rather than asking them; ending it writes each one a sheet
+   * row reading `hidden before asked`, which the SERVER does. Normally empty.
+   */
+  hidden: string[];
 }
 
 /**
@@ -95,7 +103,8 @@ function asSitting(parsed: Partial<Sitting>): Sitting {
     typeof parsed.session_id !== "string" ||
     typeof parsed.who !== "string" ||
     !Array.isArray(parsed.queue) ||
-    !Array.isArray(parsed.answered)
+    !Array.isArray(parsed.answered) ||
+    !Array.isArray(parsed.hidden)
   ) {
     throw new Error(
       "The practice session response is missing its queue or its side — " +

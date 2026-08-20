@@ -88,6 +88,21 @@ pub struct PracticeAttemptDto {
     /// `help: opened · boxes: I accepted a word or premise I shouldn't have`,
     /// composed from the stored template and the four stored box labels.
     pub detail: String,
+    /// `asked as: "…"` — set only when this attempt's stored question text
+    /// DIFFERS from the question's current wording.
+    ///
+    /// ## Domain note: why the difference is what matters
+    ///
+    /// The page's header shows the question as it reads TODAY, because that is
+    /// the question Marie will be asked next time. Her answer, though, answers
+    /// the words she was actually given. When Chuck re-words a question she has
+    /// already sat, the header and the answer stop matching, and without this
+    /// line the answer simply reads as a poor one.
+    ///
+    /// `None` when they agree, which withdraws the line entirely rather than
+    /// printing the same sentence twice.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub asked_as: Option<String>,
     /// The notes written on THIS attempt, oldest first.
     pub notes: Vec<PracticeNoteDto>,
 }
@@ -116,6 +131,14 @@ pub struct PracticeReviewPayload {
 
 /// One field the editor may change, and its new value.
 ///
+/// ## Why no `editing_as`
+///
+/// It was here, and it was the fault Roman hit in the first minute of .402: the
+/// editor did nothing until a hidden selector was set, and nothing said so. Who
+/// is editing comes from the signed-in user now — see
+/// `services::practice_notes::attribution`. A request cannot arrive without one,
+/// and if it somehow does the extractor refuses it before any handler runs.
+///
 /// ## Why the field is a NAME and not a whole question object
 ///
 /// The change log records one row per field with a before and an after, and a
@@ -131,8 +154,6 @@ pub struct EditQuestionRequest {
     /// a blank, because a question with no words is not a question.
     #[serde(default)]
     pub value: Option<String>,
-    /// Chuck or Roman, from "Editing as". Required on every write.
-    pub editing_as: String,
 }
 
 /// Move one question up or down within its own side.
@@ -141,7 +162,6 @@ pub struct EditQuestionRequest {
 pub struct MoveQuestionRequest {
     /// `up` or `down`.
     pub direction: String,
-    pub editing_as: String,
 }
 
 /// Hide one question, or put it back.
@@ -149,7 +169,6 @@ pub struct MoveQuestionRequest {
 #[serde(deny_unknown_fields)]
 pub struct HideQuestionRequest {
     pub hidden: bool,
-    pub editing_as: String,
 }
 
 /// A question somebody typed on the page.
@@ -175,7 +194,6 @@ pub struct AddQuestionRequest {
     pub source_kind: Option<String>,
     #[serde(default)]
     pub source_index: Option<i32>,
-    pub editing_as: String,
 }
 
 /// What a write to the deck did, so the browser can re-read rather than guess.
@@ -196,13 +214,5 @@ pub struct NewNoteRequest {
     /// `None` unless the note is about one attempt.
     #[serde(default)]
     pub answer_id: Option<Uuid>,
-    pub author: String,
     pub text: String,
-}
-
-/// Who is striking a note through.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct StrikeNoteRequest {
-    pub author: String,
 }

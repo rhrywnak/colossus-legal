@@ -53,7 +53,7 @@ const LOADING = "Loading…";
 const Attempt: React.FC<{
   attempt: PracticeAttempt;
   wording: PracticeWording;
-  onSaveNote: (author: string, text: string) => void;
+  onSaveNote: (text: string) => void;
   onStrikeNote: (note: PracticeNote) => void;
   saving: boolean;
 }> = ({ attempt, wording, onSaveNote, onStrikeNote, saving }) => {
@@ -96,6 +96,17 @@ const Attempt: React.FC<{
         )}
         {attempt.detail}
       </div>
+
+      {/* What she was ACTUALLY asked, when the question has been re-worded
+          since. Absent — not empty — when the wording has not changed, so this
+          renders nothing rather than an empty line. The header above shows the
+          question as it reads today, which is the one she will be asked next
+          time; this is the one her answer answers. */}
+      {attempt.asked_as !== undefined && attempt.asked_as !== null && (
+        <div style={{ ...s.sub, fontSize: 13, marginTop: 4, fontStyle: "italic" }}>
+          {attempt.asked_as}
+        </div>
+      )}
 
       {attempt.notes.map((note) => (
         <NoteRow
@@ -159,10 +170,10 @@ const PracticeQuestionReviewPage: React.FC = () => {
   const question = review.question;
 
   /** Write one note, anywhere on this page, and re-read so the panel follows. */
-  const writeNote = (answerId: string | null) => (author: string, text: string) => {
+  const writeNote = (answerId: string | null) => (text: string) => {
     setSaving(true);
     setNoteError(null);
-    saveNote(slug, scenarioId, { questionId, answerId }, author, text)
+    saveNote(slug, scenarioId, { questionId, answerId }, text)
       .then(() => setReloads((n) => n + 1))
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
@@ -175,7 +186,7 @@ const PracticeQuestionReviewPage: React.FC = () => {
   const strike = (note: PracticeNote) => {
     setSaving(true);
     setNoteError(null);
-    strikeNote(note.id, note.author)
+    strikeNote(note.id)
       .then(() => setReloads((n) => n + 1))
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console

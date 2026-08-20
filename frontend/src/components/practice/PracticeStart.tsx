@@ -24,6 +24,7 @@ import type {
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { DeckView, PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
+import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 import PracticeChangedBox from "./PracticeChanged";
 import PracticeDeckList from "./PracticeDeckList";
@@ -86,11 +87,21 @@ interface Props {
   changed: Changed | null;
   /** The notes on this scenario (task B4). */
   notes: PracticeNote[];
-  onSaveNote: (author: string, text: string) => void;
+  onSaveNote: (text: string) => void;
   onStrikeNote: (note: PracticeNote) => void;
   savingNote: boolean;
   noteError: string | null;
 }
+
+/**
+ * One reason, or none, for every control this card locks.
+ *
+ * Returning the SENTENCE rather than a boolean is what makes it impossible to
+ * disable a control here without saying why: the caller has nothing to spread
+ * into `title` unless it also has the reason.
+ */
+const lockReason = (editing: boolean, hint: string): string | null =>
+  editing ? hint : null;
 
 /**
  * The ALWAYS card — the five rules that never move.
@@ -138,6 +149,10 @@ const PracticeStart: React.FC<Props> = ({
   const w = (key: string) => wordingOf(wording, key);
   const available = view.available.length;
   const count = view.count;
+  const locked = lockReason(editor.editing, w("editor_busy_hint"));
+  // ONE locked look, shared with the deck list's fold and the resume box, so a
+  // control cannot end up disabled here and look live there.
+  const lockStyle = locked !== null ? e.lockedControl : {};
 
   // The three choices, in the mockup's order. A table rather than three copies
   // of the same JSX: the only things that differ are the value and its two
@@ -165,8 +180,13 @@ const PracticeStart: React.FC<Props> = ({
           <button
             key={c.value}
             type="button"
-            style={who === c.value ? s.choiceButtonSelected : s.choiceButton}
+            style={{
+              ...(who === c.value ? s.choiceButtonSelected : s.choiceButton),
+              ...lockStyle,
+            }}
             aria-pressed={who === c.value}
+            disabled={locked !== null}
+            title={locked ?? undefined}
             onClick={() => onWhoChange(c.value)}
           >
             <span style={s.choiceTitle}>{c.title}</span>
@@ -186,6 +206,7 @@ const PracticeStart: React.FC<Props> = ({
           onStartOver={onStartOver}
           busy={resuming}
           error={resumeError}
+          lockedBecause={locked}
         />
       )}
 
@@ -200,8 +221,15 @@ const PracticeStart: React.FC<Props> = ({
           <React.Fragment key={v}>
             <button
               type="button"
-              style={{ ...s.pill, cursor: "pointer", opacity: count === v ? 1 : 0.5 }}
+              style={{
+                ...s.pill,
+                cursor: "pointer",
+                opacity: count === v ? 1 : 0.5,
+                ...lockStyle,
+              }}
               aria-pressed={count === v}
+              disabled={locked !== null}
+              title={locked ?? undefined}
               onClick={() => controls.setCount(v)}
             >
               {v}
@@ -214,8 +242,11 @@ const PracticeStart: React.FC<Props> = ({
             ...s.pill,
             cursor: "pointer",
             opacity: count >= available ? 1 : 0.5,
+            ...lockStyle,
           }}
           aria-pressed={count >= available}
+          disabled={locked !== null}
+          title={locked ?? undefined}
           onClick={() => controls.setCount(available)}
         >
           {w("count_all_template").replace("{n}", String(available))}
@@ -251,16 +282,22 @@ const PracticeStart: React.FC<Props> = ({
       />
 
       <div style={{ ...s.row, marginTop: 22 }}>
-        <button
-          type="button"
-          style={{ ...s.buttonPrimary, ...s.buttonBig }}
-          onClick={onStart}
-          disabled={starting || available === 0}
-        >
-          {/* A disabled button still reading "Start" is a screen refusing without
-              saying why. */}
-          {available === 0 ? w("nothing_left_label") : w("start_label")}
-        </button>
+        {/* GONE, not greyed, while a sitting is open: the two ways back into it
+            are in the blue box above, and a third control here offering a fresh
+            one is how a witness ends up with two. */}
+        {openSession === null && (
+          <button
+            type="button"
+            style={{ ...s.buttonPrimary, ...s.buttonBig, ...lockStyle }}
+            onClick={onStart}
+            disabled={starting || available === 0 || locked !== null}
+            title={locked ?? undefined}
+          >
+            {/* A disabled button still reading "Start" is a screen refusing
+                without saying why. */}
+            {available === 0 ? w("nothing_left_label") : w("start_label")}
+          </button>
+        )}
         <span style={s.progress}>{lastSessionLine}</span>
       </div>
 

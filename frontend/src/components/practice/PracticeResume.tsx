@@ -24,6 +24,7 @@ import React from "react";
 import type { OpenSession, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import * as d from "./practiceDeckStyles";
+import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 
 interface Props {
@@ -35,6 +36,14 @@ interface Props {
   busy: boolean;
   /** The failure sentence from the last attempt, or null. Never swallowed. */
   error: string | null;
+  /**
+   * The reason both controls are locked, or null when they are live.
+   *
+   * A SENTENCE and not a boolean: a disabled control on this page must say why
+   * (hotfix §1's hard rule), and passing the reason is what makes it impossible
+   * to disable one here without one.
+   */
+  lockedBecause: string | null;
 }
 
 const PracticeResume: React.FC<Props> = ({
@@ -44,8 +53,10 @@ const PracticeResume: React.FC<Props> = ({
   onStartOver,
   busy,
   error,
+  lockedBecause,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
+  const locked = lockedBecause !== null;
 
   return (
     <div style={d.resume}>
@@ -53,10 +64,22 @@ const PracticeResume: React.FC<Props> = ({
         <b style={{ color: "var(--practice-navy)" }}>{w("unfinished_label")}</b>{" "}
         {session.detail}
       </span>
-      <button type="button" style={s.buttonPrimary} onClick={onResume} disabled={busy}>
+      <button
+        type="button"
+        style={{ ...s.buttonPrimary, ...(locked ? e.lockedControl : {}) }}
+        onClick={onResume}
+        disabled={busy || locked}
+        title={lockedBecause ?? undefined}
+      >
         {w("resume_label")}
       </button>
-      <button type="button" style={s.button} onClick={onStartOver} disabled={busy}>
+      <button
+        type="button"
+        style={{ ...s.button, ...(locked ? e.lockedControl : {}) }}
+        onClick={onStartOver}
+        disabled={busy || locked}
+        title={lockedBecause ?? undefined}
+      >
         {w("start_over_label")}
       </button>
       <span style={{ ...s.sub, fontSize: 14 }}>{w("start_over_hint")}</span>

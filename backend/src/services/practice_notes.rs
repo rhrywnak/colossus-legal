@@ -5,6 +5,7 @@
 //! that the browser holds no templates for — the day it was written, and the
 //! "struck Tue 19 Aug" line under a note somebody has withdrawn.
 
+use crate::auth::AuthUser;
 use crate::domain::settings::Settings;
 use crate::domain::wording_templates::render;
 use crate::dto::practice_review::PracticeNoteDto;
@@ -65,56 +66,37 @@ pub fn new_since(
     (fresh.len(), newest)
 }
 
-/// Is this a name the store lets sign a note?
+/// Who a write is attributed to: the stable id, and the name a screen prints.
 ///
-/// ## Why the vocabulary is stored and not a CHECK constraint
+/// ## Why there are no selectors any more
 ///
-/// They are real people's names — case-specific data, which Rule 2 keeps out of
-/// code. `practice_note_authors` holds them the way `practice_tactic_names`
-/// holds the seven cards, and adding a fourth person is a Settings edit rather
-/// than a migration plus a deploy.
+/// There used to be two — "Editing as" on the deck editor and an author picker
+/// on every note — and behind them a stored allow-list of display names. The
+/// premise was that this build has one shared login and therefore cannot know
+/// who is acting. That premise was WRONG: Chuck and Marie have had logins since
+/// March, and every request already arrives with an authenticated user. The
+/// selectors were asking a question the server could already answer — and then,
+/// worse, silently refusing to work until somebody answered it.
 ///
-/// The comparison is exact and NOT case-folded: the name is stored on the note
-/// and printed beside it, so "chuck" and "Chuck" being the same author would put
-/// two spellings of one person on one panel.
-pub fn is_note_author(settings: &Settings, author: &str) -> bool {
-    names(&settings.practice_wording.editor.note_authors).any(|name| name == author)
-}
-
-/// Is this a name the store lets EDIT the deck?
+/// ## Rust Learning: returning a tuple struct's worth of data without the struct
 ///
-/// A shorter list than the note authors, and deliberately so: Marie answers the
-/// deck, she does not edit it. Both lists are stored, so that ruling is Roman's
-/// to change without a build.
-pub fn is_editor(settings: &Settings, author: &str) -> bool {
-    names(&settings.practice_wording.editor.editor_authors).any(|name| name == author)
-}
-
-/// Split a stored comma-separated vocabulary into its names.
-///
-/// ## Rust Learning: returning `impl Iterator` borrowed from an argument
-///
-/// The return type borrows `list`, so nothing is allocated — no `Vec`, no
-/// `String` per name — and the compiler proves the caller cannot hold the
-/// iterator past the settings snapshot it points into. That is the same
-/// guarantee `ReadRules`' borrowed `fine_token` carries, expressed as a return
-/// type instead of a struct field.
-fn names(list: &str) -> impl Iterator<Item = &str> {
-    list.split(',').map(str::trim).filter(|n| !n.is_empty())
-}
-
-/// The stored vocabulary, as the API's refusal message lists it.
-pub fn author_list(settings: &Settings) -> String {
-    names(&settings.practice_wording.editor.note_authors)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
-/// The editors, as the API's refusal message lists them.
-pub fn editor_list(settings: &Settings) -> String {
-    names(&settings.practice_wording.editor.editor_authors)
-        .collect::<Vec<_>>()
-        .join(", ")
+/// Two `String`s that always travel together would normally earn a struct. They
+/// do not here because every caller destructures them immediately into two
+/// columns (`author` and `author_id`), and a struct would add a name to import
+/// at eight call sites to save nothing at any of them. The ORDER is the risk —
+/// both are strings — so the return is `(id, name)` in the same order the
+/// columns are declared everywhere, and every call site binds them by name.
+pub fn attribution(user: &AuthUser) -> (String, String) {
+    // `display_name` is what the screen prints beside a note; `username` is what
+    // identifies the person when somebody is renamed in Authentik. A display
+    // name that is blank — possible, if Authentik has no name for an account —
+    // falls back to the username rather than rendering an empty author.
+    let name = if user.display_name.trim().is_empty() {
+        user.username.clone()
+    } else {
+        user.display_name.clone()
+    };
+    (user.username.clone(), name)
 }
 
 #[cfg(test)]

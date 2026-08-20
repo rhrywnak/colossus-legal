@@ -183,6 +183,14 @@ pub struct SittingPayload {
     /// True when this sitting is already closed. The page then shows the start
     /// card rather than re-entering a session that is over.
     pub ended: bool,
+    /// The queued ids that have since been HIDDEN from the deck.
+    ///
+    /// The sitting walks past these rather than asking them: Chuck took the
+    /// question out while this sitting still had it waiting, and asking it
+    /// anyway is what .402 did. A subset of `queue`, never anything else, and
+    /// normally empty. Ending the sitting writes each one a sheet row marked
+    /// `hidden before asked` — see `practice_hidden_queue`.
+    pub hidden: Vec<Uuid>,
 }
 
 /// What closing the stale open sittings did.

@@ -46,6 +46,7 @@ use crate::{
 };
 
 use super::practice::repo_error;
+use super::practice_fences::{fence_answer_text, fence_not_already_answered};
 
 /// The four boxes as an answer row OPENS: none ticked.
 ///
@@ -64,12 +65,23 @@ fn unticked_self_check() -> serde_json::Value {
     })
 }
 
+/// Record one answer, and ask the model for its one sentence.
+///
+/// ## Why the read cannot fail this request
+///
+/// Her answer is worth recording whatever the model does. A failed read is
+/// stored as `read_text = NULL` with the reason in `read_error`; the screen shows
+/// the stored "no system read this time" line and every other box stands. That is
+/// the design's own instruction, and it is also the only behaviour that does not
+/// throw away a witness's typed sentence because a vendor was slow.
 pub async fn post_practice_answer(
     _user: AuthUser,
     State(state): State<AppState>,
     Json(body): Json<AnswerRequest>,
 ) -> Result<Json<AnswerResponse>, AppError> {
     let (scenario_id, question) = fence_answer(&state, body.session_id, body.question_id).await?;
+    fence_answer_text(&body)?;
+    fence_not_already_answered(&state, body.session_id, question.id).await?;
     let outcome = read_for(&state, scenario_id, &question, &body.answer_text).await;
     // `None` when the control was never opened; `Some([])` when she opened it
     // and picked nothing. The column keeps the two apart, so the mapping does

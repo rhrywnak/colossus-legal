@@ -44,6 +44,11 @@ const COVERED: &[&str] = &[
     // leaving it out is what let Part A ship an INSERT naming a `draft_by`
     // column no migration created.
     "src/practice/seed_rows.rs",
+    // The hotfix's fourth mark. In the cover on the day it was written, for the
+    // reason above it: an INSERT nothing scans is an INSERT that can name a
+    // column no migration created, and this one writes `practice_answers` with
+    // a column list of its own.
+    "src/repositories/pipeline_repository/practice_hidden_queue.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.
@@ -319,6 +324,23 @@ fn paren_list(statement: &str, from: usize) -> Vec<String> {
 }
 
 /// `(table, columns, values)` for every `INSERT INTO` in the repository.
+///
+/// ## Why `values` can legitimately be empty
+///
+/// Two forms reach this parser. `INSERT … VALUES ($1, $2)` names its values in a
+/// parenthesised list, and the arity check downstream compares the two counts —
+/// a column added without a bind is the failure it exists for.
+///
+/// `INSERT … SELECT a, b FROM …` (the hidden-mark write, 2026-08-19) has no
+/// VALUES clause at all. Its arity is Postgres's business, not this parser's:
+/// counting expressions in a SELECT list means splitting on commas that may sit
+/// inside a function call, and a parser that guesses wrong here fails a correct
+/// statement, which teaches the next person to delete the guard.
+///
+/// So a SELECT-form insert returns EMPTY values and is skipped by the arity
+/// test — by name, in a test that asserts the skip is deliberate. The
+/// column-EXISTENCE check, which is the one that caught `draft_by`, still covers
+/// it in full: that check reads the column list, and the column list is there.
 pub(super) fn inserts() -> Vec<(String, Vec<String>, Vec<String>)> {
     let mut out = Vec::new();
     for statement in sql_statements() {
@@ -333,8 +355,12 @@ pub(super) fn inserts() -> Vec<(String, Vec<String>, Vec<String>)> {
             .trim_end_matches('(')
             .to_string();
         let columns = paren_list(&statement, at);
-        let values_at = statement.find("VALUES").unwrap_or(statement.len());
-        let values = paren_list(&statement, values_at);
+        // `find` and not `contains`: a SELECT-form insert has no VALUES clause,
+        // and `None` here is the signal for that — NOT a parse failure.
+        let values = match statement.find("VALUES") {
+            Some(values_at) => paren_list(&statement, values_at),
+            None => Vec::new(),
+        };
         out.push((table, columns, values));
     }
     out

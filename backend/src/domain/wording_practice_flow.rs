@@ -109,6 +109,9 @@ pub struct PracticeFlowWording {
     pub flag_summary_hint: String,
     /// `{id} — “{question}” → {note}` — one flagged question, as it prints.
     pub flag_summary_item_template: String,
+    /// The sheet's mark for a question hidden from the deck while this sitting
+    /// still had it queued. NOT `skipped` \u{2014} she never saw it.
+    pub mark_hidden_before_asked: String,
 }
 
 pub(crate) const KEY_DECK_HEADING: &str = "practice_deck_heading";
@@ -146,7 +149,10 @@ pub(crate) const KEY_FLAG_SUMMARY_ITEM_TEMPLATE: &str = "practice_flag_summary_i
 
 /// Every key in this block, so a missing one is caught at boot BY NAME rather
 /// than as a blank control in front of Marie mid-session.
+pub(crate) const KEY_MARK_HIDDEN_BEFORE_ASKED: &str = "practice_mark_hidden_before_asked";
+
 pub const PRACTICE_FLOW_WORDING_KEYS: &[&str] = &[
+    KEY_MARK_HIDDEN_BEFORE_ASKED,
     KEY_DECK_HEADING,
     KEY_DECK_COUNT_TEMPLATE,
     KEY_DECK_SKIPPED_SUFFIX_TEMPLATE,
@@ -199,6 +205,7 @@ pub fn build_practice_flow_wording<E>(
     read: impl Fn(&str) -> Result<String, E>,
 ) -> Result<PracticeFlowWording, E> {
     Ok(PracticeFlowWording {
+        mark_hidden_before_asked: read(KEY_MARK_HIDDEN_BEFORE_ASKED)?,
         deck_heading: read(KEY_DECK_HEADING)?,
         deck_count_template: read(KEY_DECK_COUNT_TEMPLATE)?,
         deck_skipped_suffix_template: read(KEY_DECK_SKIPPED_SUFFIX_TEMPLATE)?,

@@ -16,6 +16,7 @@ import React from "react";
 import type { PracticeQuestion as Question, PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import * as f from "./practiceFlowStyles";
+import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 import PracticePointsTo from "./PracticePointsTo";
 import PracticeTopBar from "./PracticeTopBar";
@@ -125,6 +126,9 @@ const PracticeQuestion: React.FC<Props> = ({
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const [paused, setPaused] = React.useState(false);
+  // Whitespace is not an answer. `trim()` and not `=== ""`, because a stray
+  // newline in the box would otherwise send a row the sheet prints as blank.
+  const blank = answer.trim() === "";
 
   // The pause note belongs to THIS question: moving on must clear it, or the
   // sentence "the pause is yours" follows her to a question she did not pause on.
@@ -172,7 +176,22 @@ const PracticeQuestion: React.FC<Props> = ({
       />
 
       <div style={s.row}>
-        <button type="button" style={s.buttonPrimary} onClick={onSubmit} disabled={submitting}>
+        {/* Answer refuses an EMPTY box before the click rather than after it.
+            The server refuses one too (`api::practice_fences`), so this is the
+            polite half of a fence and not the whole of it — but a witness who
+            presses a live button and gets a red sentence back has been told off
+            for nothing.
+
+            The hint names the OTHER control on purpose: "I don't recall." is a
+            complete answer and stays ONE click, so a disabled Answer must not
+            read as "you have to type something to go on". */}
+        <button
+          type="button"
+          style={{ ...s.buttonPrimary, ...(blank ? e.lockedControl : {}) }}
+          onClick={onSubmit}
+          disabled={submitting || blank}
+          title={blank ? w("answer_empty_hint") : undefined}
+        >
           {w("answer_button")}
         </button>
         <button type="button" style={s.button} onClick={onDontRecall} disabled={submitting}>

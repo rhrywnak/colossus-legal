@@ -16,6 +16,15 @@ use std::collections::HashMap;
 const SEED_MIGRATION: &str =
     "pipeline_migrations/20260819113610_practice_v1_part_b_deck_editor_notes_and_review.sql";
 
+/// The hotfix that seeds the rows added on 2026-08-19 evening.
+///
+/// A block's rows can arrive in more than one migration — this one carries the
+/// hints the attribution/edit-mode hotfix added. Reading only the ORIGINAL seed
+/// would make every new key look un-seeded and fail this test for a row that is
+/// on disk two files along.
+const HOTFIX_MIGRATION: &str =
+    "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -29,6 +38,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NOTES_PLACEHOLDER, "Add a note…"),
     (KEY_NOTES_ATTEMPT_PLACEHOLDER, "Add a note on this attempt…"),
     (KEY_NOTES_SAVE_LABEL, "Save"),
+    (KEY_NOTES_EMPTY_HINT, "Type the note first"),
     (KEY_NOTES_STRIKE_LABEL, "Strike"),
     (KEY_NOTES_STRUCK_TEMPLATE, "struck {when}"),
     (KEY_NOTES_EMPTY, "No notes on this yet."),
@@ -36,7 +46,6 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_NOTES_FAILED,
         "That note was not saved. Nothing was written; try again.",
     ),
-    (KEY_NOTES_AUTHOR_UNSET, "Who is writing?"),
     (KEY_ROW_REVIEW_LINK, "review"),
     (KEY_REVIEW_PROGRESS_TEMPLATE, "Question {n} · review"),
     (KEY_REVIEW_ATTEMPTS_KICKER, "Your attempts — newest first"),
@@ -49,6 +58,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     ),
     (KEY_REVIEW_PRACTICE_AGAIN, "Practice this one again ▸"),
     (KEY_REVIEW_STRONGER_HEADING, "A stronger answer"),
+    (
+        KEY_REVIEW_ASKED_AS_TEMPLATE,
+        "asked as: \u{201c}{text}\u{201d}",
+    ),
 ];
 
 impl PracticeReviewWording {
@@ -92,13 +105,18 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the Part B migration is on disk");
 
+    let hotfix = std::fs::read_to_string(root.join(HOTFIX_MIGRATION))
+        .expect("the attribution hotfix migration is on disk");
+
     for key in PRACTICE_REVIEW_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!(
-                "{key} is declared to the boot loader but seeded by no migration \
+        let seeded = seeded_value_in(&sql, key)
+            .or_else(|| seeded_value_in(&hotfix, key))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but seeded by no migration \
                  — the backend would refuse to start"
-            )
-        });
+                )
+            });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)

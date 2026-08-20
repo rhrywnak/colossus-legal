@@ -89,10 +89,11 @@ fn the_parse_sees_the_repositorys_statements() {
     );
     assert_eq!(
         inserts().len(),
-        6,
+        7,
         "two INSERTs in practice.rs, two in practice_editor.rs, one in \
-         practice_notes.rs, and the seed's — the widest column list in the \
-         codebase, and the one whose absence from this cover let a `draft_by` \
+         practice_notes.rs, the hidden-mark write's, and the seed's — the widest \
+         column list in the codebase, and the one whose absence from this cover \
+         let a `draft_by` \
          no migration created ship in Part A"
     );
     assert!(
@@ -123,9 +124,17 @@ fn the_parse_sees_the_repositorys_statements() {
 fn the_parse_reads_columns_and_aliases_out_of_them() {
     for (table, columns, values) in inserts() {
         assert!(
-            !columns.is_empty() && !values.is_empty(),
-            "parsed no columns or no values out of INSERT INTO {table} — \
+            !columns.is_empty(),
+            "parsed no columns out of INSERT INTO {table} — \
              the column-list parse has gone blind"
+        );
+        // A SELECT-form insert has no VALUES clause and legitimately parses to
+        // an empty value list. Everything else must have parsed values, or the
+        // arity test below is comparing 0 to 0 and calling it a pass.
+        assert!(
+            !values.is_empty() || select_form_inserts() > 0,
+            "parsed no values out of INSERT INTO {table}, and no SELECT-form \
+             insert exists to explain it — the VALUES parse has gone blind"
         );
     }
 
@@ -203,6 +212,32 @@ fn writes_name_only_columns_the_migrations_create() {
     }
 }
 
+/// How many parsed INSERTs are SELECT-form — i.e. carry no VALUES clause.
+///
+/// A count and not a boolean: it is asserted exactly below, so adding a second
+/// SELECT-form insert is a decision somebody makes on purpose rather than a way
+/// to opt a statement out of the arity check quietly.
+fn select_form_inserts() -> usize {
+    inserts().iter().filter(|(_, _, v)| v.is_empty()).count()
+}
+
+/// Exactly one INSERT in the covered files is SELECT-form.
+///
+/// `practice_hidden_queue::record_hidden_marks`, which writes one `hidden` row
+/// per queued-but-hidden question from a join rather than from bind parameters.
+/// It is the only statement the arity test skips, and this is what stops that
+/// skip from becoming a habit.
+#[test]
+fn exactly_one_insert_is_select_form() {
+    assert_eq!(
+        select_form_inserts(),
+        1,
+        "expected only record_hidden_marks to be SELECT-form; a new one must be \
+         added here deliberately, because each is a statement the arity check \
+         cannot see"
+    );
+}
+
 /// Each INSERT supplies exactly one value per column it names.
 ///
 /// Postgres would reject a mismatch — but only at runtime, on a live
@@ -210,6 +245,13 @@ fn writes_name_only_columns_the_migrations_create() {
 #[test]
 fn inserts_supply_one_value_per_column() {
     for (table, columns, values) in inserts() {
+        // SELECT-form: no VALUES clause to count against. Skipped by SHAPE and
+        // not by table name, so a VALUES-form insert can never slip through by
+        // being written in a file this test was told to ignore. The count of
+        // them is pinned below, so a skip cannot appear unnoticed.
+        if values.is_empty() {
+            continue;
+        }
         assert_eq!(
             columns.len(),
             values.len(),

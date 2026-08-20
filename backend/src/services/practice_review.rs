@@ -30,6 +30,13 @@ fn mark_word(settings: &Settings, mark: &str) -> String {
     match mark {
         "repeat" => report.mark_repeat.clone(),
         "skipped" => settings.practice_wording.flow.mark_skipped.clone(),
+        // Hidden from the deck while this sitting still had it queued. NOT
+        // `skipped`: that is her act, and this was the editor's.
+        "hidden" => settings
+            .practice_wording
+            .flow
+            .mark_hidden_before_asked
+            .clone(),
         "fine" => report.mark_fine.clone(),
         other => other.to_string(),
     }
@@ -93,25 +100,13 @@ fn one_attempt(
     record: &AttemptRecord,
     number: usize,
     notes: &[NoteRecord],
+    current_text: &str,
 ) -> PracticeAttemptDto {
     let w = &settings.practice_wording.review;
     let report = &settings.practice_report_wording;
     PracticeAttemptDto {
         answer_id: record.id,
-        heading: render(
-            &w.review_attempt_template,
-            &[
-                ("n", &number.to_string()),
-                (
-                    "when",
-                    &format!(
-                        "{} {}",
-                        when(record.answered_at),
-                        record.answered_at.format(CLOCK_FORMAT)
-                    ),
-                ),
-            ],
-        ),
+        heading: heading(settings, record, number),
         mark: mark_word(settings, &record.mark),
         mark_key: record.mark.clone(),
         answer: record.answer_text.clone(),
@@ -132,6 +127,7 @@ fn one_attempt(
                 ("boxes", &boxes(settings, &record.self_check)),
             ],
         ),
+        asked_as: asked_as(settings, &record.question_text, current_text),
         notes: notes
             .iter()
             .filter(|n| n.answer_id == Some(record.id))
@@ -140,21 +136,79 @@ fn one_attempt(
     }
 }
 
+/// `attempt 2 · Wed 19 Aug 08:40` — one attempt's heading.
+///
+/// The day word and the clock are two different stored formats deliberately:
+/// `when` renders "today" / "yesterday" / a date, which is the part a person
+/// reads first, and `CLOCK_FORMAT` is the part that distinguishes two attempts
+/// on the same evening.
+fn heading(settings: &Settings, record: &AttemptRecord, number: usize) -> String {
+    render(
+        &settings.practice_wording.review.review_attempt_template,
+        &[
+            ("n", &number.to_string()),
+            (
+                "when",
+                &format!(
+                    "{} {}",
+                    when(record.answered_at),
+                    record.answered_at.format(CLOCK_FORMAT)
+                ),
+            ),
+        ],
+    )
+}
+
+/// `asked as: "…"`, or `None` when this attempt was asked as it reads today.
+///
+/// ## Domain note: the difference is the whole point
+///
+/// The review page's header shows the question as it reads TODAY, because that
+/// is what Marie will be asked next time. Her answer, though, answers the words
+/// she was actually given. When Chuck re-words a question she has already sat,
+/// the header and the answer stop matching, and without this line a perfectly
+/// good answer simply reads as a poor one.
+///
+/// ## Rust Learning: `bool::then`
+///
+/// `condition.then(|| value)` returns `Some(value)` when the condition holds and
+/// `None` otherwise — and the closure means the value is only BUILT in the
+/// `Some` case, so the template render does not run on every attempt of every
+/// question just to be thrown away. (`then_some(value)` is the eager sibling,
+/// correct only when the value is already to hand.)
+///
+/// Compared TRIMMED: a re-save that changed nothing but a trailing space is not
+/// a re-wording, and printing the line for it would teach the reader to stop
+/// looking at it — which would make it invisible on the one attempt where it
+/// says something.
+fn asked_as(settings: &Settings, stored: &str, current_text: &str) -> Option<String> {
+    (stored.trim() != current_text.trim()).then(|| {
+        render(
+            &settings.practice_wording.review.review_asked_as_template,
+            &[("text", stored)],
+        )
+    })
+}
+
 /// Every attempt at one question, numbered from her first and returned newest
 /// first.
 ///
 /// `notes` is the whole scenario's note list; the attempt-level ones are
 /// partitioned out of it here rather than read per attempt, because the page is
 /// one payload by design and a read per attempt would be a round trip per row.
+///
+/// `current_text` is the question's wording TODAY, which every attempt is
+/// compared against to decide whether it needs an `asked as:` line.
 pub fn attempts(
     settings: &Settings,
     records: &[AttemptRecord],
     notes: &[NoteRecord],
+    current_text: &str,
 ) -> Vec<PracticeAttemptDto> {
     let mut out: Vec<PracticeAttemptDto> = records
         .iter()
         .enumerate()
-        .map(|(i, record)| one_attempt(settings, record, i + 1, notes))
+        .map(|(i, record)| one_attempt(settings, record, i + 1, notes, current_text))
         .collect();
 
     // Newest first, which is what the page says out loud. Reversed AFTER the

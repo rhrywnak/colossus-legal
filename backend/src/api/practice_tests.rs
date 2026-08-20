@@ -182,7 +182,7 @@ fn the_reveal_settles_fine_or_repeat_and_refuses_the_skipped_mark() {
 /// was never asked, with nothing on the page looking wrong.
 #[test]
 fn a_sitting_naming_a_question_outside_the_deck_is_refused() {
-    use super::fence_queue;
+    use crate::api::practice_fences::fence_queue;
     use std::collections::HashSet;
     use uuid::Uuid;
 

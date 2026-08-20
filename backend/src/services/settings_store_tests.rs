@@ -162,6 +162,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
                 "practice_read_prompt_v2.md".to_string(),
             ),
             ("practice_read_model", "claude-opus-5".to_string()),
+            // The case's own timezone — what "today" means on a deck row. Case
+            // data, so a stored row (hotfix, 2026-08-19); Postgres does the
+            // comparing, which is why nothing parses it here.
+            ("practice_case_timezone", "America/Detroit".to_string()),
             // The OK word, coupled to the prompt file. Text, and not wording:
             // nobody reads it on a screen — the model writes it and the parser
             // recognises it.
@@ -535,7 +539,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        27,
+        28,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -545,7 +549,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          .396's three tier-map rows, which carry extraction vocabulary rather \
          than sentences and so are parameters, not wording, and PRACTICE v0's \
          seven — the read's prompt file, its model, its token cap, its two word \
-         caps, the word it reserves for \"fine\", and the seven tactic-card names"
+         caps, the word it reserves for \"fine\", and the seven tactic-card names \
+         — plus the case's own timezone, which decides what \"today\" means on a \
+         deck row (hotfix, 2026-08-19)"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -629,27 +635,29 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_FLOW_WORDING_KEYS.len(),
-        32,
+        33,
         "PRACTICE flow v1, mockup v3: the deck listed with its two row controls, \
          the resume line, the top bar, and the sheet's flag list and two clauses"
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        12,
+        14,
         "PRACTICE v1, the Chuck review: the words about ONE question — the way \
          into it alone, its status on the row, the redirect tag and its drawer \
          line, and what she would point to"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
-        47,
-        "PRACTICE v1 Part B, mockup v4: the deck editor, the two author \
-         vocabularies, the change vocabulary, the badges, and the changed-since \
-         box"
+        45,
+        "PRACTICE v1 Part B, mockup v4 + the 08-19 hotfix: the deck editor, the \
+         change vocabulary, the badges, and the changed-since box. Part B's two \
+         'Editing as' strings were retired with the picker; the hotfix's busy \
+         hint and discard confirm took their places, so the count is unchanged \
+         from Part B by coincidence and not by accident"
     );
     assert_eq!(
         PRACTICE_REVIEW_WORDING_KEYS.len(),
-        21,
+        22,
         "PRACTICE v1 Part B: the notes panel and the review page"
     );
     assert_eq!(
@@ -1105,6 +1113,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // answer box's placeholder, and the correction pass below is what sees
         // it. The two author vocabularies live in the wording lists.
         "pipeline_migrations/20260819113610_practice_v1_part_b_deck_editor_notes_and_review.sql",
+        // The attribution hotfix: the twentieth not-wording parameter
+        // (practice_case_timezone) and the six hints that came with it.
+        "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql",
     ]
     .iter()
     .map(|relative| {

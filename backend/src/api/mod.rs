@@ -57,6 +57,7 @@ pub mod practice;
 pub mod practice_answers;
 pub mod practice_editor;
 pub mod practice_editor_add;
+pub mod practice_fences;
 pub mod practice_notes;
 pub mod practice_sessions;
 pub mod proof_matrix;

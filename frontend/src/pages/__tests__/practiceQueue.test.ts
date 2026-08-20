@@ -104,13 +104,59 @@ describe("buildQueue", () => {
     // comparable — and not the v0 alternation either: a redirect is the answer
     // to the question just asked, and dealing it three questions later drills
     // something that never happens in a courtroom.
-    expect(buildQueue(PAIRED, "mixed", 6).map((q) => q.id)).toEqual([
+    //
+    // 3 = three questions PUT TO HER. PAIRED has exactly three traps, so the
+    // three redirects ride along and the two Chuck directs are not reached.
+    expect(buildQueue(PAIRED, "mixed", 3).map((q) => q.id)).toEqual([
       "g1",
       "r1",
       "g2",
       "r2",
       "g3",
       "r3",
+    ]);
+  });
+
+  // ── hotfix §3.5 · what a count means on MIXED ─────────────────────────────
+
+  it("counts the questions asked OF HER, not the redirects that ride along", () => {
+    // The defect this replaces: `slice(0, 5)` returned g1 · r1 · g2 · r2 · g3 —
+    // a trap left standing, with the redirect that repairs it never dealt. In a
+    // drill about recovering from a trap, that is the one place it must not end.
+    const five = buildQueue(PAIRED, "mixed", 5).map((q) => q.id);
+    expect(five).toEqual(["g1", "r1", "g2", "r2", "g3", "r3", "c1", "c2"]);
+    // Five asked of her; the three redirects are Chuck repairing, not asking.
+    expect(five.filter((id) => !id.startsWith("r"))).toHaveLength(5);
+  });
+
+  it("never ends between a trap and its redirect", () => {
+    // Every count from 1 to the whole deck: the last question dealt is never a
+    // trap whose redirect exists and was left out. Asserted over the RANGE and
+    // not at one number, because the off-by-one this guards is exactly the kind
+    // that hides at 4 and shows at 5.
+    for (let n = 1; n <= 6; n += 1) {
+      const dealt = buildQueue(PAIRED, "mixed", n).map((q) => q.id);
+      const last = dealt[dealt.length - 1];
+      const orphaned = last.startsWith("g") && !dealt.includes(`r${last.slice(1)}`);
+      expect(orphaned, `count ${n} ended on ${last} with its redirect undealt`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("fills with Chuck's directs when George's side runs out first", () => {
+    // Nine asked of her; PAIRED has only three traps and two directs, so the
+    // queue is SHORTER than the count rather than padded. A repeated question
+    // would be the system inventing a rep.
+    expect(buildQueue(PAIRED, "mixed", 9).map((q) => q.id)).toEqual([
+      "g1",
+      "r1",
+      "g2",
+      "r2",
+      "g3",
+      "r3",
+      "c1",
+      "c2",
     ]);
   });
 

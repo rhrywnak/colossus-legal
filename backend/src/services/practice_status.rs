@@ -48,6 +48,13 @@ fn mark_word(settings: &Settings, mark: &str) -> String {
     match mark {
         "repeat" => report.mark_repeat.clone(),
         "skipped" => settings.practice_wording.flow.mark_skipped.clone(),
+        // Hidden from the deck while this sitting still had it queued. NOT
+        // `skipped`: that is her act, and this was the editor's.
+        "hidden" => settings
+            .practice_wording
+            .flow
+            .mark_hidden_before_asked
+            .clone(),
         "fine" => report.mark_fine.clone(),
         // Unreachable through the database — the column's CHECK permits three
         // values. It renders the raw value rather than guessing, so a fourth
@@ -70,11 +77,11 @@ fn mark_word(settings: &Settings, mark: &str) -> String {
 ///
 /// The attempt suffix is withdrawn at one attempt. "attempt 1" on every row is
 /// noise, and the number only means something once it is above one.
-pub fn row_status(settings: &Settings, now: DateTime<Utc>, record: &RowStatusRecord) -> String {
+pub fn row_status(settings: &Settings, record: &RowStatusRecord) -> String {
     let row = &settings.practice_wording.row;
     let mark = mark_word(settings, &record.mark);
 
-    let mut line = if same_day(now, record.answered_at) {
+    let mut line = if record.answered_today {
         if record.mark == "skipped" {
             row.skipped_today.clone()
         } else {
@@ -102,19 +109,10 @@ pub fn row_status(settings: &Settings, now: DateTime<Utc>, record: &RowStatusRec
     line
 }
 
-/// Are these two instants the same calendar day?
-///
-/// ## Domain note: UTC, deliberately, and what that costs
-///
-/// Every timestamp on these tables is `TIMESTAMPTZ` stored in UTC, and this
-/// service has no timezone configured for the case. Comparing in UTC means a
-/// sitting after 17:00 Mountain reads as "today" until 18:00 the next evening —
-/// wrong by one label, on one row, for a witness practising late. Naming that
-/// here rather than pretending: the honest fix is a case timezone in the
-/// settings store, which is a task nobody has issued.
-fn same_day(a: DateTime<Utc>, b: DateTime<Utc>) -> bool {
-    a.date_naive() == b.date_naive()
-}
+// `same_day` used to live here and compared in UTC. It is gone: Postgres does
+// the comparison now, in the case's own zone, and hands back a boolean. The
+// reason is in `row_statuses` — Marie practises in the evening in Michigan, and
+// a UTC day ended hers at 20:00 local.
 
 /// The detail sentence on the unfinished-session box.
 ///
@@ -125,11 +123,7 @@ fn same_day(a: DateTime<Utc>, b: DateTime<Utc>) -> bool {
 /// bug and is a lie about her evening — the count is rendered as the stored
 /// dash. The sheet's `Ended early.` clause takes the same position for the same
 /// reason: the surface never claims a fact it cannot source.
-pub fn open_session_detail(
-    settings: &Settings,
-    now: DateTime<Utc>,
-    record: &OpenSessionRecord,
-) -> String {
+pub fn open_session_detail(settings: &Settings, record: &OpenSessionRecord) -> String {
     let flow = &settings.practice_wording.flow;
     let total = match record.queue_len {
         Some(n) => n.to_string(),
@@ -138,7 +132,10 @@ pub fn open_session_detail(
     render(
         &flow.unfinished_detail_template,
         &[
-            ("when", &started_at_phrase(settings, now, record.started_at)),
+            (
+                "when",
+                &started_at_phrase(settings, record.started_today, record.started_at),
+            ),
             ("who", &who_word(settings, &record.who)),
             ("answered", &record.answered.to_string()),
             ("total", &total),
@@ -147,9 +144,9 @@ pub fn open_session_detail(
 }
 
 /// `today 09:57`, or `Mon 18 Aug 09:57` for a sitting she left on another day.
-fn started_at_phrase(settings: &Settings, now: DateTime<Utc>, at: DateTime<Utc>) -> String {
+fn started_at_phrase(settings: &Settings, today: bool, at: DateTime<Utc>) -> String {
     let clock = at.format(CLOCK_FORMAT).to_string();
-    if same_day(now, at) {
+    if today {
         format!(
             "{} {clock}",
             settings.practice_wording.row.unfinished_today_word

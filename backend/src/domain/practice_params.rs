@@ -73,6 +73,11 @@ pub struct PracticeReadParams {
     /// row would mean re-seeding every deck to rename a card, and would put this
     /// case's vocabulary into a table another Colossus project would inherit.
     pub tactic_names: Vec<String>,
+
+    /// The IANA zone this case's days are counted in — see
+    /// [`KEY_PRACTICE_CASE_TIMEZONE`]. Carried on this snapshot because every
+    /// practice read that asks "was this today?" already has it in hand.
+    pub case_timezone: String,
 }
 
 // KEYS: the stable identifiers, named here and listed in
@@ -115,7 +120,26 @@ pub const KEY_PRACTICE_TACTIC_NAMES: &str = "practice_tactic_names";
 /// The drift this could invite (a list nothing consults) is closed the same way
 /// it is for the wording blocks: `settings_boot` counts it, and
 /// `settings_store_tests` both walks it and asserts the total.
+/// The IANA zone this case's days are counted in.
+///
+/// ## Why this is not on [`PracticeReadParams`]
+///
+/// That struct is what the READ is told. This is what a DAY is — it decides when
+/// `answered today` becomes `last: Wed 19 Aug` on a deck row and when the
+/// unfinished line says "today", and no model ever sees it. One field is not
+/// worth a struct of its own on `Settings`, so it hangs off the practice params
+/// module beside the other practice-wide values and is read as a plain string.
+///
+/// ## Domain note: the value is CASE data
+///
+/// `America/Detroit`, because that is where the witness practises. Rule 2 keeps
+/// it in the store; and the comparison itself happens in Postgres, which already
+/// carries the tz database — so a zone name it does not know fails the read
+/// loudly instead of falling back to UTC, which is the bug this exists to fix.
+pub const KEY_PRACTICE_CASE_TIMEZONE: &str = "practice_case_timezone";
+
 pub const PRACTICE_PARAM_KEYS: &[&str] = &[
+    KEY_PRACTICE_CASE_TIMEZONE,
     KEY_PRACTICE_READ_PROMPT_FILE,
     KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_MAX_TOKENS,
@@ -145,6 +169,7 @@ impl PracticeReadParams {
             max_words_after_fine: 6,
             fine_token: "Fine.".to_string(),
             tactic_names: TEST_TACTIC_NAMES.split(',').map(str::to_string).collect(),
+            case_timezone: "America/Detroit".to_string(),
         }
     }
 }

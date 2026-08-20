@@ -38,6 +38,13 @@ fn attempt(n: u128, day: u32, mark: &str) -> AttemptRecord {
     }
 }
 
+/// The wording the fixture's attempts were all asked under.
+///
+/// Named rather than repeated, because the `asked as:` tests below turn on
+/// whether the CURRENT text equals this one, and two copies of a long sentence
+/// is how that comparison quietly stops testing anything.
+const ASKED: &str = "Weren't you at each other's throats?";
+
 fn note_on(answer: u128) -> NoteRecord {
     NoteRecord {
         id: Uuid::from_u128(900 + answer),
@@ -57,7 +64,7 @@ fn attempts_are_numbered_from_the_first_and_returned_newest_first() {
     let s = Settings::for_test();
     let rows = vec![attempt(1, 18, "repeat"), attempt(2, 19, "fine")];
 
-    let out = attempts(&s, &rows, &[]);
+    let out = attempts(&s, &rows, &[], ASKED);
 
     assert_eq!(out.len(), 2);
     assert_eq!(out[0].answer_id, Uuid::from_u128(2), "newest first");
@@ -77,7 +84,7 @@ fn attempts_are_numbered_from_the_first_and_returned_newest_first() {
 #[test]
 fn an_attempt_heading_carries_the_day_and_the_clock() {
     let s = Settings::for_test();
-    let out = attempts(&s, &[attempt(1, 19, "fine")], &[]);
+    let out = attempts(&s, &[attempt(1, 19, "fine")], &[], ASKED);
     assert_eq!(out[0].heading, "attempt 1 · Wed 19 Aug 08:40");
     assert!(!out[0].heading.contains('{'), "a placeholder survived");
 }
@@ -90,11 +97,11 @@ fn an_attempt_heading_carries_the_day_and_the_clock() {
 #[test]
 fn the_mark_arrives_as_the_stored_word_and_the_raw_key() {
     let s = Settings::for_test();
-    let out = attempts(&s, &[attempt(1, 19, "repeat")], &[]);
+    let out = attempts(&s, &[attempt(1, 19, "repeat")], &[], ASKED);
     assert_eq!(out[0].mark, "repeat");
     assert_eq!(out[0].mark_key, "repeat");
 
-    let skipped = attempts(&s, &[attempt(1, 19, "skipped")], &[]);
+    let skipped = attempts(&s, &[attempt(1, 19, "skipped")], &[], ASKED);
     assert_eq!(skipped[0].mark, "skipped", "and never 'fine'");
 }
 
@@ -102,7 +109,7 @@ fn the_mark_arrives_as_the_stored_word_and_the_raw_key() {
 #[test]
 fn the_detail_line_names_the_boxes_she_ticked() {
     let s = Settings::for_test();
-    let out = attempts(&s, &[attempt(1, 19, "fine")], &[]);
+    let out = attempts(&s, &[attempt(1, 19, "fine")], &[], ASKED);
     assert!(
         out[0]
             .detail
@@ -123,7 +130,7 @@ fn ticking_no_boxes_reads_as_a_named_absence() {
         "explained_unasked": false, "guessed": false
     });
 
-    let out = attempts(&s, &[row], &[]);
+    let out = attempts(&s, &[row], &[], ASKED);
     assert!(out[0].detail.ends_with("none ticked"), "{}", out[0].detail);
 }
 
@@ -134,7 +141,7 @@ fn a_malformed_points_to_withdraws_the_clause() {
     let mut row = attempt(1, 19, "fine");
     row.points_to = Some(serde_json::json!({ "not": "a list" }));
 
-    let out = attempts(&s, &[row], &[]);
+    let out = attempts(&s, &[row], &[], ASKED);
     assert_eq!(out.len(), 1, "the page still renders");
     assert!(out[0].points_to.is_empty());
     assert_eq!(out[0].answer, "answer 1", "every other cell stands");
@@ -146,7 +153,7 @@ fn a_note_lands_on_the_attempt_it_names() {
     let s = Settings::for_test();
     let rows = vec![attempt(1, 18, "repeat"), attempt(2, 19, "fine")];
 
-    let out = attempts(&s, &rows, &[note_on(1)]);
+    let out = attempts(&s, &rows, &[note_on(1)], ASKED);
 
     // out[0] is attempt 2 (newest first); the note is on attempt 1.
     assert!(out[0].notes.is_empty());
@@ -175,4 +182,59 @@ fn the_question_panel_excludes_the_attempt_notes() {
 #[test]
 fn the_progress_line_names_the_printed_position() {
     assert_eq!(progress(&Settings::for_test(), 3), "Question 3 · review");
+}
+
+// ── hotfix §3.11 · `asked as: "…"` ──────────────────────────────────────────
+
+/// An attempt asked under the CURRENT wording carries no `asked as:` line.
+///
+/// The normal case, and the one that matters most: printing the same sentence
+/// twice under every attempt would teach the reader to stop reading it, and the
+/// line would then be invisible on the one attempt where it says something.
+#[test]
+fn an_attempt_asked_under_todays_wording_says_nothing_extra() {
+    let s = Settings::for_test();
+    let out = attempts(&s, &[attempt(1, 19, "fine")], &[], ASKED);
+    assert_eq!(out[0].asked_as, None);
+}
+
+/// A re-worded question names what she was ACTUALLY asked, in the store's line.
+#[test]
+fn a_rewritten_question_prints_what_the_attempt_was_asked_as() {
+    let s = Settings::for_test();
+    let out = attempts(
+        &s,
+        &[attempt(1, 19, "fine")],
+        &[],
+        "You were at each other's throats, weren't you?",
+    );
+    let line = out[0]
+        .asked_as
+        .as_deref()
+        .expect("a re-worded question prints the wording the attempt was given");
+    assert!(
+        line.contains(ASKED),
+        "the line must quote the STORED wording, not the current one: {line}"
+    );
+    assert!(
+        !line.contains("You were at each other's"),
+        "the current wording is the page header's job, not this line's: {line}"
+    );
+}
+
+/// Whitespace alone is not a re-wording.
+///
+/// A Save that changed nothing but a trailing space would otherwise put an
+/// `asked as:` line under every past attempt, quoting a sentence identical to
+/// the header — which reads as a bug to anybody looking at it.
+#[test]
+fn trailing_whitespace_is_not_a_rewording() {
+    let s = Settings::for_test();
+    let out = attempts(
+        &s,
+        &[attempt(1, 19, "fine")],
+        &[],
+        "  Weren't you at each other's throats?  ",
+    );
+    assert_eq!(out[0].asked_as, None);
 }

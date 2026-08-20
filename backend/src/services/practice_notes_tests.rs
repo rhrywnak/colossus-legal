@@ -7,6 +7,7 @@
 // testimony, and it is a stored vocabulary rather than a compiled one.
 
 use super::*;
+use crate::auth::AuthUser;
 use crate::domain::settings::Settings;
 use chrono::TimeZone;
 use uuid::Uuid;
@@ -101,48 +102,62 @@ fn with_no_previous_sitting_every_standing_note_counts() {
     assert_eq!(who, Some("Chuck"));
 }
 
-/// The author fence reads the STORED vocabulary.
-#[test]
-fn the_author_fence_reads_the_stored_vocabulary() {
-    let s = Settings::for_test();
-    for name in ["Chuck", "Marie", "Roman"] {
-        assert!(
-            is_note_author(&s, name),
-            "{name} should be able to write a note"
-        );
+// ── Attribution comes from the login (hotfix, 2026-08-19) ────────────────────
+//
+// The four tests that stood here checked a stored allow-list of display names
+// against a selector's value. Both are gone: the selector was the fault Roman
+// hit in the first minute of .402, and the allow-list behind it could only ever
+// lock a real signed-in user out. What replaces them is one function, and what
+// it must not do is invent a name.
+
+fn user(username: &str, display: &str) -> AuthUser {
+    AuthUser {
+        username: username.to_string(),
+        email: String::new(),
+        display_name: display.to_string(),
+        groups: vec![],
     }
-    assert!(
-        !is_note_author(&s, "George"),
-        "opposing counsel does not write notes here"
-    );
-    assert!(!is_note_author(&s, ""), "an unsigned note is refused");
 }
 
-/// The comparison is EXACT, not case-folded.
+/// The id is the username; the printed name is the display name.
+#[test]
+fn attribution_takes_the_id_and_the_name_from_the_login() {
+    let (id, name) = attribution(&user("chuck", "Chuck"));
+    assert_eq!(id, "chuck");
+    assert_eq!(name, "Chuck");
+}
+
+/// A blank display name falls back to the username, never to an empty author.
 ///
-/// The name is stored on the note and printed beside it, so accepting "chuck"
-/// would put two spellings of one person on one panel.
+/// Authentik can hold an account with no name set. A note whose author renders
+/// as nothing is a note nobody can answer — and this is the one place a name
+/// could have arrived empty, because everything else on these tables is either
+/// a stored row or something a human typed.
 #[test]
-fn the_author_fence_is_exact_and_not_case_folded() {
-    assert!(!is_note_author(&Settings::for_test(), "chuck"));
+fn a_blank_display_name_falls_back_to_the_username() {
+    let (id, name) = attribution(&user("marie", "   "));
+    assert_eq!(id, "marie");
+    assert_eq!(name, "marie", "never an empty author");
 }
 
-/// Only the editors may edit, and the list is SHORTER than the note authors.
+/// Nothing here consults a stored list, and nothing can refuse a real user.
 ///
-/// Marie answers the deck; she does not edit it. That ruling is Roman's to
-/// change without a build, which is why both lists are stored rows.
+/// ANTI-REGRESSION: the two settings rows this replaced
+/// (`practice_note_authors`, `practice_editor_authors`) are deleted by the
+/// hotfix migration. If somebody reintroduces a vocabulary check, a signed-in
+/// user whose Authentik display name is spelled differently from the row would
+/// be silently unable to write a note — which is the class of fault this whole
+/// task exists to remove.
 #[test]
-fn marie_may_write_a_note_and_may_not_edit_the_deck() {
-    let s = Settings::for_test();
-    assert!(is_note_author(&s, "Marie"));
-    assert!(!is_editor(&s, "Marie"));
-    assert!(is_editor(&s, "Chuck") && is_editor(&s, "Roman"));
-}
-
-/// The refusal messages list the stored names, so a 400 says what to type.
-#[test]
-fn the_refusal_messages_name_the_stored_lists() {
-    let s = Settings::for_test();
-    assert_eq!(author_list(&s), "Chuck, Marie, Roman");
-    assert_eq!(editor_list(&s), "Chuck, Roman");
+fn any_signed_in_user_is_attributable() {
+    for (u, d) in [
+        ("roman", "Roman"),
+        ("chuck", "Chuck"),
+        ("marie", "Marie"),
+        ("j.doe", "J. Doe"),
+    ] {
+        let (id, name) = attribution(&user(u, d));
+        assert_eq!(id, u);
+        assert_eq!(name, d);
+    }
 }

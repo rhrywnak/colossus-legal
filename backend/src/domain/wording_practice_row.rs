@@ -84,6 +84,12 @@ pub struct PracticeRowWording {
     /// Stands where the date goes in the unfinished-session line when the
     /// sitting was started today. "today 09:57" is what a person says.
     pub unfinished_today_word: String,
+    /// Why Answer is disabled on an empty box. It names the OTHER control
+    /// deliberately: an "I don't recall." is a complete answer and stays one click.
+    pub answer_empty_hint: String,
+    /// Shown when a second tab answers a question the first already answered.
+    /// It names the CAUSE, not a fault: two tabs is a thing a person does.
+    pub answer_already_recorded: String,
 }
 
 pub(crate) const KEY_PRACTICE_THIS_LABEL: &str = "practice_row_practice_this_label";
@@ -101,7 +107,13 @@ pub(crate) const KEY_UNFINISHED_TODAY_WORD: &str = "practice_unfinished_today_wo
 
 /// Every key in this block, so a missing one is caught at boot BY NAME rather
 /// than as a blank control in front of Marie mid-session.
+pub(crate) const KEY_ANSWER_EMPTY_HINT: &str = "practice_answer_empty_hint";
+
+pub(crate) const KEY_ANSWER_ALREADY_RECORDED: &str = "practice_answer_already_recorded";
+
 pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
+    KEY_ANSWER_ALREADY_RECORDED,
+    KEY_ANSWER_EMPTY_HINT,
     KEY_PRACTICE_THIS_LABEL,
     KEY_ANSWERED_TODAY_TEMPLATE,
     KEY_SKIPPED_TODAY,
@@ -133,6 +145,8 @@ pub fn build_practice_row_wording<E>(
     read: impl Fn(&str) -> Result<String, E>,
 ) -> Result<PracticeRowWording, E> {
     Ok(PracticeRowWording {
+        answer_already_recorded: read(KEY_ANSWER_ALREADY_RECORDED)?,
+        answer_empty_hint: read(KEY_ANSWER_EMPTY_HINT)?,
         practice_this_label: read(KEY_PRACTICE_THIS_LABEL)?,
         answered_today_template: read(KEY_ANSWERED_TODAY_TEMPLATE)?,
         skipped_today: read(KEY_SKIPPED_TODAY)?,

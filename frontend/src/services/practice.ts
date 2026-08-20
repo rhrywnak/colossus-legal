@@ -329,6 +329,38 @@ export async function startPracticeSession(
  * `closePracticeAnswer` settles it when she moves on — which means her typed
  * answer is already stored if she closes the laptop mid-screen.
  */
+/**
+ * A refused answer, carrying the STATUS as a field.
+ *
+ * ## Why a class and not a message the page matches on
+ *
+ * The screen has to tell one refusal apart from the rest: 409, which means this
+ * question is already answered in this sitting and this tab is simply behind
+ * (two tabs on one sitting — hotfix §3.13). Every other status is "it did not
+ * land, try again".
+ *
+ * Reading that out of `"… (HTTP 409)"` with a regex would work until somebody
+ * edited the sentence, and the sentence is one the store may yet own. The
+ * status is a number the server sent; carry the number.
+ *
+ * ## Rust Learning: this is the `thiserror` enum, in TypeScript's idiom
+ *
+ * The backend would model this as `#[derive(thiserror::Error)] enum AnswerError
+ * { AlreadyAnswered, … }` and match on the variant. TypeScript has no enums
+ * worth the name here, so the equivalent is a subclass with a discriminating
+ * field and an `instanceof` check — same shape, same reason: the CALLER decides
+ * what a particular failure means, and it cannot decide from prose.
+ */
+export class PracticeAnswerError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(message);
+    this.name = "PracticeAnswerError";
+    this.status = status;
+  }
+}
+
 export async function submitPracticeAnswer(input: {
   sessionId: string;
   questionId: string;
@@ -358,7 +390,8 @@ export async function submitPracticeAnswer(input: {
 
   if (!response.ok) {
     const detail = await readErrorMessage(response);
-    throw new Error(
+    throw new PracticeAnswerError(
+      response.status,
       `Your answer was not recorded (HTTP ${response.status}${detail}).`,
     );
   }

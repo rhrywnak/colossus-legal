@@ -8,15 +8,22 @@
  * added seven routes at once. So the assertions below SPELL THE PATHS OUT
  * rather than building them from the same constants the code under test uses.
  *
- * ## The one thing that must never be optional
+ * ## The one thing that must never be on the wire (changed 2026-08-19)
  *
- * `editing_as`. There is one login, and a change nobody signed is a change
- * nobody can ask about. Every deck write asserts it is on the wire.
+ * `editing_as` — and `author` on the two note writes. These used to be REQUIRED
+ * arguments, filled by two dropdowns, because the design assumed a single shared
+ * login; the tests below asserted they were sent. They are now asserted ABSENT.
+ *
+ * Attribution comes from the authenticated session on the server, and the
+ * assertions are `toEqual` on the whole decoded body rather than `toContain` on
+ * one field, so a re-added `editing_as` fails the test rather than passing it
+ * unnoticed.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   addQuestion,
+  signedInAs,
   editQuestion,
   fetchQuestionReview,
   hideQuestion,
@@ -64,10 +71,10 @@ function review(attempts: unknown[] = []) {
 }
 
 describe("editQuestion", () => {
-  it("POSTs the field, the value and WHO is editing", async () => {
+  it("POSTs the field and the value — and NOTHING naming who", async () => {
     const mock = okFetch({ question_id: QUESTION });
 
-    await editQuestion(QUESTION, "watch_for", "Letter, date, stop.", "Chuck");
+    await editQuestion(QUESTION, "watch_for", "Letter, date, stop.");
 
     const [url, options] = mock.mock.calls[0];
     expect(url).toContain(`/api/practice/questions/${QUESTION}/edit`);
@@ -75,7 +82,6 @@ describe("editQuestion", () => {
     expect(JSON.parse(options.body)).toEqual({
       field: "watch_for",
       value: "Letter, date, stop.",
-      editing_as: "Chuck",
     });
   });
 
@@ -84,62 +90,56 @@ describe("editQuestion", () => {
     // clears on null and refuses a blank question text; this only sends what it
     // was told.
     const mock = okFetch({ question_id: QUESTION });
-    await editQuestion(QUESTION, "stronger", null, "Roman");
+    await editQuestion(QUESTION, "stronger", null);
     expect(JSON.parse(mock.mock.calls[0][1].body).value).toBeNull();
   });
 
   it("escapes the id rather than letting a slash become a path segment", async () => {
     const mock = okFetch({ question_id: QUESTION });
-    await editQuestion("id/with/slashes", "text", "x", "Chuck");
+    await editQuestion("id/with/slashes", "text", "x");
     expect(mock.mock.calls[0][0]).toContain("id%2Fwith%2Fslashes");
   });
 
   it("reports a failure as an edit that was NOT saved", async () => {
     failFetch(400);
-    await expect(editQuestion(QUESTION, "text", "", "Chuck")).rejects.toThrow(
+    await expect(editQuestion(QUESTION, "text", "")).rejects.toThrow(
       /was not saved \(HTTP 400/,
     );
   });
 });
 
 describe("moveQuestion", () => {
-  it("POSTs the direction and the editor", async () => {
+  it("POSTs the direction alone", async () => {
     const mock = okFetch({ question_id: QUESTION });
-    await moveQuestion(QUESTION, "up", "Chuck");
+    await moveQuestion(QUESTION, "up");
 
     const [url, options] = mock.mock.calls[0];
     expect(url).toContain(`/api/practice/questions/${QUESTION}/move`);
-    expect(JSON.parse(options.body)).toEqual({ direction: "up", editing_as: "Chuck" });
+    expect(JSON.parse(options.body)).toEqual({ direction: "up" });
   });
 
   it("reports a failure as a question that was NOT moved", async () => {
     failFetch(500);
-    await expect(moveQuestion(QUESTION, "down", "Chuck")).rejects.toThrow(
+    await expect(moveQuestion(QUESTION, "down")).rejects.toThrow(
       /was not moved \(HTTP 500/,
     );
   });
 });
 
 describe("hideQuestion", () => {
-  it("POSTs the hidden flag both ways, and the editor", async () => {
+  it("POSTs the hidden flag both ways, and nothing else", async () => {
     const mock = okFetch({ question_id: QUESTION });
 
-    await hideQuestion(QUESTION, true, "Chuck");
-    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({
-      hidden: true,
-      editing_as: "Chuck",
-    });
+    await hideQuestion(QUESTION, true);
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({ hidden: true });
 
-    await hideQuestion(QUESTION, false, "Roman");
-    expect(JSON.parse(mock.mock.calls[1][1].body)).toEqual({
-      hidden: false,
-      editing_as: "Roman",
-    });
+    await hideQuestion(QUESTION, false);
+    expect(JSON.parse(mock.mock.calls[1][1].body)).toEqual({ hidden: false });
   });
 });
 
 describe("addQuestion", () => {
-  it("POSTs to the case- and scenario-scoped URL, with the editor", async () => {
+  it("POSTs to the case- and scenario-scoped URL, unsigned", async () => {
     // The only deck write that needs a case and a scenario: the other three
     // address a question by its own id, and only a CREATE has to be told where
     // to put the new row.
@@ -157,7 +157,6 @@ describe("addQuestion", () => {
         source_kind: "point",
         source_index: 1,
       },
-      "Chuck",
     );
 
     const [url, options] = mock.mock.calls[0];
@@ -165,7 +164,9 @@ describe("addQuestion", () => {
     const body = JSON.parse(options.body);
     expect(body.kind).toBe("redirect");
     expect(body.follows).toBe("g1");
-    expect(body.editing_as).toBe("Chuck");
+    // The signature is the SESSION'S. A body carrying a name would mean the
+    // screen could get the attribution wrong, which is the whole defect.
+    expect(body).not.toHaveProperty("editing_as");
   });
 
   it("reports a failure as a question that was NOT added", async () => {
@@ -183,24 +184,22 @@ describe("addQuestion", () => {
           source_kind: null,
           source_index: null,
         },
-        "Chuck",
       ),
     ).rejects.toThrow(/was not added \(HTTP 400/);
   });
 });
 
 describe("saveNote", () => {
-  it("POSTs the target, the author and the text", async () => {
+  it("POSTs the target and the text — the author is the session's", async () => {
     const mock = okFetch({ id: NOTE, author: "Chuck", text: "x", when: "Tue 18 Aug" });
 
-    await saveNote(SLUG, SCENARIO, { questionId: QUESTION, answerId: null }, "Chuck", "x");
+    await saveNote(SLUG, SCENARIO, { questionId: QUESTION, answerId: null }, "x");
 
     const [url, options] = mock.mock.calls[0];
     expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/practice/notes`);
     expect(JSON.parse(options.body)).toEqual({
       question_id: QUESTION,
       answer_id: null,
-      author: "Chuck",
       text: "x",
     });
   });
@@ -209,7 +208,7 @@ describe("saveNote", () => {
     // The stored `created_at` is the server's. A panel that dated a new note by
     // the browser's clock would disagree with itself the moment it reloaded.
     okFetch({ id: NOTE, author: "Chuck", text: "x", when: "Tue 18 Aug", struck: null });
-    const note = await saveNote(SLUG, SCENARIO, { questionId: null, answerId: null }, "Chuck", "x");
+    const note = await saveNote(SLUG, SCENARIO, { questionId: null, answerId: null }, "x");
     expect(note.when).toBe("Tue 18 Aug");
     expect(note.struck).toBeNull();
   });
@@ -217,24 +216,24 @@ describe("saveNote", () => {
   it("reports a failure as a note that was NOT saved", async () => {
     failFetch(400);
     await expect(
-      saveNote(SLUG, SCENARIO, { questionId: null, answerId: null }, "George", "x"),
+      saveNote(SLUG, SCENARIO, { questionId: null, answerId: null }, "x"),
     ).rejects.toThrow(/was not saved \(HTTP 400/);
   });
 });
 
 describe("strikeNote", () => {
-  it("POSTs who is striking it", async () => {
+  it("POSTs an EMPTY body — the striker is the session's", async () => {
     const mock = okFetch({ struck: true });
-    await strikeNote(NOTE, "Roman");
+    await strikeNote(NOTE);
 
     const [url, options] = mock.mock.calls[0];
     expect(url).toContain(`/api/practice/notes/${NOTE}/strike`);
-    expect(JSON.parse(options.body)).toEqual({ author: "Roman" });
+    expect(JSON.parse(options.body)).toEqual({});
   });
 
   it("reports a failure as a note that was NOT struck", async () => {
     failFetch(404);
-    await expect(strikeNote(NOTE, "Roman")).rejects.toThrow(/was not struck \(HTTP 404/);
+    await expect(strikeNote(NOTE)).rejects.toThrow(/was not struck \(HTTP 404/);
   });
 });
 
@@ -267,5 +266,35 @@ describe("fetchQuestionReview", () => {
     await expect(fetchQuestionReview(SLUG, SCENARIO, QUESTION)).rejects.toThrow(
       /could not be loaded \(HTTP 404/,
     );
+  });
+});
+
+describe("signedInAs", () => {
+  /** One `/api/me` body, with only the two fields this helper reads varied. */
+  const user = (display_name: string, username: string) => ({
+    username,
+    display_name,
+    email: `${username}@example.test`,
+    groups: [],
+    permissions: { can_read: true, can_edit: true, can_use_ai: true, is_admin: false },
+  });
+
+  it("prints the display name when there is one", () => {
+    expect(signedInAs(user("Chuck", "cparker"))).toBe("Chuck");
+  });
+
+  it("falls back to the username when the display name is blank", () => {
+    // The same class of bug the Rust `attribution` tests guard: an Authentik
+    // account with no display name set would otherwise render a sentence
+    // reading "Saved as a change by  —", naming nobody.
+    expect(signedInAs(user("", "cparker"))).toBe("cparker");
+    expect(signedInAs(user("   ", "cparker"))).toBe("cparker");
+  });
+
+  it("returns an empty string while /api/me is still in flight", () => {
+    // Honest about not knowing yet. A literal "someone" here would be the
+    // screen inventing a person — and this is only ever a LABEL: the stored
+    // attribution comes from the session on the server, never from this.
+    expect(signedInAs(null)).toBe("");
   });
 });
