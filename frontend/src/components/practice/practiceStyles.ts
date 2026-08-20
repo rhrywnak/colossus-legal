@@ -372,6 +372,23 @@ export const choiceTitle: CSSProperties = { fontWeight: 600, display: "block" };
 /** `.choice .d` */
 export const choiceDetail: CSSProperties = { fontSize: 14, color: MUTED };
 
+/**
+ * The lawyers' word under a side card's title — `cross`, `direct`.
+ *
+ * Smaller and lighter than the detail line beneath it, deliberately: the reading
+ * order is TITLE (what Marie needs), then term (what Chuck needs), then the
+ * description. Making the term the same weight as the description would give a
+ * one-word technical label the same emphasis as the sentence explaining the card.
+ */
+export const choiceTerm: CSSProperties = {
+  display: "block",
+  fontSize: 12,
+  color: "var(--practice-separator)",
+  letterSpacing: ".04em",
+  marginTop: 1,
+  marginBottom: 3,
+};
+
 /** `table` */
 export const table: CSSProperties = {
   width: "100%",

@@ -100,60 +100,8 @@ points:
 
 questions:
   # ── George's side (cross) — one per ruled instance ────────────────────────
-  - key: g1
-    side: george
-    kind: cross
-    source_kind: instance
-    source_index: 1
-    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
-    tactic: 4          # false premise
-    text: >-
-      Isn't it true that you and your sisters were at each other's throats — that
-      none of you would accommodate each other on your father's property?
-    receipt: >-
-      Built from what Phillips told the court: “These parties won't accommodate
-      each other. We can't accommodate them… they're at each other's throats.” —
-      Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
-    pair_said: >-
-      “These parties won't accommodate each other… they're at each other's
-      throats.” — Phillips, hearing, p. 34
-    pair_admitted: >-
-      “Correspondence was received from Marie Awad… there was a desire to divide
-      the property…” — Phillips, sworn discovery answer, p. 9
-    watch_for: >-
-      WATCH FOR — the characterization inside the question. Don't defend it,
-      don't argue it: correct it once. “That's not true. I asked in writing to
-      divide the property.” Stop.
-    stronger: >-
-      That's not true. I asked in writing to divide the property — my letter of
-      November 16, 2009.
-    stronger_lean: leans on point 1
 
-  - key: g2
-    side: george
-    kind: cross
-    source_kind: instance
-    source_index: 2
-    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 33
-    tactic: 6          # authority borrow
-    text: >-
-      Mr. Phillips told the court the parties were not going to be able to
-      accommodate each other. He was right about that, wasn't he?
-    receipt: >-
-      Built from: “Yeah — we're not going to be able to accommodate these
-      parties.” — Hearing, 15 Dec 2009, p. 33
-    pair_said: >-
-      “We're not going to be able to accommodate these parties.” — Phillips,
-      hearing, p. 33
-    pair_admitted: >-
-      “There was a request to divide the property… a decision was made to sell
-      the property.” — CFS, sworn interrogatory answer, p. 10
-    watch_for: >-
-      WATCH FOR — agreeing with a conclusion. You don't have to say whether he
-      was right. Say what you did: “I asked in writing to divide it. They chose
-      the auction.”
-    stronger: I asked in writing to divide it. They chose the auction.
-    stronger_lean: leans on points 1 and 3
+  # ---------- The defense asks (cross) — facts first, the conclusion, then the braid ----------
 
   - key: g3
     side: george
@@ -213,6 +161,61 @@ questions:
       admitted they got my letter.
     stronger_lean: leans on points 1 and 2
 
+  - key: g2
+    side: george
+    kind: cross
+    source_kind: instance
+    source_index: 2
+    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 33
+    tactic: 6          # authority borrow
+    text: >-
+      Mr. Phillips told the court the parties were not going to be able to
+      accommodate each other. He was right about that, wasn't he?
+    receipt: >-
+      Built from: “Yeah — we're not going to be able to accommodate these
+      parties.” — Hearing, 15 Dec 2009, p. 33
+    pair_said: >-
+      “We're not going to be able to accommodate these parties.” — Phillips,
+      hearing, p. 33
+    pair_admitted: >-
+      “There was a request to divide the property… a decision was made to sell
+      the property.” — CFS, sworn interrogatory answer, p. 10
+    watch_for: >-
+      WATCH FOR — agreeing with a conclusion. You don't have to say whether he
+      was right. Say what you did: “I asked in writing to divide it. They chose
+      the auction.”
+    stronger: I asked in writing to divide it. They chose the auction.
+    stronger_lean: leans on points 1 and 3
+
+  - key: g1
+    side: george
+    kind: cross
+    source_kind: instance
+    source_index: 1
+    source_line: Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
+    tactic: 4          # false premise
+    text: >-
+      Isn't it true that you and your sisters were at each other's throats — that
+      none of you would accommodate each other on your father's property?
+    receipt: >-
+      Built from what Phillips told the court: “These parties won't accommodate
+      each other. We can't accommodate them… they're at each other's throats.” —
+      Hearing to Approve Plan for Administration, 15 Dec 2009, p. 34
+    pair_said: >-
+      “These parties won't accommodate each other… they're at each other's
+      throats.” — Phillips, hearing, p. 34
+    pair_admitted: >-
+      “Correspondence was received from Marie Awad… there was a desire to divide
+      the property…” — Phillips, sworn discovery answer, p. 9
+    watch_for: >-
+      WATCH FOR — the characterization inside the question. Don't defend it,
+      don't argue it: correct it once. “That's not true. I asked in writing to
+      divide the property.” Stop.
+    stronger: >-
+      That's not true. I asked in writing to divide the property — my letter of
+      November 16, 2009.
+    stronger_lean: leans on point 1
+
   - key: g5
     side: george
     kind: cross
@@ -242,7 +245,8 @@ questions:
       routing drill — name the strands, answer one; the fees strand is S-6, the
       courts strand is Chuck's
 
-  # ── Chuck (direct) — one per talking point, plus the admission ────────────
+  # ---------- Chuck asks (direct) — foundation, then her three points ----------
+
   - key: c1
     side: chuck
     kind: direct
@@ -314,21 +318,7 @@ questions:
     stronger: They did — Catholic Family Service.
     stronger_lean: leans on point 3
 
-  # ── Chuck's REDIRECT — one per George trap (drafted 2026-08-19) ───────────
-  #
-  # A redirect is Chuck repairing the subject George has just damaged, and it is
-  # the one place in the drill where LENGTH is the right answer: prompt v2 tells
-  # the read to judge no length fault at all on a redirect. That is why none of
-  # these carries a `stronger` example — the drawer shows the stored line
-  # "Tell it — this is Chuck's time." instead of the honest-gap "no receipt for
-  # this one" sentence, which would be exactly wrong here.
-  #
-  # `draft_by: architect` marks all five as UNREVIEWED. Chuck edits them on
-  # Thursday; the deck editor shows a `draft` mark on such a row until it is.
-  # The `watch_for` lines were the gap Part A reported and could not fill —
-  # authored coaching, and nobody had authored it. Roman supplied all five on
-  # 2026-08-19 (CC_TASK_PRACTICE_V1_PART_B_GO_v1) and they are transcribed here
-  # verbatim. They stay `draft_by: architect` until Chuck edits them.
+  # ---------- Chuck, after the defense (redirect) — one per defense question ----------
 
   - key: r1
     side: chuck

@@ -125,7 +125,11 @@ fn the_last_session_line_fills_every_slot_and_leaves_no_token_behind() {
         repeats: 2,
     };
 
-    let line = last_session_line(&s.practice_wording, Some(&record));
+    let line = last_session_line(
+        &s.practice_wording,
+        Some(&record),
+        &s.practice_read.case_timezone,
+    );
     assert_eq!(line, "Last session: Sun 16 Aug · 5 questions · 2 to repeat");
     assert!(
         !line.contains('{'),
@@ -137,7 +141,7 @@ fn the_last_session_line_fills_every_slot_and_leaves_no_token_behind() {
 #[test]
 fn no_previous_session_yields_the_stored_sentence_and_never_a_blank() {
     let s = settings();
-    let line = last_session_line(&s.practice_wording, None);
+    let line = last_session_line(&s.practice_wording, None, &s.practice_read.case_timezone);
 
     assert_eq!(line, s.practice_wording.no_last_session);
     assert!(!line.trim().is_empty());

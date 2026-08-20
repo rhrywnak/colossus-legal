@@ -81,6 +81,17 @@ pub struct PracticeWording {
     pub who_mixed_title: String,
     /// What the mixed choice contains.
     pub who_mixed_detail: String,
+    /// The small grey term under each side card — `cross`, `direct`.
+    ///
+    /// Separate from the title because the two are different registers: the
+    /// title is the sentence Marie reads, the term is the word Chuck reads, and
+    /// they are set in different sizes and colours. One string carrying both
+    /// could not be styled as two things.
+    pub who_george_term: String,
+    pub who_chuck_term: String,
+    pub who_redirect_term: String,
+    /// Breaks Chuck's direct questions from his redirects in the deck list.
+    pub redirects_subheader: String,
     /// Heading over the count pills. Only 5 is live in v0; the others render
     /// dimmed exactly as the mockup does, which is honest about what this build
     /// offers.
@@ -173,6 +184,10 @@ pub(crate) const KEY_WHO_CHUCK_TITLE: &str = "practice_who_chuck_title";
 pub(crate) const KEY_WHO_CHUCK_DETAIL: &str = "practice_who_chuck_detail";
 pub(crate) const KEY_WHO_MIXED_TITLE: &str = "practice_who_mixed_title";
 pub(crate) const KEY_WHO_MIXED_DETAIL: &str = "practice_who_mixed_detail";
+pub(crate) const KEY_WHO_GEORGE_TERM: &str = "practice_who_george_term";
+pub(crate) const KEY_WHO_CHUCK_TERM: &str = "practice_who_chuck_term";
+pub(crate) const KEY_WHO_REDIRECT_TERM: &str = "practice_who_redirect_term";
+pub(crate) const KEY_REDIRECTS_SUBHEADER: &str = "practice_redirects_subheader";
 pub(crate) const KEY_HOW_MANY_HEADING: &str = "practice_how_many_heading";
 pub(crate) const KEY_COUNT_ALL_TEMPLATE: &str = "practice_count_all_template";
 pub(crate) const KEY_START_LABEL: &str = "practice_start_label";
@@ -210,6 +225,10 @@ pub const PRACTICE_WORDING_KEYS: &[&str] = &[
     KEY_WHO_CHUCK_DETAIL,
     KEY_WHO_MIXED_TITLE,
     KEY_WHO_MIXED_DETAIL,
+    KEY_WHO_GEORGE_TERM,
+    KEY_WHO_CHUCK_TERM,
+    KEY_WHO_REDIRECT_TERM,
+    KEY_REDIRECTS_SUBHEADER,
     KEY_HOW_MANY_HEADING,
     KEY_COUNT_ALL_TEMPLATE,
     KEY_START_LABEL,
@@ -267,6 +286,10 @@ pub fn build_practice_wording<E>(
         who_chuck_detail: read(KEY_WHO_CHUCK_DETAIL)?,
         who_mixed_title: read(KEY_WHO_MIXED_TITLE)?,
         who_mixed_detail: read(KEY_WHO_MIXED_DETAIL)?,
+        who_george_term: read(KEY_WHO_GEORGE_TERM)?,
+        who_chuck_term: read(KEY_WHO_CHUCK_TERM)?,
+        who_redirect_term: read(KEY_WHO_REDIRECT_TERM)?,
+        redirects_subheader: read(KEY_REDIRECTS_SUBHEADER)?,
         how_many_heading: read(KEY_HOW_MANY_HEADING)?,
         count_all_template: read(KEY_COUNT_ALL_TEMPLATE)?,
         start_label: read(KEY_START_LABEL)?,

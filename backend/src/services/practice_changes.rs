@@ -120,7 +120,9 @@ pub fn changed_box(
             ),
             (
                 "when",
-                &newest.map(|c| when(c.changed_at)).unwrap_or_default(),
+                &newest
+                    .map(|c| when(c.changed_at, &settings.practice_read.case_timezone))
+                    .unwrap_or_default(),
             ),
         ],
     );

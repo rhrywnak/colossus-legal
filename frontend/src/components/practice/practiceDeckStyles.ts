@@ -163,3 +163,21 @@ export const flagged: CSSProperties = {
   marginTop: 6,
 };
 
+/**
+ * The break above Chuck's redirects in the deck list.
+ *
+ * A rule and a small caps-ish label rather than a heading: it separates two
+ * kinds of question inside one side's list, and a real heading would imply a
+ * third side. `font` is NOT used as a shorthand here — the .401 defect was a
+ * shorthand resetting a size set on the line above it.
+ */
+export const redirectsSubheader: CSSProperties = {
+  marginTop: 14,
+  marginBottom: 2,
+  paddingTop: 10,
+  borderTop: "1px solid var(--practice-line)",
+  fontSize: 12,
+  fontWeight: 600,
+  letterSpacing: ".04em",
+  color: "var(--practice-separator)",
+};

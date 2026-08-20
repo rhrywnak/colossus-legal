@@ -629,9 +629,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_WORDING_KEYS.len(),
-        33,
+        37,
         "PRACTICE v0, the drill: mockup v2's start card and question screen, \
-         plus the named gaps, the way in, and the braid suffix on a tactic tag"
+         plus the named gaps, the way in, the braid suffix on a tactic tag, and \
+         the .403 bundle's three side-card terms and redirects sub-header"
     );
     assert_eq!(
         PRACTICE_FLOW_WORDING_KEYS.len(),

@@ -49,6 +49,11 @@ const COVERED: &[&str] = &[
     // column no migration created, and this one writes `practice_answers` with
     // a column list of its own.
     "src/repositories/pipeline_repository/practice_hidden_queue.rs",
+    // The .403 bundle's reset one-shot. Same reason as the seed above it: it is
+    // not a repository, and it names three practice tables in DELETE statements
+    // — a table renamed in a migration and not here would be a tool that fails
+    // on a witness's practice record at the moment somebody runs it.
+    "src/practice/reset.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.

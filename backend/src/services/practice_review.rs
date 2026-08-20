@@ -20,7 +20,6 @@ use crate::services::practice_page::when;
 // ONE clock format for the whole surface. It was declared twice — here and in
 // `practice_status` — which is two places for a strftime string the settings
 // store cannot validate to go wrong independently.
-use crate::services::practice_status::CLOCK_FORMAT;
 
 /// The stored word for one mark. The same three-way match the sheet makes, and
 /// for the same reason: an `else` arm printed a `skipped` row as **fine** before
@@ -140,8 +139,8 @@ fn one_attempt(
 ///
 /// The day word and the clock are two different stored formats deliberately:
 /// `when` renders "today" / "yesterday" / a date, which is the part a person
-/// reads first, and `CLOCK_FORMAT` is the part that distinguishes two attempts
-/// on the same evening.
+/// reads first, and the clock is the part that distinguishes two attempts on the
+/// same evening. Both render in the case's zone — see `practice_clock`.
 fn heading(settings: &Settings, record: &AttemptRecord, number: usize) -> String {
     render(
         &settings.practice_wording.review.review_attempt_template,
@@ -151,8 +150,11 @@ fn heading(settings: &Settings, record: &AttemptRecord, number: usize) -> String
                 "when",
                 &format!(
                     "{} {}",
-                    when(record.answered_at),
-                    record.answered_at.format(CLOCK_FORMAT)
+                    when(record.answered_at, &settings.practice_read.case_timezone),
+                    crate::services::practice_clock::local_clock(
+                        record.answered_at,
+                        &settings.practice_read.case_timezone,
+                    )
                 ),
             ),
         ],

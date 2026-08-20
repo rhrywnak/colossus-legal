@@ -31,23 +31,6 @@ use crate::repositories::pipeline_repository::practice::{
 use crate::repositories::pipeline_repository::practice_flow::{OpenSessionRecord, RowStatusRecord};
 use crate::services::practice_status::{open_session_detail, row_status};
 
-/// The date format the drill's two composed lines use: `Sun 16 Aug`.
-///
-// STRUCTURAL: not a per-deployment value, and deliberately not a settings
-// row. Two reasons, and the second is the one that decides it.
-//
-// It is the shape of a date on ONE witness surface — the "last session" line and
-// the sheet's eyebrow — chosen to read like something a person says out loud
-// rather than like a timestamp. Nothing about it varies between DEV and PROD, and
-// this case has one locale.
-//
-// And a strftime string is the one kind of stored value the settings store cannot
-// validate. A typo does not fail: `%a %-d %v` renders "Sun 16 %v" onto Chuck's
-// printed sheet, silently, with every other check green. The store's whole
-// promise is that a value it accepts is a value that works, and it could not keep
-// that promise for this one.
-const SESSION_DATE_FORMAT: &str = "%a %-d %b";
-
 /// The tactic's NAME for a card number, or `None` when the question carries none.
 ///
 /// ## Domain note: an unknown card number yields no tag, and that is deliberate
@@ -193,7 +176,11 @@ fn picker_receipts(
 /// An empty line reads as a page that failed to load something. A witness
 /// opening this screen for the first time should be told she has not been here
 /// before, in words — the honest-gap law applied to the smallest possible gap.
-pub fn last_session_line(wording: &PracticeWording, last: Option<&LastSessionRecord>) -> String {
+pub fn last_session_line(
+    wording: &PracticeWording,
+    last: Option<&LastSessionRecord>,
+    timezone: &str,
+) -> String {
     let Some(record) = last else {
         return wording.no_last_session.clone();
     };
@@ -205,16 +192,21 @@ pub fn last_session_line(wording: &PracticeWording, last: Option<&LastSessionRec
     render(
         &wording.last_session_template,
         &[
-            ("when", &when(record.ended_at)),
+            ("when", &when(record.ended_at, timezone)),
             ("count", &record.answered.to_string()),
             ("repeat", &record.repeats.to_string()),
         ],
     )
 }
 
-/// A timestamp as this surface says it out loud.
-pub fn when(at: DateTime<Utc>) -> String {
-    at.format(SESSION_DATE_FORMAT).to_string()
+/// A timestamp as this surface says it out loud, in the CASE's day.
+///
+/// A thin alias over `practice_clock::local_date` kept because six modules call
+/// it by this name. The zone is threaded in rather than read from a global: a
+/// formatter that reached for settings itself could not be tested against two
+/// zones, and the DST test is the one that matters.
+pub fn when(at: DateTime<Utc>, timezone: &str) -> String {
+    crate::services::practice_clock::local_date(at, timezone)
 }
 
 /// The receipt one point shows, and the order of precedence behind it.
@@ -319,7 +311,11 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
                 text: p.text,
             })
             .collect(),
-        last_session_line: last_session_line(&settings.practice_wording, last),
+        last_session_line: last_session_line(
+            &settings.practice_wording,
+            last,
+            &settings.practice_read.case_timezone,
+        ),
         receipts: picker,
         notes,
         changed,

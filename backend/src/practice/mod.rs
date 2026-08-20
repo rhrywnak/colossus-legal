@@ -13,6 +13,7 @@
 
 pub mod deck_file;
 pub mod deck_valid;
+pub mod reset;
 pub mod seed;
 pub mod seed_rows;
 pub mod seed_update;

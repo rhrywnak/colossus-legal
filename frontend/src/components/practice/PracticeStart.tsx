@@ -158,10 +158,29 @@ const PracticeStart: React.FC<Props> = ({
   // of the same JSX: the only things that differ are the value and its two
   // stored strings, and three near-identical blocks is where one of them
   // eventually stops matching the others.
-  const choices: Array<{ value: PracticeWho; title: string; detail: string }> = [
-    { value: "george", title: w("who_george_title"), detail: w("who_george_detail") },
-    { value: "chuck", title: w("who_chuck_title"), detail: w("who_chuck_detail") },
-    { value: "mixed", title: w("who_mixed_title"), detail: w("who_mixed_detail") },
+  // `term` is the lawyers' word — `cross`, `direct` — set small and grey under
+  // the title. Mixed has none: it is not a kind of examination, it is both of
+  // them in the order of a real day, and inventing a term for it would put a
+  // word on screen no lawyer uses.
+  const choices: Array<{
+    value: PracticeWho;
+    title: string;
+    term: string | null;
+    detail: string;
+  }> = [
+    {
+      value: "george",
+      title: w("who_george_title"),
+      term: w("who_george_term"),
+      detail: w("who_george_detail"),
+    },
+    {
+      value: "chuck",
+      title: w("who_chuck_title"),
+      term: w("who_chuck_term"),
+      detail: w("who_chuck_detail"),
+    },
+    { value: "mixed", title: w("who_mixed_title"), term: null, detail: w("who_mixed_detail") },
   ];
 
   return (
@@ -190,6 +209,7 @@ const PracticeStart: React.FC<Props> = ({
             onClick={() => onWhoChange(c.value)}
           >
             <span style={s.choiceTitle}>{c.title}</span>
+            {c.term !== null && <span style={s.choiceTerm}>{c.term}</span>}
             <span style={s.choiceDetail}>{c.detail}</span>
           </button>
         ))}
