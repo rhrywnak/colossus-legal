@@ -17,4 +17,8 @@ pub mod reset;
 pub mod seed;
 pub mod seed_rows;
 pub mod seed_update;
+#[cfg(test)]
+#[path = "seed_update_order_tests.rs"]
+mod seed_update_order_tests;
+pub mod seed_update_write;
 pub mod sources;
