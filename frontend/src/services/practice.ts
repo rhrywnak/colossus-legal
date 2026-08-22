@@ -158,6 +158,14 @@ export type PracticeDeck = {
   questions: PracticeQuestion[];
   points: PracticePoint[];
   last_session_line: string;
+  /**
+   * When any question in this deck last changed — the deck's own date.
+   *
+   * ISO-8601, or `null` on a deck with no questions. Read by the print sheets'
+   * "deck as of" line: paper outlives the deck it was taken from, and a reader
+   * must be able to tell how stale the sheet in his hand is.
+   */
+  deck_as_of: string | null;
   /** What the "I'd point to…" picker offers, composed and de-duplicated. */
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */

@@ -26,6 +26,7 @@ use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
@@ -80,6 +81,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_row_wording = PRACTICE_ROW_WORDING_KEYS.len(),
         practice_editor_wording = PRACTICE_EDITOR_WORDING_KEYS.len(),
         practice_review_wording = PRACTICE_REVIEW_WORDING_KEYS.len(),
+        practice_print_wording = PRACTICE_PRINT_WORDING_KEYS.len(),
         practice_report_wording = PRACTICE_REPORT_WORDING_KEYS.len(),
         "configuration store read"
     );

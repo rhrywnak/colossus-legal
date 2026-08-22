@@ -24,6 +24,7 @@ import type {
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { DeckView, PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
+import PracticePrintControl from "./PracticePrintControl";
 import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 import PracticeChangedBox from "./PracticeChanged";
@@ -47,6 +48,9 @@ export type PracticeWho = "george" | "chuck" | "mixed";
 interface Props {
   code: string;
   title: string;
+  /** Where the print view lives. Composed by the page, so this component holds
+      no route knowledge of its own. */
+  printHref: string;
   wording: PracticeWording;
   /** The composed sentence — the last session's, or the "none yet" one. */
   lastSessionLine: string;
@@ -121,6 +125,7 @@ export const AlwaysCard: React.FC<{ wording: PracticeWording }> = ({ wording }) 
 const PracticeStart: React.FC<Props> = ({
   code,
   title,
+  printHref,
   wording,
   lastSessionLine,
   who,
@@ -150,6 +155,9 @@ const PracticeStart: React.FC<Props> = ({
   const available = view.available.length;
   const count = view.count;
   const locked = lockReason(editor.editing, w("editor_busy_hint"));
+  // The print control has TWO reasons it can refuse, and each says which:
+  // an empty (or entirely hidden) deck, and edit mode. Standing rule of
+  // 2026-08-19 — no control on a practice page is dim and silent.
   // ONE locked look, shared with the deck list's fold and the resume box, so a
   // control cannot end up disabled here and look live there.
   const lockStyle = locked !== null ? e.lockedControl : {};
@@ -186,9 +194,14 @@ const PracticeStart: React.FC<Props> = ({
   return (
     <section style={s.card}>
       <div style={s.kicker}>{w("kicker")}</div>
-      <h1 style={s.h1}>
-        {code} · {title}
-      </h1>
+      <PracticePrintControl
+        code={code}
+        title={title}
+        printHref={printHref}
+        questions={view.all}
+        editing={editor.editing}
+        wording={wording}
+      />
       <p style={s.sub}>{w("intro")}</p>
 
       <p style={{ marginTop: 22 }}>

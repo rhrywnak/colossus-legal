@@ -234,6 +234,38 @@ pub struct PracticeWordingDto {
     pub editor_busy_hint: String,
     pub editor_discard_confirm_template: String,
 
+    // ── Chuck's review sheets — the print view ────────────────────────────
+    //
+    // Flat, like every field above, because `the_mirror_carries_every_declared_key_from_both_blocks`
+    // counts the serialized object's KEYS: a nested object would count as one
+    // and the guard would stop covering twenty-six strings.
+    pub print_questions_label: String,
+    pub print_questions_empty_hint: String,
+    pub print_now_label: String,
+    pub print_back_label: String,
+    pub print_page_title: String,
+    pub print_sheet_cross_title: String,
+    pub print_sheet_direct_title: String,
+    pub print_sheet_redirect_title: String,
+    pub print_sheet_subtitle_template: String,
+    pub print_sheet_redirect_subtitle: String,
+    pub print_printed_template: String,
+    pub print_deck_as_of_template: String,
+    pub print_howto_cross: String,
+    pub print_howto_direct: String,
+    pub print_howto_redirect: String,
+    pub print_howto_redirect_drafts: String,
+    pub print_after_template: String,
+    pub print_after_missing: String,
+    pub print_footer_template: String,
+    pub print_sheet_number_template: String,
+    pub print_missing_prefix: String,
+    pub print_missing_cross: String,
+    pub print_missing_direct: String,
+    pub print_missing_redirect: String,
+    pub print_missing_joiner: String,
+    pub print_hidden_template: String,
+
     // ── Part B: notes, and the review page ───────────────────────────────
     pub notes_heading_template: String,
     pub notes_scenario_title: String,
@@ -266,6 +298,7 @@ mod tests {
     use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
     use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
     use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+    use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
     use crate::domain::wording_practice_report::PracticeReportWording;
     use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
     use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
@@ -289,6 +322,7 @@ mod tests {
             PRACTICE_WORDING_KEYS.len()
                 + PRACTICE_FLOW_WORDING_KEYS.len()
                 + PRACTICE_REPORT_WORDING_KEYS.len()
+                + PRACTICE_PRINT_WORDING_KEYS.len()
                 + PRACTICE_ROW_WORDING_KEYS.len()
                 + PRACTICE_EDITOR_WORDING_KEYS.len()
                 + PRACTICE_REVIEW_WORDING_KEYS.len(),
@@ -306,6 +340,7 @@ mod tests {
                 PRACTICE_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_FLOW_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str())
+                    || PRACTICE_PRINT_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_REVIEW_WORDING_KEYS.contains(&stored.as_str()),

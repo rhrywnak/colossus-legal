@@ -46,6 +46,11 @@ pub(super) fn record(tactic: Option<i16>, braid: Option<&str>) -> PracticeQuesti
         source_line: Some("the hearing, p. 34".to_string()),
         hidden_at: None,
         draft_by: None,
+        // A fixed instant, not `Utc::now()`: the print sheets' "deck as of"
+        // line reads the MAX of this, and a fixture that moved with the
+        // clock would make any assertion about that line unwritable.
+        updated_at: chrono::DateTime::from_timestamp(1_755_000_000, 0)
+            .expect("a fixed, valid instant"),
     }
 }
 
@@ -176,6 +181,9 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
 
     assert!(payload.questions.is_empty());
     assert_eq!(payload.code, "S-6");
+    // No questions, so no date on which the deck last changed. `None` withdraws
+    // the print sheets' "deck as of" line rather than inventing a day.
+    assert_eq!(payload.deck_as_of, None);
     assert_eq!(
         payload.wording.empty_deck, "no practice deck yet — seed it",
         "the page needs the sentence even when it has no questions"
@@ -345,5 +353,55 @@ fn a_point_with_neither_still_names_its_absence() {
     assert_eq!(
         s.practice_report_wording.point_no_receipt, "No receipt recorded for this point.",
         "and the screen has the sentence to print in its place"
+    );
+}
+
+/// The deck's own date is the NEWEST change across it, not the first row's.
+///
+/// ## Why the print sheets need this, and why the MAX is the whole of it
+///
+/// Paper outlives the deck it was taken from. A sheet carrying no date cannot
+/// tell a reader how stale it is, and a sheet carrying the FIRST row's date would
+/// say a deck edited this morning was last touched in August. Every editor write
+/// sets `updated_at = NOW()` on the row it touched, so the deck's date is the
+/// maximum — and reading it from the deck already in hand costs no second query.
+#[test]
+fn the_deck_carries_the_date_of_its_newest_change() {
+    let s = settings();
+    let old = chrono::DateTime::from_timestamp(1_700_000_000, 0).expect("a valid instant");
+    let newest = chrono::DateTime::from_timestamp(1_755_000_000, 0).expect("a valid instant");
+
+    // Deliberately NOT in date order: `max` must find the newest wherever it
+    // sits, and a deck is ordered by `sort_order`, never by when it was edited.
+    let mut first = record(Some(5), None);
+    first.updated_at = newest;
+    let mut second = record(None, None);
+    second.id = Uuid::from_u128(2);
+    second.updated_at = old;
+
+    let payload = deck_payload(
+        &s,
+        DeckSources {
+            scenario_id: Uuid::nil(),
+            code: "S-5".to_string(),
+            title: "Marie refused to divide the property".to_string(),
+            deck: vec![first, second],
+            points: vec![],
+            receipts: &[],
+            last: None,
+            statuses: &[],
+            open: None,
+            badged: &[],
+            notes: vec![],
+            changed: None,
+            attach_options: vec![],
+        },
+    );
+
+    assert_eq!(payload.deck_as_of, Some(newest));
+    assert_ne!(
+        payload.deck_as_of,
+        Some(old),
+        "the OLDEST change would tell Chuck a deck edited today is months stale"
     );
 }
