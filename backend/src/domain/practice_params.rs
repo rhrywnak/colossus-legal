@@ -1,15 +1,19 @@
 //! The practice read's judgment parameters (PRACTICE v0).
 //!
-//! Seven stored values that decide what the one-sentence read is TOLD, by WHICH
-//! model, and what shape of reply this build will put in front of a witness.
+//! Twelve stored values that decide what the read is TOLD, by WHICH model, and
+//! what shape of reply this build will put in front of a witness.
+//!
+//! Four of them arrived with T1 (2026-08-20), when the read stopped being one
+//! sentence and became three parts with a ceiling each.
 //!
 //! ## Why a nested block rather than seven more fields on `Settings`
 //!
 //! The reason that file gives for its eleven wording blocks, applied to numbers:
 //! `Settings` is the parameters this system judges by, and a reader looking for a
 //! confidence cutoff should not scroll past a witness surface's word caps to find
-//! it. Seven flat fields would also have taken `domain::settings` past the
-//! 300-line limit (Rule 17) — which is the mechanical half of the same argument.
+//! it. Twelve flat fields would also have taken `domain::settings` past the
+//! 300-line limit (Rule 17) — which is the mechanical half of the same argument,
+//! and the reason T1's four ceilings cost that file nothing at all.
 //!
 //! ## Why these are NOT wording
 //!
@@ -43,17 +47,62 @@ pub struct PracticeReadParams {
     /// see the migration's note on the 2026-08-09 truncation.
     pub max_tokens: u32,
 
-    /// The most words a read may use when it names a tactic.
+    /// The whole-reply word cap of the ONE-SENTENCE read (prompt v2).
     ///
-    /// ## Domain note: this REFUSES, it does not truncate
+    /// ## Domain note: nothing on the v3 path reads this, and it stays anyway
     ///
-    /// A reply above the cap produces no read at all. Half a sentence about
-    /// testimony can invert its meaning, and the screen has an honest way to say
-    /// nothing.
+    /// v3 returns three parts, each with its own ceiling
+    /// ([`Self::max_words_call`], [`Self::max_words_why`],
+    /// [`Self::max_words_pointer`]), so there is no whole-reply cap left for this
+    /// number to be. It is kept because [`Self::prompt_file`] can be pointed back
+    /// at `practice_read_prompt_v2.md` — that is the T1 rollback, one settings
+    /// edit and no file work — and the v2 path reads this row. **A row nothing
+    /// reads today is the price of a working rollback** (Roman, 2026-08-20).
+    ///
+    /// Its old note, still true of the v2 path: a reply above the cap produces no
+    /// read at all, because half a sentence about testimony can invert its
+    /// meaning. v3 inverts that trade — see [`Self::max_words_call`].
     pub max_words: u32,
+
+    /// The most words the read's CALL may use — the line naming what happened.
+    ///
+    /// ## Domain note: a CEILING, not a target, and it never discards
+    ///
+    /// This is the half of T1 that is a correctness fix rather than a feature. A
+    /// 26-word reply under the old rule was refused and Marie saw nothing at all
+    /// — one word over a cap, and a witness got no coaching. Over this ceiling
+    /// the read is re-requested ONCE; a second overrun is stored and shown as
+    /// returned, with the part and the count logged. Never truncated, because
+    /// half a sentence about testimony can invert its meaning; never discarded,
+    /// because a formatting slip is not her fault.
+    pub max_words_call: u32,
+
+    /// The most words the read's WHY may use — the reasoning, citing the record.
+    /// May legitimately be empty when there is nothing to say beyond the call.
+    pub max_words_why: u32,
+
+    /// The most words ONE pointer may use.
+    ///
+    /// Domain note: a pointer names the move and never supplies the words. The
+    /// cap is part of what keeps it from becoming a sentence Marie could speak
+    /// verbatim in the first person — the anti-script rule — though the rule
+    /// itself is asked by the prompt and cannot be pinned by a number.
+    pub max_words_pointer: u32,
+
+    /// The most pointers one read may carry.
+    ///
+    /// Domain note: the design DEFAULTS to one. Coaching that names one thing is
+    /// acted on; coaching that names three is skimmed, and three ordered pointers
+    /// can be the skeleton of her answer even when no single one supplies words.
+    /// This is the hard ceiling, not the expectation.
+    pub max_pointers: u32,
 
     /// The most words that may follow the OK word. "Fine." plus a speech is
     /// still a speech.
+    ///
+    /// Still read on the v3 path: the CALL is where the OK word appears, so a
+    /// call that opens with it is capped by this rather than by
+    /// [`Self::max_words_call`].
     pub max_words_after_fine: u32,
 
     /// The exact word the model must produce for "nothing wrong with that".
@@ -62,6 +111,16 @@ pub struct PracticeReadParams {
     /// Both are stored precisely so both can be edited together, in one place, by
     /// one person — an operator who changes one and not the other gets every read
     /// marked as a fault.
+    ///
+    /// ## Domain note: why v3 kept it rather than adding a `"fine": true` field
+    ///
+    /// The three-part reply could have carried a boolean saying whether the
+    /// answer was fine. It does not, because a boolean can DISAGREE with the
+    /// words beside it — a reply reading `{"call": "You let the braid stand",
+    /// "fine": true}` has no correct interpretation, and the rail colour it
+    /// produces is a coin toss. Deriving the verdict from the call's own first
+    /// word means the sentence Marie reads and the colour beside it cannot come
+    /// apart.
     pub fine_token: String,
 
     /// The seven TACTIC_DECK_v1 card names, in card order 1–7.
@@ -103,6 +162,10 @@ pub const KEY_PRACTICE_READ_MODEL: &str = "practice_read_model";
 pub const KEY_PRACTICE_READ_MAX_TOKENS: &str = "practice_read_max_tokens";
 pub const KEY_PRACTICE_READ_MAX_WORDS: &str = "practice_read_max_words";
 pub const KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE: &str = "practice_read_max_words_after_fine";
+pub const KEY_PRACTICE_READ_MAX_WORDS_CALL: &str = "practice_read_max_words_call";
+pub const KEY_PRACTICE_READ_MAX_WORDS_WHY: &str = "practice_read_max_words_why";
+pub const KEY_PRACTICE_READ_MAX_WORDS_POINTER: &str = "practice_read_max_words_pointer";
+pub const KEY_PRACTICE_READ_MAX_POINTERS: &str = "practice_read_max_pointers";
 pub const KEY_PRACTICE_READ_FINE_TOKEN: &str = "practice_read_fine_token";
 pub const KEY_PRACTICE_TACTIC_NAMES: &str = "practice_tactic_names";
 
@@ -145,6 +208,10 @@ pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_READ_MAX_TOKENS,
     KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE,
+    KEY_PRACTICE_READ_MAX_WORDS_CALL,
+    KEY_PRACTICE_READ_MAX_WORDS_WHY,
+    KEY_PRACTICE_READ_MAX_WORDS_POINTER,
+    KEY_PRACTICE_READ_MAX_POINTERS,
     KEY_PRACTICE_READ_FINE_TOKEN,
     KEY_PRACTICE_TACTIC_NAMES,
 ];
@@ -162,11 +229,15 @@ impl PracticeReadParams {
     /// `settings_store_tests::the_fixtures_carry_the_values_the_migration_actually_seeds`.
     pub fn for_test() -> Self {
         PracticeReadParams {
-            prompt_file: "practice_read_prompt_v2.md".to_string(),
+            prompt_file: "practice_read_prompt_v3.md".to_string(),
             model: "claude-opus-5".to_string(),
             max_tokens: 1024,
             max_words: 25,
             max_words_after_fine: 6,
+            max_words_call: 12,
+            max_words_why: 55,
+            max_words_pointer: 20,
+            max_pointers: 3,
             fine_token: "Fine.".to_string(),
             tactic_names: TEST_TACTIC_NAMES.split(',').map(str::to_string).collect(),
             case_timezone: "America/Detroit".to_string(),
