@@ -1,0 +1,200 @@
+# =============================================================================
+# practice_decks/S-7.yaml — the practice deck for scenario S-7, "Bias against Marie"
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5, 2026-08-21) — loaded to DEV for Chuck's critique at
+# the afternoon review. Chuck's redlines flow back through `--update`.
+#
+# Built from BIAS_SCENARIO_DEFINITION_DRAFT_v4.md and two documents read in full
+# from their page images this session:
+#   HEARING_TO_APPROVE_PLAN_FOR_ADMINISTRATION_12-15-2009.pdf (37 pp., certified)
+#   JUDGE_TIGHE_OPINION_AND_ORDER_041212.pdf (10 pp.)
+# Every quote in this file was transcribed from those page images; the graph's
+# copy of the transcript carries known OCR defects and was NOT used.
+#
+# Two deliberate schema choices, both from the 2026-08-20 rulings:
+#   1. NO `stronger` / `stronger_lean` anywhere — ruling 3 retired the example
+#      answer; nothing in this deck is written to be spoken. The loader reads
+#      absence.
+#   2. Every watch_for POINTS — names the move, never supplies words Marie could
+#      speak verbatim.
+# And one binding choice: every question is `source_kind: manual`. S-7's marked
+# instances were being edited the hour this file was written; binding to
+# instance indexes that may re-order would seed wrong pointers. Re-bind under
+# `--update` once the instance list settles.
+
+scenario_code: S-7
+
+points:
+  - position: 1
+    text: "Complaint ¶54 (sanctions asymmetry) · ¶78 + MCL 700.1212 · Opinion and Order, 12 Apr 2012, p. 10 — fees collected from Marie's non-probate assets alone"
+  - position: 2
+    text: "George's Admission #86 · Interrogatories #73–74 · Admissions #129–131 · Phillips 'personal conclusions', Response to Discovery p. 30"
+  - position: 3
+    text: "Hearing transcript 15 Dec 2009, p. 17 (disproof already with the PR) · bank records subpoenaed Sept 2009 · certified letter 5 Nov 2009"
+
+questions:
+
+  # ---------- The defense asks (cross) — facts first, the conclusion, then the braid ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Hearing transcript, 15 Dec 2009, pp. 21–22 (the request, and the court's grant)"
+    tactic: 4            # false premise — the smuggled word is "secret"
+    source_kind: manual
+    text: "You demanded that your evidence be kept secret from your own sisters, didn't you?"
+    receipt: "Built from Phillips's words on the record: \"she wants it to be secret issues. And I don't think they can be secret issues.\" — Hearing, 15 Dec 2009, p. 21"
+    pair_said: "\"…she wants it to be secret issues. And I don't think they can be secret issues.\" — Phillips, Hearing 15 Dec 2009, p. 21"
+    pair_admitted: "THE COURT, same hearing: \"I will instruct you not to share that because she's asked you not to until they refine or file something as far as a motion or a petition within the estate.\" — p. 22"
+    watch_for: "WATCH FOR — the smuggled word 'secret'. It was his word, not yours, and the judge granted your request as proper. Correct the premise once — what you actually asked for, and who granted it — then stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 5 · Hearing 15 Dec 2009, pp. 8, 35–36"
+    tactic: 2            # half-truth — true she objected; the missing half is the other side
+    source_kind: manual
+    text: "You objected to nearly every action the personal representative took in this estate — that's true, isn't it?"
+    receipt: "Built from the Opinion and Order, 12 Apr 2012, p. 5: \"Most of the extra work was due to Marie Awad's unwillingness to let go.\""
+    pair_said: "\"Most of the extra work was due to Marie Awad's unwillingness to let go.\" — Opinion and Order, 12 Apr 2012, p. 5"
+    pair_admitted: "THE COURT, 15 Dec 2009: \"Your client is not the only one who's not making it easy for the PR. I'm getting that drift.\" — pp. 35–36; and Phillips, same hearing: \"he's right about the number of pages. The vast number of pages came from the other people.\" — p. 8"
+    watch_for: "WATCH FOR — a true fact, amputated. You did object — own that half in one breath. The missing half is what happened when the other side did the same things. Supply it, then stop."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Hearing transcript, 15 Dec 2009, pp. 7, 24–25"
+    tactic: 3            # character jab — no question inside it
+    source_kind: manual
+    text: "Your own submissions were so rambling that Mr. Phillips had to tell the court they were shrill, accusatory — even unintelligible. That must have been embarrassing."
+    receipt: "Built from Phillips's pleading and his words at the hearing: \"much of it very shrill… very contentious and accusatory\" (p. 7); \"So what I put down is that it's unintelligible\" (p. 24)."
+    pair_said: "\"…most of it irrelevant, much of it very shrill… very contentious and accusatory.\" — Phillips, Hearing 15 Dec 2009, p. 7"
+    pair_admitted: "Phillips, same hearing, about the claim he had labeled unintelligible: \"It was for $400. I don't know what it was.\" — p. 25"
+    watch_for: "WATCH FOR — an insult wearing no question. There is nothing to answer until a question arrives. Wait for one."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 10 · Hearing 15 Dec 2009, p. 35"
+    tactic: 6            # authority borrow — the judge's findings
+    source_kind: manual
+    text: "The probate judge herself found that the blame for this estate's problems lay squarely with you. You're not telling this jury she got it wrong, are you?"
+    receipt: "Built from the Opinion and Order, 12 Apr 2012, p. 10: \"The blame lies squarely with Marie Awad who continues her assault on everyone connected with the probate action.\""
+    pair_said: "\"The blame lies squarely with Marie Awad who continues her assault on everyone connected with the probate action.\" — Opinion and Order, 12 Apr 2012, p. 10"
+    pair_admitted: "THE COURT, 15 Dec 2009, on Phillips's characterizations: \"That's how Mr. Phillips expresses himself. But I learned to let that wash over me and behind me. So I'm not paying attention to any of the—characterizations.\" — p. 35"
+    watch_for: "WATCH FOR — the borrowed robe. Never argue with a judge. Say what happened and when — the words the findings repeat were his first, and were objected to when he said them — without disputing the ruling itself."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 10 · Hearing 15 Dec 2009, p. 16"
+    tactic: 1            # broad generalization — "everyone was against you"
+    source_kind: manual
+    text: "The personal representative, the attorneys, the probate judge — you've claimed every one of them was biased against you. Everyone was wrong about you, is that your testimony?"
+    receipt: "Built from the predictable defense to this scenario; its vocabulary from the Opinion and Order, p. 10 (\"assault on everyone connected with the probate action\")."
+    pair_said: "\"…continues her assault on everyone connected with the probate action.\" — Opinion and Order, 12 Apr 2012, p. 10"
+    pair_admitted: "Sharp, on the record 15 Dec 2009, objecting in real time: \"why is one person being singled out for this and admonished? And this continues though. There is a course of this behavior.\" — p. 16"
+    watch_for: "WATCH FOR — the sweeping claim about you. Don't argue the adjective and don't defend 'everyone'. Say what you did, point at one same-conduct pair, and stop."
+
+  - key: g6
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, pp. 5, 10 · Court of Appeals ruling, 12 Jan 2012, p. 13"
+    tactic: 5            # compound — the braid
+    source_kind: manual
+    text: "You refused to cooperate, went through attorney after attorney, buried the estate in demands — and that's why a simple estate ended up insolvent, correct?"
+    receipt: "Built from the Opinion and Order's framing (pp. 5, 10) braided with the fee narrative the Court of Appeals rejected."
+    pair_said: "\"Most of the extra work was due to Marie Awad's unwillingness to let go. She has hired a succession of attorneys…\" — Opinion and Order, p. 5"
+    pair_admitted: "\"…it was the fight over the personal property and the sisters' inability to work together that drove up the fees and expenses.\" — Court of Appeals ruling, 12 Jan 2012, p. 13"
+    watch_for: "WATCH FOR — several accusations tied into one question. That's three things. Ask which one, or take the last one only, and stop."
+
+  # ---------- Chuck asks (direct) — the narrative, in the order the jury needs it ----------
+  # Rewritten on Roman's direction, 2026-08-21: Chuck's questions INFORM the jury
+  # of what really happened and why, in time order, each answer landing on one of
+  # the two beats until they are muscle memory — same conduct, different treatment
+  # (Count I) · lies repeated over proof in hand, aimed at one person (Count IV).
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Take the jury back to the fall of 2009, right after your father died. What did you ask the personal representative for, and how did you ask it?"
+    receipt: "The opening beat — her conduct first: the certified letters of 5 Nov and 16 Nov 2009 asking to divide the property amicably and to handle her evidence through the court. CFS's own sworn answer: \"There was a request to divide the property\" (CFS Interrogatory Response, p. 10). Every later attack contradicts this floor."
+    watch_for: "WATCH FOR — this is the foundation. Dates and documents, one at a time, in her own plain words. The jury meets the letters before it meets any fight."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "You gave Mr. Phillips your evidence — the two DVDs of your father, bank records, sworn affidavits from three nurses. Tell the jury what happened to each of them."
+    receipt: "The discrediting method appears (Count IV): the DVDs called \"pathetic… a hostage video… North Korea\" in open court (Hearing 12-15-2009, pp. 7–8), kept as \"valuable evidence perhaps for later\" the same hearing (pp. 22–23), never viewed by the judge (p. 18); the affidavits never verified — \"the need to probe the validity of the affidavits was not necessary\" (Phillips, Response to Discovery, p. 10)."
+    watch_for: "WATCH FOR — her voice stays flat; his words carry the outrage. One item of evidence at a time: what she gave, what was said about it, what was never done with it."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Who actually paid for your father's funeral — and what did the court end up being told about you and that funeral?"
+    receipt: "First had-it-then-said-it (Count IV): joint assets of all three sisters paid it; George subpoenaed the National City bank records in September 2009 and never used them — until 2014, against her. The accusation became a finding: \"Marie Awad did not participate in paying for the funeral\" (Opinion and Order, 12 Apr 2012, pp. 4, 6)."
+    watch_for: "WATCH FOR — the sequence is the testimony: the records existed, he had subpoenaed them, the accusation came anyway. Dates in order, then stop."
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "This jury heard about a hundred-and-forty-thousand-dollar debt story told to the probate judge. Before Mr. Phillips told it, what had you already put in his hands?"
+    receipt: "Second had-it-then-said-it (Count IV): the papers showing the debt was never discharged in bankruptcy and was satisfied were with the PR before the 12-15-2009 hearing — Sharp, same hearing: \"Here we are on record damaging my client by saying that this debt was never discharged.\" (p. 17, against pp. 8–9)."
+    watch_for: "WATCH FOR — she proves possession and timing, not bankruptcy law. What she gave him, when, and what he said anyway."
+
+  - key: c5
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "The $50,000 your sisters controlled — the court was told it was a gift. When did Mr. Phillips learn what it really was, and how do we know he knew?"
+    receipt: "Third had-it-then-said-it (Count IV): under oath he admitted the $50,000 was not a gift and that he knew it in 2009 — from the very DVDs he ridiculed (Interrogatories #73–74)."
+    watch_for: "WATCH FOR — the two dates do the work: knew in 2009, said 'gift' after. Name the admission numbers and stop."
+
+  - key: c6
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Now the other side of the ledger. When your attorney missed a filing formality, what did they do? When your sisters' attorneys never filed an appearance at all, what happened to them? And when the estate's costs were finally assessed, who alone was ordered to pay?"
+    receipt: "The Count I beat — same conduct, different treatment: sanctions sought against Marie alone over the appearance (Complaint ¶54; Luvall and Higgs never filed one); one heir made to carry the fees against MCL 700.1212's impartiality command (¶78); fees of $14,989 ordered collected from Marie's non-probate assets alone, the sisters expressly excused (Opinion and Order, 12 Apr 2012, p. 10)."
+    watch_for: "WATCH FOR — one pair at a time: what she did, what they did, what happened to each. The statute's word is impartiality; the pairs prove its absence."
+
+  - key: c7
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Years later, when they finally had to answer under oath, what did they admit about the things they had told the court about you?"
+    receipt: "The collapse (Counts I and IV together): attorney changes cost the estate no more than $750, about 2% of the fees they blamed on her (Admission #86, against the 2010 accusation); the $50,000 was not a gift (#73–74); the statements about her were \"personal conclusions\" (Response to Discovery, p. 30); and the probate court \"never\" made a specific finding of any violation by her (Admissions Response, p. 18)."
+    watch_for: "WATCH FOR — every admission wears two dates: the year they said it, the year they admitted it. Let the gap testify. No arithmetic beyond the two numbers."
+
+  - key: c8
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "In all those years — the sanctions requests, the cost arguments, the names they used in front of the judge: 'shrill,' 'unintelligible,' 'pathetic' — was a single one of those ever aimed at Nadia? At Camille? At anyone in this case but you? And what were you — alone — doing that they weren't?"
+    receipt: "The one-target closer (Count IV, ulterior purpose): Phillips conceded he has \"no specific information\" about the other parties' attorneys (Admissions Response, p. 17) and no accusation in this record was ever directed at another heir; her own counsel named it in 2009 — \"why is one person being singled out for this and admonished? … There is a course of this behavior\" (Hearing, p. 16). The answer to the why: she was the one contesting them."
+    watch_for: "WATCH FOR — the closer is three short answers: no, no, no. Then the why in ONE sentence — what she alone was doing — and stop. The pattern is the testimony; do not decorate it."
+
+  # ---------- Chuck, after the defense (redirect) ----------
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    source_kind: manual
+    text: "Mr. Phillips told this jury you wanted your evidence kept secret. What did Judge Tighe actually order on December 15, 2009, about your request?"
+    receipt: "Repairs g1 with the grant on the record: \"I will instruct you not to share that because she's asked you not to…\" — Hearing, p. 22"
+    watch_for: "WATCH FOR — the repair is the court's own order. Date it, attribute it, stop."
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g4
+    source_kind: manual
+    text: "The defense read you the court's 2012 findings. In December 2009, when your lawyer objected to how Mr. Phillips was characterizing you, what did the judge say she would do with those characterizations?"
+    receipt: "Repairs g4 with Hearing p. 35: \"I'm not paying attention to any of the—characterizations. And that's not gonna be the order.\" The jury hears the same court, three years apart."
+    watch_for: "WATCH FOR — no commentary on the judge. The two dates and the two quotes stand next to each other on their own."
