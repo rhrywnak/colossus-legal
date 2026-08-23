@@ -27,6 +27,7 @@ import { useParams } from "react-router-dom";
 
 import Critique from "../components/practice/PracticeCritiqueBlock";
 import { critiqueFor } from "../components/practice/practiceCritique";
+import { answerChrome, LONG_WAIT_MS } from "../components/practice/practiceAnswerPhase";
 import * as c from "../components/practice/practiceCritiqueStyles";
 import * as q from "../components/practice/practiceQuestionStyles";
 import * as s from "../components/practice/practiceStyles";
@@ -51,9 +52,6 @@ import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceC
  * same reason, as `PracticePage`'s.
  */
 const LOADING = "Loading…";
-
-/** After this long, the waiting line changes to say her answer is safe anyway. */
-const LONG_WAIT_MS = 10_000;
 
 const PracticeQuestionPage: React.FC = () => {
   const { slug = "", scenarioId = "", questionId = "" } = useParams();
@@ -161,6 +159,10 @@ const PracticeQuestionPage: React.FC = () => {
   };
 
   const earlier = answers.earlier;
+  // ⚑ The working state's three visible facts come from ONE pure decision, so
+  // that something can test them: nothing in this project can render a
+  // component, so a claim living only in this file is a claim nothing checks.
+  const chrome = answerChrome(working ? "working" : "idle");
   const view = critiqueFor(result);
 
   return (
@@ -174,9 +176,9 @@ const PracticeQuestionPage: React.FC = () => {
 
         <p style={q.label}>{w("answer_label")}</p>
         <textarea
-          style={working ? { ...q.box, ...q.boxLocked } : q.box}
+          style={chrome.boxLocked ? { ...q.box, ...q.boxLocked } : q.box}
           value={draft}
-          readOnly={working}
+          readOnly={chrome.boxLocked}
           aria-label={w("answer_label")}
           onChange={(event) => setDraft(event.target.value)}
         />
@@ -218,13 +220,15 @@ const PracticeQuestionPage: React.FC = () => {
         <div style={q.buttons}>
           <button
             type="button"
-            style={working ? { ...s.buttonPrimary, ...q.buttonWorking } : s.buttonPrimary}
-            disabled={working}
+            style={
+              chrome.buttonDisabled ? { ...s.buttonPrimary, ...q.buttonWorking } : s.buttonPrimary
+            }
+            disabled={chrome.buttonDisabled}
             onClick={onAnswer}
           >
-            {working ? w("read_working_label") : w("answer_button")}
+            {w(chrome.buttonLabelKey)}
           </button>
-          {working && (
+          {chrome.stopOffered && (
             <button
               type="button"
               style={s.button}
@@ -241,8 +245,9 @@ const PracticeQuestionPage: React.FC = () => {
           </a>
         </div>
 
+        {/* PRESENT AND EMPTY from the press, not from the resolution. */}
         <Critique
-          view={working ? { kind: "working", longWait } : view}
+          view={chrome.critiquePresent ? { kind: "working", longWait } : view}
           wording={deck.wording}
         />
       </section>

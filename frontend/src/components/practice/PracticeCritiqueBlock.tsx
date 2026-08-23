@@ -26,6 +26,7 @@ import React from "react";
 import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import { citedSources, type CritiqueView } from "./practiceCritique";
+import { waitingLineKey, LONG_WAIT_MS } from "./practiceAnswerPhase";
 import * as c from "./practiceCritiqueStyles";
 
 /** The bars that stand in for text that has not arrived. */
@@ -59,9 +60,9 @@ const Critique: React.FC<{
         {/* At ten seconds the line changes to say her answer is safe REGARDLESS.
             That is the fact she needs while waiting, and it is true from the
             moment the row was written — the read is the second write. */}
-        <p style={c.foot}>
-          {view.longWait ? w("read_still_working") : w("read_usually_quick")}
-        </p>
+        {/* The line is chosen by the same pure rule the test asserts, so the
+            threshold cannot drift between the two. */}
+        <p style={c.foot}>{w(waitingLineKey(view.longWait ? LONG_WAIT_MS : 0))}</p>
       </div>
     );
   }
