@@ -54,7 +54,7 @@ use crate::{
             NewSitting,
         },
         practice_editor::{changes_since, last_answered_at},
-        practice_flow::{newest_open_session, open_session_count, row_statuses},
+        practice_flow::{current_answers, newest_open_session, open_session_count, row_statuses},
         practice_notes::list_notes,
     },
     services::{
@@ -205,6 +205,7 @@ pub async fn get_practice_deck(
             receipts: &read.receipts,
             last: read.last.as_ref(),
             statuses: &read.statuses,
+            current: &read.current,
             open: read.open.as_ref(),
             badged: &badged(&news.changes, &read.answered_at),
             notes: scenario_notes(&settings, &read.notes),
@@ -277,6 +278,10 @@ struct DeckRead {
     receipts: Vec<crate::repositories::pipeline_repository::practice::PracticePointReceipt>,
     last: Option<crate::repositories::pipeline_repository::practice::LastSessionRecord>,
     statuses: Vec<crate::repositories::pipeline_repository::practice_flow::RowStatusRecord>,
+    /// The answer that stands for each question now, for the row's `Answered on
+    /// …` line. Scenario-wide, unlike `statuses` — the one-page deck row is read
+    /// by two people and an answer belongs to the question, not to the reader.
+    current: Vec<crate::repositories::pipeline_repository::practice_flow::CurrentAnswerRecord>,
     open: Option<crate::repositories::pipeline_repository::practice_flow::OpenSessionRecord>,
     /// The deck again, kept whole for the two readers that need POSITIONS in
     /// it — the change list's `Q3` and the add form's picker. `deck` itself is
@@ -329,6 +334,9 @@ async fn read_deck_sources(
         statuses: row_statuses(&state.pipeline_pool, scenario_id, user_id, timezone)
             .await
             .map_err(|e| repo_error("row_statuses", e))?,
+        current: current_answers(&state.pipeline_pool, scenario_id)
+            .await
+            .map_err(|e| repo_error("current_answers", e))?,
         open: newest_open_session(&state.pipeline_pool, scenario_id, user_id, timezone)
             .await
             .map_err(|e| repo_error("newest_open_session", e))?,

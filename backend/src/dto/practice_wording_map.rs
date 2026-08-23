@@ -169,6 +169,7 @@ impl PracticeWordingDto {
             unfinished_today_word: drill.row.unfinished_today_word.clone(),
             answer_empty_hint: drill.row.answer_empty_hint.clone(),
             answer_already_recorded: drill.row.answer_already_recorded.clone(),
+            row_answered_on_template: drill.row.answered_on_template.clone(),
             editor_busy_hint: drill.editor.editor_busy_hint.clone(),
             editor_discard_confirm_template: drill.editor.editor_discard_confirm_template.clone(),
             review_asked_as_template: drill.review.review_asked_as_template.clone(),

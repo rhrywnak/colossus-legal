@@ -52,10 +52,40 @@ use chrono_tz::Tz;
 // validate. A typo does not fail: `%a %-d %v` renders "Wed 19 %v" onto Chuck's
 // printed sheet, silently, with every other check green. The store's whole
 // promise is that a value it accepts is a value that works, and it could not keep
-// that promise for these two.
+// that promise for any of the three.
 
 /// `Wed 19 Aug` — the day, as these surfaces say it.
 const DATE_FORMAT: &str = "%a %-d %b";
+
+/// `22 Aug` — the day WITHOUT its weekday.
+///
+/// ## Why a third format and not `DATE_FORMAT`
+///
+/// The one-page deck row says `Answered on 22 Aug` and nothing else. Its
+/// siblings say `last: Wed 19 Aug · repeat`, where the weekday earns its place:
+/// that line is about RECENCY, and "Wed" is how a person places a sitting
+/// against their own week. The deck row is not about recency — it is the only
+/// status a row carries, and it answers "is there an answer behind this
+/// question, and roughly when", to which the weekday adds three characters of
+/// noise on every row of the list.
+///
+/// PRODUCT NOTE for whoever reads this next: this is a THIRD date format in one
+/// feature — `Wed 19 Aug` on the drill surfaces, `19 Aug 2026` from the
+/// browser's own locale on Chuck's printed sheets, and this. That is a defensible
+/// three, not an accidental three, but if it is ever collapsed to one, collapse
+/// it deliberately rather than by making the next surface match its neighbour.
+///
+/// ## Why this is a CONSTANT and not a settings row
+///
+/// The same reason as its two siblings, restated HERE because the block above
+/// them was written when there were two and a reader arriving at this line
+/// should not have to go back twenty lines and decide whether an older sentence
+/// includes them: a strftime string is the one kind of value this settings store
+/// cannot validate. A typo does not fail — it renders `22 %v` onto Marie's row,
+/// silently, with every other check green — and the store's whole promise is
+/// that a value it accepts is a value that works.
+// CONST: a strftime format, not a per-deployment value. See the doc above.
+const DAY_MONTH_FORMAT: &str = "%-d %b";
 
 /// `5:36 pm` — 12-hour, lower-case meridiem, no leading zero.
 ///
@@ -160,6 +190,17 @@ pub fn local_stamp(at: DateTime<Utc>, timezone: &str) -> String {
         local.format(DATE_FORMAT),
         local.format(CLOCK_FORMAT)
     )
+}
+
+/// `22 Aug` — the day, without the weekday.
+///
+/// Separate from [`local_date`] rather than a flag on it: a boolean parameter at
+/// a call site reads `local_date(at, tz, false)`, and nobody can tell from that
+/// what `false` withholds.
+pub fn local_day_month(at: DateTime<Utc>, timezone: &str) -> String {
+    at.with_timezone(&zone(timezone))
+        .format(DAY_MONTH_FORMAT)
+        .to_string()
 }
 
 #[cfg(test)]

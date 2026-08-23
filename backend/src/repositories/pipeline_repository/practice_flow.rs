@@ -367,3 +367,59 @@ pub async fn last_mark_in_session(
     .await?;
     Ok(row.map(|r| r.0))
 }
+
+/// The answer that stands for one question right now.
+///
+/// Deliberately thinner than [`RowStatusRecord`]: no `mark`, no `attempts`, no
+/// "today" arithmetic. The one-page deck row says `Answered on 22 Aug` or says
+/// nothing, and the marks it used to carry (`fine` / `repeat` / `attempt 2`) are
+/// retired from the interface by CC_TASK_PRACTICE_ONE_PAGE §3.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CurrentAnswerRecord {
+    pub question_id: Uuid,
+    /// Her words, as typed. Read here rather than fetched again per question:
+    /// the same row feeds `Print answers` and practice mode's reveal.
+    pub answer_text: String,
+    pub answered_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The current answer to each of a scenario's questions.
+///
+/// ## Domain note: EVERY user's answers, and why that is the change
+///
+/// Its neighbour [`row_statuses`] filters `s.user_id = $2`, and had to: it
+/// composed `answered today · repeat` — a report on what SHE did — and counting
+/// Chuck's test answers into it would have told Marie she had answered a question
+/// she had never seen.
+///
+/// This one carries no filter, and that is a deliberate consequence of the page
+/// becoming ONE PAGE FOR TWO PEOPLE. Chuck opens it to read Marie's answers and
+/// to print them; scoped to the requester, `Print answers` would hand him blank
+/// paper and every row would claim to be unanswered. The answer belongs to the
+/// question, not to whoever is looking at it.
+///
+/// ## Rust Learning: `DISTINCT ON`, a Postgres extension
+///
+/// `DISTINCT ON (a.question_id)` keeps the FIRST row of each question under the
+/// `ORDER BY` — so the ordering is not cosmetic, it is what selects the row. The
+/// leading `ORDER BY` column must match the `DISTINCT ON` expression, and the
+/// columns after it (`answered_at DESC, id DESC`) are what "first" then means:
+/// newest, and for two answers in the same microsecond, the later id. Without
+/// that `id` tiebreak the winner would be whichever the planner happened to
+/// return, which is not a thing to leave to a planner.
+pub async fn current_answers(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<Vec<CurrentAnswerRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, CurrentAnswerRecord>(
+        "SELECT DISTINCT ON (a.question_id) \
+                a.question_id, a.answer_text, a.answered_at \
+         FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
+         WHERE s.scenario_id = $1 \
+         ORDER BY a.question_id, a.answered_at DESC, a.id DESC",
+    )
+    .bind(scenario_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}

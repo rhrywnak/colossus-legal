@@ -679,10 +679,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        14,
-        "PRACTICE v1, the Chuck review: the words about ONE question — the way \
-         into it alone, its status on the row, the redirect tag and its drawer \
-         line, and what she would point to"
+        15,
+        "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
+         way into it alone, its status on the row, the redirect tag and its \
+         drawer line, and what she would point to. Plus the one-page work's \
+         `answered_on_template`, which becomes the ONLY status a row carries \
+         once the marks are retired from the interface"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
@@ -1176,6 +1178,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // The seed-question warning: it CORRECTS practice_intro, and the
         // correction pass below is what sees it.
         "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
+        // L1 of the one-page work: `practice_row_answered_on_template`.
+        "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
     ]
     .iter()
     .map(|relative| {

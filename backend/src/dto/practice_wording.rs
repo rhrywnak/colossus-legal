@@ -180,6 +180,8 @@ pub struct PracticeWordingDto {
     pub unfinished_today_word: String,
     pub answer_empty_hint: String,
     pub answer_already_recorded: String,
+    /// `Answered on {when}` — the one status a one-page deck row carries.
+    pub row_answered_on_template: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,

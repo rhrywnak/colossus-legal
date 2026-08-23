@@ -90,6 +90,16 @@ pub struct PracticeRowWording {
     /// Shown when a second tab answers a question the first already answered.
     /// It names the CAUSE, not a fault: two tabs is a thing a person does.
     pub answer_already_recorded: String,
+
+    /// `Answered on {when}` — the ONE status a one-page deck row carries.
+    ///
+    /// ## Domain note: absent is absent, and renders nothing
+    ///
+    /// A question nobody has answered renders no line at all, not this template
+    /// with an empty `{when}`. An empty status line under a question reads as a
+    /// status that failed to load, which is a different fact from "not answered
+    /// yet" and the wrong one to show the person least able to diagnose it.
+    pub answered_on_template: String,
 }
 
 pub(crate) const KEY_PRACTICE_THIS_LABEL: &str = "practice_row_practice_this_label";
@@ -110,10 +120,12 @@ pub(crate) const KEY_UNFINISHED_TODAY_WORD: &str = "practice_unfinished_today_wo
 pub(crate) const KEY_ANSWER_EMPTY_HINT: &str = "practice_answer_empty_hint";
 
 pub(crate) const KEY_ANSWER_ALREADY_RECORDED: &str = "practice_answer_already_recorded";
+pub(crate) const KEY_ANSWERED_ON_TEMPLATE: &str = "practice_row_answered_on_template";
 
 pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_ANSWER_ALREADY_RECORDED,
     KEY_ANSWER_EMPTY_HINT,
+    KEY_ANSWERED_ON_TEMPLATE,
     KEY_PRACTICE_THIS_LABEL,
     KEY_ANSWERED_TODAY_TEMPLATE,
     KEY_SKIPPED_TODAY,
@@ -146,6 +158,7 @@ pub fn build_practice_row_wording<E>(
 ) -> Result<PracticeRowWording, E> {
     Ok(PracticeRowWording {
         answer_already_recorded: read(KEY_ANSWER_ALREADY_RECORDED)?,
+        answered_on_template: read(KEY_ANSWERED_ON_TEMPLATE)?,
         answer_empty_hint: read(KEY_ANSWER_EMPTY_HINT)?,
         practice_this_label: read(KEY_PRACTICE_THIS_LABEL)?,
         answered_today_template: read(KEY_ANSWERED_TODAY_TEMPLATE)?,

@@ -85,6 +85,22 @@ pub struct PracticeQuestionDto {
     /// True when this question has changed since her last sitting AND she has
     /// not answered it since. The badge that says "re-read this one".
     pub changed: bool,
+    /// `Answered on 22 Aug`, ALREADY COMPOSED — or `None` when nobody has
+    /// answered this question.
+    ///
+    /// ## Why this is beside `status` rather than instead of it
+    ///
+    /// `status` is the drill's line — `answered today · repeat · attempt 2` —
+    /// and it is scoped to THIS user's sittings, because it reports what SHE
+    /// did. This one is scoped to the scenario and carries no mark, because the
+    /// one-page deck row is read by two people: Chuck opens it to find her
+    /// answers and to print them, and a line scoped to the requester would tell
+    /// him every row was unanswered.
+    ///
+    /// Both ship while the two pages coexist. `status` retires with the sitting
+    /// apparatus in L2 — it is not deleted here, because a field removed from
+    /// the wire while a screen still reads it is a blank line on that screen.
+    pub answered_on: Option<String>,
 }
 
 /// The flag as it stands after a write — `None` when it was cleared.
