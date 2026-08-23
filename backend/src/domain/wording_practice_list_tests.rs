@@ -17,8 +17,11 @@ use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
-const SEED_MIGRATION: &str =
-    "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql";
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
+    // L3's one row: the line under a one-sentence critique.
+    "pipeline_migrations/20260823163653_practice_one_page_l3_plain_read_line.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to the
 /// migration file, so a fixture and its proof cannot drift apart.
@@ -32,6 +35,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     (
         KEY_STATUS_FOOTNOTE,
         "No date means not answered yet. That is the only status a row carries.",
+    ),
+    (
+        KEY_READ_PLAIN_HINT,
+        "This is an older read. Press Answer again for the fuller one.",
     ),
 ];
 
@@ -61,16 +68,24 @@ impl PracticeListWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the L2 list wording migration is on disk");
+    let sources: Vec<String> = SEED_MIGRATIONS
+        .iter()
+        .map(|file| {
+            std::fs::read_to_string(root.join(file))
+                .unwrap_or_else(|cause| panic!("{file} is not on disk: {cause}"))
+        })
+        .collect();
 
     for key in PRACTICE_LIST_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!(
-                "{key} is declared to the boot loader but seeded by no migration \
+        let seeded = sources
+            .iter()
+            .find_map(|sql| seeded_value_in(sql, key))
+            .unwrap_or_else(|| {
+                panic!(
+                    "{key} is declared to the boot loader but seeded by no migration \
                  — the backend would refuse to start"
-            )
-        });
+                )
+            });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)

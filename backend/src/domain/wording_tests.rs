@@ -259,6 +259,33 @@ const ACKNOWLEDGMENT_MIGRATION: &str =
 //
 // The three sites point HERE rather than each carrying a copy, because the
 // fourth scanner will be in a file nobody thought to copy it into.
+//
+// =============================================================================
+// ⚑ AND THE RULE THAT SUBSUMES IT
+// =============================================================================
+//
+// **GREEN IS NOT EVIDENCE UNTIL SOMETHING HAS PROVED GREEN CAN TURN RED.**
+//
+// Six instances in one week, 2026-08-17 to 08-23, all of one shape — a check
+// that reported success while checking nothing:
+//
+//   1–3. Three wording fixtures read only their seed migration, so every later
+//        correction was invisible. Green over a store holding other words.
+//   4.   A branch assertion that passed when the branch condition was replaced
+//        by `if false`. Correct shape, decided by nothing.
+//   5.   The same assertion strengthened to count a binding's occurrences —
+//        still passed, because the name appears three times and losing one
+//        still cleared `>= 2`.
+//   6.   A verification chain `cargo test && npx vitest | grep … && git commit`
+//        that COMMITTED WITH A FAILING TEST. A pipeline's exit status is its
+//        LAST command's; the pipe discards the failure. `grep` was where it was
+//        met, not the cause. `set -o pipefail`, `PIPESTATUS`, or do not pipe a
+//        command whose status you need.
+//
+// Two of the six were indistinguishable from correct BY READING. That is what
+// makes this a rule rather than advice: reading a test is not a way to know
+// whether it works. Break the thing it guards and watch it fail. If it does not
+// fail, it was never guarding anything, however carefully it was written.
 
 /// Pull one key's seeded value out of the migration's INSERT.
 ///

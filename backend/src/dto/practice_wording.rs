@@ -192,6 +192,7 @@ pub struct PracticeWordingDto {
     pub start_practising_label: String,
     pub practice_hint: String,
     pub deck_status_footnote: String,
+    pub read_plain_hint: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,

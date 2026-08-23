@@ -174,6 +174,7 @@ impl PracticeWordingDto {
             start_practising_label: drill.list.start_practising_label.clone(),
             practice_hint: drill.list.practice_hint.clone(),
             deck_status_footnote: drill.list.status_footnote.clone(),
+            read_plain_hint: drill.list.read_plain_hint.clone(),
             editor_busy_hint: drill.editor.editor_busy_hint.clone(),
             editor_discard_confirm_template: drill.editor.editor_discard_confirm_template.clone(),
             mark_hidden_before_asked: drill.flow.mark_hidden_before_asked.clone(),

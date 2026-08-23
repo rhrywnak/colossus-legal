@@ -696,9 +696,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_LIST_WORDING_KEYS.len(),
-        4,
-        "PRACTICE one-page L2: the practice bar's label, button and hint, plus \
-         the footnote that explains why a row now carries at most a date"
+        5,
+        "PRACTICE one-page L2 (4): the practice bar's label, button and hint, plus \
+         the footnote that explains why a row now carries at most a date. Plus \
+         L3's line under a one-sentence critique, which is the COMMON rendering: \
+         12 of 14 stored answers carry no three-part read"
     );
     assert_eq!(
         PRACTICE_PRINT_WORDING_KEYS.len(),
@@ -1185,6 +1187,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // "George's side", the text-link Edit label, and the how-to
         // sentence about a blue box that no longer prints.
         "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
+        // L3: the line under a one-sentence critique.
+        "pipeline_migrations/20260823163653_practice_one_page_l3_plain_read_line.sql",
     ]
     .iter()
     .map(|relative| {

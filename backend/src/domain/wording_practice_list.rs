@@ -50,12 +50,22 @@ pub struct PracticeListWording {
     /// `answered today · repeat · attempt 2` needs to be told once that their
     /// absence is not a fault in the page.
     pub status_footnote: String,
+
+    /// Shown under a critique that is ONE SENTENCE rather than three parts.
+    ///
+    /// Measured 2026-08-23: 12 of 14 stored answers carry only a composed
+    /// sentence, so this is the common rendering and not a rare one. Without
+    /// the line, one answer showing three parts and the next showing one
+    /// sentence reads as breakage. It points at the fix — pressing Answer on
+    /// unchanged text re-runs the read and attaches the parts to the same row.
+    pub read_plain_hint: String,
 }
 
 pub(crate) const KEY_PRACTICE_MODE_LABEL: &str = "practice_practice_mode_label";
 pub(crate) const KEY_START_PRACTISING_LABEL: &str = "practice_start_practising_label";
 pub(crate) const KEY_PRACTICE_HINT: &str = "practice_practice_hint";
 pub(crate) const KEY_STATUS_FOOTNOTE: &str = "practice_deck_status_footnote";
+pub(crate) const KEY_READ_PLAIN_HINT: &str = "practice_read_plain_hint";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -65,6 +75,7 @@ pub(crate) const PRACTICE_LIST_WORDING_KEYS: &[&str] = &[
     KEY_START_PRACTISING_LABEL,
     KEY_PRACTICE_HINT,
     KEY_STATUS_FOOTNOTE,
+    KEY_READ_PLAIN_HINT,
 ];
 
 /// Build a [`PracticeListWording`] from the stored rows, or say which key is
@@ -88,6 +99,7 @@ pub fn build_practice_list_wording<E>(
         start_practising_label: read(KEY_START_PRACTISING_LABEL)?,
         practice_hint: read(KEY_PRACTICE_HINT)?,
         status_footnote: read(KEY_STATUS_FOOTNOTE)?,
+        read_plain_hint: read(KEY_READ_PLAIN_HINT)?,
     })
 }
 
