@@ -28,6 +28,18 @@ use crate::repositories::pipeline_repository::{
 use crate::services::practice_notes::attribution;
 use crate::state::AppState;
 
+/// The `who` a sitting opened to hold answers records.
+///
+/// // CONST: a schema discriminator, not a setting. `practice_sessions.who` has
+/// a CHECK constraining it to three values, so changing this needs a migration
+/// that back-fills existing rows — it cannot be made configurable without
+/// simultaneous database work.
+///
+/// `mixed` because there is no side to choose: the *Who's asking?* selector is
+/// retired, and a sitting claiming one side would misdescribe a page that shows
+/// both. It already means "all of them, unlimited" everywhere else.
+const SESSION_WHO_MIXED: &str = "mixed";
+
 use super::practice::repo_error;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
@@ -142,7 +154,7 @@ pub async fn post_answer_session(
         scenario_id,
         // No side to choose: the *Who\'s asking?* selector is retired, and a
         // sitting that claimed one side would misdescribe a page that shows both.
-        "mixed",
+        SESSION_WHO_MIXED,
         &NewSitting {
             user_id: &user_id,
             user_name: &user_name,

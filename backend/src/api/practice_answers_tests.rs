@@ -228,3 +228,72 @@ fn a_re_read_reuses_the_standing_answer_row() {
          pressing Answer on unchanged text runs a read nobody ever sees"
     );
 }
+
+/// BOTH arms of the version decision announce themselves.
+///
+/// Rule 1: two operationally distinct states must produce two observables. With
+/// only the re-read logged, an operator would infer "a version was written" from
+/// the ABSENCE of a line — indistinguishable from the request never arriving.
+///
+/// ## ⚑ Asserted by CONTENT, not by count
+///
+/// A count of `tracing::info!` after the decision is satisfied by lines that are
+/// not these two — the same failure as the `>= 2` binding count elsewhere in
+/// this file's history. Each arm is identified by the WORDS it logs.
+#[test]
+fn both_arms_of_the_version_decision_are_logged() {
+    let body = post_answer_body();
+
+    assert!(
+        body.contains("re-reading, not versioning"),
+        "the re-read arm must say so"
+    );
+    assert!(
+        body.contains("writing a new version"),
+        "the new-version arm must say so — otherwise an operator reads its \
+         success as silence"
+    );
+}
+
+/// The critique's source list carries the SWORN PAIR, not only points and receipts.
+///
+/// ## The gap this closes, caught by the architecture gate before it shipped
+///
+/// `ReadPayload::citable_keys()` is the one authority on what the model may
+/// cite, and it adds `S1` when `said` is present and `S2` when `admitted` is.
+/// The first version of the source list iterated points and receipts only — so a
+/// critique was free to cite S2 with NOTHING behind it, on every question that
+/// carries a sworn pair.
+///
+/// That is not a cosmetic gap. The source list is the one place a bad read can
+/// be caught by the person reading it, and a citation with an empty footnote is
+/// the shape it exists to expose.
+#[test]
+fn the_source_list_includes_the_sworn_pair() {
+    let body = post_answer_body();
+    let at = body
+        .find("let sources = payload")
+        .expect("the source list is built here");
+    let built = &body[body[..at].rfind("let sworn").unwrap_or(at)..];
+    let expression = &built[..built.find(".collect()").expect("the list is collected")];
+
+    for field in ["payload.said", "payload.admitted"] {
+        assert!(
+            expression.contains(field),
+            "{field} is citable — `citable_keys` names it — but is missing from \
+             the source list, so a critique citing it shows an empty footnote"
+        );
+    }
+
+    // ⚑ AND IT MUST REACH THE LIST, not merely be built beside it.
+    //
+    // The first version of this test asserted only that the two fields were
+    // MENTIONED in the region. Deleting the `.chain(...)` that folds them in
+    // left them mentioned, unused, and absent from the payload — and the test
+    // passed. Shape is not effect; that is the third time today.
+    let after_sworn = &expression[expression.find("let sworn").unwrap_or(0)..];
+    assert!(
+        after_sworn.contains("chain(sworn"),
+        "the sworn pair is built and then never folded into the list: {expression}"
+    );
+}

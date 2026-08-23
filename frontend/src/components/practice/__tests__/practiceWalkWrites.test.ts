@@ -49,8 +49,12 @@ const withoutComments = (source: string): string =>
 /** Every name the walk page imports from a service module. */
 function serviceImports(source: string): string[] {
   const names: string[] = [];
+  // ⚑ NO STRAY `exec` BEFORE THE LOOP. A global-flag regex carries `lastIndex`,
+  // so an extra `exec` advances past the FIRST import block and the loop below
+  // never sees it. That is what the first version of this helper did: the page's
+  // opening import line was silently unexamined while the test reported full
+  // coverage. Found by the test-auditor gate, not by reading it.
   const pattern = /import\s*\{([^}]*)\}\s*from\s*"\.\.\/services\/[^"]+"/g;
-  for (const match of pattern.exec.call(pattern, source) ? [] : []) void match;
   let m: RegExpExecArray | null;
   while ((m = pattern.exec(source)) !== null) {
     for (const raw of m[1].split(",")) {
@@ -75,7 +79,10 @@ describe("the practice walk writes nothing", () => {
   it("imports only reads from the service layer", () => {
     const imported = serviceImports(walk()).filter((name) => !name.startsWith("Practice"));
 
-    expect(imported.length, "the page must import SOMETHING, or this proves nothing").toBeGreaterThan(0);
+    // ANTI-VACUITY, and specific rather than "more than zero": the page imports
+    // exactly these reads, and a helper that skipped an import block would find
+    // fewer. `> 0` was what let the `lastIndex` bug hide.
+    expect(imported.sort()).toEqual(["fetchPracticeAnswers", "fetchPracticeDeck", "wordingOf"]);
     for (const name of imported) {
       expect(ALLOWED, `${name} is reachable from the walk and is not a known read`).toContain(name);
     }
