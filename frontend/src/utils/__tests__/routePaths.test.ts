@@ -57,7 +57,7 @@ import {
   peoplePath,
   practicePath,
   practicePrintPath,
-  practiceQuestionPath,
+  practiceAnswersPath,
   practiceSessionPath,
   rehearsalPath,
   proofMatrixPath,
@@ -191,19 +191,15 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     emit: () => practiceSessionPath("awad v cfs", "id/with/slashes", "sid/with/slashes"),
   },
   {
-    name: "practiceQuestionPath",
-    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    name: "practiceAnswersPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     emit: () =>
-      practiceQuestionPath(
-        "awad-v-cfs",
-        "3f2b1c9e-0000-4a1b-8c7d-000000000001",
-        "3f2b1c9e-0000-4a1b-8c7d-000000000003",
-      ),
+      practiceAnswersPath("awad-v-cfs", "3f2b1c9e-0000-4a1b-8c7d-000000000001"),
   },
   {
-    name: "practiceQuestionPath (ids need escaping)",
-    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
-    emit: () => practiceQuestionPath("awad v cfs", "id/with/slashes", "qid/with/slashes"),
+    name: "practiceAnswersPath (ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    emit: () => practiceAnswersPath("awad v cfs", "id/with/slashes"),
   },
   // ── The navigation bar (nav cleanup, Part 2) ─────────────────────────────
   //
@@ -308,7 +304,7 @@ describe("the guard can fail", () => {
       "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
     );
     expect(routes).toContain(
-      "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+      "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     );
     expect(routes).toContain("/cases/:slug/rehearsal/:code");
     expect(routes).toContain("/documents/:id");
@@ -376,10 +372,16 @@ describe("the guard can fail", () => {
     expect(routeFor(practiceSessionPath("awad-v-cfs", "abc", "def"))).toBe(
       "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
     );
-    expect(routeFor(practiceQuestionPath("awad-v-cfs", "abc", "def"))).toBe(
-      "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    // The review page's `question` segment is retired, but the shadowing risk
+    // moved rather than went: `print` and `print-answers` share a prefix, and a
+    // matcher anchored only at the start would send Chuck's reading copy to the
+    // questions sheet. Both must resolve to their OWN route.
+    expect(routeFor(practicePrintPath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/print",
     );
-    expect(routeFor("/cases/awad-v-cfs/trial-prep/practice/abc/question")).toBeNull();
+    expect(routeFor(practiceAnswersPath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    );
   });
 
   it("keeps a parameter inside one segment", () => {

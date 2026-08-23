@@ -32,7 +32,7 @@ import {
   homePath,
   peoplePath,
   practicePath,
-  practiceQuestionPath,
+  practiceAnswersPath,
   practiceSessionPath,
   proofMatrixPath,
   proofReviewTabPath,
@@ -118,7 +118,7 @@ const BUILDER_CALLS: Array<() => string> = [
   () => rehearsalScenarioPath("c", "S-1"),
   () => practicePath("c", "s"),
   () => practiceSessionPath("c", "s", "x"),
-  () => practiceQuestionPath("c", "s", "q"),
+  () => practiceAnswersPath("c", "s"),
 ];
 
 // -----------------------------------------------------------------------------

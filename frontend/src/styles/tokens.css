@@ -650,6 +650,13 @@
      below it are the lighter lines inside a question block. */
   --print-rule: #d8d8d8;
   --print-hairline: #e6e6e6;
+
+  /* Marie's answer on Chuck's reading copy. A rule and the faintest wash — it
+     must read as set apart from the question without competing with it for
+     the eye, and it has to survive a monochrome printer, which is what Chuck
+     actually has. */
+  --print-answer-rule: #c9d6ea;
+  --print-answer-bg: #fafbfd;
   --print-source-bar: #e4e4e4;
 
   /* The deck key's box — the one colour on the sheet, because the key is the

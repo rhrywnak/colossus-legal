@@ -171,10 +171,6 @@ export type PracticeDeck = {
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */
   open_session: OpenSession | null;
-  /** The notes on this SCENARIO, oldest first. */
-  notes: PracticeNote[];
-  /** What changed since her last sitting. `null` withdraws the blue box. */
-  changed: PracticeChanged | null;
   /** What the editor's add form may attach a new question to. */
   attach_options: PracticeAttachOption[];
   wording: PracticeWording;
@@ -280,7 +276,6 @@ export async function fetchPracticeDeck(
     !Array.isArray(parsed.questions) ||
     !Array.isArray(parsed.points) ||
     !Array.isArray(parsed.receipts) ||
-    !Array.isArray(parsed.notes) ||
     !Array.isArray(parsed.attach_options) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"

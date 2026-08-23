@@ -229,34 +229,6 @@ export function practiceSessionPath(
   );
 }
 
-/**
- * ONE question's review page — every attempt at it, newest first.
- *
- * Declared in `App.tsx` as
- * `/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId`.
- *
- * ## Why `question` and not another bare id
- *
- * The same reason `session` is a literal segment beside it. Three routes now
- * share this prefix and two of them end in a uuid; without a word between them,
- * a sitting id and a question id would be told apart by nothing but which route
- * the matcher tried first. `question` and `session` are words no uuid can be,
- * and the guard test asserts neither can shadow the other.
- *
- * @param slug the case slug, escaped here
- * @param scenarioId the scenario's UUID, escaped here
- * @param questionId the question's UUID, escaped here
- */
-export function practiceQuestionPath(
-  slug: string,
-  scenarioId: string,
-  questionId: string,
-): string {
-  return (
-    `/cases/${encodeURIComponent(slug)}/trial-prep/practice/` +
-    `${encodeURIComponent(scenarioId)}/question/${encodeURIComponent(questionId)}`
-  );
-}
 
 // ─── The navigation bar's own addresses (nav cleanup, Part 2) ────────────────
 //

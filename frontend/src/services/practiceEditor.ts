@@ -230,41 +230,6 @@ export async function strikeNote(noteId: string): Promise<void> {
   await orThrow<unknown>(response, "That note was not struck");
 }
 
-/** The review page for one question. */
-export async function fetchQuestionReview(
-  slug: string,
-  scenarioId: string,
-  questionId: string,
-): Promise<PracticeReview> {
-  const response = await authFetch(
-    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/` +
-      `${encodeURIComponent(scenarioId)}/practice/questions/` +
-      `${encodeURIComponent(questionId)}`,
-    { timeoutMs: PRACTICE_TIMEOUT_MS },
-  );
-
-  const parsed = await orThrow<Partial<PracticeReview>>(
-    response,
-    "That question's review could not be loaded",
-  );
-  // The shapes the page cannot render without. `attempts` may be EMPTY — a
-  // question nobody has answered is a legitimate screen, and the page says so
-  // in the store's words — but it must be an array, and the wording must be
-  // there or every label on the page is blank.
-  if (
-    !Array.isArray(parsed.attempts) ||
-    !Array.isArray(parsed.points) ||
-    !Array.isArray(parsed.notes) ||
-    parsed.question == null ||
-    parsed.wording == null
-  ) {
-    throw new Error(
-      "The review response is missing its attempts, points or wording — " +
-        "backend/frontend contract mismatch. Report it to the site administrator.",
-    );
-  }
-  return parsed as PracticeReview;
-}
 
 /**
  * Place one question where a drag dropped it.

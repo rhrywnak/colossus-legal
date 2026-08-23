@@ -1,5 +1,5 @@
 /**
- * Service tests for the deck editor, the notes, and the review page's read.
+ * Service tests for the deck editor's writes.
  *
  * ## The URL guard, and the failure class it exists for
  *
@@ -26,7 +26,6 @@ import {
   reorderQuestion,
   signedInAs,
   editQuestion,
-  fetchQuestionReview,
   hideQuestion,
   moveQuestion,
   saveNote,
@@ -56,20 +55,6 @@ function failFetch(status: number) {
   return mock;
 }
 
-/** A complete review body, matching the backend DTO. */
-function review(attempts: unknown[] = []) {
-  return {
-    scenario_id: SCENARIO,
-    code: "S-5",
-    title: "Marie refused to divide property amicably",
-    question: { id: QUESTION, text: "a question" },
-    progress: "Question 1 · review",
-    attempts,
-    points: [],
-    notes: [],
-    wording: { back_label: "◂ Back to start" },
-  };
-}
 
 describe("editQuestion", () => {
   it("POSTs the field and the value — and NOTHING naming who", async () => {
@@ -280,37 +265,6 @@ describe("strikeNote", () => {
   });
 });
 
-describe("fetchQuestionReview", () => {
-  it("GETs the case-, scenario- and question-scoped URL", async () => {
-    const mock = okFetch(review());
-    await fetchQuestionReview(SLUG, SCENARIO, QUESTION);
-    expect(mock.mock.calls[0][0]).toContain(
-      `/api/cases/${SLUG}/scenarios/${SCENARIO}/practice/questions/${QUESTION}`,
-    );
-  });
-
-  it("resolves with NO attempts — that is a screen, not a failure", async () => {
-    // A question reached by a typed address with nothing behind it. The page
-    // says so in the store's words and still shows the study material.
-    okFetch(review());
-    const payload = await fetchQuestionReview(SLUG, SCENARIO, QUESTION);
-    expect(payload.attempts).toEqual([]);
-  });
-
-  it("refuses a body missing its attempts or its wording, by name", async () => {
-    okFetch({ scenario_id: SCENARIO, question: {}, points: [], notes: [] });
-    await expect(fetchQuestionReview(SLUG, SCENARIO, QUESTION)).rejects.toThrow(
-      /contract mismatch/,
-    );
-  });
-
-  it("reports a 404 as a review that could not be loaded", async () => {
-    failFetch(404);
-    await expect(fetchQuestionReview(SLUG, SCENARIO, QUESTION)).rejects.toThrow(
-      /could not be loaded \(HTTP 404/,
-    );
-  });
-});
 
 describe("signedInAs", () => {
   /** One `/api/me` body, with only the two fields this helper reads varied. */

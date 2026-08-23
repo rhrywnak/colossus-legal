@@ -105,7 +105,7 @@ pub fn point_dto(
 /// charge of pairing them, and a caller that passed UTC with a Michigan template
 /// would render a date four hours wrong with nothing to catch it. One argument,
 /// one place the pairing is made.
-fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
+pub fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
     render(
         &settings.practice_wording.row.answered_on_template,
         // UNBRACED key: this repo's `render` matches `when`, not `{when}`. A

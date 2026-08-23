@@ -31,6 +31,10 @@ const COMPONENTS = [
   // is per-FILE, so a style module absent from it is a module where the hex
   // rule silently does not apply — which is exactly what happened here.
   "printStyles.ts",
+  // The answers sheet's own block. Added the day it was written: this list is
+  // hand-maintained, and a style file missing from it is a file whose colours
+  // nothing checks — which is how `printStyles.ts` shipped 15 raw hex values.
+  "printAnswerStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",
@@ -42,15 +46,12 @@ const COMPONENTS = [
   "PracticeDeckRow.tsx",
   "PracticeRowEdit.tsx",
   "PracticeAddQuestion.tsx",
-  "PracticeNotes.tsx",
-  "PracticeChanged.tsx",
 ];
 
 /** Every file that renders a practice screen and therefore needs the attribute. */
 const PAGES = [
   "PracticePage.tsx",
   "PracticeSessionPage.tsx",
-  "PracticeQuestionReviewPage.tsx",
   "practiceChrome.tsx",
 ];
 

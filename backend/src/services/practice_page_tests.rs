@@ -510,3 +510,32 @@ fn one_question_s_answer_never_lands_on_another_s_row() {
         "another question's answer reached this row"
     );
 }
+
+/// The printed answers sheet composes its date line the same way a row does.
+///
+/// One function, two surfaces. A second composer for the answers endpoint would
+/// agree with the row today and drift the first time either was touched — and
+/// the drift would be invisible, because both would still be well-formed dates.
+#[test]
+fn the_answers_sheet_and_the_row_speak_the_same_line() {
+    let mut s = settings();
+    s.practice_read.case_timezone = "America/Detroit".to_string();
+    let at = late_night_utc();
+
+    // What the endpoint composes.
+    let sheet_line = answered_on_line(&s, at);
+
+    // What the row composes, through the whole payload path.
+    let id = Uuid::from_u128(7);
+    let mut rec = record(Some(5), None);
+    rec.id = id;
+    let row_line = question_dto(&s, &[current(id, at)], rec)
+        .answered_on
+        .expect("the answered row carries the line");
+
+    assert_eq!(sheet_line, row_line);
+    assert!(
+        sheet_line.contains("21 Aug"),
+        "the case's own day, got {sheet_line:?}"
+    );
+}

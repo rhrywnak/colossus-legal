@@ -16,8 +16,8 @@ import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import PracticePage from "./pages/PracticePage";
+import PracticeAnswersPrintPage from "./pages/PracticeAnswersPrintPage";
 import PracticePrintPage from "./pages/PracticePrintPage";
-import PracticeQuestionReviewPage from "./pages/PracticeQuestionReviewPage";
 import PracticeSessionPage from "./pages/PracticeSessionPage";
 import GraphPage from "./pages/GraphPage";
 import QueriesPage from "./pages/QueriesPage";
@@ -147,13 +147,6 @@ const App: React.FC = () => {
                 path="/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId"
                 element={<PracticeSessionPage />}
               />
-              {/* PRACTICE v1 Part B: one question's review page — every attempt
-                  at it, newest first. `question` is a literal where the sibling
-                  has `session`, so neither can shadow the other. */}
-              <Route
-                path="/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId"
-                element={<PracticeQuestionReviewPage />}
-              />
               {/* Chuck's review sheets. A page of its own rather than a print
                   stylesheet on the practice page: that page's deck list is
                   conditionally rendered behind a fold and filtered by the
@@ -161,6 +154,13 @@ const App: React.FC = () => {
               <Route
                 path="/cases/:slug/trial-prep/practice/:scenarioId/print"
                 element={<PracticePrintPage />}
+              />
+              {/* Chuck's reading copy — the same sheets carrying Marie's
+                  answers. A sibling ADDRESS and not a mode on the view above:
+                  two documents for two acts, and he keeps both tabs open. */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/print-answers"
+                element={<PracticeAnswersPrintPage />}
               />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/graph" element={<GraphPage />} />

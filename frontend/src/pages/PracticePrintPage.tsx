@@ -123,7 +123,6 @@ const PracticePrintPage: React.FC = () => {
       <style>{p.PRINT_CSS}</style>
       <PrintSheets
         plan={plan}
-        code={deck.code}
         deckAsOf={asSheetDate(deck.deck_as_of)}
         printedAt={printedAt}
         wording={deck.wording}

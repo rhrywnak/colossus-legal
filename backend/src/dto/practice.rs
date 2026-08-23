@@ -366,3 +366,27 @@ pub struct PracticeSheetPayload {
     /// That block's heading. Empty when `changes` is.
     pub changes_heading: String,
 }
+
+/// One question's current answer, for the printed answers sheet.
+///
+/// ## Domain note: the CURRENT answer only
+///
+/// Not the earlier versions. Chuck is reading what Marie would say today; a
+/// sheet carrying three versions of one answer asks him to work out which is
+/// live, which is the one job the screen already does for him.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PracticeAnswerDto {
+    pub question_id: Uuid,
+    /// Her words, exactly as typed.
+    pub text: String,
+    /// `Answered on 22 Aug`, already composed — the same line the deck row shows.
+    pub answered_on: String,
+}
+
+/// Every current answer in one scenario, for the print-answers view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PracticeAnswersPayload {
+    pub answers: Vec<PracticeAnswerDto>,
+}
