@@ -25,6 +25,7 @@ import React from "react";
 import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import { answerLine, type AnswerPlan } from "./printAnswerPlan";
+import { fill } from "./printSheetPlan";
 import type { PrintRow } from "./printSheetPlan";
 import * as p from "./printStyles";
 import * as a from "./printAnswerStyles";
@@ -65,9 +66,22 @@ const PrintAnswers: React.FC<{
               {sheet.title}
               <small style={p.hdrSub}>{sheet.subtitle}</small>
             </div>
+            {/* The SAME composed meta as the questions sheet. Rendering the two
+                dates raw here — which is how this shipped for one render — gave
+                Chuck two documents whose headers disagreed about what they were
+                telling him, on the one pair of sheets he reads side by side. */}
             <div style={p.hdrMeta}>
-              <div>{printedAt}</div>
-              {deckAsOf !== null && <div>{deckAsOf}</div>}
+              {fill(w("print_printed_template"), { when: printedAt })}
+              {deckAsOf !== null && (
+                <>
+                  <br />
+                  {fill(w("print_deck_as_of_template"), {
+                    date: deckAsOf,
+                    n: String(sheet.rows.length),
+                    m: String(plan.plan.deckTotal),
+                  })}
+                </>
+              )}
             </div>
           </div>
           {/* The answers sheet's own how-to, not the questions sheet's: that one
