@@ -5,6 +5,13 @@
 --
 -- ## ⚑ FORMAT RULES (both learned the hard way — see the L1 and L2 migrations)
 --
+-- And note what this very comment IS: by quoting the format below, it puts the
+-- string a parser hunts for EARLIER in the file than the statement it wants.
+-- That is not a reason to stop documenting the rule beside the rule — it is a
+-- reason for every parser to strip comments first. The rule, and the three
+-- times it bit on 2026-08-23, are stated once in `src/domain/wording_tests.rs`
+-- above `seeded_value_in`.
+--
 -- Corrections use the `SET value         = '` / `WHERE key           =` spacing
 -- exactly: `corrected_value_in` searches for that shape. Values are ONE quoted
 -- literal on ONE line.

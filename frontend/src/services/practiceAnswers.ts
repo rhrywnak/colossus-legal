@@ -63,3 +63,71 @@ export async function fetchPracticeAnswers(
   }
   return parsed.answers;
 }
+
+/**
+ * One version of a question's answer.
+ *
+ * ## ⚑ Checked BY EYE against `backend/src/dto/practice.rs::AnswerVersionDto`
+ *
+ * Nothing enforces this boundary. These types are hand-written, not generated:
+ * on 2026-08-23 four fields were removed from the deck payload and `tsc` had
+ * NOTHING to say, because a field the backend stops sending is simply
+ * `undefined` at runtime. The only check that exists is a person reading the two
+ * declarations side by side, so the backend one is named here for whoever does
+ * that next.
+ *
+ * Backend, at the time of writing:
+ *   pub answer_id: Uuid      → answer_id: string
+ *   pub text: String         → text: string        (never null — the column is NOT NULL)
+ *   pub answered_on: String  → answered_on: string (composed server-side, never empty)
+ */
+export type AnswerVersion = {
+  answer_id: string;
+  text: string;
+  answered_on: string;
+};
+
+/**
+ * One question's answer history.
+ *
+ * ## ⚑ Checked BY EYE against `QuestionAnswersPayload`
+ *
+ *   pub current: Option<AnswerVersionDto> → current: AnswerVersion | null
+ *   pub earlier: Vec<AnswerVersionDto>    → earlier: AnswerVersion[]
+ *
+ * `current` is NULLABLE and `earlier` is not: serde writes `null` for a `None`
+ * and `[]` for an empty `Vec`. A type declaring `earlier` optional would invite
+ * a `?.` that hides a payload arriving without it, which is a contract breach
+ * rather than an empty history.
+ */
+export type QuestionAnswers = {
+  current: AnswerVersion | null;
+  earlier: AnswerVersion[];
+};
+
+/** One question's answers: what stands now, and what came before. */
+export async function fetchQuestionAnswers(questionId: string): Promise<QuestionAnswers> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/practice/questions/${encodeURIComponent(questionId)}/answers`,
+    { timeoutMs: PRACTICE_TIMEOUT_MS },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Failed to load this question's answers (HTTP ${response.status}${detail}).`,
+    );
+  }
+
+  const parsed = (await response.json()) as Partial<QuestionAnswers>;
+  // `current` may legitimately be null — she has not answered yet. `earlier`
+  // may legitimately be empty. Neither may be ABSENT: an absent `earlier` would
+  // render "0 earlier versions" over a history the server never sent.
+  if (parsed.current === undefined || !Array.isArray(parsed.earlier)) {
+    throw new Error(
+      "The answers response is missing current/earlier — " +
+        "backend/frontend contract mismatch. Report it to the site administrator.",
+    );
+  }
+  return { current: parsed.current, earlier: parsed.earlier };
+}

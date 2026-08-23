@@ -390,3 +390,32 @@ pub struct PracticeAnswerDto {
 pub struct PracticeAnswersPayload {
     pub answers: Vec<PracticeAnswerDto>,
 }
+
+/// One version of a question's answer, as the question page receives it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnswerVersionDto {
+    pub answer_id: Uuid,
+    /// Her words, exactly as typed.
+    pub text: String,
+    /// `Answered on 22 Aug`, already composed — the same line the row shows.
+    pub answered_on: String,
+}
+
+/// One question's answer history: what stands now, and what came before.
+///
+/// ## Domain note: `earlier` is NOT editable, and the split says so
+///
+/// Two fields rather than one list with the current flagged, because the page
+/// treats them as different things: `current` is pre-filled into a box she can
+/// change, and `earlier` is a quiet line she never has to open. A single list
+/// would leave the client deciding which is which, and a client that got it
+/// wrong would offer her an edit box over an answer Chuck has already read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionAnswersPayload {
+    /// What she would say today, or `None` if she has never answered.
+    pub current: Option<AnswerVersionDto>,
+    /// Everything before it, newest first. Empty when there is one answer or none.
+    pub earlier: Vec<AnswerVersionDto>,
+}

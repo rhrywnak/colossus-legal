@@ -423,3 +423,99 @@ pub async fn current_answers(
     .await
     .map_err(PipelineRepoError::from)
 }
+
+/// The session an answer written from the question page belongs to.
+///
+/// ## Domain note: the sitting is INVISIBLE PLUMBING, not a feature
+///
+/// `CC_TASK_PRACTICE_ONE_PAGE` retires the sitting apparatus from the
+/// INTERFACE — no Start, no counts, no sides to choose, no resume, no end. It
+/// does not retire it from the schema, and could not:
+/// `practice_answers.session_id` is `NOT NULL REFERENCES practice_sessions(id)`,
+/// so every answer must belong to one. Roman's ruling of 2026-08-23 was to keep
+/// the row and hide the concept.
+///
+/// **So: "no sittings" is true of the interface and false of the database.**
+/// That sentence needs to survive outside the conversation it was ruled in, and
+/// this is where a reader of the code will be standing when they need it.
+///
+/// Reuses the newest UNENDED session for this scenario and user if there is one,
+/// so a witness answering ten questions over an afternoon writes ten answers
+/// into one row rather than opening ten sittings nobody will ever look at.
+/// Returns `None` when there is none to reuse — the caller then opens one.
+pub async fn open_session_for_answers(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    user_id: &str,
+) -> Result<Option<Uuid>, PipelineRepoError> {
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT s.id FROM practice_sessions s \
+         WHERE s.scenario_id = $1 AND s.user_id = $2 AND s.ended_at IS NULL \
+         ORDER BY s.started_at DESC, s.id DESC LIMIT 1",
+    )
+    .bind(scenario_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// One answer in a question's history, newest first.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AnswerVersionRecord {
+    pub answer_id: Uuid,
+    pub answer_text: String,
+    pub answered_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Every version of one question's answer, newest first.
+///
+/// ## Domain note: scenario-wide, like its siblings
+///
+/// No user filter, for the reason `current_answers` carries none: the page is
+/// one page for two people, and an answer belongs to the question rather than
+/// to whoever is looking at it.
+///
+/// ## Why the WHOLE history and not a count
+///
+/// The question page shows "▸ 2 earlier versions" as one quiet line she never
+/// has to open — but when she does open it, the words must already be there. A
+/// count now and a fetch on expand would put a spinner inside a disclosure
+/// triangle, which is a loading state for something she opened out of idle
+/// curiosity. Answers are short and there are rarely more than three.
+pub async fn answer_versions(
+    pool: &PgPool,
+    question_id: Uuid,
+) -> Result<Vec<AnswerVersionRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, AnswerVersionRecord>(
+        "SELECT a.id AS answer_id, a.answer_text, a.answered_at \
+         FROM practice_answers a \
+         WHERE a.question_id = $1 \
+         ORDER BY a.answered_at DESC, a.id DESC",
+    )
+    .bind(question_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
+/// The answer that stands for one question, if there is one — id and words.
+///
+/// Lighter than [`answer_versions`] and used on the write path: the answer
+/// handler needs to know whether what she just typed is byte-identical to what
+/// already stands, and loading a whole history to compare one string would be a
+/// read that grows with every version she writes.
+pub async fn current_answer_for(
+    pool: &PgPool,
+    question_id: Uuid,
+) -> Result<Option<(Uuid, String)>, PipelineRepoError> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT a.id, a.answer_text FROM practice_answers a \
+         WHERE a.question_id = $1 \
+         ORDER BY a.answered_at DESC, a.id DESC LIMIT 1",
+    )
+    .bind(question_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}

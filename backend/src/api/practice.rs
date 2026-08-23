@@ -74,7 +74,15 @@ pub fn routes() -> Router<AppState> {
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id/practice/answers",
-            get(get_practice_answers),
+            get(super::practice_one_page::get_practice_answers),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/answer-session",
+            post(super::practice_one_page::post_answer_session),
+        )
+        .route(
+            "/practice/questions/:question_id/answers",
+            get(super::practice_one_page::get_question_answers),
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id/practice/sessions",
@@ -350,72 +358,3 @@ pub async fn post_practice_session(
 #[cfg(test)]
 #[path = "practice_tests.rs"]
 mod tests;
-
-/// Every current answer in one scenario — the printed answers sheet's payload.
-///
-/// ## Why a second endpoint and not a field on the deck payload
-///
-/// The deck payload is fetched on EVERY load of the practice page, and this
-/// carries every answer's full prose. Riding it along would make Marie wait on
-/// text her screen never shows, on the one surface whose whole promise is that
-/// a witness never waits on a network. Chuck asks for this once, deliberately,
-/// by opening a print tab.
-///
-/// ## Domain note: scenario-wide, like the line on the deck row
-///
-/// Not scoped to the requester. Chuck opens this to read MARIE's answers, and a
-/// user-scoped read would hand him blank paper. See `current_answers`.
-///
-/// # Errors
-/// 404 for a scenario outside this case; 500 (logged, operation named) for a
-/// read that fails.
-pub async fn get_practice_answers(
-    // ## ⚑ Present for AUTHENTICATION, not for scoping
-    //
-    // The query below is deliberately scenario-wide — Chuck reads MARIE's
-    // answers, so the data is not filtered by who asked. That is a statement
-    // about SCOPING and says nothing about whether the caller may be here at
-    // all. This extractor is the backend's own 401: with `AUTH_MODE=Required` a
-    // request carrying no Authentik headers is refused before this body runs,
-    // and without it the handler would trust Traefik alone. Every sibling read
-    // in this module takes it for exactly that reason.
-    user: AuthUser,
-    State(state): State<AppState>,
-    Path((slug, scenario_id)): Path<(String, String)>,
-) -> Result<Json<crate::dto::practice::PracticeAnswersPayload>, AppError> {
-    let scenario_id = parse_scenario_id(&scenario_id)?;
-    ensure_scenario_in_case(&state, scenario_id, &slug).await?;
-
-    let settings = state.settings.current();
-    let current = current_answers(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("current_answers", e))?;
-
-    let answers = current
-        .into_iter()
-        .map(|record| crate::dto::practice::PracticeAnswerDto {
-            question_id: record.question_id,
-            text: record.answer_text,
-            // Composed here, like every other sentence on this surface: the
-            // client holds no templates and no date format.
-            answered_on: crate::services::practice_page::answered_on_line(
-                &settings,
-                record.answered_at,
-            ),
-        })
-        .collect::<Vec<_>>();
-
-    // WHO asked is worth a field even though it does not change WHAT is served:
-    // this is Marie's writing leaving the building on paper, and a log that
-    // cannot say who printed it cannot answer the question afterwards.
-    tracing::info!(
-        slug = %slug,
-        %scenario_id,
-        by = %user.username,
-        answers = answers.len(),
-        "served the practice answers"
-    );
-    Ok(Json(crate::dto::practice::PracticeAnswersPayload {
-        answers,
-    }))
-}

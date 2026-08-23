@@ -58,6 +58,7 @@ pub mod practice_editor;
 pub mod practice_editor_add;
 pub mod practice_fences;
 pub mod practice_flag;
+pub mod practice_one_page;
 pub mod practice_reorder;
 pub mod practice_sessions;
 pub mod proof_matrix;

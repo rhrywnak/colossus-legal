@@ -227,6 +227,39 @@ const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_r
 const ACKNOWLEDGMENT_MIGRATION: &str =
     "pipeline_migrations/20260808171630_ruling_acknowledgment_wording.sql";
 
+// =============================================================================
+// ⚑ THE RULE FOR ANYTHING IN THIS REPOSITORY THAT READS SOURCE OR SQL
+// =============================================================================
+//
+// **Strip comments before you look.**
+//
+// Not "be careful" — a mechanical step, every time, in every scanner. The root
+// cause is not a mistake anyone will stop making, because it is caused by
+// something this codebase does deliberately and should keep doing:
+//
+//   THIS CODEBASE DOCUMENTS ITS RULES NEXT TO ITS RULES.
+//
+// A migration that parses `SET value         = '` explains that format in its
+// own header. A wording fixture reads a seed migration whose comments quote the
+// syntax it is parsing. A test that asserts a function name is ABSENT sits in a
+// file explaining why that function was deleted. Every one of those is good
+// practice, and every one of them puts the string a naive parser is hunting for
+// EARLIER in the file than the thing it actually wants.
+//
+// Measured, three times on 2026-08-23:
+//
+//   1. A migration's header quoted `SET value         = '`; an overlay parser
+//      captured the prose and printed a migration's comments onto S-5's
+//      redirect sheet.
+//   2. `corrected_value_in` below survives the same decoy ONLY because it uses
+//      `rfind` — the decoy always happens to come first. That is luck, not
+//      design, and it is logged for the T2 window.
+//   3. `api::practice_answers::tests` failed on the handler's own comment
+//      explaining a deletion, and now strips comments before scanning.
+//
+// The three sites point HERE rather than each carrying a copy, because the
+// fourth scanner will be in a file nobody thought to copy it into.
+
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
 /// ## Why this handles doubled quotes and the 1.6 version did not

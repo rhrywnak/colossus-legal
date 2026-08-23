@@ -12,6 +12,7 @@ pub mod graph_expansion_minor;
 pub mod graph_expansion_queries;
 pub mod import_validator;
 pub mod matrix_strength;
+pub mod practice_answer_version;
 pub mod practice_changes;
 pub mod practice_clock;
 pub mod practice_editor_options;
