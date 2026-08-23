@@ -307,7 +307,12 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
     } = sources;
 
     let picker = picker_receipts(&deck, receipts);
+    // Computed from the deck already in hand — no second query. `max` over an
+    // empty deck is `None`, which is the honest answer for a scenario nobody has
+    // seeded: there is no date on which nothing last changed.
+    let deck_as_of = deck.iter().map(|q| q.updated_at).max();
     PracticeDeckPayload {
+        deck_as_of,
         scenario_id,
         code,
         title,

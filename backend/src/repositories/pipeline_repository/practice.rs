@@ -71,6 +71,16 @@ pub struct PracticeQuestionRecord {
     pub hidden_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Who drafted this row, when nobody has reviewed it (`architect`).
     pub draft_by: Option<String>,
+    /// When this row last changed.
+    ///
+    /// ## Domain note: read for the PRINT sheets' "deck as of" line
+    ///
+    /// Every editor write sets it explicitly (`practice_editor`: the field edit,
+    /// the tactic, the reorder, the hide) and a seeded row takes the column's
+    /// `DEFAULT NOW()`. The deck's own date is the `MAX` of this across the deck —
+    /// which is what a sheet of paper needs, because paper outlives the deck it
+    /// was taken from and a reader must be able to tell how stale it is.
+    pub updated_at: chrono::DateTime<chrono::Utc>,
 }
 
 /// One of Marie's three talking points, read live from the scenario record.
@@ -124,7 +134,8 @@ pub async fn list_deck(
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, scenario_id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by \
+                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by, \
+                updated_at \
          FROM practice_questions WHERE scenario_id = $1 ORDER BY sort_order",
     )
     .bind(scenario_id)
@@ -141,7 +152,8 @@ pub async fn get_question(
     sqlx::query_as::<_, PracticeQuestionRecord>(
         "SELECT id, scenario_id, side, text, tactic, braid_rows, source_kind, source_ref, receipt, \
                 watch_for, stronger, stronger_lean, pair_said, pair_admitted, sort_order, \
-                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by \
+                flag_note, deck_key, kind, follows_key, source_line, hidden_at, draft_by, \
+                updated_at \
          FROM practice_questions WHERE id = $1",
     )
     .bind(question_id)

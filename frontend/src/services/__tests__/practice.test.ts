@@ -51,6 +51,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
     questions,
     points: [{ position: 1, text: "I asked in writing.", exhibit: "my certified letter" }],
     last_session_line: "No session on this one yet.",
+  deck_as_of: "2026-08-20T03:05:02Z",
     receipts: ["your certified letter, 16 Nov 2009"],
     open_session: null,
     notes: [],

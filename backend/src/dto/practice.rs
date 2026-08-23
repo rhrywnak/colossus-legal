@@ -136,6 +136,19 @@ pub struct PracticeDeckPayload {
     /// The composed last-session sentence, or the composed "no session yet" one.
     /// Always present, because the start screen always has that line.
     pub last_session_line: String,
+    /// When any question in this deck last changed — `MAX(updated_at)`.
+    ///
+    /// ## Domain note: the DECK's own date, and what moves it
+    ///
+    /// Every editor write sets `updated_at = NOW()` (`practice_editor`: the field
+    /// edit, the tactic, the reorder and the hide), and a seeded row takes the
+    /// column's `DEFAULT NOW()`. So this is the deck's own last change and not
+    /// something coarser — but it DOES move on a pure re-order, which changes the
+    /// deck without changing any question's words.
+    ///
+    /// `None` on a deck with no questions, which is a legitimate state: the print
+    /// control is disabled there and nothing renders this.
+    pub deck_as_of: Option<chrono::DateTime<chrono::Utc>>,
     /// The receipts the "I'd point to…" picker offers, de-duplicated and in
     /// deck order: her points' receipts first, then the exhibits her questions
     /// stand on. Composed here so the browser assembles no list of its own.

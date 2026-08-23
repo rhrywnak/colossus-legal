@@ -28,6 +28,7 @@ use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
@@ -121,6 +122,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values())
         .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
+        .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -696,6 +698,14 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "PRACTICE v1 Part B: the notes panel and the review page"
     );
     assert_eq!(
+        PRACTICE_PRINT_WORDING_KEYS.len(),
+        26,
+        "Chuck's review sheets (2026-08-22): two controls on the practice page, \
+         three on the print view, three sheet titles and two subtitles, the header \
+         meta, four how-to lines, the antecedent and its named absence, the footer \
+         and the SHEET number, and the six that say what the deck does not contain"
+    );
+    assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
         50,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
@@ -723,8 +733,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_REVIEW_WORDING_KEYS.len()
-            + PRACTICE_REPORT_WORDING_KEYS.len(),
-        "the seed and the eighteen required lists must describe the same store"
+            + PRACTICE_REPORT_WORDING_KEYS.len()
+            + PRACTICE_PRINT_WORDING_KEYS.len(),
+        "the seed and the nineteen required lists must describe the same store"
     );
 }
 
@@ -1158,6 +1169,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // parameter seeded by a migration nothing here reads would leave the
         // fixture free to say anything at all about it.
         "pipeline_migrations/20260820165501_practice_read_t1_per_part_storage.sql",
+        // The print sheets' twenty-six strings. In the list the day they were
+        // written: these go on PAPER that leaves the building, so a fixture that
+        // drifted from the migration would be discovered by Chuck, not by a build.
+        "pipeline_migrations/20260822154321_practice_print_questions_wording.sql",
     ]
     .iter()
     .map(|relative| {

@@ -334,3 +334,35 @@ export const attemptHead: CSSProperties = {
 
 /** `.attempt .ah b` */
 export const attemptNumber: CSSProperties = { color: INK, fontWeight: 600 };
+
+/** The scenario title and the print control, on one line — mockup v1, view 1. */
+export const titleRow: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: 20,
+};
+
+/**
+ * The print control.
+ *
+ * An `<a target="_blank">` and not a `<button>`: it OPENS a view, and a person
+ * who wants it in a window of their own — a second monitor, beside the deck —
+ * should get the browser's own middle-click and "open in new tab" for free. It
+ * carries `role="button"` because it reads as one.
+ */
+export const printControl: CSSProperties = {
+  background: "var(--practice-paper)",
+  border: "1px solid var(--practice-blue)",
+  color: "var(--practice-blue)",
+  borderRadius: 6,
+  padding: "9px 16px",
+  fontSize: 14,
+  fontWeight: 600,
+  whiteSpace: "nowrap",
+  textDecoration: "none",
+  display: "inline-flex",
+  alignItems: "center",
+  gap: 7,
+  flex: "none",
+};

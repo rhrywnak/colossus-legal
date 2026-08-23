@@ -27,6 +27,10 @@ const COMPONENTS = [
   "practiceDeckStyles.ts",
   "practiceFlowStyles.ts",
   "practiceEditorStyles.ts",
+  // The print sheets. In the list the day they were written: the palette test
+  // is per-FILE, so a style module absent from it is a module where the hex
+  // rule silently does not apply — which is exactly what happened here.
+  "printStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",
@@ -50,10 +54,20 @@ const PAGES = [
   "practiceChrome.tsx",
 ];
 
-/** Every `var(--practice-…)` the style module and its components reference. */
+/**
+ * Every `var(--practice-…)` and `var(--print-…)` the components reference.
+ *
+ * Both prefixes, because the print sheets carry a palette of their OWN: a
+ * document's colours rather than a screen's, so that what comes out of a printer
+ * does not follow a theme change. Matching only `--practice-` would have left
+ * every print token unchecked — a `var(--print-typo)` renders as nothing at all,
+ * and on paper that is an invisible rule or a colourless key box.
+ */
 function referencedTokens(): string[] {
   const sources = COMPONENTS.map((f) => read("components", "practice", f)).join("\n");
-  return [...new Set([...sources.matchAll(/var\((--practice-[a-z-]+)\)/g)].map((m) => m[1]))];
+  return [
+    ...new Set([...sources.matchAll(/var\((--(?:practice|print)-[a-z-]+)\)/g)].map((m) => m[1])),
+  ];
 }
 
 describe("the practice palette", () => {

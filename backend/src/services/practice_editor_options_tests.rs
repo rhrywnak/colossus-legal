@@ -33,6 +33,11 @@ fn instance(n: u128, source_line: Option<&str>) -> PracticeQuestionRecord {
         source_line: source_line.map(str::to_string),
         hidden_at: None,
         draft_by: None,
+        // A fixed instant, not `Utc::now()`: the print sheets' "deck as of"
+        // line reads the MAX of this, and a fixture that moved with the
+        // clock would make any assertion about that line unwritable.
+        updated_at: chrono::DateTime::from_timestamp(1_755_000_000, 0)
+            .expect("a fixed, valid instant"),
     }
 }
 

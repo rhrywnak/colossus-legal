@@ -56,6 +56,7 @@ import {
   homePath,
   peoplePath,
   practicePath,
+  practicePrintPath,
   practiceQuestionPath,
   practiceSessionPath,
   rehearsalPath,
@@ -151,6 +152,18 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     name: "rehearsalScenarioPath (code needs escaping)",
     route: "/cases/:slug/rehearsal/:code",
     emit: () => rehearsalScenarioPath("awad v cfs", "S/1 draft"),
+  },
+  {
+    name: "practicePrintPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print",
+    emit: () => practicePrintPath("awad-v-cfs", "aecbaf77-e962-48ef-af51-753fc5964a87"),
+  },
+  {
+    // The print view is reached from a bookmark and a second monitor as well as
+    // from the button, so its slug takes the same escaping as every sibling.
+    name: "practicePrintPath (slug needs escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print",
+    emit: () => practicePrintPath("awad v cfs/2", "aecbaf77"),
   },
   {
     name: "practicePath",

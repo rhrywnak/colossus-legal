@@ -155,6 +155,28 @@ export function practicePath(slug: string, scenarioId: string): string {
 }
 
 /**
+ * Chuck's review sheets for one scenario — the print view.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/print`.
+ *
+ * ## Why the sheets have an address at all
+ *
+ * Because Chuck opens them in a second tab, looks, and only then prints — and
+ * because a print STYLESHEET on the practice page cannot render the whole deck:
+ * that page's list is conditionally rendered behind a fold and filtered by the
+ * *Who's asking?* selector, so what is in its DOM is not what belongs on paper.
+ * An address is also what lets the view be bookmarked and reached from a second
+ * monitor, which is why it carries its own way back.
+ *
+ * @param slug the case slug, escaped here
+ * @param scenarioId the scenario's UUID, escaped here
+ */
+export function practicePrintPath(slug: string, scenarioId: string): string {
+  return `${practicePath(slug, scenarioId)}/print`;
+}
+
+/**
  * One SITTING of the practice drill — the address a reload lands back on.
  *
  * Declared in `App.tsx` as

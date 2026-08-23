@@ -41,6 +41,7 @@ import { resumeSitting, startOverSitting } from "../services/practiceFlow";
 import { saveNote, strikeNote } from "../services/practiceEditor";
 import {
   practicePath,
+  practicePrintPath,
   practiceQuestionPath,
   practiceSessionPath,
 } from "../utils/routePaths";
@@ -263,6 +264,7 @@ const PracticePage: React.FC = () => {
       <PracticeStart
         code={deck.code}
         title={deck.title}
+        printHref={practicePrintPath(slug, scenarioId)}
         wording={deck.wording}
         lastSessionLine={deck.last_session_line}
         who={who}

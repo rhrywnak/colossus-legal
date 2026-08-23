@@ -16,6 +16,7 @@ import SettingsPage from "./pages/SettingsPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
 import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import PracticePage from "./pages/PracticePage";
+import PracticePrintPage from "./pages/PracticePrintPage";
 import PracticeQuestionReviewPage from "./pages/PracticeQuestionReviewPage";
 import PracticeSessionPage from "./pages/PracticeSessionPage";
 import GraphPage from "./pages/GraphPage";
@@ -152,6 +153,14 @@ const App: React.FC = () => {
               <Route
                 path="/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId"
                 element={<PracticeQuestionReviewPage />}
+              />
+              {/* Chuck's review sheets. A page of its own rather than a print
+                  stylesheet on the practice page: that page's deck list is
+                  conditionally rendered behind a fold and filtered by the
+                  *Who's asking?* selector, so its DOM is not the whole deck. */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/print"
+                element={<PracticePrintPage />}
               />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/graph" element={<GraphPage />} />

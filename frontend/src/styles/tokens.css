@@ -603,3 +603,53 @@
   /* Foreground for text on a saturated fill — the primary button, the tag. */
   --practice-on-fill: #ffffff;
 }
+
+/* =============================================================================
+ * SCENARIO_PRINT_MOCKUP_v1 — Chuck's review sheets (2026-08-22)
+ * =============================================================================
+ *
+ * The print sheets' own palette, scoped to `[data-print-desk]`.
+ *
+ * ## Why these are SEPARATE tokens and not the practice palette
+ *
+ * The practice tokens are a SCREEN's colours. These are a DOCUMENT's: black ink
+ * on white paper, grey rules, one blue for the deck key's box. Mapping the sheets
+ * onto `--practice-*` would tie what comes out of a printer to what a screen
+ * looks like — and the day the app gains a dark theme, the sheets would print
+ * white on black, or blank.
+ *
+ * The mockup's own values, by its own names, in one named place a designer edits
+ * (Rule 2) — the same move the practice and v3 palettes above made.
+ * ============================================================================= */
+[data-print-desk] {
+  /* The desk the sheets sit on — screen only; print paints it white. */
+  --print-desk: #e9ecef;
+  --print-paper: #ffffff;
+
+  /* The document's ink, at the three weights the mockup uses. */
+  --print-ink: #111111;
+  --print-dim: #555555;
+  --print-faint: #8a8a8a;
+  --print-quote: #333333;
+
+  /* Rules and hairlines. `--print-rule` is the sheet's own divider; the two
+     below it are the lighter lines inside a question block. */
+  --print-rule: #d8d8d8;
+  --print-hairline: #e6e6e6;
+  --print-source-bar: #e4e4e4;
+
+  /* The deck key's box — the one colour on the sheet, because the key is the
+     one thing on the paper that must survive the deck being re-ordered. */
+  --print-key: #1a56b0;
+  --print-key-border: #b9cbe6;
+
+  /* The quoted antecedent above a redirect. */
+  --print-after-bg: #f6f7f8;
+  --print-after-bar: #cfd5db;
+
+  /* The draft badge — olive, matching the editor's, so the same fact wears the
+     same colour on screen and on paper. */
+  --print-draft-text: #8a6d1f;
+  --print-draft-bg: #fdf8e6;
+  --print-draft-border: #e8dcae;
+}
