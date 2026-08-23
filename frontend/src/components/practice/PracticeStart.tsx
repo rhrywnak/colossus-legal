@@ -51,6 +51,10 @@ interface Props {
   deletingId: string | null;
   /** A delete or undo that failed, already composed. */
   deleteError: string | null;
+  /** Where one question's own page lives. */
+  questionHref: (question: PracticeQuestion) => string;
+  /** Where the practice walk for one side lives. */
+  walkHref: (side: "george" | "chuck") => string;
 }
 
 /**
@@ -81,12 +85,17 @@ const PracticeStart: React.FC<Props> = ({
   onUndoDelete,
   deletingId,
   deleteError,
+  questionHref,
+  walkHref,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   // Which row has its editor field stack open. Owned HERE because the control
   // that guards it — Edit the deck — is in the title row above, and a guard
   // reading a copy of the state it protects is not a guard.
   const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
+  // Which side the practice bar offers. Local and unpersisted: it is a choice
+  // about the next thirty seconds, not a setting.
+  const [side, setSide] = React.useState<"george" | "chuck">("george");
 
   /**
    * Turn the editor off, asking first if a row's fields are still open.
@@ -148,6 +157,33 @@ const PracticeStart: React.FC<Props> = ({
           this system tracks. */}
       <p style={s.warning}>{w("intro")}</p>
 
+      {/* ⚑ THE PRACTICE BAR. Everything it starts WRITES NOTHING — no model
+          call, no database write, no session. It walks questions she has
+          already answered, on the chosen side, in deck order, with her answer
+          hidden until she asks for it.
+
+          The side is a form control and the button is a LINK wearing a button's
+          clothes, so the walk has an address a reload can land on. */}
+      <div style={s.practiceBar}>
+        <span style={s.practiceBarLabel}>{w("practice_mode_label")}</span>
+        <select
+          style={s.practiceBarSelect}
+          value={side}
+          aria-label={w("practice_mode_label")}
+          onChange={(event) => setSide(event.target.value === "chuck" ? "chuck" : "george")}
+        >
+          <option value="george">{w("who_george_title")}</option>
+          <option value="chuck">{w("who_chuck_title")}</option>
+        </select>
+        <a style={{ ...s.buttonPrimary, ...s.practiceBarGo }} href={walkHref(side)}>
+          {w("start_practising_label")}
+        </a>
+        {/* Standing rule of 2026-08-19: no control on a practice page is dim and
+            silent. This one replaces a Start button that opened a sitting and
+            wrote rows, in the same position on the same page. */}
+        <span style={s.practiceBarHint}>{w("practice_hint")}</span>
+      </div>
+
       <PracticeDeckList
         questions={view.ordered}
         wording={wording}
@@ -157,6 +193,7 @@ const PracticeStart: React.FC<Props> = ({
         onUndoDelete={onUndoDelete}
         deletingId={deletingId}
         deleteError={deleteError}
+        questionHref={questionHref}
         fieldsFor={fieldsFor}
         setFieldsFor={setFieldsFor}
       />

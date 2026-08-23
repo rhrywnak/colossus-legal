@@ -696,7 +696,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_LIST_WORDING_KEYS.len(),
-        29,
+        30,
         "PRACTICE one-page L2 (4): the practice bar's label, button and hint, plus \
          the footnote that explains why a row now carries at most a date. Plus \
          L3's line under a one-sentence critique, which is the COMMON rendering: \

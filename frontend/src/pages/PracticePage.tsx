@@ -37,7 +37,12 @@ import {
   type PracticeQuestion,
 } from "../services/practice";
 import { hideQuestion } from "../services/practiceEditor";
-import { practiceAnswersPath, practicePrintPath } from "../utils/routePaths";
+import {
+  practiceAnswersPath,
+  practicePrintPath,
+  practiceQuestionPath,
+  practiceWalkPath,
+} from "../utils/routePaths";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 import { usePracticeEditor } from "./usePracticeEditor";
@@ -195,6 +200,8 @@ const PracticePage: React.FC = () => {
         onUndoDelete={putBack}
         deletingId={deletingId}
         deleteError={deleteError}
+        questionHref={(question) => practiceQuestionPath(slug, scenarioId, question.id)}
+        walkHref={(side) => practiceWalkPath(slug, scenarioId, side)}
       />
     </div>
   );

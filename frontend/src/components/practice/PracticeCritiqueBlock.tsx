@@ -153,6 +153,13 @@ const Critique: React.FC<{
           Chuck. Until then the block says who has not reviewed this, and
           nothing that pretends to record a complaint. */}
       <p style={c.foot}>{w("read_unreviewed")}</p>
+      {/* ⚑ RENDERS ONLY HERE — not on the one-sentence fallback, not while the
+          read is running. Roman's ruling of 2026-08-23. A three-part critique
+          with citations underneath is the one shape on this product that reads
+          as authoritative, and silence beside it reads as agreement. The
+          fallback sentence does not make the same claim, and the working state
+          has made no claim yet. */}
+      <p style={c.plainHint}>{w("read_fallible")}</p>
     </div>
   );
 };

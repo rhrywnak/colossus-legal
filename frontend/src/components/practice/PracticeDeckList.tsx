@@ -62,6 +62,9 @@ interface Props {
   deletingId: string | null;
   /** A delete or undo that failed, already composed. */
   deleteError: string | null;
+  /** Where one question's own page lives. The PAGE composes it — no component
+      below this one holds route knowledge. */
+  questionHref: (question: PracticeQuestion) => string;
   /** Which row has its editor field stack open. Owned above — see the note by
       `adding` for why. */
   fieldsFor: string | null;
@@ -77,6 +80,7 @@ const PracticeDeckList: React.FC<Props> = ({
   onUndoDelete,
   deletingId,
   deleteError,
+  questionHref,
   fieldsFor,
   setFieldsFor,
 }) => {
@@ -176,6 +180,7 @@ const PracticeDeckList: React.FC<Props> = ({
               last={i === questions.length - 1}
               wording={wording}
               editor={editor}
+              questionHref={questionHref(question)}
               onDelete={() => {
                 onDelete(question);
                 setDeleted((was) => [...was, question]);

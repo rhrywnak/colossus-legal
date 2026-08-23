@@ -199,6 +199,7 @@ impl PracticeWordingDto {
             practise_again_label: drill.list.practise_again_label.clone(),
             practice_none_answered: drill.list.practice_none_answered.clone(),
             deck_question_missing: drill.list.deck_question_missing.clone(),
+            read_fallible: drill.list.read_fallible.clone(),
             editor_busy_hint: drill.editor.editor_busy_hint.clone(),
             editor_discard_confirm_template: drill.editor.editor_discard_confirm_template.clone(),
             mark_hidden_before_asked: drill.flow.mark_hidden_before_asked.clone(),

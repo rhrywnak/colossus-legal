@@ -217,6 +217,7 @@ pub struct PracticeWordingDto {
     pub practise_again_label: String,
     pub practice_none_answered: String,
     pub deck_question_missing: String,
+    pub read_fallible: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,

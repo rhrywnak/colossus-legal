@@ -227,3 +227,12 @@ VALUES ('practice_deck_question_missing',
     'Shown when the question page is opened for a question the deck no longer holds. Domain note: a real state, not a defect — Chuck deletes questions and a bookmark outlives them. Her ANSWERS to it are untouched; the mechanism behind Delete is a hide.',
     'migration')
 ON CONFLICT (key) DO NOTHING;
+
+INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+VALUES ('practice_read_fallible',
+    'This read is generated and can be wrong. If something here looks wrong to you, tell Chuck.',
+    'This read is generated and can be wrong. If something here looks wrong to you, tell Chuck.',
+    'string',
+    'Under the three-part critique. Domain note: it is a LINE and not a control — nothing clickable, nothing that writes. ⚑ WHY THIS SURVIVED WHEN FIVE OTHER UNREAD SURFACES WERE DELETED THE SAME DAY: everywhere else silence was safe. Here a machine tells Marie things about her own case in a confident three-part shape with citations underneath, and SILENCE READS AS AUTHORITY. This is the only thing on that screen saying the read is fallible. It renders only where a critique renders — not on the one-sentence fallback, and not while the read is running.',
+    'migration')
+ON CONFLICT (key) DO NOTHING;

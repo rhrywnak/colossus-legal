@@ -58,6 +58,7 @@ import {
   practicePath,
   practicePrintPath,
   practiceAnswersPath,
+  practiceQuestionPath,
   practiceSessionPath,
   rehearsalPath,
   proofMatrixPath,
@@ -189,6 +190,21 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     name: "practiceSessionPath (ids need escaping)",
     route: "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
     emit: () => practiceSessionPath("awad v cfs", "id/with/slashes", "sid/with/slashes"),
+  },
+  {
+    name: "practiceQuestionPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () =>
+      practiceQuestionPath(
+        "awad-v-cfs",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000001",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000003",
+      ),
+  },
+  {
+    name: "practiceQuestionPath (ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () => practiceQuestionPath("awad v cfs", "id/with/slashes", "qid/with/slashes"),
   },
   {
     name: "practiceAnswersPath",

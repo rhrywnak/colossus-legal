@@ -466,3 +466,37 @@ export const warning: CSSProperties = {
   fontSize: 13.5,
   color: "var(--practice-warn-ink)",
 };
+
+/**
+ * The practice bar, above the question list.
+ *
+ * Blue-washed and set apart, because what it starts is unlike everything else
+ * on the page: nothing it does is recorded. The list below it writes; this
+ * does not.
+ */
+export const practiceBar: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 10,
+  background: "var(--practice-resume-bg)",
+  border: "1px solid var(--practice-resume-border)",
+  borderRadius: 8,
+  padding: "11px 14px",
+  margin: "20px 0 0",
+  flexWrap: "wrap",
+};
+
+export const practiceBarLabel: CSSProperties = { fontWeight: 600, fontSize: 14 };
+
+export const practiceBarSelect: CSSProperties = {
+  border: "1px solid var(--practice-control-border)",
+  borderRadius: 6,
+  padding: "9px 12px",
+  fontSize: 14,
+  background: "var(--practice-paper)",
+};
+
+/** The button is an ANCHOR: the walk has an address a reload can land on. */
+export const practiceBarGo: CSSProperties = { textDecoration: "none", display: "inline-block" };
+
+export const practiceBarHint: CSSProperties = { color: "var(--practice-muted)", fontSize: 12.5 };

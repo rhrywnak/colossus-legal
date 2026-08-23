@@ -82,6 +82,17 @@ pub async fn session_queue_len(
 ///
 /// Returns whether a row was touched, so the route can tell "stored" from "no
 /// such question" rather than reporting success for a write that hit nothing.
+/// ## ⚑ `flag_note` IS UNUSED AND DELIBERATELY LEFT ALONE
+///
+/// Measured 2026-08-23: 0 rows across 46 questions, and its only reader — the
+/// end-of-sitting sheet's flag list — retired from the interface with the
+/// sitting. It is neither deleted nor wired to anything new.
+///
+/// **If a read-flag is ever wanted, its home is a column on `practice_answers`,
+/// not here.** This flag hangs off the QUESTION; "this read is wrong" is about
+/// the READ, which lives on the answer. Filing a bad read against the question
+/// would record a good question as a bad one and point prompt-tuning at the
+/// wrong signal. That is why the control mockup v7 drew was not built.
 pub async fn set_flag(
     pool: &PgPool,
     question_id: Uuid,

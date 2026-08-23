@@ -37,6 +37,7 @@ const COMPONENTS = [
   "printAnswerStyles.ts",
   "practiceCritiqueStyles.ts",
   "practiceQuestionStyles.ts",
+  "practiceWalkStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",

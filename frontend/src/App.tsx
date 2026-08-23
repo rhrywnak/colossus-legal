@@ -18,6 +18,8 @@ import ScenarioDetailPage from "./pages/ScenarioDetailPage";
 import PracticePage from "./pages/PracticePage";
 import PracticeAnswersPrintPage from "./pages/PracticeAnswersPrintPage";
 import PracticePrintPage from "./pages/PracticePrintPage";
+import PracticeQuestionPage from "./pages/PracticeQuestionPage";
+import PracticeWalkPage from "./pages/PracticeWalkPage";
 import PracticeSessionPage from "./pages/PracticeSessionPage";
 import GraphPage from "./pages/GraphPage";
 import QueriesPage from "./pages/QueriesPage";
@@ -161,6 +163,19 @@ const App: React.FC = () => {
               <Route
                 path="/cases/:slug/trial-prep/practice/:scenarioId/print-answers"
                 element={<PracticeAnswersPrintPage />}
+              />
+              {/* ONE question — she writes, he reads. The address the retired
+                  review page held; the thing at it is what a person always
+                  meant by "open this question". */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId"
+                element={<PracticeQuestionPage />}
+              />
+              {/* The practice walk. The side is a query, not a segment: it is a
+                  filter on one page, not a different page. */}
+              <Route
+                path="/cases/:slug/trial-prep/practice/:scenarioId/walk"
+                element={<PracticeWalkPage />}
               />
               <Route path="/contradictions" element={<ContradictionsPage />} />
               <Route path="/graph" element={<GraphPage />} />

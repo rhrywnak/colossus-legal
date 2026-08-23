@@ -242,3 +242,11 @@ export const statusFootnote: CSSProperties = {
   fontStyle: "italic",
   margin: "10px 0 0",
 };
+
+/** The question text as a link — the one way into a question. */
+export const questionLink: CSSProperties = {
+  color: "inherit",
+  textDecoration: "none",
+  borderBottom: "1px dotted var(--practice-blue)",
+  cursor: "pointer",
+};

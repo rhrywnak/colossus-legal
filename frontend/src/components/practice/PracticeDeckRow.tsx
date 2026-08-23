@@ -63,6 +63,9 @@ interface Props {
   last: boolean;
   wording: PracticeWording;
   editor: PracticeEditor;
+  /** Where this question's own page lives. Composed by the page above, so
+      the row holds no route knowledge of its own. */
+  questionHref: string;
   /** Remove this question from the deck. The mechanism is the existing hide. */
   onDelete: () => void;
   /** True while this row's delete is in flight. */
@@ -81,6 +84,7 @@ const PracticeDeckRow: React.FC<Props> = ({
   last,
   wording,
   editor,
+  questionHref,
   onDelete,
   deleting,
   fieldsOpen,
@@ -152,12 +156,27 @@ const PracticeDeckRow: React.FC<Props> = ({
         <span style={{ ...pill.style, fontSize: 12 }}>{pill.label}</span>
         {question.tactic !== null && <span style={s.tacticTag}>{question.tactic}</span>}
 
-        {/* Plain text in L2. The question text becomes the click target when
-            the page it opens exists — building the link first would ship a row
-            whose one affordance leads nowhere. */}
-        <div style={d.questionText} data-practice-question>
-          {question.text}
-        </div>
+        {/* The question text IS the click target — the whole way in. An anchor
+            and not a button: it navigates to an address, and an address is what
+            makes the browser's Back button and a bookmark mean something.
+
+            Plain text inside the editor, for the reason the .402 hotfix gives:
+            a click meant for Edit that opened the question instead threw away
+            the edit. Not a DISABLED link — no link at all, because "you may not
+            read this question" is not true; she may, just not from in here. */}
+        {editor.editing ? (
+          <div style={d.questionText} data-practice-question>
+            {question.text}
+          </div>
+        ) : (
+          <a
+            style={{ ...d.questionText, ...d.questionLink }}
+            data-practice-question
+            href={questionHref}
+          >
+            {question.text}
+          </a>
+        )}
 
         {question.receipt !== null && <div style={d.questionSource}>{question.receipt}</div>}
 

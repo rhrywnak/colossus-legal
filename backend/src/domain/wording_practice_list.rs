@@ -85,6 +85,21 @@ pub struct PracticeListWording {
     pub practise_again_label: String,
     pub practice_none_answered: String,
     pub deck_question_missing: String,
+
+    /// The line under a three-part critique saying the read can be wrong.
+    ///
+    /// ## ⚑ Why this survived when five other unread surfaces were deleted
+    ///
+    /// Everywhere else on 2026-08-23, silence was safe — an unread notes panel,
+    /// a flag nobody looked at, a review page with no reader. Here a machine
+    /// tells Marie things about HER OWN CASE in a confident three-part shape
+    /// with citations underneath, and SILENCE READS AS AUTHORITY. This is the
+    /// only thing on that screen saying the read is fallible.
+    ///
+    /// It is a LINE and not a control: nothing clickable, nothing that writes,
+    /// no target for a misclick. It names Chuck because Chuck is a real path —
+    /// he reviews her answers with her weekly — and a flag row is not.
+    pub read_fallible: String,
 }
 
 pub(crate) const KEY_PRACTICE_MODE_LABEL: &str = "practice_practice_mode_label";
@@ -116,6 +131,7 @@ pub(crate) const KEY_PRACTICE_END_COUNT_TEMPLATE: &str = "practice_practice_end_
 pub(crate) const KEY_PRACTISE_AGAIN_LABEL: &str = "practice_practise_again_label";
 pub(crate) const KEY_PRACTICE_NONE_ANSWERED: &str = "practice_practice_none_answered";
 pub(crate) const KEY_DECK_QUESTION_MISSING: &str = "practice_deck_question_missing";
+pub(crate) const KEY_READ_FALLIBLE: &str = "practice_read_fallible";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -150,6 +166,7 @@ pub(crate) const PRACTICE_LIST_WORDING_KEYS: &[&str] = &[
     KEY_PRACTISE_AGAIN_LABEL,
     KEY_PRACTICE_NONE_ANSWERED,
     KEY_DECK_QUESTION_MISSING,
+    KEY_READ_FALLIBLE,
 ];
 
 /// Build a [`PracticeListWording`] from the stored rows, or say which key is
@@ -198,6 +215,7 @@ pub fn build_practice_list_wording<E>(
         practise_again_label: read(KEY_PRACTISE_AGAIN_LABEL)?,
         practice_none_answered: read(KEY_PRACTICE_NONE_ANSWERED)?,
         deck_question_missing: read(KEY_DECK_QUESTION_MISSING)?,
+        read_fallible: read(KEY_READ_FALLIBLE)?,
     })
 }
 

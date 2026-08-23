@@ -66,6 +66,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_PRACTISE_AGAIN_LABEL, "Practise them again"),
     (KEY_PRACTICE_NONE_ANSWERED, "There is nothing to practise yet — practice walks the questions you have already answered."),
     (KEY_DECK_QUESTION_MISSING, "That question is no longer in this deck."),
+    (KEY_READ_FALLIBLE, "This read is generated and can be wrong. If something here looks wrong to you, tell Chuck."),
 ];
 
 impl PracticeListWording {
