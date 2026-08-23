@@ -228,6 +228,18 @@ export const absent: CSSProperties = {
  * page boundary. A half question with the lines on the next sheet is worse than
  * useless: Chuck writes his note under the wrong one.
  *
+ * ## The third: the application itself
+ *
+ * MEASURED on .405, on paper, by Roman — the product's navigation bar printed
+ * across the top of page 1. This view is a ROUTE INSIDE THE APP SHELL, so the
+ * shell renders around it, and hiding this page's own two buttons said nothing
+ * about the shell's header. `!important` is required and not decoration: the
+ * header sets its `display` from an inline style object, which outranks a
+ * stylesheet rule of any specificity. `printChrome.test.ts` pins this rule to the
+ * `data-app-chrome` mark in `Header.tsx` so a rename in either file is caught —
+ * the instruction was explicit that this must not be a `display: none` a later
+ * change can quietly undo.
+ *
  * ## Domain note: this does NOT number physical pages
  *
  * The sheet number in the footer counts SHEETS. A sheet with enough questions
@@ -237,6 +249,7 @@ export const absent: CSSProperties = {
  */
 export const PRINT_CSS = `
 @media print {
+  [data-app-chrome] { display: none !important; }
   [data-print-chrome] { display: none !important; }
   [data-print-desk] { background: var(--print-paper) !important; padding: 0 !important; }
   [data-print-sheet] {

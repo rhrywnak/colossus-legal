@@ -149,7 +149,11 @@ const Header: React.FC = () => {
   }, [dropdownOpen]);
 
   return (
-    <header style={headerStyle}>
+    // `data-app-chrome` is what keeps this off Chuck's printed review sheets:
+    // the print view is a route inside this shell, so without it the product's
+    // navigation prints across the top of his page 1. The rule lives in
+    // `practice/printStyles.PRINT_CSS`; `printChrome.test.ts` pins the pair.
+    <header style={headerStyle} data-app-chrome>
       {/* Left — Logo */}
       <Link to="/" style={logoStyle}>
         <div style={logoIconStyle}>C</div>

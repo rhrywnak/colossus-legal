@@ -1173,6 +1173,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // written: these go on PAPER that leaves the building, so a fixture that
         // drifted from the migration would be discovered by Chuck, not by a build.
         "pipeline_migrations/20260822154321_practice_print_questions_wording.sql",
+        // The seed-question warning: it CORRECTS practice_intro, and the
+        // correction pass below is what sees it.
+        "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
     ]
     .iter()
     .map(|relative| {
