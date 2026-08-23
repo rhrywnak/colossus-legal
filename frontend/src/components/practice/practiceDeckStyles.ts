@@ -118,6 +118,27 @@ export const rowControls: CSSProperties = { display: "flex", gap: 6, whiteSpace:
  * is the whole of it: the shorthand resets the size, and in .401 these buttons
  * rendered at 18px for that reason.
  */
+/**
+ * `Delete` on a row — the one control a row carries outside edit mode.
+ *
+ * ## Why it is quiet and not red
+ *
+ * It is a destructive-sounding word for an act that destroys nothing: the
+ * mechanism underneath is the existing hide, and Marie's answers are untouched.
+ * A red button would promise a consequence the code does not deliver, and an
+ * undo sits under it either way. Muted, with the border carrying the warmth.
+ */
+export const rowDeleteButton: CSSProperties = {
+  background: PAPER,
+  border: "1px solid var(--practice-delete-border)",
+  color: "var(--practice-delete-ink)",
+  borderRadius: 6,
+  padding: "6px 12px",
+  fontSize: 13,
+  whiteSpace: "nowrap",
+  cursor: "pointer",
+};
+
 export const rowButton: CSSProperties = {
   font: "inherit",
   fontSize: 13,
@@ -180,4 +201,44 @@ export const redirectsSubheader: CSSProperties = {
   fontWeight: 600,
   letterSpacing: ".04em",
   color: "var(--practice-separator)",
+};
+
+/**
+ * The line that stands where a deleted row stood, carrying its undo.
+ *
+ * Same vertical rhythm as a row so the list does not jump when one goes: a list
+ * that reflowed under Chuck's hand as he deleted three questions would move the
+ * next one out from under his cursor.
+ */
+export const deletedLine: CSSProperties = {
+  padding: "14px 0",
+  borderBottom: `1px solid ${LINE}`,
+  fontSize: 13.5,
+  color: MUTED,
+};
+
+/** `Undo`, beside that line. A link, because it is a way back and not an act. */
+export const undoLink: CSSProperties = {
+  background: "none",
+  border: 0,
+  padding: 0,
+  font: "inherit",
+  color: BLUE,
+  textDecoration: "underline",
+  cursor: "pointer",
+};
+
+/**
+ * The small line under the list explaining why a row can carry no date.
+ *
+ * It exists only because the marks were removed. Right-aligned and italic, as
+ * the mockup has it — an aside about the page rather than a fact about a
+ * question.
+ */
+export const statusFootnote: CSSProperties = {
+  fontSize: 11.5,
+  color: MUTED,
+  textAlign: "right",
+  fontStyle: "italic",
+  margin: "10px 0 0",
 };

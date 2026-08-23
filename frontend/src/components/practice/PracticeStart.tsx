@@ -14,33 +14,16 @@
 import React from "react";
 
 import type {
-  OpenSession,
   PracticeAttachOption,
-  PracticeChanged as Changed,
-  PracticeNote,
   PracticeQuestion,
   PracticeWording,
 } from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
-import type { DeckView, PracticeDeckControls } from "../../pages/usePracticeDeckControls";
+import type { DeckView } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
-import PracticePrintControl from "./PracticePrintControl";
-import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
-import PracticeChangedBox from "./PracticeChanged";
 import PracticeDeckList from "./PracticeDeckList";
-import PracticeNotes from "./PracticeNotes";
-import PracticeResume from "./PracticeResume";
-
-/**
- * The shorter counts the mockup offers, when the deck is longer than they are.
- *
- * Literals because they are the mockup's own proposals — neither is derived from
- * this deck and neither is a parameter anything reads. Mockup v3 shows a pill
- * ONLY when it is smaller than what is available: a "5" beside a four-question
- * deck is a control that cannot do what it says.
- */
-const SHORT_COUNTS = [5, 8];
+import PracticeTitleRow from "./PracticeTitleRow";
 
 /** Which deck she is choosing. The three values the backend accepts. */
 export type PracticeWho = "george" | "chuck" | "mixed";
@@ -48,64 +31,27 @@ export type PracticeWho = "george" | "chuck" | "mixed";
 interface Props {
   code: string;
   title: string;
-  /** Where the print view lives. Composed by the page, so this component holds
-      no route knowledge of its own. */
+  /** Where the printed QUESTIONS live. Composed by the page, so this component
+      holds no route knowledge of its own. */
   printHref: string;
+  /** Where the printed ANSWERS live. */
+  answersHref: string;
   wording: PracticeWording;
-  /** The composed sentence — the last session's, or the "none yet" one. */
-  lastSessionLine: string;
-  who: PracticeWho;
-  onWhoChange: (who: PracticeWho) => void;
-  onStart: () => void;
-  /** True while the session POST is in flight; the control says so. */
-  starting: boolean;
-  /**
-   * The start screen's own state and its two row controls, as one object.
-   *
-   * Passed whole rather than as nine props: they are one thing (what the start
-   * card can do to a question before a sitting), they move together, and nine
-   * positional props is where one eventually gets wired to the wrong handler.
-   */
-  controls: PracticeDeckControls;
-  /** This side's questions, and what is left of them after today's skips. */
+  /** This scenario's questions. `view.all` includes what the editor may see. */
   view: DeckView;
-  /** The sitting she walked out of, or `null` — which withdraws the blue box. */
-  openSession: OpenSession | null;
-  onResume: () => void;
-  onStartOver: () => void;
-  /** True while a resume / start-over write is in flight. */
-  resuming: boolean;
-  /** That write's failure sentence, or null. */
-  resumeError: string | null;
-  /** This scenario's receipts, for the picker under the answer box. */
-  onPracticeOne: (question: PracticeQuestion) => void;
-  /** True while the one-question session POST is in flight. */
-  startingOne: boolean;
-  /** Open one question's review page (task B3). */
-  onReview: (question: PracticeQuestion) => void;
-  /** The deck editor's state and its four writes (task B1). */
+  /** The deck editor's state and its writes (task B1). */
   editor: PracticeEditor;
   /** What a new question may attach to. */
   attachOptions: PracticeAttachOption[];
-  /** What changed since her last sitting, or `null` (task B2). */
-  changed: Changed | null;
-  /** The notes on this scenario (task B4). */
-  notes: PracticeNote[];
-  onSaveNote: (text: string) => void;
-  onStrikeNote: (note: PracticeNote) => void;
-  savingNote: boolean;
-  noteError: string | null;
+  /** Remove a question from the deck. The mechanism is the existing hide. */
+  onDelete: (question: PracticeQuestion) => void;
+  /** Put a deleted question back. */
+  onUndoDelete: (question: PracticeQuestion) => void;
+  /** The question whose delete is in flight, or null. */
+  deletingId: string | null;
+  /** A delete or undo that failed, already composed. */
+  deleteError: string | null;
 }
-
-/**
- * One reason, or none, for every control this card locks.
- *
- * Returning the SENTENCE rather than a boolean is what makes it impossible to
- * disable a control here without saying why: the caller has nothing to spread
- * into `title` unless it also has the reason.
- */
-const lockReason = (editing: boolean, hint: string): string | null =>
-  editing ? hint : null;
 
 /**
  * The ALWAYS card — the five rules that never move.
@@ -126,214 +72,98 @@ const PracticeStart: React.FC<Props> = ({
   code,
   title,
   printHref,
+  answersHref,
   wording,
-  lastSessionLine,
-  who,
-  onWhoChange,
-  onStart,
-  starting,
-  controls,
   view,
-  openSession,
-  onResume,
-  onStartOver,
-  resuming,
-  resumeError,
-  onPracticeOne,
-  startingOne,
-  onReview,
   editor,
   attachOptions,
-  changed,
-  notes,
-  onSaveNote,
-  onStrikeNote,
-  savingNote,
-  noteError,
+  onDelete,
+  onUndoDelete,
+  deletingId,
+  deleteError,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
-  const available = view.available.length;
-  const count = view.count;
-  const locked = lockReason(editor.editing, w("editor_busy_hint"));
-  // The print control has TWO reasons it can refuse, and each says which:
-  // an empty (or entirely hidden) deck, and edit mode. Standing rule of
-  // 2026-08-19 — no control on a practice page is dim and silent.
-  // ONE locked look, shared with the deck list's fold and the resume box, so a
-  // control cannot end up disabled here and look live there.
-  const lockStyle = locked !== null ? e.lockedControl : {};
+  // Which row has its editor field stack open. Owned HERE because the control
+  // that guards it — Edit the deck — is in the title row above, and a guard
+  // reading a copy of the state it protects is not a guard.
+  const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
 
-  // The three choices, in the mockup's order. A table rather than three copies
-  // of the same JSX: the only things that differ are the value and its two
-  // stored strings, and three near-identical blocks is where one of them
-  // eventually stops matching the others.
-  // `term` is the lawyers' word — `cross`, `direct` — set small and grey under
-  // the title. Mixed has none: it is not a kind of examination, it is both of
-  // them in the order of a real day, and inventing a term for it would put a
-  // word on screen no lawyer uses.
-  const choices: Array<{
-    value: PracticeWho;
-    title: string;
-    term: string | null;
-    detail: string;
-  }> = [
-    {
-      value: "george",
-      title: w("who_george_title"),
-      term: w("who_george_term"),
-      detail: w("who_george_detail"),
-    },
-    {
-      value: "chuck",
-      title: w("who_chuck_title"),
-      term: w("who_chuck_term"),
-      detail: w("who_chuck_detail"),
-    },
-    { value: "mixed", title: w("who_mixed_title"), term: null, detail: w("who_mixed_detail") },
-  ];
+  /**
+   * Turn the editor off, asking first if a row's fields are still open.
+   *
+   * `window.confirm` and not a custom dialog: this is a one-line yes/no about
+   * discarding one row's unsaved fields, it must block the state change, and a
+   * bespoke modal would be a second confirm implementation for a question the
+   * browser already answers. The sentence is the STORE'S, with the row's number
+   * in it — "the unsaved edit" without saying which row is a question a person
+   * cannot answer with two rows on screen.
+   */
+  const leaveEditing = () => {
+    if (fieldsFor !== null) {
+      const n = view.ordered.findIndex((q) => q.id === fieldsFor) + 1;
+      const asked = w("editor_discard_confirm_template").replace("{n}", String(n));
+      if (!window.confirm(asked)) return;
+      setFieldsFor(null);
+    }
+    editor.toggleEditing();
+  };
+
+  /**
+   * Warn on RELOAD or tab-close while a row's fields are open.
+   *
+   * Standing Rule 1's shape for a browser event: the only thing a page may do
+   * here is set `returnValue`, and the browser prints its own sentence — ours is
+   * not allowed through. It covers reload and close, which is where an open edit
+   * is actually lost; edit mode itself is deliberately NOT restored on reload
+   * (it is a mode, not a place), so there is nothing to come back to.
+   */
+  React.useEffect(() => {
+    if (!editor.editing || fieldsFor === null) return undefined;
+    const warn = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [editor.editing, fieldsFor]);
 
   return (
     <section style={s.card}>
       <div style={s.kicker}>{w("kicker")}</div>
-      <PracticePrintControl
+      <PracticeTitleRow
         code={code}
         title={title}
         printHref={printHref}
+        answersHref={answersHref}
+        onToggleEditing={editor.editing ? leaveEditing : editor.toggleEditing}
         questions={view.all}
         editing={editor.editing}
         wording={wording}
       />
-      <p style={s.sub}>{w("intro")}</p>
 
-      <p style={{ marginTop: 22 }}>
-        <b>{w("who_heading")}</b>
-      </p>
-      <div style={s.choice}>
-        {choices.map((c) => (
-          <button
-            key={c.value}
-            type="button"
-            style={{
-              ...(who === c.value ? s.choiceButtonSelected : s.choiceButton),
-              ...lockStyle,
-            }}
-            aria-pressed={who === c.value}
-            disabled={locked !== null}
-            title={locked ?? undefined}
-            onClick={() => onWhoChange(c.value)}
-          >
-            <span style={s.choiceTitle}>{c.title}</span>
-            {c.term !== null && <span style={s.choiceTerm}>{c.term}</span>}
-            <span style={s.choiceDetail}>{c.detail}</span>
-          </button>
-        ))}
-      </div>
-
-      {/* The unfinished sitting, offered back. It sits ABOVE the count pills —
-          where the mockup draws it — because a witness who left one open should
-          be asked about it before she is asked to configure a new one. */}
-      {openSession !== null && (
-        <PracticeResume
-          wording={wording}
-          session={openSession}
-          onResume={onResume}
-          onStartOver={onStartOver}
-          busy={resuming}
-          error={resumeError}
-          lockedBecause={locked}
-        />
-      )}
-
-      {/* The count pills FOLLOW what is available (mockup v3): a shorter count
-          appears only when it is smaller than the deck she can actually be
-          asked, and the last pill always reads "all N" with N = available. A
-          pill naming a number no deck has is the kind of small wrongness a
-          witness stops trusting a screen over. */}
-      <p style={{ marginTop: 22 }}>
-        <b>{w("how_many_heading")}</b>{" "}
-        {SHORT_COUNTS.filter((v) => v < available).map((v) => (
-          <React.Fragment key={v}>
-            <button
-              type="button"
-              style={{
-                ...s.pill,
-                cursor: "pointer",
-                opacity: count === v ? 1 : 0.5,
-                ...lockStyle,
-              }}
-              aria-pressed={count === v}
-              disabled={locked !== null}
-              title={locked ?? undefined}
-              onClick={() => controls.setCount(v)}
-            >
-              {v}
-            </button>{" "}
-          </React.Fragment>
-        ))}
-        <button
-          type="button"
-          style={{
-            ...s.pill,
-            cursor: "pointer",
-            opacity: count >= available ? 1 : 0.5,
-            ...lockStyle,
-          }}
-          aria-pressed={count >= available}
-          disabled={locked !== null}
-          title={locked ?? undefined}
-          onClick={() => controls.setCount(available)}
-        >
-          {w("count_all_template").replace("{n}", String(available))}
-        </button>
-      </p>
-
-      {/* What changed since she was last here, above the deck as v4 draws it —
-          a witness who left a sitting open should be told the questions moved
-          before she reads them, not after. */}
-      {changed !== null && <PracticeChangedBox wording={wording} changed={changed} />}
+      {/* A WARNING, not an invitation. Every deck on this system is seeded from
+          the record and unreviewed, and the line this replaced told a witness to
+          rehearse answers to questions no attorney had read. Permanent: it does
+          not vanish once a deck is reviewed, because "reviewed" is not a state
+          this system tracks. */}
+      <p style={s.warning}>{w("intro")}</p>
 
       <PracticeDeckList
-        // The EDITOR sees hidden questions so they can be put back; Marie's list
-        // does not, because a hidden question is one she will not be asked.
-        questions={editor.editing ? view.all : view.ordered}
+        questions={view.ordered}
         wording={wording}
-        controls={controls}
         editor={editor}
         attachOptions={attachOptions}
-        onPracticeOne={onPracticeOne}
-        onReview={onReview}
-        startingOne={startingOne}
+        onDelete={onDelete}
+        onUndoDelete={onUndoDelete}
+        deletingId={deletingId}
+        deleteError={deleteError}
+        fieldsFor={fieldsFor}
+        setFieldsFor={setFieldsFor}
       />
 
-      <PracticeNotes
-        wording={wording}
-        notes={notes}
-        titleKey="notes_scenario_title"
-        onSave={onSaveNote}
-        onStrike={onStrikeNote}
-        saving={savingNote}
-        error={noteError}
-      />
-
-      <div style={{ ...s.row, marginTop: 22 }}>
-        {/* GONE, not greyed, while a sitting is open: the two ways back into it
-            are in the blue box above, and a third control here offering a fresh
-            one is how a witness ends up with two. */}
-        {openSession === null && (
-          <button
-            type="button"
-            style={{ ...s.buttonPrimary, ...s.buttonBig, ...lockStyle }}
-            onClick={onStart}
-            disabled={starting || available === 0 || locked !== null}
-            title={locked ?? undefined}
-          >
-            {/* A disabled button still reading "Start" is a screen refusing
-                without saying why. */}
-            {available === 0 ? w("nothing_left_label") : w("start_label")}
-          </button>
-        )}
-        <span style={s.progress}>{lastSessionLine}</span>
-      </div>
-
+      {/* The one line on this page about how to TESTIFY rather than about the
+          software. It costs a line and it is the only thing here Marie will
+          still need when the screen is closed. */}
       <AlwaysCard wording={wording} />
     </section>
   );

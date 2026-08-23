@@ -72,28 +72,29 @@ export type PracticeQuestion = {
   /** The `deck_key` of the George question a redirect answers, or `null`. */
   follows_key: string | null;
   /**
-   * What happened to this question, ALREADY COMPOSED by the server —
-   * "answered today · repeat · attempt 2". `null` renders nothing at all.
-   */
-  status: string | null;
-  /**
-   * The RAW mark behind that status — `fine`, `repeat` or `skipped`, or `null`.
+   * `Answered on 22 Aug`, ALREADY COMPOSED by the server — or `null` when
+   * nobody has answered this question.
    *
-   * Sent beside the sentence rather than parsed out of it: the sentence is a
-   * Settings row and can be re-worded, and a screen that coloured itself by
-   * searching it for the word "repeat" would lose its colours the first time
-   * somebody edited the template.
+   * The ONE status a row carries. `null` renders NOTHING at all, not an empty
+   * line: an empty status under a question reads as one that failed to load,
+   * which is a different fact from "not answered yet". The stored footnote
+   * under the list is what tells a reader which they are looking at.
+   *
+   * ## ⚑ This is not scoped to the person reading it
+   *
+   * The page is one page for two people. Chuck opens it to read Marie's
+   * answers and to print them, so the answer belongs to the QUESTION rather
+   * than to the requester. Its retired predecessor (`status`) was user-scoped,
+   * because it reported what SHE did in a sitting.
    */
-  status_mark: string | null;
+  answered_on: string | null;
   /**
-   * True when the deck editor has hidden this question. Marie's list and every
-   * queue drop it; the editor still shows it, greyed, so it can be put back.
+   * True when this question has been deleted — the mechanism is a hide, so the
+   * row is gone from every list while her answers keep pointing at it.
    */
   hidden: boolean;
   /** Who drafted it when nobody has reviewed it (`architect`), or `null`. */
   draft_by: string | null;
-  /** True when it changed since her last sitting and she has not answered it since. */
-  changed: boolean;
 };
 
 /** One note, as every panel renders it. */

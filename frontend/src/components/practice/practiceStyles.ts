@@ -445,3 +445,24 @@ export const PRINT_CSS = `
 
 /** `.skipmark` — the third mark on Chuck's sheet (mockup v3). */
 export const markSkipped: CSSProperties = { color: MUTED, fontWeight: 600 };
+
+/**
+ * The seed-question warning under the scenario title.
+ *
+ * ## Why it looks like a warning and not like a subtitle
+ *
+ * It replaced a friendly blurb in the same position, and the position is the
+ * only thing they have in common. A reader who has seen this page before will
+ * not re-read a line that sits where the old one sat unless it LOOKS different —
+ * so it carries the amber wash and border this product uses for "before you go
+ * further", rather than the grey of the sentence it replaced.
+ */
+export const warning: CSSProperties = {
+  background: "var(--practice-warn-bg)",
+  border: "1px solid var(--practice-warn-border)",
+  borderRadius: 7,
+  padding: "11px 14px",
+  margin: "14px 0 0",
+  fontSize: 13.5,
+  color: "var(--practice-warn-ink)",
+};

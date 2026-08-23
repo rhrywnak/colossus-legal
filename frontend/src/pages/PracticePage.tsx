@@ -25,26 +25,19 @@
 // untouched).
 
 import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 
 import PracticeStart, { type PracticeWho } from "../components/practice/PracticeStart";
 import * as f from "../components/practice/practiceFlowStyles";
 import * as s from "../components/practice/practiceStyles";
 import {
   fetchPracticeDeck,
-  startPracticeSession,
   wordingOf,
   type PracticeDeck,
   type PracticeQuestion,
 } from "../services/practice";
-import { resumeSitting, startOverSitting } from "../services/practiceFlow";
-import { saveNote, strikeNote } from "../services/practiceEditor";
-import {
-  practicePath,
-  practicePrintPath,
-  practiceQuestionPath,
-  practiceSessionPath,
-} from "../utils/routePaths";
+import { hideQuestion } from "../services/practiceEditor";
+import { practiceAnswersPath, practicePrintPath } from "../utils/routePaths";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 import { usePracticeEditor } from "./usePracticeEditor";
@@ -61,7 +54,6 @@ const LOADING = "Loading…";
 
 const PracticePage: React.FC = () => {
   const { slug = "", scenarioId = "" } = useParams<{ slug: string; scenarioId: string }>();
-  const navigate = useNavigate();
 
   const [deck, setDeck] = React.useState<PracticeDeck | null>(null);
   // A ref beside the state so the failure-sentence callbacks can read the
@@ -69,14 +61,16 @@ const PracticePage: React.FC = () => {
   // the editor hook's handlers with them.
   const deckRef = React.useRef<PracticeDeck | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
-  const [who, setWho] = React.useState<PracticeWho>("george");
-  const [starting, setStarting] = React.useState(false);
-  const [startingOne, setStartingOne] = React.useState(false);
-  const [resuming, setResuming] = React.useState(false);
-  const [resumeError, setResumeError] = React.useState<string | null>(null);
+  // Which side the list shows. The *Who's asking?* selector is gone, so this is
+  // fixed at the whole deck rather than read from a control — `view` still takes
+  // it because the same hook serves the editor's "all questions" view.
+  const who: PracticeWho = "mixed";
   const [reloads, setReloads] = React.useState(0);
-  const [savingNote, setSavingNote] = React.useState(false);
-  const [noteError, setNoteError] = React.useState<string | null>(null);
+  // Delete and its undo. `deletingId` names WHICH row is in flight, not merely
+  // that one is: with several rows on screen a single boolean would grey the
+  // wrong one.
+  const [deletingId, setDeletingId] = React.useState<string | null>(null);
+  const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
   const rowControls = usePracticeDeckControls(setDeck);
 
@@ -148,108 +142,35 @@ const PracticePage: React.FC = () => {
   const view = rowControls.view(deck.questions, who);
 
   /** Write one note on this scenario, and re-read so the counts follow. */
-  const writeNote = (text: string) => {
-    setSavingNote(true);
-    setNoteError(null);
-    saveNote(slug, scenarioId, { questionId: null, answerId: null }, text)
-      .then(() => reload())
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the note was not saved", error);
-        setNoteError(w("notes_failed"));
-      })
-      .finally(() => setSavingNote(false));
-  };
-
-  /** Strike one note through. Never a delete. */
-  const strike = (note: { id: string }) => {
-    setSavingNote(true);
-    setNoteError(null);
-    strikeNote(note.id)
-      .then(() => reload())
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the note was not struck", error);
-        setNoteError(w("notes_failed"));
-      })
-      .finally(() => setSavingNote(false));
-  };
-
   /**
-   * Open a sitting and go to its address.
+   * Delete a question, or put it back — one call, two directions.
    *
-   * The queue is settled BEFORE the call, so the sitting that is STORED and the
-   * sitting that is dealt are the same list — not two slices taken a moment
-   * apart from state that could have moved between them.
-   */
-  const open = (
-    sideOf: PracticeWho,
-    dealt: PracticeQuestion[],
-    busy: (value: boolean) => void,
-  ) => {
-    busy(true);
-    startPracticeSession(slug, scenarioId, {
-      who: sideOf,
-      queue: dealt.map((q) => q.id),
-      count: dealt.length,
-      skippedToday: [...rowControls.skippedToday],
-    })
-      .then((id) => navigate(practiceSessionPath(slug, scenarioId, id)))
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the session could not be started", error);
-        setLoadError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => busy(false));
-  };
-
-  /**
-   * A ONE-question sitting on the question she clicked (task A2).
+   * ## Domain note: the mechanism is the existing HIDE, unchanged
    *
-   * `who` is the question's own side rather than the filter she happens to be
-   * looking at, because the sitting contains nothing else — recording it as a
-   * "George" sitting holding one of Chuck's would put a wrong word on the row
-   * this evening leaves behind.
+   * Nothing is deleted. `practice_answers.question_id` keeps its
+   * `ON DELETE RESTRICT`, so a question Marie has answered can never be orphaned
+   * from her answers, and the user's contract — "I will not see this again" —
+   * is what the hide actually delivers.
+   *
+   * Standing Rule 1: a failure sets a sentence naming the question, and the row
+   * stays exactly where it is. A row that vanished on a failed write would tell
+   * Chuck the deck had changed when it had not.
    */
-  const practiceOne = (question: PracticeQuestion) => {
-    open(question.side === "george" ? "george" : "chuck", [question], setStartingOne);
-  };
-
-  const resume = () => {
-    if (deck.open_session === null) return;
-    const sessionId = deck.open_session.session_id;
-    setResuming(true);
-    setResumeError(null);
-    resumeSitting(sessionId)
-      .then(() => navigate(practiceSessionPath(slug, scenarioId, sessionId)))
+  const setHidden = (question: PracticeQuestion, hidden: boolean) => {
+    setDeletingId(question.id);
+    setDeleteError(null);
+    hideQuestion(question.id, hidden)
+      .then(() => setReloads((n) => n + 1))
       .catch((error: unknown) => {
         // eslint-disable-next-line no-console
-        console.error("practice: the sitting could not be resumed", error);
-        setResumeError(error instanceof Error ? error.message : String(error));
+        console.error("practice: the question could not be hidden", error);
+        const detail = error instanceof Error ? error.message : String(error);
+        setDeleteError(`“${question.text.slice(0, 60)}…” — ${detail}`);
       })
-      .finally(() => setResuming(false));
+      .finally(() => setDeletingId(null));
   };
-
-  const startOver = () => {
-    if (deck.open_session === null) return;
-    setResuming(true);
-    setResumeError(null);
-    startOverSitting(deck.open_session.session_id)
-      .then(() => {
-        // Re-read rather than patching the payload in place: closing a sitting
-        // changes the last-session line too, and that sentence is composed on
-        // the server. Guessing at it here would be the browser writing a
-        // sentence it holds no template for.
-        setReloads((n) => n + 1);
-        navigate(practicePath(slug, scenarioId), { replace: true });
-      })
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the sitting could not be closed", error);
-        setResumeError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => setResuming(false));
-  };
+  const remove = (question: PracticeQuestion) => setHidden(question, true);
+  const putBack = (question: PracticeQuestion) => setHidden(question, false);
 
   return (
     // `data-surface="practice"` is what resolves every `var(--practice-…)` in
@@ -265,32 +186,15 @@ const PracticePage: React.FC = () => {
         code={deck.code}
         title={deck.title}
         printHref={practicePrintPath(slug, scenarioId)}
+        answersHref={practiceAnswersPath(slug, scenarioId)}
         wording={deck.wording}
-        lastSessionLine={deck.last_session_line}
-        who={who}
-        onWhoChange={setWho}
-        onStart={() => open(who, view.available.slice(0, view.count), setStarting)}
-        starting={starting}
-        controls={rowControls}
         view={view}
-        openSession={deck.open_session}
-        onResume={resume}
-        onStartOver={startOver}
-        resuming={resuming}
-        resumeError={resumeError}
-        onPracticeOne={practiceOne}
-        startingOne={startingOne}
-        onReview={(question) =>
-          navigate(practiceQuestionPath(slug, scenarioId, question.id))
-        }
         editor={editor}
         attachOptions={deck.attach_options}
-        changed={deck.changed}
-        notes={deck.notes}
-        onSaveNote={writeNote}
-        onStrikeNote={strike}
-        savingNote={savingNote}
-        noteError={noteError}
+        onDelete={remove}
+        onUndoDelete={putBack}
+        deletingId={deletingId}
+        deleteError={deleteError}
       />
     </div>
   );

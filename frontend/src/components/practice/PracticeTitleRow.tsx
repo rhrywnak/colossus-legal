@@ -1,4 +1,4 @@
-// PracticePrintControl.tsx — the scenario title, and the way to Chuck's sheets.
+// PracticeTitleRow.tsx — the scenario title, and the three things you do here.
 //
 // Split from `PracticeStart` when adding it took that file past 300 lines
 // (Rule 17). It earns the split on its own terms too: this is the one control on
@@ -28,8 +28,12 @@ type Props = {
   code: string;
   /** The accusation, as the page titles itself. */
   title: string;
-  /** Where the print view lives, composed by the page. */
+  /** Where the printed QUESTIONS live, composed by the page. */
   printHref: string;
+  /** Where the printed ANSWERS live, composed by the page. */
+  answersHref: string;
+  /** Turn the deck editor on or off. */
+  onToggleEditing: () => void;
   /** The WHOLE deck, hidden rows included — the lock counts what would print. */
   questions: PracticeQuestion[];
   /** True while the deck editor is on. */
@@ -38,18 +42,32 @@ type Props = {
 };
 
 /**
- * The title and the print control, on one line — mockup v1, view 1.
+ * The title and the three controls, on one line — mockup v7, view 1.
  *
- * ## Domain note: it ignores the *Who's asking?* selector
+ * ## Three buttons for two people
  *
- * Always the whole deck. That selector includes Mixed, and Mixed is a dealing
- * order rather than a thing anyone reviews — so following it would print a
- * shuffle of two sides under headings that promise one.
+ * Chuck prints QUESTIONS to mark up, prints ANSWERS to read, and edits the
+ * deck. Marie does none of the three. Roman named the four jobs this page
+ * serves, and these are three of them sitting where a person looks first.
+ *
+ * ## Domain note: Edit the deck stopped being a text link
+ *
+ * It was one, in the list header below, and Chuck could not find it — which put
+ * Edit, the reorder arrows and the old Hide behind the least discoverable thing
+ * on the page. A button, beside the other two, in the same style.
+ *
+ * ## Domain note: the sheets ignore any selector
+ *
+ * Always the whole deck. The retired *Who's asking?* selector included Mixed,
+ * and Mixed is a dealing order rather than a thing anyone reviews — printing it
+ * would give a shuffle of two sides under headings that promise one.
  */
-const PracticePrintControl: React.FC<Props> = ({
+const PracticeTitleRow: React.FC<Props> = ({
   code,
   title,
   printHref,
+  answersHref,
+  onToggleEditing,
   questions,
   editing,
   wording,
@@ -86,8 +104,33 @@ const PracticePrintControl: React.FC<Props> = ({
       >
         {w("print_questions_label")}
       </a>
+      <a
+        // Same lock and the same honest disabled state as its sibling: an empty
+        // deck has no answers to print either, and a deck being edited is one
+        // whose paper would be out of date before it left the printer.
+        href={lock === null ? answersHref : undefined}
+        target="_blank"
+        rel="noopener noreferrer"
+        role="button"
+        aria-disabled={lock !== null}
+        title={lock ?? undefined}
+        style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
+        onClick={(event) => {
+          if (lock !== null) event.preventDefault();
+        }}
+      >
+        {w("print_answers_label")}
+      </a>
+      <button
+        type="button"
+        style={e.printControl}
+        aria-pressed={editing}
+        onClick={onToggleEditing}
+      >
+        {editing ? w("editor_done_label") : w("editor_switch_label")}
+      </button>
     </div>
   );
 };
 
-export default PracticePrintControl;
+export default PracticeTitleRow;

@@ -38,127 +38,67 @@ import type {
   PracticeQuestion,
   PracticeWording,
 } from "../../services/practice";
-import type { PracticeDeckControls } from "../../pages/usePracticeDeckControls";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
 import PracticeAddQuestion from "./PracticeAddQuestion";
 import PracticeDeckRow from "./PracticeDeckRow";
 import { dropPosition } from "../dragReorder";
 import * as d from "./practiceDeckStyles";
-import * as e from "./practiceEditorStyles";
 import * as s from "./practiceStyles";
 
 interface Props {
   /** This side's questions, in the order the sitting will deal them. */
   questions: PracticeQuestion[];
   wording: PracticeWording;
-  /** The row controls' state and handlers — see the hook's header. */
-  controls: PracticeDeckControls;
   /** The editor's state and its four writes — see its hook's header. */
   editor: PracticeEditor;
   /** What a new question may attach to. */
   attachOptions: PracticeAttachOption[];
-  /** Open a one-question sitting on this question alone (task A2). */
-  onPracticeOne: (question: PracticeQuestion) => void;
-  /** Open this question's review page (task B3). */
-  onReview: (question: PracticeQuestion) => void;
-  /** True while that session POST is in flight, so the row can say so. */
-  startingOne: boolean;
+  /** Remove a question from the deck. The mechanism is the existing hide. */
+  onDelete: (question: PracticeQuestion) => void;
+  /** Put back the question the last Delete removed. */
+  onUndoDelete: (question: PracticeQuestion) => void;
+  /** The question whose delete is in flight, or null. */
+  deletingId: string | null;
+  /** A delete or undo that failed, already composed. */
+  deleteError: string | null;
+  /** Which row has its editor field stack open. Owned above — see the note by
+      `adding` for why. */
+  fieldsFor: string | null;
+  setFieldsFor: React.Dispatch<React.SetStateAction<string | null>>;
 }
-
-/**
- * The instruction sentence, with the two control labels rendered bold.
- *
- * The stored row carries `{skip}` and `{flag}` rather than the words themselves,
- * so renaming a button cannot leave the sentence naming one that no longer
- * exists. Split on the placeholders rather than injecting HTML: this is React,
- * and `dangerouslySetInnerHTML` over a stored string is how a wording row
- * becomes a script tag.
- */
-const Instruction: React.FC<{ wording: PracticeWording }> = ({ wording }) => {
-  const w = (key: string) => wordingOf(wording, key);
-  const parts = w("deck_instruction_template").split(/(\{skip\}|\{flag\})/);
-  return (
-    <p style={d.deckInstruction}>
-      {parts.map((part, i) => {
-        if (part === "{skip}") return <b key={i}>{w("skip_today_label")}</b>;
-        if (part === "{flag}") return <b key={i}>{w("flag_label")}</b>;
-        return <React.Fragment key={i}>{part}</React.Fragment>;
-      })}
-    </p>
-  );
-};
 
 const PracticeDeckList: React.FC<Props> = ({
   questions,
   wording,
-  controls,
   editor,
   attachOptions,
-  onPracticeOne,
-  onReview,
-  startingOne,
+  onDelete,
+  onUndoDelete,
+  deletingId,
+  deleteError,
+  fieldsFor,
+  setFieldsFor,
 }) => {
-  const { skippedToday, flagError } = controls;
   const w = (key: string) => wordingOf(wording, key);
 
-  // Open by default — Roman's ruling. Deliberately NOT persisted: the fold is
-  // for one page-load, until Chuck rules on whether Marie should see the deck
-  // before a drill at all.
-  const [open, setOpen] = React.useState(true);
-  // Which row has its flag note showing, and what is typed in it. One at a
-  // time: two open editors is two half-written complaints and no way to tell
-  // which one she meant to save.
-  const [editing, setEditing] = React.useState<string | null>(null);
-  const [draft, setDraft] = React.useState("");
-  // Which row has its EDITOR fields open, and whether the add form is showing.
-  const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
+  // The rows deleted on THIS page-load, in the order they went, so each can
+  // leave an undo line where it stood. Deliberately not persisted and
+  // deliberately not a restore path: it lives until the page is left or
+  // reloaded, which is the whole of what Roman ruled — "no restore path beyond
+  // that undo. Do not invent a state."
+  const [deleted, setDeleted] = React.useState<PracticeQuestion[]>([]);
+
+  // Whether the add form is showing. `fieldsFor` is NOT here: the control that
+  // guards an open field stack — Edit the deck — moved to the title row above,
+  // and state must live where the thing that guards it lives, or the guard is
+  // reading a copy.
   const [adding, setAdding] = React.useState(false);
   // Which row a drag picked up. Held HERE and not on the row, because a drop is
   // a fact about two rows and only the list knows both.
   const [dragging, setDragging] = React.useState<string | null>(null);
 
-  /**
-   * Turn the editor off, asking first if a row's fields are still open.
-   *
-   * `window.confirm` and not a custom dialog: this is a one-line yes/no about
-   * discarding one row's unsaved fields, it must block the state change, and a
-   * bespoke modal here would be a second confirm implementation for the same
-   * question the browser already answers. The sentence is the STORE'S, with the
-   * row's number in it — "the unsaved edit" without saying which row is a
-   * question a person cannot answer with two rows on screen.
-   */
-  const leaveEditing = () => {
-    if (fieldsFor !== null) {
-      const n = questions.findIndex((q) => q.id === fieldsFor) + 1;
-      const asked = w("editor_discard_confirm_template").replace("{n}", String(n));
-      if (!window.confirm(asked)) return;
-      setFieldsFor(null);
-    }
-    editor.toggleEditing();
-  };
-
-  /**
-   * Warn on RELOAD or tab-close while a row's fields are open.
-   *
-   * Standing Rule 1's shape for a browser event: the only thing a page may do
-   * here is set `returnValue`, and the browser prints its own sentence — ours is
-   * not allowed through. It covers reload and close, which is where an open edit
-   * is actually lost; edit mode itself is deliberately NOT restored on reload
-   * (it is a mode, not a place), so there is nothing to come back to.
-   */
-  React.useEffect(() => {
-    if (!editor.editing || fieldsFor === null) return undefined;
-    const warn = (event: BeforeUnloadEvent) => {
-      event.preventDefault();
-      event.returnValue = "";
-    };
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [editor.editing, fieldsFor]);
-
   const george = questions.filter((q) => q.side === "george").length;
-  const skippedHere = questions.filter((q) => skippedToday.has(q.id)).length;
 
   const count =
     w("deck_count_template")
@@ -166,15 +106,7 @@ const PracticeDeckList: React.FC<Props> = ({
       // the two side counts already add up to it, and a third number is a third
       // thing to read on a line whose whole job is "how many, from whom".
       .replace("{george}", String(george))
-      .replace("{chuck}", String(questions.length - george)) +
-    (skippedHere > 0
-      ? ` ${w("deck_skipped_suffix_template").replace("{k}", String(skippedHere))}`
-      : "");
-
-  const openFlagEditor = (question: PracticeQuestion) => {
-    setEditing(question.id);
-    setDraft(question.flag_note ?? "");
-  };
+      .replace("{chuck}", String(questions.length - george));
 
   return (
     <div style={d.deck}>
@@ -182,38 +114,16 @@ const PracticeDeckList: React.FC<Props> = ({
         <b>
           {w("deck_heading")} <span style={d.deckCount}>{count}</span>
         </b>
-        <span style={e.editBar}>
-          <button
-            type="button"
-            style={e.editSwitch}
-            data-practice-link
-            aria-pressed={editor.editing}
-            onClick={editor.editing ? leaveEditing : editor.toggleEditing}
-          >
-            {editor.editing ? w("editor_done_label") : w("editor_switch_label")}
-          </button>
-          <span style={{ color: "var(--practice-separator)" }}>·</span>
-          {/* Locked in edit mode: folding the list away with a row's fields
-              open is losing the edit without being asked. It carries the
-              store's reason rather than refusing in silence. */}
-          <button
-            type="button"
-            style={{ ...d.deckToggle, ...(editor.editing ? e.lockedControl : {}) }}
-            data-practice-link
-            aria-expanded={open}
-            disabled={editor.editing}
-            title={editor.editing ? w("editor_busy_hint") : undefined}
-            onClick={() => setOpen((was) => !was)}
-          >
-            {open ? w("deck_hide_link") : w("deck_show_link")}
-          </button>
-        </span>
       </div>
 
-      {open && (
-        <>
-          <Instruction wording={wording} />
-          {flagError !== null && <p style={d.flagged}>{flagError}</p>}
+      <>
+          {/* Standing Rule 1: a delete or undo that failed says so. A row that
+              silently stayed put reads as a control that does nothing. */}
+          {deleteError !== null && (
+            <div style={{ ...s.feedback, marginTop: 8 }} role="alert">
+              {deleteError}
+            </div>
+          )}
           {/* Standing Rule 1: a failed editor write says so, and says the deck
               is UNCHANGED — an editor who believes an edit landed when it did
               not will not make it again. */}
@@ -240,22 +150,37 @@ const PracticeDeckList: React.FC<Props> = ({
                 questions.some((q) => q.kind !== "redirect") && (
                   <div style={d.redirectsSubheader}>{w("redirects_subheader")}</div>
                 )}
+            {deleted.some((q) => q.id === question.id) ? (
+              // The undo line, exactly where the row was. It replaces a confirm
+              // dialog: a dialog costs a step every time to guard against the
+              // rare case; this costs nothing in the normal case and still
+              // covers the misclick.
+              <div style={d.deletedLine}>
+                {w("row_deleted_notice")}{" "}
+                <button
+                  type="button"
+                  style={d.undoLink}
+                  data-practice-link
+                  onClick={() => {
+                    onUndoDelete(question);
+                    setDeleted((was) => was.filter((q) => q.id !== question.id));
+                  }}
+                >
+                  {w("row_undo_label")}
+                </button>
+              </div>
+            ) : (
             <PracticeDeckRow
               key={question.id}
               question={question}
-              number={i + 1}
               last={i === questions.length - 1}
               wording={wording}
-              controls={controls}
               editor={editor}
-              editing={editing === question.id}
-              draft={draft}
-              onDraftChange={setDraft}
-              onOpenEditor={() => openFlagEditor(question)}
-              onCloseEditor={() => setEditing(null)}
-              onPracticeOne={() => onPracticeOne(question)}
-              onReview={() => onReview(question)}
-              startingOne={startingOne}
+              onDelete={() => {
+                onDelete(question);
+                setDeleted((was) => [...was, question]);
+              }}
+              deleting={deletingId === question.id}
               dragging={dragging}
               onPickUp={() => setDragging(question.id)}
               onDropHere={() => {
@@ -272,6 +197,7 @@ const PracticeDeckList: React.FC<Props> = ({
                 setFieldsFor((was) => (was === question.id ? null : question.id))
               }
             />
+            )}
             </React.Fragment>
           ))}
 
@@ -294,8 +220,12 @@ const PracticeDeckList: React.FC<Props> = ({
                 </button>
               </div>
             ))}
-        </>
-      )}
+
+          {/* Why a row can be blank. It exists because the marks were REMOVED:
+              a reader who remembers "answered today · repeat · attempt 2" needs
+              telling once that their absence is not a fault in the page. */}
+          <p style={d.statusFootnote}>{w("deck_status_footnote")}</p>
+      </>
     </div>
   );
 };

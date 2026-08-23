@@ -62,11 +62,9 @@ function q(over: Partial<PracticeQuestion> & { kind: string }): PracticeQuestion
     flag_note: null,
     deck_key: null,
     follows_key: null,
-    status: null,
-    status_mark: null,
     hidden: false,
+    answered_on: null,
     draft_by: null,
-    changed: false,
     ...over,
   };
 }

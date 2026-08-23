@@ -177,6 +177,21 @@ export function practicePrintPath(slug: string, scenarioId: string): string {
 }
 
 /**
+ * Chuck's printed ANSWERS — the same sheets, carrying what Marie wrote.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/print-answers`.
+ *
+ * A sibling address rather than a query parameter on `/print`: they are two
+ * documents for two different acts — one is marked up, one is read — and Chuck
+ * keeps both tabs open. A `?answers=1` would make them one page that sometimes
+ * shows something else, which is exactly the shape whose Back button lies.
+ */
+export function practiceAnswersPath(slug: string, scenarioId: string): string {
+  return `${practicePath(slug, scenarioId)}/print-answers`;
+}
+
+/**
  * One SITTING of the practice drill — the address a reload lands back on.
  *
  * Declared in `App.tsx` as
