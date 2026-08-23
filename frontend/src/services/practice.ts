@@ -184,13 +184,85 @@ export type SelfCheck = {
   guessed: boolean;
 };
 
-/** What the reveal shows about the read. */
+/**
+ * The critique's three parts.
+ *
+ * ## ⚑ Checked BY EYE against `backend/src/dto/practice.rs::ReadPartsDto`
+ *
+ * Nothing enforces this boundary — these types are hand-written, not generated,
+ * and four fields left the deck payload this week with zero TypeScript errors.
+ *
+ *   pub call: String          → call: string
+ *   pub why: String           → why: string      (empty is LEGITIMATE, never null)
+ *   pub pointers: Vec<String> → pointers: string[]  (0–3, never absent)
+ *   pub keys: Vec<String>     → keys: string[]      (never absent)
+ */
+export type ReadParts = {
+  call: string;
+  why: string;
+  pointers: string[];
+  keys: string[];
+};
+
+/**
+ * One citable source, as the critique footnotes it.
+ *
+ * ## ⚑ Checked BY EYE against `ReadSourceDto`
+ *
+ *   pub key: String  → key: string
+ *   pub text: String → text: string
+ *
+ * ## ⚑ THESE ARE THE WORDS WE SENT, NEVER WORDS THAT CAME BACK
+ *
+ * The server builds this from the payload the model was GIVEN. That is the
+ * whole value of it: if the read cites S2 for a claim S2 does not support,
+ * Marie can see S2 say so. Built from the model's own reply instead, a
+ * hallucinated citation would render its own supporting evidence. If anything
+ * ever makes this list come from the response, it stops being a safeguard and
+ * becomes decoration.
+ */
+export type ReadSource = {
+  key: string;
+  text: string;
+};
+
+/**
+ * What the critique shows about the read.
+ *
+ * ## ⚑ Checked BY EYE against `AnswerResponse`
+ *
+ *   pub answer_id: Uuid                    → answer_id: string
+ *   pub read_text: Option<String>          → read_text: string | null
+ *   pub read_ok: Option<bool>              → read_ok: boolean | null
+ *   pub read_parts: Option<ReadPartsDto>   → read_parts: ReadParts | null
+ *     ⚑ `skip_serializing_if = "Option::is_none"` — ABSENT, not null, when there
+ *       are no parts. The client must treat missing and null alike.
+ *   pub read_sources: Vec<ReadSourceDto>   → read_sources: ReadSource[]
+ *
+ * ## Domain note: `read_text` is a LOSSY PROJECTION of `read_parts`
+ *
+ * Not a second copy. The server derives it with `compose_read_text`, which
+ * deliberately drops `why` and keeps only the first pointer — it was built for a
+ * screen that showed one sentence. So the screen renders PARTS IF PRESENT, ELSE
+ * TEXT, and never both: showing both would print the call and first pointer
+ * twice, and the two cannot be reconciled because one is a summary of the other.
+ *
+ * ## Domain note: text WITHOUT parts is the COMMON case, not an edge
+ *
+ * Measured on DEV, 2026-08-23: of 14 stored answers, 12 carry `read_text` and
+ * only 2 carry parts — 10 have text and no parts, written before T1 shipped in
+ * .404. The fallback is the majority path.
+ */
 export type AnswerResult = {
   answer_id: string;
   /** `null` → the screen shows "no system read this time". */
   read_text: string | null;
   /** `true` green, `false` red, `null` no read. Three states. */
   read_ok: boolean | null;
+  /** The three parts, or `null`/absent on an older answer, an abstain or a failure. */
+  read_parts: ReadParts | null;
+  /** What the cited keys refer to. Empty when nothing was cited. */
+  read_sources: ReadSource[];
 };
 
 /** One row of Chuck's sheet — every cell already a word. */
@@ -407,6 +479,14 @@ export async function submitPracticeAnswer(input: {
     answer_id: parsed.answer_id,
     read_text: parsed.read_text ?? null,
     read_ok: parsed.read_ok ?? null,
+    // `?? null` and not `?? undefined`: the field is ABSENT on the wire when
+    // there are no parts (`skip_serializing_if`), and the screen must not have
+    // to know the difference between missing and null.
+    read_parts: parsed.read_parts ?? null,
+    // An empty ARRAY, never undefined. A critique whose sources came back
+    // undefined would render its citation keys with nothing behind them, which
+    // is the one shape this list exists to prevent.
+    read_sources: parsed.read_sources ?? [],
   };
 }
 

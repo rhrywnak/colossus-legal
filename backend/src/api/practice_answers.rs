@@ -25,7 +25,10 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, SkipQuestionRequest},
+    dto::practice::{
+        AnswerRequest, AnswerResponse, CloseAnswerRequest, ReadPartsDto, ReadSourceDto,
+        SkipQuestionRequest,
+    },
     error::AppError,
     repositories::pipeline_repository::{
         practice::{get_question, list_deck, session_scenario, PracticeQuestionRecord},
@@ -176,7 +179,7 @@ pub async fn post_practice_answer(
     };
 
     // STEP TWO: the read.
-    let outcome = read_for(
+    let (outcome, read_sources) = read_for(
         &state,
         scenario_id,
         &question,
@@ -204,6 +207,15 @@ pub async fn post_practice_answer(
 
     Ok(Json(AnswerResponse {
         answer_id,
+        // The composed line still ships for anything that wants one sentence;
+        // the parts ship beside it for the screen that draws three.
+        read_parts: outcome.parts.as_ref().map(|parts| ReadPartsDto {
+            call: parts.call.clone(),
+            why: parts.why.clone(),
+            pointers: parts.pointers.clone(),
+            keys: parts.keys.clone(),
+        }),
+        read_sources,
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
@@ -227,7 +239,7 @@ async fn read_for(
     question: &PracticeQuestionRecord,
     answer_text: &str,
     points_to: Option<&Vec<String>>,
-) -> ReadOutcome {
+) -> (ReadOutcome, Vec<ReadSourceDto>) {
     let settings = state.settings.current();
 
     if is_stored_dont_recall(&settings.practice_wording.dont_recall_text, answer_text) {
@@ -235,24 +247,49 @@ async fn read_for(
             question = %question.id,
             "practice read: the stored don't-recall line — no model call"
         );
-        return ReadOutcome::stored(
-            settings
-                .practice_report_wording
-                .read_dont_recall_line
-                .clone(),
+        // No model call, so nothing was cited and there is nothing to footnote.
+        return (
+            ReadOutcome::stored(
+                settings
+                    .practice_report_wording
+                    .read_dont_recall_line
+                    .clone(),
+            ),
+            Vec::new(),
         );
     }
 
     match gather_payload(state, scenario_id, question, answer_text, points_to).await {
-        Ok(payload) => read_answer(state, &payload).await,
+        Ok(payload) => {
+            // The sources are taken from the payload that was SENT, not from the
+            // reply: a key the model invented is already refused upstream, and a
+            // footnote list built from the reply could only ever agree with
+            // itself. These are the words Marie was judged against.
+            let sources = payload
+                .points
+                .iter()
+                .chain(payload.receipts.iter())
+                .filter_map(|item| {
+                    item.text.as_ref().map(|text| ReadSourceDto {
+                        key: item.key.clone(),
+                        text: text.clone(),
+                    })
+                })
+                .collect();
+            (read_answer(state, &payload).await, sources)
+        }
         Err(failure) => {
             tracing::error!(
                 question = %question.id, %scenario_id, reason = %failure,
                 "practice read: abstaining — an input the read is judged against did not load"
             );
-            ReadOutcome::from_payload_failure(
-                &settings.practice_report_wording.read_abstain_line,
-                &failure,
+            // An abstain cites nothing, so it footnotes nothing.
+            (
+                ReadOutcome::from_payload_failure(
+                    &settings.practice_report_wording.read_abstain_line,
+                    &failure,
+                ),
+                Vec::new(),
             )
         }
     }
@@ -395,6 +432,11 @@ pub async fn post_skip_question(
         answer_id,
         read_text: None,
         read_ok: None,
+        // A skip makes no model call, so there is no critique and nothing to
+        // footnote. Both absent rather than empty-but-present: "no read" and
+        // "a read that said nothing" are different facts.
+        read_parts: None,
+        read_sources: Vec::new(),
     }))
 }
 

@@ -305,6 +305,30 @@ pub struct CloseAnswerRequest {
 /// What the reveal screen shows about the read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ReadPartsDto {
+    /// The one line naming what happened.
+    pub call: String,
+    /// The reasoning. Empty is legitimate.
+    pub why: String,
+    /// What to do instead, in the order the model gave them. 0–3.
+    pub pointers: Vec<String>,
+    /// The citation keys used — every one proven to be a key that was sent.
+    pub keys: Vec<String>,
+}
+
+/// One citable source, as the critique's footnote list shows it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSourceDto {
+    /// `S2`, `R1`, `P3` — the key as the critique cites it.
+    pub key: String,
+    /// The words behind that key.
+    pub text: String,
+}
+
+/// What one answer produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnswerResponse {
     /// The answer row's id, which the drawer's help flag addresses.
     pub answer_id: Uuid,
@@ -314,6 +338,24 @@ pub struct AnswerResponse {
     /// `Some(true)` = fine (green), `Some(false)` = it named a tactic (red),
     /// `None` = there was no read. Three states, never two.
     pub read_ok: Option<bool>,
+    /// The critique's three parts, when the read produced three parts.
+    ///
+    /// ## ⚑ ADDITIVE. T1's read is unchanged.
+    ///
+    /// The parts have existed since T1 — `ReadParts`, stored in `read_call`,
+    /// `read_why`, `read_pointers` and `read_keys` — and were simply never put
+    /// on the wire, because the screen that consumed this response rendered one
+    /// composed sentence. Mockup v7 view 4 draws them separately, so they ship.
+    /// Nothing about what the model is SENT changes; `read_text` still carries
+    /// the composed line for anything that wants it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_parts: Option<ReadPartsDto>,
+    /// What the keys in `read_parts.keys` refer to — the critique's footnotes.
+    ///
+    /// Domain note: a critique that cites `S2` with no way to see what S2 SAYS
+    /// is worse than the single sentence it replaced. Citing receipts by key is
+    /// the whole of what T1 bought, and the key is only half of it.
+    pub read_sources: Vec<ReadSourceDto>,
 }
 
 /// One row of Chuck's sheet, every cell already a word.

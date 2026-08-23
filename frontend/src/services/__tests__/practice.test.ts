@@ -166,7 +166,16 @@ describe("the write paths", () => {
       dont_recall: false,
       points_to: ["your certified letter, 16 Nov 2009"],
     });
-    expect(result).toEqual({ answer_id: ANSWER, read_text: "Fine.", read_ok: true });
+    expect(result).toEqual({
+      answer_id: ANSWER,
+      read_text: "Fine.",
+      read_ok: true,
+      // An older-shaped response — no parts, no sources — normalises to the two
+      // absent values rather than to `undefined`. The screen must not have to
+      // know the difference between a field missing and a field null.
+      read_parts: null,
+      read_sources: [],
+    });
   });
 
   it("keeps a missing read as null rather than inventing a sentence", async () => {
