@@ -108,6 +108,7 @@ impl PracticeWording {
         let review =
             crate::domain::wording_practice_review::PracticeReviewWording::for_test_values();
         let print = crate::domain::wording_practice_print::PracticePrintWording::for_test_values();
+        let list = crate::domain::wording_practice_list::PracticeListWording::for_test_values();
         build_practice_wording::<String>(|key| {
             TEST_SEED
                 .iter()
@@ -118,6 +119,7 @@ impl PracticeWording {
                 .or_else(|| editor.get(key).cloned())
                 .or_else(|| review.get(key).cloned())
                 .or_else(|| print.get(key).cloned())
+                .or_else(|| list.get(key).cloned())
                 .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
         })
         .expect("every key in PRACTICE_WORDING_KEYS is in TEST_SEED")

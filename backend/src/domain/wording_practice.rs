@@ -66,6 +66,10 @@ pub struct PracticeWording {
     /// beside the surface that reads it, and its strings go on PAPER, which
     /// leaves the building and cannot be corrected by a redeploy.
     pub print: super::wording_practice_print::PracticePrintWording,
+    /// The one-page question list — the practice bar and the footnote under
+    /// it. Its own block because `flow` is the SITTING's block, and this is
+    /// the surface that replaces the sitting.
+    pub list: super::wording_practice_list::PracticeListWording,
     // ── S0 · the start card ──────────────────────────────────────────────
     /// The eyebrow over the scenario title on the practice start screen.
     pub kicker: String,
@@ -284,6 +288,7 @@ pub fn build_practice_wording<E>(
         editor: super::wording_practice_editor::build_practice_editor_wording(&read)?,
         review: super::wording_practice_review::build_practice_review_wording(&read)?,
         print: super::wording_practice_print::build_practice_print_wording(&read)?,
+        list: super::wording_practice_list::build_practice_list_wording(&read)?,
         kicker: read(KEY_KICKER)?,
         intro: read(KEY_INTRO)?,
         who_heading: read(KEY_WHO_HEADING)?,

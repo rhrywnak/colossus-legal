@@ -162,7 +162,9 @@ const PracticeDeckList: React.FC<Props> = ({
 
   const count =
     w("deck_count_template")
-      .replace("{n}", String(questions.length))
+      // `{n}` — the deck total — was dropped from the template on 2026-08-23:
+      // the two side counts already add up to it, and a third number is a third
+      // thing to read on a line whose whole job is "how many, from whom".
       .replace("{george}", String(george))
       .replace("{chuck}", String(questions.length - george)) +
     (skippedHere > 0

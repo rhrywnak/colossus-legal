@@ -54,6 +54,7 @@ pub mod wording_model_params;
 pub mod wording_practice;
 pub mod wording_practice_editor;
 pub mod wording_practice_flow;
+pub mod wording_practice_list;
 pub mod wording_practice_print;
 pub mod wording_practice_report;
 pub mod wording_practice_review;

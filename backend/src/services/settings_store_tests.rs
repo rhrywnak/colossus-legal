@@ -28,6 +28,7 @@ use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
 use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
 use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
@@ -123,6 +124,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
+        .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -700,6 +702,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         "PRACTICE v1 Part B: the notes panel and the review page"
     );
     assert_eq!(
+        PRACTICE_LIST_WORDING_KEYS.len(),
+        4,
+        "PRACTICE one-page L2: the practice bar's label, button and hint, plus \
+         the footnote that explains why a row now carries at most a date"
+    );
+    assert_eq!(
         PRACTICE_PRINT_WORDING_KEYS.len(),
         26,
         "Chuck's review sheets (2026-08-22): two controls on the practice page, \
@@ -736,8 +744,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_REVIEW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
-            + PRACTICE_PRINT_WORDING_KEYS.len(),
-        "the seed and the nineteen required lists must describe the same store"
+            + PRACTICE_PRINT_WORDING_KEYS.len()
+            + PRACTICE_LIST_WORDING_KEYS.len(),
+        "the seed and the twenty required lists must describe the same store"
     );
 }
 
@@ -1180,6 +1189,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
         // L1 of the one-page work: `practice_row_answered_on_template`.
         "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
+        // L2: the list page's new rows, and the three corrections —
+        // "George's side", the text-link Edit label, and the how-to
+        // sentence about a blue box that no longer prints.
+        "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
     ]
     .iter()
     .map(|relative| {
