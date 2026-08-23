@@ -1,73 +1,24 @@
-//! One note, as every panel renders it — and who is allowed to sign one.
+//! Who is allowed to sign a change, from the login.
 //!
-//! Small on purpose. The note itself is a stored sentence somebody typed and
-//! this service must not touch it; what it composes is the two things AROUND it
-//! that the browser holds no templates for — the day it was written, and the
-//! "struck Tue 19 Aug" line under a note somebody has withdrawn.
+//! ## What used to be here, and why it is not
+//!
+//! This module also composed one NOTE for every panel that rendered one — the
+//! day it was written, and the "struck Tue 19 Aug" line under a withdrawn one.
+//! Roman's ruling of 2026-08-23 retired notes from the interface entirely:
+//! Chuck does not write them, he reviews Marie's answers with her at their
+//! weekly meeting. The composing functions went with the panels that called
+//! them.
+//!
+//! ## ⚑ The `practice_notes` TABLE IS UNTOUCHED
+//!
+//! Not one row was deleted, and none will be. The UI stops reading them; the
+//! table keeps what it has. (Measured 2026-08-23: it holds ZERO rows on DEV —
+//! every scenario, every level — so nothing is in fact being hidden.)
+//!
+//! `attribution` stays because the deck EDITOR signs its changes with it, and
+//! the editor survives this task.
 
 use crate::auth::AuthUser;
-use crate::domain::settings::Settings;
-use crate::domain::wording_templates::render;
-use crate::dto::practice_review::PracticeNoteDto;
-use crate::repositories::pipeline_repository::practice_notes::NoteRecord;
-use crate::services::practice_page::when;
-
-/// One note, composed.
-///
-/// ## Why `struck` is one `Option<String>` and not a flag plus a date
-///
-/// Its presence is what tells the screen to strike the text through, and its
-/// content is what says when. Two fields would allow a fifth state nobody wants:
-/// a note rendered struck with no statement of when it was withdrawn, which
-/// invites the reader to assume it never really was.
-pub fn note_dto(settings: &Settings, record: &NoteRecord) -> PracticeNoteDto {
-    let w = &settings.practice_wording.review;
-    PracticeNoteDto {
-        id: record.id,
-        question_id: record.question_id,
-        answer_id: record.answer_id,
-        author: record.author.clone(),
-        text: record.text.clone(),
-        when: when(record.created_at, &settings.practice_read.case_timezone),
-        struck: record.struck_at.map(|at| {
-            render(
-                &w.notes_struck_template,
-                &[("when", &when(at, &settings.practice_read.case_timezone))],
-            )
-        }),
-    }
-}
-
-/// The notes on the SCENARIO — neither a question's nor an attempt's.
-pub fn scenario_notes(settings: &Settings, notes: &[NoteRecord]) -> Vec<PracticeNoteDto> {
-    notes
-        .iter()
-        .filter(|n| n.question_id.is_none())
-        .map(|n| note_dto(settings, n))
-        .collect()
-}
-
-/// How many notes have arrived since one instant, and who wrote the newest.
-///
-/// ## Domain note: STRUCK notes do not count
-///
-/// The count is on the start card beside "changed since your last sitting", and
-/// it is asking her to go and read something. A note that was written and then
-/// withdrawn since she was last here is not something waiting for her — it is
-/// still readable, struck, in the panel, which is where a withdrawal belongs.
-pub fn new_since(
-    notes: &[NoteRecord],
-    since: Option<chrono::DateTime<chrono::Utc>>,
-) -> (usize, Option<&str>) {
-    let fresh: Vec<&NoteRecord> = notes
-        .iter()
-        .filter(|n| n.struck_at.is_none())
-        .filter(|n| since.is_none_or(|at| n.created_at > at))
-        .collect();
-    // The list arrives oldest first, so the LAST of the fresh ones is the newest.
-    let newest = fresh.last().map(|n| n.author.as_str());
-    (fresh.len(), newest)
-}
 
 /// Who a write is attributed to: the stable id, and the name a screen prints.
 ///

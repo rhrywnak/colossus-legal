@@ -49,12 +49,8 @@ fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) 
             points: vec![],
             receipts,
             last: None,
-            statuses: &[],
             current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     )
@@ -143,10 +139,14 @@ fn a_scenario_with_nothing_to_point_at_yields_an_empty_picker() {
     assert!(picker(vec![sourced(None)], &[]).is_empty());
 }
 
-/// The status on a row is COMPOSED, and absent on a question nobody answered.
+/// A row's ONE status rides the payload, and is absent where nobody answered.
+///
+/// The composition itself is pinned in `practice_page_tests`; this pins the
+/// PATH — that `deck_payload` matches the current answer to the right row on its
+/// way through, which is the half a direct `question_dto` test cannot see.
 #[test]
-fn a_row_carries_its_composed_status_or_none_at_all() {
-    use crate::repositories::pipeline_repository::practice_flow::RowStatusRecord;
+fn a_row_carries_its_answered_on_line_or_nothing_at_all() {
+    use crate::repositories::pipeline_repository::practice_flow::CurrentAnswerRecord;
 
     let answered = record(Some(4), None);
     let untouched = {
@@ -154,12 +154,10 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
         row.id = Uuid::from_u128(9);
         row
     };
-    let statuses = vec![RowStatusRecord {
+    let current = vec![CurrentAnswerRecord {
         question_id: answered.id,
-        mark: "repeat".to_string(),
+        answer_text: "her words".to_string(),
         answered_at: now(),
-        answered_today: true,
-        attempts: 2,
     }];
 
     let payload = deck_payload(
@@ -172,66 +170,51 @@ fn a_row_carries_its_composed_status_or_none_at_all() {
             points: vec![],
             receipts: &[],
             last: None,
-            statuses: &statuses,
-            current: &[],
+            current: &current,
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
 
-    assert_eq!(
-        payload.questions[0].status.as_deref(),
-        Some("answered today · repeat · attempt 2")
-    );
-    assert_eq!(
-        payload.questions[0].status_mark.as_deref(),
-        Some("repeat"),
-        "the RAW mark rides beside the sentence, so the screen colours without \
-         searching a template somebody can re-word"
+    let line = payload.questions[0]
+        .answered_on
+        .as_deref()
+        .expect("the answered row carries its line");
+    assert!(
+        !line.is_empty() && !line.contains('{'),
+        "the line must be composed, not a raw template: {line:?}"
     );
     assert!(
-        payload.questions[1].status.is_none(),
+        payload.questions[1].answered_on.is_none(),
         "a question nobody has answered renders NOTHING, not an empty line"
     );
-    assert!(payload.questions[1].status_mark.is_none());
 }
 
-/// The review page's mapper drops the status and the badge, and keeps the rest.
+/// The one-question mapper keeps everything that describes the QUESTION.
 ///
-/// `question_dto_for` exists precisely so ONE question on a page with no list
-/// does not inherit two facts that are about a LIST: `answered today · repeat`
-/// is the row's report on the start card, and `changed` asks her to re-read the
-/// deck. Both would be noise beside the question they describe.
-///
-/// Everything else must survive: the review page renders the same pills, the
-/// same tactic tag and the same redirect badge the drill does, and a second
-/// mapper is exactly how those would drift apart.
+/// `question_dto_for` exists so a page showing ONE question does not inherit
+/// facts that are about a LIST. Since 2026-08-23 the list facts it used to drop —
+/// `status`, `status_mark` and `changed` — are gone from the wire altogether, so
+/// what is left to pin is the other half of its contract: everything describing
+/// the question itself survives, because a second mapper is exactly how the two
+/// surfaces would drift apart.
 #[test]
-fn the_review_pages_mapper_drops_the_status_and_the_badge_and_keeps_the_rest() {
+fn the_one_question_mapper_keeps_everything_about_the_question() {
     let mut record = record(Some(4), Some("Barrage rows 1 · 2"));
     record.kind = "redirect".to_string();
     record.draft_by = Some("architect".to_string());
 
     let dto = question_dto_for(&settings(), record);
 
-    assert!(
-        dto.status.is_none(),
-        "a list's report has no meaning on one question"
-    );
-    assert!(dto.status_mark.is_none());
-    assert!(
-        !dto.changed,
-        "the re-read badge is about the list, not the question"
-    );
-
     assert_eq!(dto.tactic.as_deref(), Some("false premise · braid"));
     assert!(dto.braid);
     assert_eq!(dto.kind, "redirect");
     assert_eq!(dto.draft_by.as_deref(), Some("architect"));
     assert!(!dto.hidden);
+    assert!(
+        dto.answered_on.is_none(),
+        "no current answer was supplied, so there is no line to show"
+    );
 }
 
 /// One point, with its receipt, for a caller outside the payload.

@@ -57,7 +57,6 @@ pub mod wording_practice_flow;
 pub mod wording_practice_list;
 pub mod wording_practice_print;
 pub mod wording_practice_report;
-pub mod wording_practice_review;
 pub mod wording_practice_row;
 pub mod wording_rehearsal;
 pub mod wording_rehearsal_chrome;

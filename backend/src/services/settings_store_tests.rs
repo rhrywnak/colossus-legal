@@ -31,7 +31,6 @@ use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
 use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
-use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -121,7 +120,6 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // nested on the struct for the same Rule 17 reason and listed here for
         // the same reason as their siblings — one flat table.
         .chain(crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values())
-        .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
@@ -697,11 +695,6 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          the drag grip is the one addition on top"
     );
     assert_eq!(
-        PRACTICE_REVIEW_WORDING_KEYS.len(),
-        22,
-        "PRACTICE v1 Part B: the notes panel and the review page"
-    );
-    assert_eq!(
         PRACTICE_LIST_WORDING_KEYS.len(),
         4,
         "PRACTICE one-page L2: the practice bar's label, button and hint, plus \
@@ -742,7 +735,6 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
-            + PRACTICE_REVIEW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
             + PRACTICE_LIST_WORDING_KEYS.len(),

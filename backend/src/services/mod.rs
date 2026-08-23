@@ -23,7 +23,6 @@ pub mod practice_read_outcome;
 pub mod practice_read_parse;
 pub mod practice_read_payload;
 pub mod practice_read_setup;
-pub mod practice_review;
 pub mod practice_sheet;
 pub mod practice_status;
 pub mod qdrant_service;

@@ -183,6 +183,16 @@ pub struct PracticeWordingDto {
     /// `Answered on {when}` — the one status a one-page deck row carries.
     pub row_answered_on_template: String,
 
+    // ── The one-page list: the practice bar, and the footnote under it ────
+    // Wire names are the stored keys without their `practice_` prefix, as
+    // everywhere above — so `practice_practice_mode_label` arrives as
+    // `practice_mode_label`, the doubled word being the block's name meeting
+    // the product's.
+    pub practice_mode_label: String,
+    pub start_practising_label: String,
+    pub practice_hint: String,
+    pub deck_status_footnote: String,
+
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,
     // the `practice_` prefix dropped and nothing else done to the name.
@@ -267,30 +277,7 @@ pub struct PracticeWordingDto {
     pub print_missing_redirect: String,
     pub print_missing_joiner: String,
     pub print_hidden_template: String,
-
     // ── Part B: notes, and the review page ───────────────────────────────
-    pub notes_heading_template: String,
-    pub notes_scenario_title: String,
-    pub notes_question_title: String,
-    pub notes_hint: String,
-    pub notes_placeholder: String,
-    pub notes_attempt_placeholder: String,
-    pub notes_save_label: String,
-    pub notes_empty_hint: String,
-    pub notes_strike_label: String,
-    pub notes_struck_template: String,
-    pub notes_empty: String,
-    pub notes_failed: String,
-    pub row_review_link: String,
-    pub review_progress_template: String,
-    pub review_attempts_kicker: String,
-    pub review_attempt_template: String,
-    pub review_detail_template: String,
-    pub review_boxes_none: String,
-    pub review_no_attempts: String,
-    pub review_practice_again: String,
-    pub review_asked_as_template: String,
-    pub review_stronger_heading: String,
 }
 
 #[cfg(test)]
@@ -300,10 +287,10 @@ mod tests {
     use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
     use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
     use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+    use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
     use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
     use crate::domain::wording_practice_report::PracticeReportWording;
     use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
-    use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
     use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 
     fn mirror() -> PracticeWordingDto {
@@ -327,7 +314,7 @@ mod tests {
                 + PRACTICE_PRINT_WORDING_KEYS.len()
                 + PRACTICE_ROW_WORDING_KEYS.len()
                 + PRACTICE_EDITOR_WORDING_KEYS.len()
-                + PRACTICE_REVIEW_WORDING_KEYS.len(),
+                + PRACTICE_LIST_WORDING_KEYS.len()
         );
     }
 
@@ -345,7 +332,7 @@ mod tests {
                     || PRACTICE_PRINT_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
                     || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_REVIEW_WORDING_KEYS.contains(&stored.as_str()),
+                    || PRACTICE_LIST_WORDING_KEYS.contains(&stored.as_str()),
                 "wire field '{key}' implies stored key '{stored}', which is not declared",
             );
         }

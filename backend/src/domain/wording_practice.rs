@@ -59,7 +59,6 @@ pub struct PracticeWording {
     /// what changed. Nested for the same Rule 17 reason as its two siblings.
     pub editor: super::wording_practice_editor::PracticeEditorWording,
     /// The words about a PAST answer — the notes panel and the review page.
-    pub review: super::wording_practice_review::PracticeReviewWording,
     /// Chuck's review sheets — the paper, and the two controls that reach it.
     ///
     /// A block of its own for the reason each sibling above has one: it belongs
@@ -286,7 +285,6 @@ pub fn build_practice_wording<E>(
         flow: super::wording_practice_flow::build_practice_flow_wording(&read)?,
         row: super::wording_practice_row::build_practice_row_wording(&read)?,
         editor: super::wording_practice_editor::build_practice_editor_wording(&read)?,
-        review: super::wording_practice_review::build_practice_review_wording(&read)?,
         print: super::wording_practice_print::build_practice_print_wording(&read)?,
         list: super::wording_practice_list::build_practice_list_wording(&read)?,
         kicker: read(KEY_KICKER)?,
