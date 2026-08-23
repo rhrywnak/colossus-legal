@@ -131,3 +131,46 @@ export async function fetchQuestionAnswers(questionId: string): Promise<Question
   }
   return { current: parsed.current, earlier: parsed.earlier };
 }
+
+/**
+ * The session id an answer from the question page will belong to.
+ *
+ * ## ⚑ "No sittings" is true of the INTERFACE and false of the database
+ *
+ * Nothing on the one-page surface shows a sitting — there is no Start, no
+ * counts, no sides, no resume, no end. But `practice_answers.session_id` is
+ * `NOT NULL REFERENCES practice_sessions(id)`, so every answer belongs to one
+ * whether or not anybody is shown it. Roman ruled on 2026-08-23 to keep the row
+ * and hide the concept, and this call is the whole of the hiding.
+ *
+ * The server reuses the newest unended sitting for this scenario and user, so a
+ * witness answering ten questions over an afternoon writes into one row rather
+ * than opening ten sittings nobody will ever look at.
+ */
+export async function openAnswerSession(slug: string, scenarioId: string): Promise<string> {
+  const response = await authFetch(
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/scenarios/` +
+      `${encodeURIComponent(scenarioId)}/practice/answer-session`,
+    { method: "POST", timeoutMs: PRACTICE_TIMEOUT_MS },
+  );
+
+  if (!response.ok) {
+    const detail = await readErrorMessage(response);
+    throw new Error(
+      `Your answer could not be started (HTTP ${response.status}${detail}).`,
+    );
+  }
+
+  const parsed = (await response.json()) as { session_id?: string };
+  // Checked BY EYE against `StartSessionResponse`: `pub session_id: Uuid` →
+  // `session_id: string`. Absent would mean posting an answer with no session,
+  // which the database refuses — better to say so here than to read a foreign
+  // key violation out of a 500.
+  if (typeof parsed.session_id !== "string") {
+    throw new Error(
+      "The session response carried no session id — " +
+        "backend/frontend contract mismatch. Report it to the site administrator.",
+    );
+  }
+  return parsed.session_id;
+}

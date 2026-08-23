@@ -2,6 +2,12 @@
 //
 // Moved out of the module on 2026-08-23, when L3's twenty-three wording keys
 // took the mirror to exactly Rule 17's limit. The seam is the honest one: the
+// ## ⚑ THIS IS NOT A GENERAL ESCAPE VALVE
+//
+// Moving tests out of a module is a way to make ANY file pass Rule 17 forever,
+// and that is not what happened here. It is legitimate in this ONE case for a
+// reason the next module cannot borrow: the struct genuinely CANNOT be split by
+// content. The
 // mirror is ONE struct — one field per stored key, by design, because the
 // browser has one page and should not have to know which backend block a
 // sentence lives in — so it cannot be split by content. Its tests can.

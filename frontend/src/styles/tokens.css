@@ -595,6 +595,10 @@
   --practice-warn-border: #e8dcae;
   --practice-warn-ink: #5f4d17;
 
+  /* The critique's waiting state: the bars that stand in for text that has not
+     arrived yet. A gradient, so the sweep has something to sweep across. */
+  --practice-shimmer: linear-gradient(90deg, #e4ebf5 25%, #f2f6fb 37%, #e4ebf5 63%);
+
   /* Delete on a deck row. Warm rather than red: the mechanism underneath is a
      hide and nothing is destroyed, so a red control would promise a consequence
      the code does not deliver. From the mockup's `.btn3`. */

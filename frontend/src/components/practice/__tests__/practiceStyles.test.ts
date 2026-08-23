@@ -35,6 +35,8 @@ const COMPONENTS = [
   // hand-maintained, and a style file missing from it is a file whose colours
   // nothing checks — which is how `printStyles.ts` shipped 15 raw hex values.
   "printAnswerStyles.ts",
+  "practiceCritiqueStyles.ts",
+  "practiceQuestionStyles.ts",
   "PracticeStart.tsx",
   "PracticeQuestion.tsx",
   "PracticeReveal.tsx",
