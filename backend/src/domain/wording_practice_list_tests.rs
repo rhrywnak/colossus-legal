@@ -21,6 +21,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
     // L3's one row: the line under a one-sentence critique.
     "pipeline_migrations/20260823163653_practice_one_page_l3_plain_read_line.sql",
+    // L3's question page, critique and practice walk.
+    "pipeline_migrations/20260823164454_practice_one_page_l3_question_page_and_walk.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to the
@@ -40,6 +42,30 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_READ_PLAIN_HINT,
         "This is an older read. Press Answer again for the fuller one.",
     ),
+    (KEY_READ_WORKING_LABEL, "Reading your answer"),
+    (KEY_READ_USUALLY_QUICK, "Usually a few seconds."),
+    (KEY_READ_STILL_WORKING, "Still working — your answer is already saved either way."),
+    (KEY_READ_STOP_WAITING, "Stop waiting"),
+    (KEY_READ_WHY_LABEL, "Why"),
+    (KEY_READ_POINTERS_LABEL, "What to do instead"),
+    (KEY_READ_SOURCE_MISSING, "this source was not sent — report it"),
+    (KEY_READ_UNREVIEWED, "Chuck has not reviewed this."),
+    (KEY_READ_WRONG_LABEL, "This is wrong →"),
+    (KEY_EARLIER_VERSIONS_TEMPLATE, "▸ {n} earlier versions"),
+    (KEY_EARLIER_VERSION_ONE, "▸ 1 earlier version"),
+    (KEY_YOUR_ANSWER_DATED_TEMPLATE, "Your answer · {when}"),
+    (KEY_SHOW_ANSWER_LABEL, "Show my answer"),
+    (KEY_NEXT_QUESTION_LABEL, "Next question ▸"),
+    (KEY_CHANGE_ANSWER_LABEL, "Change this answer"),
+    (KEY_PRACTICE_COUNTER_TEMPLATE, "PRACTICE · {side} · {n} OF {m}"),
+    (KEY_PRACTICE_SAY_ALOUD, "Say your answer out loud."),
+    (KEY_PRACTICE_THEN_PRESS_TEMPLATE, "Then press {label} to see what you wrote."),
+    (KEY_PRACTICE_SKIP_HINT, "To skip it, just press Next question."),
+    (KEY_PRACTICE_END_TITLE, "That's all of them."),
+    (KEY_PRACTICE_END_COUNT_TEMPLATE, "{n} questions from {side}."),
+    (KEY_PRACTISE_AGAIN_LABEL, "Practise them again"),
+    (KEY_PRACTICE_NONE_ANSWERED, "There is nothing to practise yet — practice walks the questions you have already answered."),
+    (KEY_DECK_QUESTION_MISSING, "That question is no longer in this deck."),
 ];
 
 impl PracticeListWording {

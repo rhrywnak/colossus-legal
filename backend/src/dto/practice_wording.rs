@@ -193,6 +193,30 @@ pub struct PracticeWordingDto {
     pub practice_hint: String,
     pub deck_status_footnote: String,
     pub read_plain_hint: String,
+    pub read_working_label: String,
+    pub read_usually_quick: String,
+    pub read_still_working: String,
+    pub read_stop_waiting: String,
+    pub read_why_label: String,
+    pub read_pointers_label: String,
+    pub read_source_missing: String,
+    pub read_unreviewed: String,
+    pub read_wrong_label: String,
+    pub earlier_versions_template: String,
+    pub earlier_version_one: String,
+    pub your_answer_dated_template: String,
+    pub show_answer_label: String,
+    pub next_question_label: String,
+    pub change_answer_label: String,
+    pub practice_counter_template: String,
+    pub practice_say_aloud: String,
+    pub practice_then_press_template: String,
+    pub practice_skip_hint: String,
+    pub practice_end_title: String,
+    pub practice_end_count_template: String,
+    pub practise_again_label: String,
+    pub practice_none_answered: String,
+    pub deck_question_missing: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,
@@ -282,77 +306,5 @@ pub struct PracticeWordingDto {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::domain::wording_practice::PracticeWording;
-    use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
-    use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
-    use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
-    use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
-    use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
-    use crate::domain::wording_practice_report::PracticeReportWording;
-    use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
-    use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
-
-    fn mirror() -> PracticeWordingDto {
-        PracticeWordingDto::from_blocks(
-            &PracticeWording::for_test(),
-            &PracticeReportWording::for_test(),
-        )
-    }
-
-    /// The mirror carries every declared key from BOTH blocks — so a field added
-    /// to either and forgotten here fails at `cargo test` rather than as an
-    /// `undefined` in the middle of Marie's session.
-    #[test]
-    fn the_mirror_carries_every_declared_key_from_both_blocks() {
-        let value = serde_json::to_value(mirror()).expect("the mirror serializes");
-        assert_eq!(
-            value.as_object().expect("an object body").len(),
-            PRACTICE_WORDING_KEYS.len()
-                + PRACTICE_FLOW_WORDING_KEYS.len()
-                + PRACTICE_REPORT_WORDING_KEYS.len()
-                + PRACTICE_PRINT_WORDING_KEYS.len()
-                + PRACTICE_ROW_WORDING_KEYS.len()
-                + PRACTICE_EDITOR_WORDING_KEYS.len()
-                + PRACTICE_LIST_WORDING_KEYS.len()
-        );
-    }
-
-    /// Every wire name is a stored key without its `practice_` prefix, and comes
-    /// from one of the two blocks.
-    #[test]
-    fn every_wire_key_is_a_stored_key_without_its_prefix() {
-        let value = serde_json::to_value(mirror()).expect("the mirror serializes");
-        for key in value.as_object().expect("an object body").keys() {
-            let stored = format!("practice_{key}");
-            assert!(
-                PRACTICE_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_FLOW_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_PRINT_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
-                    || PRACTICE_LIST_WORDING_KEYS.contains(&stored.as_str()),
-                "wire field '{key}' implies stored key '{stored}', which is not declared",
-            );
-        }
-    }
-
-    /// No wire value is blank.
-    ///
-    /// The fixtures are built through the production builders, which refuse a
-    /// blank row — so this asserts the CLONE did not lose one. A `String::new()`
-    /// left by a mapping line would render an empty button on a witness screen,
-    /// and nothing else in the stack would notice.
-    #[test]
-    fn no_string_arrives_blank() {
-        let value = serde_json::to_value(mirror()).expect("the mirror serializes");
-        for (key, v) in value.as_object().expect("an object body") {
-            assert!(
-                !v.as_str().unwrap_or_default().trim().is_empty(),
-                "{key} arrived blank"
-            );
-        }
-    }
-}
+#[path = "practice_wording_tests.rs"]
+mod tests;
