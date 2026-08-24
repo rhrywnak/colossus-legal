@@ -17,6 +17,7 @@ import React from "react";
 
 import { wordingOf, type PracticeQuestion, type PracticeWording } from "../../services/practice";
 import { fill, type PrintPlan, type PrintRow, type PrintSheet } from "./printSheetPlan";
+import PrintAntecedent from "./PrintAntecedent";
 import * as p from "./printStyles";
 
 type Props = {
@@ -54,25 +55,6 @@ const Tag: React.FC<{ question: PracticeQuestion }> = ({ question }) =>
  * absence is SAID — a blank quote box would read as a redirect that repairs
  * nothing, which is a different claim.
  */
-const After: React.FC<{ after: PrintRow["after"]; wording: PracticeWording }> = ({
-  after,
-  wording,
-}) => {
-  if (after === null) return null;
-  if (after.kind === "missing") {
-    return <p style={p.after}>{wordingOf(wording, "print_after_missing")}</p>;
-  }
-  const template = wordingOf(wording, "print_after_template");
-  const key = after.antecedent.deck_key ?? "";
-  const [before, quoted] = template.split("{question}");
-  return (
-    <p style={p.after}>
-      {fill(before, { key })}
-      <i style={p.afterQuote}>“{after.antecedent.text}”</i>
-      {quoted ?? ""}
-    </p>
-  );
-};
 
 /** Two ruled lines for a question, three for a redirect — as the mockup has it. */
 const Lines: React.FC<{ count: number }> = ({ count }) => (
@@ -97,7 +79,7 @@ const Row: React.FC<{ row: PrintRow; wording: PracticeWording }> = ({ row, wordi
           both being silent. */}
       <Tag question={row.question} />
     </div>
-    <After after={row.after} wording={wording} />
+    <PrintAntecedent after={row.after} wording={wording} />
     <p style={p.qtx}>{row.question.text}</p>
     <Source question={row.question} />
     <Lines count={row.after === null ? 2 : 3} />

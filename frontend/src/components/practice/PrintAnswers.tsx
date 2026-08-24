@@ -26,6 +26,7 @@ import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
 import { answerLine, type AnswerPlan } from "./printAnswerPlan";
 import { fill } from "./printSheetPlan";
+import PrintAntecedent from "./PrintAntecedent";
 import type { PrintRow } from "./printSheetPlan";
 import * as p from "./printStyles";
 import * as a from "./printAnswerStyles";
@@ -41,6 +42,14 @@ const Row: React.FC<{
     // `data-print-row` carries `break-inside: avoid`: an answer split from the
     // question it answers is two half-facts on two pieces of paper.
     <div style={p.qb} data-print-row>
+      {/* ⚑ THE ANTECEDENT IS ON THIS SHEET TOO, and here it is the ONLY
+          pointer: a redirect read on its own means nothing, and the code that
+          used to carry that role ("after G3") named something appearing
+          nowhere else on paper or screen. The question TEXT, never its answer —
+          an answer printed twice is two things that can disagree, and Chuck
+          reads the defense sheet first. Same component the questions sheet
+          uses, so the two cannot drift. */}
+      <PrintAntecedent after={row.after} wording={wording} />
       <p style={p.qtx}>{row.question.text}</p>
       <div style={answer === null ? a.absent : a.answer}>
         {line.when !== null && <div style={a.when}>{line.when}</div>}
