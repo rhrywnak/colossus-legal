@@ -69,6 +69,15 @@ const PracticePage: React.FC = () => {
   // Which side the list shows. The *Who's asking?* selector is gone, so this is
   // fixed at the whole deck rather than read from a control — `view` still takes
   // it because the same hook serves the editor's "all questions" view.
+  // Which side the LIST and the practice bar are showing — two controls on one
+  // value, so choosing a side to read also aims the button that practises it.
+  const [side, setSide] = React.useState<"george" | "chuck">("george");
+  // `view` stays on `mixed` deliberately. It feeds the title row's print lock
+  // and the editor's own deck, both of which are about the WHOLE deck: a print
+  // button that locked itself because the side currently on screen happens to
+  // be empty would be this change breaking a control it has no business
+  // touching. The LIST does its own side selection, from the raw payload order,
+  // through `sideSections`.
   const who: PracticeWho = "mixed";
   const [reloads, setReloads] = React.useState(0);
   // Delete and its undo. `deletingId` names WHICH row is in flight, not merely
@@ -201,7 +210,10 @@ const PracticePage: React.FC = () => {
         deletingId={deletingId}
         deleteError={deleteError}
         questionHref={(question) => practiceQuestionPath(slug, scenarioId, question.id)}
-        walkHref={(side) => practiceWalkPath(slug, scenarioId, side)}
+        walkHref={(forSide) => practiceWalkPath(slug, scenarioId, forSide)}
+        side={side}
+        onSide={setSide}
+        allQuestions={deck.questions}
       />
     </div>
   );

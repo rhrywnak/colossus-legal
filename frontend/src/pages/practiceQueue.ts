@@ -216,3 +216,69 @@ export function editorDeck(
 function sideOf(question: PracticeQuestion): "george" | "chuck" {
   return question.kind === "cross" ? "george" : "chuck";
 }
+
+/**
+ * The wording key naming one run of rows.
+ *
+ * A UNION and not `string`: the component that turns this into a heading has to
+ * choose between the two, and with a `string` its final branch would be a
+ * fallback the compiler could not see was one. A third run added here would
+ * then have rendered under the redirects' heading — silently, correctly typed,
+ * and wrong. Narrowed so that adding a member breaks the build instead.
+ */
+export type DeckSectionLabel = "directs_subheader" | "redirects_subheader";
+
+/** One labelled run of rows in a side's list. */
+export interface DeckSection {
+  /** The wording key for this run's heading, or null when it carries none. */
+  labelKey: DeckSectionLabel | null;
+  questions: PracticeQuestion[];
+}
+
+/**
+ * One side's list, split into the runs the page draws headings above.
+ *
+ * ## Why this replaced the interleave (mockup v8, 2026-08-23)
+ *
+ * The list used to deal `mixed` — each defense trap followed immediately by the
+ * redirect that repairs it. That pairing describes a COURTROOM MOMENT correctly
+ * and describes neither person's job: Marie answers one side at a time and Chuck
+ * reads one side at a time. **[measured 2026-08-23: on S-5, nine of Chuck's ten
+ * questions had never been answered at all.]**
+ *
+ * ## Why the split is by KIND and not by position
+ *
+ * Chuck's half holds two things that are answered differently — a direct is told
+ * to the jury in order, a redirect repairs a question the defense has just asked
+ * — so they are grouped, and within each group the deck's own order is kept. On
+ * every deck authored so far the directs already precede the redirects, which
+ * makes the grouping invisible; it is written as a grouping anyway so that a deck
+ * that ever authors a redirect at position three does not scatter Chuck's
+ * openings through his repairs.
+ *
+ * ## Why a heading is withheld when there is only one run
+ *
+ * A heading above the only section on screen labels nothing — it tells a reader
+ * that a second, different section exists somewhere, which would be false. Same
+ * rule the old inline redirect subheader followed, kept.
+ */
+export function sideSections(
+  deck: PracticeQuestion[],
+  side: "george" | "chuck",
+): DeckSection[] {
+  // One ordering for the whole page: `orderedDeck` filters hidden rows and picks
+  // the side, and calling it here rather than taking a pre-ordered array is what
+  // stops the list and the walk from ever disagreeing about what a side is.
+  const ordered = orderedDeck(deck, side);
+  const unlabelled = ordered.length > 0 ? [{ labelKey: null, questions: ordered }] : [];
+  if (side === "george") return unlabelled;
+
+  const directs = ordered.filter((q) => q.kind !== "redirect");
+  const redirects = ordered.filter((q) => q.kind === "redirect");
+  if (directs.length === 0 || redirects.length === 0) return unlabelled;
+
+  return [
+    { labelKey: "directs_subheader", questions: directs },
+    { labelKey: "redirects_subheader", questions: redirects },
+  ];
+}

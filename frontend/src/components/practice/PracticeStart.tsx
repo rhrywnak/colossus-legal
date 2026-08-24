@@ -21,6 +21,7 @@ import type {
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { DeckView } from "../../pages/usePracticeDeckControls";
 import { wordingOf } from "../../services/practice";
+import { sideSections } from "../../pages/practiceQueue";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
 import PracticeTitleRow from "./PracticeTitleRow";
@@ -55,6 +56,23 @@ interface Props {
   questionHref: (question: PracticeQuestion) => string;
   /** Where the practice walk for one side lives. */
   walkHref: (side: "george" | "chuck") => string;
+  /** Which side is showing, and how to change it.
+
+      ONE value for the list's picker and this bar's select. They sit three
+      inches apart wearing the same two labels; if they held separate state,
+      choosing Chuck's questions to read and pressing Start practising would
+      walk the defense's — which is a wrong-side practice a person has no way
+      to notice. It is still local to the page and unpersisted: a choice about
+      the next thirty seconds, not a setting. */
+  side: "george" | "chuck";
+  onSide: (side: "george" | "chuck") => void;
+  /** The deck as the server sent it, in the deck's own order.
+
+      The list takes THIS and not `view.ordered`: `view` is built for the whole
+      deck (the print lock and the editor both need it that way), and re-sorting
+      an already-interleaved array by side would not give back the authored
+      order — it would give the interleave with one side's rows removed. */
+  allQuestions: PracticeQuestion[];
 }
 
 /**
@@ -87,15 +105,15 @@ const PracticeStart: React.FC<Props> = ({
   deleteError,
   questionHref,
   walkHref,
+  side,
+  onSide,
+  allQuestions,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   // Which row has its editor field stack open. Owned HERE because the control
   // that guards it — Edit the deck — is in the title row above, and a guard
   // reading a copy of the state it protects is not a guard.
   const [fieldsFor, setFieldsFor] = React.useState<string | null>(null);
-  // Which side the practice bar offers. Local and unpersisted: it is a choice
-  // about the next thirty seconds, not a setting.
-  const [side, setSide] = React.useState<"george" | "chuck">("george");
 
   /**
    * Turn the editor off, asking first if a row's fields are still open.
@@ -109,7 +127,11 @@ const PracticeStart: React.FC<Props> = ({
    */
   const leaveEditing = () => {
     if (fieldsFor !== null) {
-      const n = view.ordered.findIndex((q) => q.id === fieldsFor) + 1;
+      // Counted over the rows AS RENDERED — the list shows one side at a time,
+      // and a dialog naming "row 7" of an order nobody is looking at names
+      // nothing. Flattened across the runs, which is the reading order.
+      const rendered = sideSections(allQuestions, side).flatMap((part) => part.questions);
+      const n = rendered.findIndex((q) => q.id === fieldsFor) + 1;
       const asked = w("editor_discard_confirm_template").replace("{n}", String(n));
       if (!window.confirm(asked)) return;
       setFieldsFor(null);
@@ -170,7 +192,7 @@ const PracticeStart: React.FC<Props> = ({
           style={s.practiceBarSelect}
           value={side}
           aria-label={w("practice_mode_label")}
-          onChange={(event) => setSide(event.target.value === "chuck" ? "chuck" : "george")}
+          onChange={(event) => onSide(event.target.value === "chuck" ? "chuck" : "george")}
         >
           <option value="george">{w("who_george_title")}</option>
           <option value="chuck">{w("who_chuck_title")}</option>
@@ -185,7 +207,9 @@ const PracticeStart: React.FC<Props> = ({
       </div>
 
       <PracticeDeckList
-        questions={view.ordered}
+        questions={allQuestions}
+        side={side}
+        onSide={onSide}
         wording={wording}
         editor={editor}
         attachOptions={attachOptions}

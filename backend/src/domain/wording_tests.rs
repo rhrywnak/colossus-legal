@@ -311,8 +311,26 @@ pub(crate) fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
     let rest = &sql[at + marker.len()..];
     // The value literal starts at the first quote after the key.
     let open = rest.find('\'')?;
+    literal_after_quote(&rest[open + 1..])
+}
+
+/// One SQL string literal, read from just past its opening quote.
+///
+/// ## Why this is shared and not written twice
+///
+/// It was written once, inside `seeded_value_in`, and `corrected_value_in`
+/// below did `rest.find('\'')` instead — which stops at the FIRST quote and so
+/// truncates any value containing an escaped apostrophe. That never fired for
+/// as long as no CORRECTION carried one, and fired on 2026-08-23 the first time
+/// one did: the fixture was handed "The redirects — after the defense" and
+/// reported a disagreement with a migration that was in fact correct.
+///
+/// The doc comment above already explained why doubled quotes must be walked.
+/// Having the explanation in one place and the code in two is how the second
+/// copy went eleven months without it.
+fn literal_after_quote(rest: &str) -> Option<String> {
     let mut out = String::new();
-    let mut chars = rest[open + 1..].chars();
+    let mut chars = rest.chars();
     while let Some(c) = chars.next() {
         if c != '\'' {
             out.push(c);
@@ -346,9 +364,10 @@ pub(crate) fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
     // The SET clause precedes the WHERE in an UPDATE, so scan backwards.
     let before = &sql[..at];
     let set = before.rfind("SET value         = '")?;
-    let rest = &before[set + "SET value         = '".len()..];
-    let end = rest.find('\'')?;
-    Some(rest[..end].to_string())
+    // The same walk the INSERT reader uses. NOT `find('\'')`: a corrected value
+    // containing an escaped apostrophe would be truncated at it — see
+    // `literal_after_quote`.
+    literal_after_quote(&before[set + "SET value         = '".len()..])
 }
 
 /// The value the store actually ends up holding for one key.
@@ -699,4 +718,45 @@ impl Wording {
             })
             .collect()
     }
+}
+
+/// A CORRECTION whose value contains an apostrophe is read WHOLE.
+///
+/// The regression of 2026-08-23: `corrected_value_in` stopped at the first
+/// quote, so the first corrected value ever to contain an escaped apostrophe
+/// came back truncated and the fixture reported a disagreement with a migration
+/// that was correct. Its INSERT sibling had handled this since it was written;
+/// the two now share `literal_after_quote`, and this pins that they agree.
+#[test]
+fn a_corrected_value_survives_an_escaped_apostrophe() {
+    let sql = "UPDATE app_settings\n\
+               SET value         = 'The redirects — after the defense''s questions',\n\
+               WHERE key           = 'practice_redirects_subheader';";
+
+    assert_eq!(
+        corrected_value_in(sql, "practice_redirects_subheader").as_deref(),
+        Some("The redirects — after the defense's questions"),
+    );
+}
+
+/// The two readers agree on the same sentence.
+///
+/// ANTI-VACUITY for the test above: it would pass against a `corrected_value_in`
+/// that unescaped correctly and a `seeded_value_in` that had silently drifted
+/// the other way. Pinning them against ONE sentence is what makes "they share a
+/// reader" a fact rather than a comment.
+#[test]
+fn the_insert_reader_and_the_update_reader_read_the_same_literal() {
+    let sentence = "Chuck''s questions — the defense''s, repaired";
+    let insert = format!("VALUES ('a_key',\n    '{sentence}',\n    'text',");
+    let update = format!("SET value         = '{sentence}',\nWHERE key           = 'a_key';");
+
+    assert_eq!(
+        seeded_value_in(&insert, "a_key"),
+        corrected_value_in(&update, "a_key"),
+    );
+    assert_eq!(
+        seeded_value_in(&insert, "a_key").as_deref(),
+        Some("Chuck's questions — the defense's, repaired"),
+    );
 }

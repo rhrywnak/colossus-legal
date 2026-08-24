@@ -83,3 +83,31 @@ fn no_string_arrives_blank() {
         );
     }
 }
+
+/// No sentence Marie can read names an internal database value.
+///
+/// ## What this is actually guarding
+///
+/// `practice_redirects_subheader` read "Redirects — asked after the defense's
+/// questions (dealt in Mixed)" until 2026-08-23. `mixed` is a value in the
+/// sessions table's `who` column. It reached the screen inside a parenthesis, as
+/// though it named somewhere a person could go, and nothing anywhere would have
+/// objected — a wording row is free text and every check on it was about whether
+/// a row EXISTS, never about what it says.
+///
+/// The phrase is pinned rather than the vocabulary because that is what can be
+/// checked without a list of every internal token this system holds. It walks
+/// the serialized mirror, so it sees every stored string the browser is handed
+/// no matter which block declares it.
+#[test]
+fn no_wording_row_names_an_internal_database_value() {
+    let value = serde_json::to_value(mirror()).expect("the mirror serializes");
+    for (key, v) in value.as_object().expect("an object body") {
+        let text = v.as_str().unwrap_or_default().to_lowercase();
+        assert!(
+            !text.contains("dealt in"),
+            "{key} says {v:?} — \"dealt in Mixed\" put the `who` column's own value \
+             on screen as though it named a place. See the side-picker migration."
+        );
+    }
+}

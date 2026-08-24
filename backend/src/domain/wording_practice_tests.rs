@@ -30,6 +30,9 @@ const CORRECTION_MIGRATIONS: &[&str] = &[
     // The seed-question warning (2026-08-22): `practice_intro` stopped inviting a
     // witness to rehearse and started saying the deck is unreviewed.
     "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
+    // The side picker (2026-08-23): `practice_redirects_subheader` stopped
+    // naming an internal database value on Marie's screen.
+    "pipeline_migrations/20260823231335_practice_list_side_picker.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -55,10 +58,11 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_WHO_GEORGE_TERM, "cross"),
     (KEY_WHO_CHUCK_TERM, "direct"),
     (KEY_WHO_REDIRECT_TERM, "redirect"),
-    (
-        KEY_REDIRECTS_SUBHEADER,
-        "Redirects — asked after the defense's questions (dealt in Mixed)",
-    ),
+    // "(dealt in Mixed)" was removed on 2026-08-23. `mixed` was a value in the
+    // sessions table's `who` column, printed on screen as though it named a
+    // place a person could go, and it described an interleaved list that the
+    // side picker replaced. See `sideSections`.
+    (KEY_REDIRECTS_SUBHEADER, "The redirects — after the defense's questions"),
     (KEY_WHO_MIXED_DETAIL, "Both, in no fixed order — closest to the real day."),
     (KEY_HOW_MANY_HEADING, "How many questions?"),
     (KEY_COUNT_ALL_TEMPLATE, "all {n}"),

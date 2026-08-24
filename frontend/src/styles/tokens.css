@@ -620,6 +620,22 @@
 
   /* Foreground for text on a saturated fill — the primary button, the tag. */
   --practice-on-fill: #ffffff;
+
+  /* The side picker: a two-button segmented control above the question list.
+     The chosen side is filled, the other is paper. From mockup v8's `.picker`. */
+  --practice-picker-border: #d6dbe1;
+  --practice-picker-bg: #ffffff;
+
+  /* The quoted defense question above a redirect, ON SCREEN.
+
+     These are deliberately NOT the `--print-after-*` pair, which the block below
+     scopes to `[data-print-desk]` and explains at length: those are a DOCUMENT's
+     colours, and the day this app gains a dark theme a screen reading from them
+     would follow the paper instead of the screen. The COMPONENT is shared —
+     `PrintAntecedent` draws both — and only the palette differs. */
+  --practice-ante-bg: #f9fafb;
+  --practice-ante-bar: #d1d5db;
+  --practice-ante-label: #4b5563;
 }
 
 /* =============================================================================

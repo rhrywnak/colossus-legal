@@ -113,6 +113,27 @@ pub struct PracticeListWording {
     /// The control that puts it back. Lives until the page is left; there is no
     /// restore path beyond it, deliberately.
     pub row_undo_label: String,
+
+    /// One button of the side picker: a side's name, and how many it holds.
+    ///
+    /// `{side}` is filled from that side's OWN title — `who_george_title` or
+    /// `who_chuck_title`, the very rows the practice bar reads three inches
+    /// above. Domain note: seeding a second pair of side names would be two
+    /// places to edit and one of them eventually not edited.
+    pub deck_side_tab_template: String,
+    /// What the defense's half of the list is, said once above it.
+    ///
+    /// It says the ORDER MEANS SOMETHING, which is the fact the interleaved
+    /// list destroyed: this is the sequence she will actually be pressed in.
+    pub deck_defense_countline: String,
+    /// What Chuck's half is. It names BOTH halves, because they are answered
+    /// differently — a direct is told, a redirect repairs what was just asked.
+    pub deck_chuck_countline: String,
+    /// The heading above Chuck's directs.
+    ///
+    /// Shown only when the list holds both kinds — see `redirects_subheader`,
+    /// whose own text stopped naming an internal database value on 2026-08-23.
+    pub directs_subheader: String,
 }
 
 pub(crate) const KEY_PRACTICE_MODE_LABEL: &str = "practice_practice_mode_label";
@@ -148,6 +169,10 @@ pub(crate) const KEY_READ_FALLIBLE: &str = "practice_read_fallible";
 pub(crate) const KEY_ROW_DELETE_LABEL: &str = "practice_row_delete_label";
 pub(crate) const KEY_ROW_DELETED_NOTICE: &str = "practice_row_deleted_notice";
 pub(crate) const KEY_ROW_UNDO_LABEL: &str = "practice_row_undo_label";
+pub(crate) const KEY_DECK_SIDE_TAB_TEMPLATE: &str = "practice_deck_side_tab_template";
+pub(crate) const KEY_DECK_DEFENSE_COUNTLINE: &str = "practice_deck_defense_countline";
+pub(crate) const KEY_DECK_CHUCK_COUNTLINE: &str = "practice_deck_chuck_countline";
+pub(crate) const KEY_DIRECTS_SUBHEADER: &str = "practice_directs_subheader";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -186,6 +211,10 @@ pub(crate) const PRACTICE_LIST_WORDING_KEYS: &[&str] = &[
     KEY_ROW_DELETE_LABEL,
     KEY_ROW_DELETED_NOTICE,
     KEY_ROW_UNDO_LABEL,
+    KEY_DECK_SIDE_TAB_TEMPLATE,
+    KEY_DECK_DEFENSE_COUNTLINE,
+    KEY_DECK_CHUCK_COUNTLINE,
+    KEY_DIRECTS_SUBHEADER,
 ];
 
 /// Build a [`PracticeListWording`] from the stored rows, or say which key is
@@ -238,6 +267,10 @@ pub fn build_practice_list_wording<E>(
         row_delete_label: read(KEY_ROW_DELETE_LABEL)?,
         row_deleted_notice: read(KEY_ROW_DELETED_NOTICE)?,
         row_undo_label: read(KEY_ROW_UNDO_LABEL)?,
+        deck_side_tab_template: read(KEY_DECK_SIDE_TAB_TEMPLATE)?,
+        deck_defense_countline: read(KEY_DECK_DEFENSE_COUNTLINE)?,
+        deck_chuck_countline: read(KEY_DECK_CHUCK_COUNTLINE)?,
+        directs_subheader: read(KEY_DIRECTS_SUBHEADER)?,
     })
 }
 

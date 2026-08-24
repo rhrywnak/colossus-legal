@@ -696,11 +696,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_LIST_WORDING_KEYS.len(),
-        33,
+        37,
         "PRACTICE one-page L2 (4): the practice bar's label, button and hint, plus \
          the footnote that explains why a row now carries at most a date. Plus \
          L3's line under a one-sentence critique, which is the COMMON rendering: \
-         12 of 14 stored answers carry no three-part read. Plus Delete and its undo, declared in .408 after .407 rendered the page blank — they were seeded and declared nowhere, so the mirror had no field and the browser never saw them"
+         12 of 14 stored answers carry no three-part read. Plus Delete and its undo, declared in .408 after .407 rendered the page blank — they were seeded and declared nowhere, so the mirror had no field and the browser never saw them. \
+         Plus the side picker's four (.409): its button template, the line under \
+         each of the two sides, and the heading above Chuck's directs — the \
+         heading above his redirects already existed and was CORRECTED rather \
+         than replaced, which is why this is four and not five"
     );
     assert_eq!(
         PRACTICE_PRINT_WORDING_KEYS.len(),

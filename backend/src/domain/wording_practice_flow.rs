@@ -31,8 +31,22 @@ pub struct PracticeFlowWording {
     // ── S0 · the deck, listed ────────────────────────────────────────────
     /// The bold label over the question list.
     pub deck_heading: String,
-    /// `· {n} — {george} George's side · {chuck} Chuck`, filled from the
-    /// questions the WHO filter is showing rather than from the whole deck.
+    /// `· {george} from the defense · {chuck} from Chuck`.
+    ///
+    /// ## ⚑ RETAINED, NOT DEAD — no consumer as of .409
+    ///
+    /// The side picker prints these same two numbers on its own two buttons, so
+    /// the line beside the heading was drawing one fact twice, three inches
+    /// apart. It stopped being rendered on 2026-08-23 and the row was NOT
+    /// dropped, for two reasons. The task that removed it named the count line
+    /// among the things that stay, so whether it comes back is Roman's to say —
+    /// and while that is open, deleting the key would make restoring it a
+    /// migration rather than a one-line change. Dropping a row a running build
+    /// still declares is also how a backend is made to refuse to start.
+    ///
+    /// If the ruling goes the other way, this field, its key constant, its
+    /// entry in the keys list, its builder line and its mirror field come out
+    /// together — the same five places any wording key lives in.
     pub deck_count_template: String,
     /// `· {k} skipped today`, appended only when k > 0 — a separate row so the
     /// common case renders no empty clause and no stray separator.
