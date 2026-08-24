@@ -218,6 +218,13 @@ pub struct PracticeWordingDto {
     pub practice_none_answered: String,
     pub deck_question_missing: String,
     pub read_fallible: String,
+    pub row_delete_label: String,
+    pub row_deleted_notice: String,
+    pub row_undo_label: String,
+    pub print_answers_label: String,
+    pub print_answers_page_title: String,
+    pub print_answers_howto: String,
+    pub print_answer_missing: String,
 
     // ── Part B: the deck editor and what it records (Chuck's words) ─────
     // Same flattening rule as every block above: one field per stored key,
@@ -309,3 +316,7 @@ pub struct PracticeWordingDto {
 #[cfg(test)]
 #[path = "practice_wording_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "practice_wording_reach_tests.rs"]
+mod reach_tests;

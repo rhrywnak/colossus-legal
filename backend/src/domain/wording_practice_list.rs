@@ -100,6 +100,19 @@ pub struct PracticeListWording {
     /// no target for a misclick. It names Chuck because Chuck is a real path —
     /// he reviews her answers with her weekly — and a flag row is not.
     pub read_fallible: String,
+
+    // ── Delete, and the undo that stands where the row stood ─────────────
+    // Seeded by L2 and declared nowhere until .408 — see the print block for
+    // what that cost.
+    /// The control that removes a question. The mechanism is the existing hide,
+    /// so her answers are never orphaned.
+    pub row_delete_label: String,
+    /// The line that replaces a deleted row, carrying the undo beside it. It
+    /// exists INSTEAD of a confirm dialog.
+    pub row_deleted_notice: String,
+    /// The control that puts it back. Lives until the page is left; there is no
+    /// restore path beyond it, deliberately.
+    pub row_undo_label: String,
 }
 
 pub(crate) const KEY_PRACTICE_MODE_LABEL: &str = "practice_practice_mode_label";
@@ -132,6 +145,9 @@ pub(crate) const KEY_PRACTISE_AGAIN_LABEL: &str = "practice_practise_again_label
 pub(crate) const KEY_PRACTICE_NONE_ANSWERED: &str = "practice_practice_none_answered";
 pub(crate) const KEY_DECK_QUESTION_MISSING: &str = "practice_deck_question_missing";
 pub(crate) const KEY_READ_FALLIBLE: &str = "practice_read_fallible";
+pub(crate) const KEY_ROW_DELETE_LABEL: &str = "practice_row_delete_label";
+pub(crate) const KEY_ROW_DELETED_NOTICE: &str = "practice_row_deleted_notice";
+pub(crate) const KEY_ROW_UNDO_LABEL: &str = "practice_row_undo_label";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -167,6 +183,9 @@ pub(crate) const PRACTICE_LIST_WORDING_KEYS: &[&str] = &[
     KEY_PRACTICE_NONE_ANSWERED,
     KEY_DECK_QUESTION_MISSING,
     KEY_READ_FALLIBLE,
+    KEY_ROW_DELETE_LABEL,
+    KEY_ROW_DELETED_NOTICE,
+    KEY_ROW_UNDO_LABEL,
 ];
 
 /// Build a [`PracticeListWording`] from the stored rows, or say which key is
@@ -216,6 +235,9 @@ pub fn build_practice_list_wording<E>(
         practice_none_answered: read(KEY_PRACTICE_NONE_ANSWERED)?,
         deck_question_missing: read(KEY_DECK_QUESTION_MISSING)?,
         read_fallible: read(KEY_READ_FALLIBLE)?,
+        row_delete_label: read(KEY_ROW_DELETE_LABEL)?,
+        row_deleted_notice: read(KEY_ROW_DELETED_NOTICE)?,
+        row_undo_label: read(KEY_ROW_UNDO_LABEL)?,
     })
 }
 

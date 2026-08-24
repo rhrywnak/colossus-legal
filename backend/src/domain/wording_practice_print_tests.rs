@@ -45,6 +45,13 @@ const CORRECTION_MIGRATIONS: &[&str] =
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_QUESTIONS_LABEL, "🖨 Print questions"),
     (KEY_QUESTIONS_EMPTY_HINT, "No questions in this deck yet."),
+    (KEY_ANSWERS_LABEL, "🖨 Print answers"),
+    (KEY_ANSWERS_PAGE_TITLE, "Answers — {code}"),
+    (
+        KEY_ANSWERS_HOWTO,
+        "Marie's answers as they stand today, in the same order as the questions. The current answer only — not the earlier versions.",
+    ),
+    (KEY_ANSWER_MISSING, "Not answered yet."),
     (KEY_NOW_LABEL, "Print"),
     (KEY_BACK_LABEL, "◂ Back to the deck"),
     (KEY_PAGE_TITLE, "Questions — {code}"),

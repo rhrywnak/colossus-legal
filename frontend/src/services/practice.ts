@@ -308,6 +308,21 @@ export type PracticeSheet = {
  * button in front of a witness; a `?? "Answer"` would put a sentence in the
  * product that no migration can change. Throwing puts the page's own failure
  * notice on screen with the key in it, which is the only honest option.
+ *
+ * ## ⚑ OWED: this failure is INVISIBLE TO AN OPERATOR
+ *
+ * The throw reaches the browser console and nowhere else. Nothing catches it to
+ * report server-side: no error boundary with a reporting path, no `error` or
+ * `unhandledrejection` handler that calls an endpoint, no row written. The
+ * backend returns 200 with a partial payload and logs nothing.
+ *
+ * On 2026-08-23 .407 booted clean and rendered this page blank, and the only
+ * evidence anywhere was a devtools console — which is why it took a person with
+ * a browser open to find it. `practice_wording_reach_tests` now makes THIS cause
+ * impossible at `cargo test`, but any future payload gap is still console-only.
+ *
+ * A client error-reporting hook is the fix and it is a feature, not a comment.
+ * Filed, not built — deliberately not started at the tail of an outage.
  */
 export function wordingOf(wording: PracticeWording, key: string): string {
   const value = wording[key];

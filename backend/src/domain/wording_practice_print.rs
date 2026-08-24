@@ -29,6 +29,22 @@ pub struct PracticePrintWording {
     /// hidden. Standing rule: no control on a practice page is dim and silent.
     pub questions_empty_hint: String,
 
+    // ── Chuck's reading copy: the answers sheet ──────────────────────────
+    // Seeded by L2's migration on 2026-08-23 and DECLARED NOWHERE until .408,
+    // which is why the practice page rendered blank on .407: the wire mirror is
+    // built field-by-field from these blocks, so a key no block declares has no
+    // field and never reaches the browser. The row existed the whole time.
+    /// The third button in the title row. Chuck prints questions to mark up and
+    /// answers to read — two documents for two acts.
+    pub answers_label: String,
+    /// The answers view's tab title, so two print tabs are tellable apart.
+    pub answers_page_title: String,
+    /// The line under the header on every answers sheet.
+    pub answers_howto: String,
+    /// Printed where Marie has not answered. The question still prints — omitting
+    /// it would make the two sheets disagree about how many questions there are.
+    pub answer_missing: String,
+
     /// The print view's own button. Hidden in print.
     ///
     /// Domain note: the view does NOT call `window.print()` on load. Chuck opens
@@ -107,6 +123,10 @@ pub struct PracticePrintWording {
 
 pub(crate) const KEY_QUESTIONS_LABEL: &str = "practice_print_questions_label";
 pub(crate) const KEY_QUESTIONS_EMPTY_HINT: &str = "practice_print_questions_empty_hint";
+pub(crate) const KEY_ANSWERS_LABEL: &str = "practice_print_answers_label";
+pub(crate) const KEY_ANSWERS_PAGE_TITLE: &str = "practice_print_answers_page_title";
+pub(crate) const KEY_ANSWERS_HOWTO: &str = "practice_print_answers_howto";
+pub(crate) const KEY_ANSWER_MISSING: &str = "practice_print_answer_missing";
 pub(crate) const KEY_NOW_LABEL: &str = "practice_print_now_label";
 pub(crate) const KEY_BACK_LABEL: &str = "practice_print_back_label";
 pub(crate) const KEY_PAGE_TITLE: &str = "practice_print_page_title";
@@ -137,6 +157,10 @@ pub(crate) const KEY_HIDDEN_TEMPLATE: &str = "practice_print_hidden_template";
 pub const PRACTICE_PRINT_WORDING_KEYS: &[&str] = &[
     KEY_QUESTIONS_LABEL,
     KEY_QUESTIONS_EMPTY_HINT,
+    KEY_ANSWERS_LABEL,
+    KEY_ANSWERS_PAGE_TITLE,
+    KEY_ANSWERS_HOWTO,
+    KEY_ANSWER_MISSING,
     KEY_NOW_LABEL,
     KEY_BACK_LABEL,
     KEY_PAGE_TITLE,
@@ -182,6 +206,10 @@ pub fn build_practice_print_wording<E>(
     Ok(PracticePrintWording {
         questions_label: read(KEY_QUESTIONS_LABEL)?,
         questions_empty_hint: read(KEY_QUESTIONS_EMPTY_HINT)?,
+        answers_label: read(KEY_ANSWERS_LABEL)?,
+        answers_page_title: read(KEY_ANSWERS_PAGE_TITLE)?,
+        answers_howto: read(KEY_ANSWERS_HOWTO)?,
+        answer_missing: read(KEY_ANSWER_MISSING)?,
         now_label: read(KEY_NOW_LABEL)?,
         back_label: read(KEY_BACK_LABEL)?,
         page_title: read(KEY_PAGE_TITLE)?,
