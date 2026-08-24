@@ -28,8 +28,10 @@ use crate::dto::practice_wording::PracticeWordingDto;
 use crate::repositories::pipeline_repository::practice::{
     LastSessionRecord, PracticePointReceipt, PracticePointRecord, PracticeQuestionRecord,
 };
-use crate::repositories::pipeline_repository::practice_flow::{OpenSessionRecord, RowStatusRecord};
-use crate::services::practice_status::{open_session_detail, row_status};
+use crate::repositories::pipeline_repository::practice_flow::{
+    CurrentAnswerRecord, OpenSessionRecord,
+};
+use crate::services::practice_status::open_session_detail;
 
 /// The tactic's NAME for a card number, or `None` when the question carries none.
 ///
@@ -79,7 +81,7 @@ pub fn question_dto_for(
     settings: &Settings,
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    question_dto(settings, &[], &[], record)
+    question_dto(settings, &[], record)
 }
 
 /// One talking point with its receipt, for a caller outside this module.
@@ -94,20 +96,55 @@ pub fn point_dto(
     }
 }
 
-/// One deck row, as the three screens receive it.
+/// `Answered on 22 Aug` for one timestamp.
 ///
-/// `status` arrives already composed, or absent. A question nobody has answered
-/// carries `None` and the row renders nothing at all — an empty status line
-/// under a question reads as a status that failed to load.
+/// ## Rust Learning: why the whole `Settings` and not just the template
+///
+/// It needs two stored values — the template and the case's timezone — from two
+/// different blocks. Threading both in as parameters would put the CALLER in
+/// charge of pairing them, and a caller that passed UTC with a Michigan template
+/// would render a date four hours wrong with nothing to catch it. One argument,
+/// one place the pairing is made.
+pub fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
+    render(
+        &settings.practice_wording.row.answered_on_template,
+        // UNBRACED key: this repo's `render` matches `when`, not `{when}`. A
+        // braced key here matches nothing and ships a raw `{when}` to screen —
+        // which has happened, and which nothing in the build can warn about
+        // because the string is well-typed either way.
+        &[(
+            "when",
+            &crate::services::practice_clock::local_day_month(
+                at,
+                &settings.practice_read.case_timezone,
+            ),
+        )],
+    )
+}
+
+/// One deck row, as the list receives it.
+///
+/// ## What a row no longer carries
+///
+/// `status` — "answered today · repeat · attempt 2" — and its raw mark are gone
+/// from the wire, retired with the sitting apparatus by
+/// CC_TASK_PRACTICE_ONE_PAGE §3, along with the `changed` badge and the box it
+/// belonged to. `answered_on` is the ONE status a row has left, and the stored
+/// footnote under the list is what tells a reader that its absence means "not
+/// answered yet" rather than "failed to load".
 fn question_dto(
     settings: &Settings,
-    statuses: &[RowStatusRecord],
-    badged: &[Uuid],
+    current: &[CurrentAnswerRecord],
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    let found = statuses.iter().find(|s| s.question_id == record.id);
-    let status = found.map(|s| row_status(settings, s));
-    let status_mark = found.map(|s| s.mark.clone());
+    // Composed here for the reason this module's header gives: the client holds
+    // no templates and no date format, so how this line reads is a Settings
+    // edit. `None` when nobody has answered — the row then renders NOTHING, and
+    // an empty line under a question would read as a status that failed to load.
+    let answered_on = current
+        .iter()
+        .find(|a| a.question_id == record.id)
+        .map(|a| answered_on_line(settings, a.answered_at));
     PracticeQuestionDto {
         tactic: tactic_tag(settings, &record),
         braid: record.braid_rows.is_some(),
@@ -124,12 +161,10 @@ fn question_dto(
         flag_note: record.flag_note,
         hidden: record.hidden_at.is_some(),
         draft_by: record.draft_by,
-        changed: badged.contains(&record.id),
+        answered_on,
         kind: record.kind,
         deck_key: record.deck_key,
         follows_key: record.follows_key,
-        status,
-        status_mark,
     }
 }
 
@@ -269,17 +304,12 @@ pub struct DeckSources<'a> {
     /// The seeded stand-in receipts. See [`point_receipt`] for the precedence.
     pub receipts: &'a [PracticePointReceipt],
     pub last: Option<&'a LastSessionRecord>,
-    /// The newest attempt at each question, for the status on its row.
-    pub statuses: &'a [RowStatusRecord],
+    /// The answer that stands for each question right now, for the row's
+    /// `Answered on …` line. Scenario-wide and NOT scoped to the requester —
+    /// see `practice_flow::current_answers` for why that is the whole point.
+    pub current: &'a [CurrentAnswerRecord],
     /// The sitting she walked out of, if there is one.
     pub open: Option<&'a OpenSessionRecord>,
-    /// The questions wearing the `changed` badge, decided by
-    /// `services::practice_changes::badged`.
-    pub badged: &'a [Uuid],
-    /// The notes on the scenario, already composed.
-    pub notes: Vec<crate::dto::practice_review::PracticeNoteDto>,
-    /// What changed since her last sitting, or `None`.
-    pub changed: Option<crate::dto::practice_review::PracticeChangedDto>,
     /// What the editor's add form may attach a new question to.
     pub attach_options: Vec<crate::dto::practice_review::PracticeAttachOptionDto>,
 }
@@ -298,11 +328,8 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         points,
         receipts,
         last,
-        statuses,
+        current,
         open,
-        badged,
-        notes,
-        changed,
         attach_options,
     } = sources;
 
@@ -318,7 +345,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, statuses, badged, record))
+            .map(|record| question_dto(settings, current, record))
             .collect(),
         points: points
             .into_iter()
@@ -334,8 +361,6 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
             &settings.practice_read.case_timezone,
         ),
         receipts: picker,
-        notes,
-        changed,
         attach_options,
         open_session: open.map(|record| OpenSessionDto {
             session_id: record.id,

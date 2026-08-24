@@ -34,11 +34,9 @@ function question(id: string): PracticeQuestion {
     kind: "cross",
     deck_key: id,
     follows_key: null,
-    status: null,
-    status_mark: null,
     hidden: false,
+    answered_on: null,
     draft_by: null,
-    changed: false,
   };
 }
 

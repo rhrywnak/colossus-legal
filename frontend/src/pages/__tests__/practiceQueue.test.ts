@@ -42,11 +42,9 @@ function question(
     // readable: `r1` follows `g1` and the reader can see it.
     deck_key: id,
     follows_key: followsKey,
-    status: null,
-    status_mark: null,
     hidden: false,
+    answered_on: null,
     draft_by: null,
-    changed: false,
   };
 }
 

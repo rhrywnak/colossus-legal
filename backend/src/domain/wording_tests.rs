@@ -227,6 +227,75 @@ const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_r
 const ACKNOWLEDGMENT_MIGRATION: &str =
     "pipeline_migrations/20260808171630_ruling_acknowledgment_wording.sql";
 
+// =============================================================================
+// ⚑ THE RULE FOR ANYTHING IN THIS REPOSITORY THAT READS SOURCE OR SQL
+// =============================================================================
+//
+// **Strip comments before you look.**
+//
+// Not "be careful" — a mechanical step, every time, in every scanner. The root
+// cause is not a mistake anyone will stop making, because it is caused by
+// something this codebase does deliberately and should keep doing:
+//
+//   THIS CODEBASE DOCUMENTS ITS RULES NEXT TO ITS RULES.
+//
+// A migration that parses `SET value         = '` explains that format in its
+// own header. A wording fixture reads a seed migration whose comments quote the
+// syntax it is parsing. A test that asserts a function name is ABSENT sits in a
+// file explaining why that function was deleted. Every one of those is good
+// practice, and every one of them puts the string a naive parser is hunting for
+// EARLIER in the file than the thing it actually wants.
+//
+// Measured, three times on 2026-08-23:
+//
+//   1. A migration's header quoted `SET value         = '`; an overlay parser
+//      captured the prose and printed a migration's comments onto S-5's
+//      redirect sheet.
+//   2. `corrected_value_in` below survives the same decoy ONLY because it uses
+//      `rfind` — the decoy always happens to come first. That is luck, not
+//      design, and it is logged for the T2 window.
+//   3. `api::practice_answers::tests` failed on the handler's own comment
+//      explaining a deletion, and now strips comments before scanning.
+//
+// The three sites point HERE rather than each carrying a copy, because the
+// fourth scanner will be in a file nobody thought to copy it into.
+//
+// =============================================================================
+// ⚑ AND THE RULE THAT SUBSUMES IT
+// =============================================================================
+//
+// **GREEN IS NOT EVIDENCE UNTIL SOMETHING HAS PROVED GREEN CAN TURN RED.**
+//
+// Six instances in one week, 2026-08-17 to 08-23, all of one shape — a check
+// that reported success while checking nothing:
+//
+//   1–3. Three wording fixtures read only their seed migration, so every later
+//        correction was invisible. Green over a store holding other words.
+//   4.   A branch assertion that passed when the branch condition was replaced
+//        by `if false`. Correct shape, decided by nothing.
+//   5.   The same assertion strengthened to count a binding's occurrences —
+//        still passed, because the name appears three times and losing one
+//        still cleared `>= 2`.
+//   6.   A verification chain `cargo test && npx vitest | grep … && git commit`
+//        that COMMITTED WITH A FAILING TEST. A pipeline's exit status is its
+//        LAST command's; the pipe discards the failure. `grep` was where it was
+//        met, not the cause. `set -o pipefail`, `PIPESTATUS`, or do not pipe a
+//        command whose status you need.
+//
+//   7.   `cd backend && python …` run from the wrong directory: the `cd`
+//        failed, `&&` short-circuited, and a test believed to have been written
+//        did not exist. The chain reported success for work that never ran.
+//
+// ⚑ THE RULE THAT COVERS 6 AND 7: NEVER LET SHELL STATE BE A PRECONDITION OF A
+// VERIFICATION STEP. A pipeline's exit status is its LAST command's, and a `cd`
+// that fails takes the rest of the chain with it. Absolute paths, always;
+// `set -o pipefail` or `PIPESTATUS` when a pipe is unavoidable.
+//
+// Two of the six were indistinguishable from correct BY READING. That is what
+// makes this a rule rather than advice: reading a test is not a way to know
+// whether it works. Break the thing it guards and watch it fail. If it does not
+// fail, it was never guarding anything, however carefully it was written.
+
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
 /// ## Why this handles doubled quotes and the 1.6 version did not

@@ -360,3 +360,107 @@ fn check_single_table_select(statement: &str) -> usize {
     }
     checked
 }
+
+// -----------------------------------------------------------------------------
+// Delete is a HIDE, and her answers outlive it
+// -----------------------------------------------------------------------------
+//
+// The one-page work put a button labelled **Delete** on every deck row. The
+// mechanism underneath is the existing hide, and the whole safety of that choice
+// rests on two facts a source-scan of the frontend cannot reach:
+//
+//   1. no code path DELETES a question, and
+//   2. if one ever did, the database would refuse it, because
+//      `practice_answers.question_id` is `ON DELETE RESTRICT`.
+//
+// Together those are what make "Delete works on an answered question and her
+// answers survive it" TRUE rather than merely intended. The frontend test proves
+// the button calls the hide; these prove the hide is all there is.
+//
+// Rule 21's instrument — read the migrations and the repository off disk — for
+// the same reason the sibling tests above use it: these tables did not exist when
+// the image that compiles this code was prepared, so nothing here is checkable at
+// compile time and there is no database in the unit-test environment.
+
+/// Every pipeline migration, concatenated — the schema as it will exist.
+fn all_migrations() -> String {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("pipeline_migrations");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .expect("pipeline_migrations is readable")
+        .map(|e| e.expect("dir entry readable").path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("sql"))
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .map(|p| std::fs::read_to_string(&p).expect("migration is UTF-8"))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The answer's foreign key REFUSES a delete of the question it quotes.
+#[test]
+fn an_answer_forbids_deleting_the_question_it_quotes() {
+    let sql = all_migrations();
+    let table = sql
+        .split("CREATE TABLE practice_answers")
+        .nth(1)
+        .expect("the practice_answers table is declared in a migration");
+    let body = &table[..table.find(");").expect("the declaration ends")];
+
+    let fk = body
+        .split("question_id")
+        .nth(1)
+        .expect("practice_answers declares a question_id");
+    let fk = &fk[..fk.find(',').unwrap_or(fk.len())];
+
+    assert!(
+        fk.contains("REFERENCES practice_questions"),
+        "question_id must be a real foreign key, got {fk:?}"
+    );
+    assert!(
+        fk.contains("ON DELETE RESTRICT"),
+        "RESTRICT is what stops a deleted question orphaning her answers. \
+         CASCADE here would delete the ANSWERS instead, silently: {fk:?}"
+    );
+}
+
+/// Nothing in the repository deletes a practice question.
+///
+/// ANTI-VACUITY for the test above: a constraint nobody can reach proves
+/// nothing, and a constraint that fires in production is an operator's problem
+/// rather than a design. The safety comes from both — the FK is the backstop,
+/// and this is the absence it is backing up.
+#[test]
+fn no_repository_statement_deletes_a_question() {
+    for statement in sql_statements() {
+        let flat = statement.to_uppercase();
+        assert!(
+            !flat.contains("DELETE FROM PRACTICE_QUESTIONS"),
+            "a repository statement deletes a practice question. Delete is a \
+             HIDE — a real delete would be REFUSED by `practice_answers`' foreign \
+             key for every question Marie has answered, and would SUCCEED for the \
+             rest, which is the worse half: the deck would silently lose a \
+             question nobody agreed to lose. Statement: {statement}"
+        );
+    }
+}
+
+/// The hide is an UPDATE of one nullable timestamp, and the same statement
+/// clears it.
+///
+/// A hide implemented as anything else — a status enum, a second table — would
+/// make the undo a second code path, and Roman ruled there is no restore path
+/// beyond that one line on the row.
+#[test]
+fn the_hide_sets_a_nullable_timestamp_and_can_clear_it() {
+    let hide = sql_statements()
+        .into_iter()
+        .find(|s| s.contains("hidden_at") && s.to_uppercase().starts_with("UPDATE"))
+        .expect("a statement writes hidden_at");
+
+    assert!(
+        hide.contains("NULL"),
+        "the same statement must be able to CLEAR it — that is the undo: {hide}"
+    );
+}

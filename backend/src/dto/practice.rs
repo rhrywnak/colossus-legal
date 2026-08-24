@@ -63,18 +63,6 @@ pub struct PracticeQuestionDto {
     /// The `deck_key` of the George question this redirect answers, or `None`.
     /// The browser pairs the queue by it; nothing else reads it.
     pub follows_key: Option<String>,
-    /// What happened to this question, ALREADY COMPOSED — "answered today ·
-    /// repeat · attempt 2". `None` on a question nobody has answered, which
-    /// renders nothing at all rather than an empty line.
-    pub status: Option<String>,
-    /// The RAW mark behind that status — `fine`, `repeat` or `skipped`, or
-    /// `None` when there is no status.
-    ///
-    /// Sent beside the sentence rather than parsed out of it: the sentence is a
-    /// Settings row and can be re-worded, and a screen that coloured itself by
-    /// searching it for the word "repeat" would lose its colours the first time
-    /// somebody edited the template.
-    pub status_mark: Option<String>,
     /// True when the deck editor has hidden this question. Marie's list and
     /// every queue drop it; the editor still shows it, greyed, so it can be put
     /// back. Never deleted.
@@ -82,9 +70,22 @@ pub struct PracticeQuestionDto {
     /// Who drafted this question when nobody has reviewed it (`architect`), or
     /// `None`. The editor shows a draft badge while it is set.
     pub draft_by: Option<String>,
-    /// True when this question has changed since her last sitting AND she has
-    /// not answered it since. The badge that says "re-read this one".
-    pub changed: bool,
+    /// `Answered on 22 Aug`, ALREADY COMPOSED — or `None` when nobody has
+    /// answered this question.
+    ///
+    /// ## Why this is beside `status` rather than instead of it
+    ///
+    /// `status` is the drill's line — `answered today · repeat · attempt 2` —
+    /// and it is scoped to THIS user's sittings, because it reports what SHE
+    /// did. This one is scoped to the scenario and carries no mark, because the
+    /// one-page deck row is read by two people: Chuck opens it to find her
+    /// answers and to print them, and a line scoped to the requester would tell
+    /// him every row was unanswered.
+    ///
+    /// Both ship while the two pages coexist. `status` retires with the sitting
+    /// apparatus in L2 — it is not deleted here, because a field removed from
+    /// the wire while a screen still reads it is a blank line on that screen.
+    pub answered_on: Option<String>,
 }
 
 /// The flag as it stands after a write — `None` when it was cleared.
@@ -159,9 +160,7 @@ pub struct PracticeDeckPayload {
     pub open_session: Option<OpenSessionDto>,
     /// The notes on this SCENARIO, oldest first. Question- and attempt-level
     /// notes ride the review payload instead.
-    pub notes: Vec<super::practice_review::PracticeNoteDto>,
     /// What changed since her last sitting. `None` withdraws the blue box.
-    pub changed: Option<super::practice_review::PracticeChangedDto>,
     /// What the editor's add form may attach a new question to — this
     /// scenario's ruled instances and talking points, already labelled.
     pub attach_options: Vec<super::practice_review::PracticeAttachOptionDto>,
@@ -306,6 +305,30 @@ pub struct CloseAnswerRequest {
 /// What the reveal screen shows about the read.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct ReadPartsDto {
+    /// The one line naming what happened.
+    pub call: String,
+    /// The reasoning. Empty is legitimate.
+    pub why: String,
+    /// What to do instead, in the order the model gave them. 0–3.
+    pub pointers: Vec<String>,
+    /// The citation keys used — every one proven to be a key that was sent.
+    pub keys: Vec<String>,
+}
+
+/// One citable source, as the critique's footnote list shows it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReadSourceDto {
+    /// `S2`, `R1`, `P3` — the key as the critique cites it.
+    pub key: String,
+    /// The words behind that key.
+    pub text: String,
+}
+
+/// What one answer produced.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct AnswerResponse {
     /// The answer row's id, which the drawer's help flag addresses.
     pub answer_id: Uuid,
@@ -315,6 +338,24 @@ pub struct AnswerResponse {
     /// `Some(true)` = fine (green), `Some(false)` = it named a tactic (red),
     /// `None` = there was no read. Three states, never two.
     pub read_ok: Option<bool>,
+    /// The critique's three parts, when the read produced three parts.
+    ///
+    /// ## ⚑ ADDITIVE. T1's read is unchanged.
+    ///
+    /// The parts have existed since T1 — `ReadParts`, stored in `read_call`,
+    /// `read_why`, `read_pointers` and `read_keys` — and were simply never put
+    /// on the wire, because the screen that consumed this response rendered one
+    /// composed sentence. Mockup v7 view 4 draws them separately, so they ship.
+    /// Nothing about what the model is SENT changes; `read_text` still carries
+    /// the composed line for anything that wants it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub read_parts: Option<ReadPartsDto>,
+    /// What the keys in `read_parts.keys` refer to — the critique's footnotes.
+    ///
+    /// Domain note: a critique that cites `S2` with no way to see what S2 SAYS
+    /// is worse than the single sentence it replaced. Citing receipts by key is
+    /// the whole of what T1 bought, and the key is only half of it.
+    pub read_sources: Vec<ReadSourceDto>,
 }
 
 /// One row of Chuck's sheet, every cell already a word.
@@ -366,4 +407,57 @@ pub struct PracticeSheetPayload {
     pub changes: Vec<SheetChangeLine>,
     /// That block's heading. Empty when `changes` is.
     pub changes_heading: String,
+}
+
+/// One question's current answer, for the printed answers sheet.
+///
+/// ## Domain note: the CURRENT answer only
+///
+/// Not the earlier versions. Chuck is reading what Marie would say today; a
+/// sheet carrying three versions of one answer asks him to work out which is
+/// live, which is the one job the screen already does for him.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PracticeAnswerDto {
+    pub question_id: Uuid,
+    /// Her words, exactly as typed.
+    pub text: String,
+    /// `Answered on 22 Aug`, already composed — the same line the deck row shows.
+    pub answered_on: String,
+}
+
+/// Every current answer in one scenario, for the print-answers view.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PracticeAnswersPayload {
+    pub answers: Vec<PracticeAnswerDto>,
+}
+
+/// One version of a question's answer, as the question page receives it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AnswerVersionDto {
+    pub answer_id: Uuid,
+    /// Her words, exactly as typed.
+    pub text: String,
+    /// `Answered on 22 Aug`, already composed — the same line the row shows.
+    pub answered_on: String,
+}
+
+/// One question's answer history: what stands now, and what came before.
+///
+/// ## Domain note: `earlier` is NOT editable, and the split says so
+///
+/// Two fields rather than one list with the current flagged, because the page
+/// treats them as different things: `current` is pre-filled into a box she can
+/// change, and `earlier` is a quiet line she never has to open. A single list
+/// would leave the client deciding which is which, and a client that got it
+/// wrong would offer her an edit box over an answer Chuck has already read.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionAnswersPayload {
+    /// What she would say today, or `None` if she has never answered.
+    pub current: Option<AnswerVersionDto>,
+    /// Everything before it, newest first. Empty when there is one answer or none.
+    pub earlier: Vec<AnswerVersionDto>,
 }

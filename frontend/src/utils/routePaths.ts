@@ -177,6 +177,67 @@ export function practicePrintPath(slug: string, scenarioId: string): string {
 }
 
 /**
+ * Chuck's printed ANSWERS — the same sheets, carrying what Marie wrote.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/print-answers`.
+ *
+ * A sibling address rather than a query parameter on `/print`: they are two
+ * documents for two different acts — one is marked up, one is read — and Chuck
+ * keeps both tabs open. A `?answers=1` would make them one page that sometimes
+ * shows something else, which is exactly the shape whose Back button lies.
+ */
+export function practiceAnswersPath(slug: string, scenarioId: string): string {
+  return `${practicePath(slug, scenarioId)}/print-answers`;
+}
+
+/**
+ * ONE question — where Marie writes and Chuck reads.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId`.
+ *
+ * ## The same path, a different page
+ *
+ * This address held the retired REVIEW page — one question with every attempt
+ * stacked and Chuck's notes on each. That page went with the notes ruling of
+ * 2026-08-23. The address returns because the thing at it is what a person
+ * always meant by "open this question": her current answer, editable, with the
+ * earlier ones collapsed underneath.
+ *
+ * `question` is a literal segment for the reason `print-answers` is one: routes
+ * under this prefix must be told apart by a WORD, not by which the matcher
+ * happens to try first.
+ */
+export function practiceQuestionPath(
+  slug: string,
+  scenarioId: string,
+  questionId: string,
+): string {
+  return `${practicePath(slug, scenarioId)}/question/${encodeURIComponent(questionId)}`;
+}
+
+/**
+ * The practice walk, for one side.
+ *
+ * Declared as `/cases/:slug/trial-prep/practice/:scenarioId/walk`, with the side
+ * in the query string.
+ *
+ * ## Why the side is a QUERY and not a segment
+ *
+ * It is a filter on one page, not a different page: reloading a walk should land
+ * on the same walk, and switching sides is starting over rather than navigating
+ * somewhere new. A segment would make two addresses for one screen.
+ */
+export function practiceWalkPath(
+  slug: string,
+  scenarioId: string,
+  side: "george" | "chuck",
+): string {
+  return `${practicePath(slug, scenarioId)}/walk?side=${side}`;
+}
+
+/**
  * One SITTING of the practice drill — the address a reload lands back on.
  *
  * Declared in `App.tsx` as
@@ -214,34 +275,6 @@ export function practiceSessionPath(
   );
 }
 
-/**
- * ONE question's review page — every attempt at it, newest first.
- *
- * Declared in `App.tsx` as
- * `/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId`.
- *
- * ## Why `question` and not another bare id
- *
- * The same reason `session` is a literal segment beside it. Three routes now
- * share this prefix and two of them end in a uuid; without a word between them,
- * a sitting id and a question id would be told apart by nothing but which route
- * the matcher tried first. `question` and `session` are words no uuid can be,
- * and the guard test asserts neither can shadow the other.
- *
- * @param slug the case slug, escaped here
- * @param scenarioId the scenario's UUID, escaped here
- * @param questionId the question's UUID, escaped here
- */
-export function practiceQuestionPath(
-  slug: string,
-  scenarioId: string,
-  questionId: string,
-): string {
-  return (
-    `/cases/${encodeURIComponent(slug)}/trial-prep/practice/` +
-    `${encodeURIComponent(scenarioId)}/question/${encodeURIComponent(questionId)}`
-  );
-}
 
 // ─── The navigation bar's own addresses (nav cleanup, Part 2) ────────────────
 //

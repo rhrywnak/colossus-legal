@@ -39,7 +39,6 @@ use super::practice_editor::{post_edit_question, post_hide_question, post_move_q
 use super::practice_editor_add::post_add_question;
 use super::practice_fences::check_sitting;
 use super::practice_flag::put_question_flag;
-use super::practice_notes::{get_question_review, post_note, post_strike_note};
 use super::practice_sessions::{get_sitting_route, post_end_session, post_resume, post_start_over};
 
 use crate::{
@@ -53,15 +52,12 @@ use crate::{
             last_ended_session, list_deck, list_point_receipts, list_points, start_session,
             NewSitting,
         },
-        practice_editor::{changes_since, last_answered_at},
-        practice_flow::{newest_open_session, open_session_count, row_statuses},
-        practice_notes::list_notes,
+        practice_editor::changes_since,
+        practice_flow::{current_answers, newest_open_session, open_session_count},
     },
     services::{
-        practice_changes::{badged, changed_box},
         practice_editor_options::attach_options,
         practice_notes::attribution,
-        practice_notes::{new_since, scenario_notes},
         practice_page::{deck_payload, DeckSources},
     },
     state::AppState,
@@ -75,6 +71,18 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/practice",
             get(get_practice_deck),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/answers",
+            get(super::practice_one_page::get_practice_answers),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/answer-session",
+            post(super::practice_one_page::post_answer_session),
+        )
+        .route(
+            "/practice/questions/:question_id/answers",
+            get(super::practice_one_page::get_question_answers),
         )
         .route(
             "/cases/:slug/scenarios/:scenario_id/practice/sessions",
@@ -137,15 +145,6 @@ fn part_b_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/practice/questions",
             post(post_add_question),
         )
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/practice/questions/:question_id",
-            get(get_question_review),
-        )
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/practice/notes",
-            post(post_note),
-        )
-        .route("/practice/notes/:note_id/strike", post(post_strike_note))
 }
 
 /// Turn a repository failure into a 500 that says nothing, having logged
@@ -204,17 +203,8 @@ pub async fn get_practice_deck(
             points: read.points,
             receipts: &read.receipts,
             last: read.last.as_ref(),
-            statuses: &read.statuses,
+            current: &read.current,
             open: read.open.as_ref(),
-            badged: &badged(&news.changes, &read.answered_at),
-            notes: scenario_notes(&settings, &read.notes),
-            changed: changed_box(
-                &settings,
-                &read.deck_for_changes,
-                &news.changes,
-                news.fresh_notes,
-                news.newest_note_author.as_deref(),
-            ),
             attach_options: attach,
         },
     );
@@ -224,11 +214,10 @@ pub async fn get_practice_deck(
         %scenario_id,
         questions = payload.questions.len(),
         points = payload.points.len(),
-        answered_questions = read.statuses.len(),
+        answered_questions = read.current.len(),
         receipts = payload.receipts.len(),
         open_sessions = read.open_total,
         changes_since_last = news.changes.len(),
-        notes = payload.notes.len(),
         "served the practice deck"
     );
     Ok(Json(payload))
@@ -237,8 +226,6 @@ pub async fn get_practice_deck(
 /// What has happened to this scenario since her last finished sitting.
 struct WhatChanged {
     changes: Vec<crate::repositories::pipeline_repository::practice_editor::DeckChangeRecord>,
-    fresh_notes: usize,
-    newest_note_author: Option<String>,
 }
 
 /// Read the deck changes and count the notes that arrived since her last sitting.
@@ -257,12 +244,7 @@ async fn read_what_changed(
     let changes = changes_since(&state.pipeline_pool, scenario_id, since)
         .await
         .map_err(|e| repo_error("changes_since", e))?;
-    let (fresh_notes, newest_note_author) = new_since(&read.notes, since);
-    Ok(WhatChanged {
-        changes,
-        fresh_notes,
-        newest_note_author: newest_note_author.map(str::to_string),
-    })
+    Ok(WhatChanged { changes })
 }
 
 /// Everything one deck payload is read from, in one place.
@@ -276,7 +258,10 @@ struct DeckRead {
     points: Vec<crate::repositories::pipeline_repository::practice::PracticePointRecord>,
     receipts: Vec<crate::repositories::pipeline_repository::practice::PracticePointReceipt>,
     last: Option<crate::repositories::pipeline_repository::practice::LastSessionRecord>,
-    statuses: Vec<crate::repositories::pipeline_repository::practice_flow::RowStatusRecord>,
+    /// The answer that stands for each question now, for the row's `Answered on
+    /// …` line. Scenario-wide, unlike `statuses` — the one-page deck row is read
+    /// by two people and an answer belongs to the question, not to the reader.
+    current: Vec<crate::repositories::pipeline_repository::practice_flow::CurrentAnswerRecord>,
     open: Option<crate::repositories::pipeline_repository::practice_flow::OpenSessionRecord>,
     /// The deck again, kept whole for the two readers that need POSITIONS in
     /// it — the change list's `Q3` and the add form's picker. `deck` itself is
@@ -284,10 +269,6 @@ struct DeckRead {
     /// extra reads the alternative would cost.
     deck_for_changes:
         Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
-    /// Every note on the scenario, all three levels. Partitioned by the caller.
-    notes: Vec<crate::repositories::pipeline_repository::practice_notes::NoteRecord>,
-    /// When each question was last answered, for the `changed` badge.
-    answered_at: Vec<(Uuid, chrono::DateTime<chrono::Utc>)>,
     /// How many open sittings this scenario carries. Read, and LOGGED, before
     /// anything closes one: nothing closed an abandoned sitting before Section
     /// B, so a scenario can carry several — and an operator who only ever sees
@@ -311,12 +292,6 @@ async fn read_deck_sources(
     Ok(DeckRead {
         deck_for_changes: deck.clone(),
         deck,
-        notes: list_notes(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("list_notes", e))?,
-        answered_at: last_answered_at(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("last_answered_at", e))?,
         points: list_points(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("list_points", e))?,
@@ -326,9 +301,9 @@ async fn read_deck_sources(
         last: last_ended_session(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("last_ended_session", e))?,
-        statuses: row_statuses(&state.pipeline_pool, scenario_id, user_id, timezone)
+        current: current_answers(&state.pipeline_pool, scenario_id)
             .await
-            .map_err(|e| repo_error("row_statuses", e))?,
+            .map_err(|e| repo_error("current_answers", e))?,
         open: newest_open_session(&state.pipeline_pool, scenario_id, user_id, timezone)
             .await
             .map_err(|e| repo_error("newest_open_session", e))?,

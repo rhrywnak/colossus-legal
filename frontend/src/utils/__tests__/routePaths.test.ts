@@ -57,6 +57,7 @@ import {
   peoplePath,
   practicePath,
   practicePrintPath,
+  practiceAnswersPath,
   practiceQuestionPath,
   practiceSessionPath,
   rehearsalPath,
@@ -205,6 +206,17 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
     emit: () => practiceQuestionPath("awad v cfs", "id/with/slashes", "qid/with/slashes"),
   },
+  {
+    name: "practiceAnswersPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    emit: () =>
+      practiceAnswersPath("awad-v-cfs", "3f2b1c9e-0000-4a1b-8c7d-000000000001"),
+  },
+  {
+    name: "practiceAnswersPath (ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    emit: () => practiceAnswersPath("awad v cfs", "id/with/slashes"),
+  },
   // ── The navigation bar (nav cleanup, Part 2) ─────────────────────────────
   //
   // Every path in `NAV_ITEMS` / `ADMIN_ITEMS` is one of these builders, so the
@@ -308,7 +320,7 @@ describe("the guard can fail", () => {
       "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
     );
     expect(routes).toContain(
-      "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+      "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     );
     expect(routes).toContain("/cases/:slug/rehearsal/:code");
     expect(routes).toContain("/documents/:id");
@@ -376,10 +388,16 @@ describe("the guard can fail", () => {
     expect(routeFor(practiceSessionPath("awad-v-cfs", "abc", "def"))).toBe(
       "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
     );
-    expect(routeFor(practiceQuestionPath("awad-v-cfs", "abc", "def"))).toBe(
-      "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    // The review page's `question` segment is retired, but the shadowing risk
+    // moved rather than went: `print` and `print-answers` share a prefix, and a
+    // matcher anchored only at the start would send Chuck's reading copy to the
+    // questions sheet. Both must resolve to their OWN route.
+    expect(routeFor(practicePrintPath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/print",
     );
-    expect(routeFor("/cases/awad-v-cfs/trial-prep/practice/abc/question")).toBeNull();
+    expect(routeFor(practiceAnswersPath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    );
   });
 
   it("keeps a parameter inside one segment", () => {

@@ -17,11 +17,11 @@ import React from "react";
 
 import { wordingOf, type PracticeQuestion, type PracticeWording } from "../../services/practice";
 import { fill, type PrintPlan, type PrintRow, type PrintSheet } from "./printSheetPlan";
+import PrintAntecedent from "./PrintAntecedent";
 import * as p from "./printStyles";
 
 type Props = {
   plan: PrintPlan;
-  code: string;
   /** The deck's own last change, already formatted. `null` when unknown. */
   deckAsOf: string | null;
   /** When this copy came off the printer, already formatted. */
@@ -55,25 +55,6 @@ const Tag: React.FC<{ question: PracticeQuestion }> = ({ question }) =>
  * absence is SAID — a blank quote box would read as a redirect that repairs
  * nothing, which is a different claim.
  */
-const After: React.FC<{ after: PrintRow["after"]; wording: PracticeWording }> = ({
-  after,
-  wording,
-}) => {
-  if (after === null) return null;
-  if (after.kind === "missing") {
-    return <p style={p.after}>{wordingOf(wording, "print_after_missing")}</p>;
-  }
-  const template = wordingOf(wording, "print_after_template");
-  const key = after.antecedent.deck_key ?? "";
-  const [before, quoted] = template.split("{question}");
-  return (
-    <p style={p.after}>
-      {fill(before, { key })}
-      <i style={p.afterQuote}>“{after.antecedent.text}”</i>
-      {quoted ?? ""}
-    </p>
-  );
-};
 
 /** Two ruled lines for a question, three for a redirect — as the mockup has it. */
 const Lines: React.FC<{ count: number }> = ({ count }) => (
@@ -89,13 +70,16 @@ const Row: React.FC<{ row: PrintRow; wording: PracticeWording }> = ({ row, wordi
   // split from its own ruled space is a note written under the wrong question.
   <div style={p.qb} data-print-row>
     <div style={p.qtop}>
-      {row.question.deck_key !== null && <span style={p.key}>{row.question.deck_key}</span>}
+      {/* No question code and no draft badge. Codes left the screen with the
+          sequential number they contradicted, and paper that carried one Chuck
+          could not find on screen was the whole defect. The draft badge went
+          with them: `draft_by` is never populated — Roman's manual process
+          covers telling Chuck what is a draft — so it rendered nothing here
+          while the screen showed nothing either. Screen and paper agree by
+          both being silent. */}
       <Tag question={row.question} />
-      {row.question.draft_by !== null && (
-        <span style={p.draft}>{wordingOf(wording, "badge_draft")}</span>
-      )}
     </div>
-    <After after={row.after} wording={wording} />
+    <PrintAntecedent after={row.after} wording={wording} />
     <p style={p.qtx}>{row.question.text}</p>
     <Source question={row.question} />
     <Lines count={row.after === null ? 2 : 3} />
@@ -104,15 +88,12 @@ const Row: React.FC<{ row: PrintRow; wording: PracticeWording }> = ({ row, wordi
 
 const Sheet: React.FC<{
   sheet: PrintSheet;
-  index: number;
-  total: number;
   deckTotal: number;
-  code: string;
   deckAsOf: string | null;
   printedAt: string;
   wording: PracticeWording;
   tail: React.ReactNode;
-}> = ({ sheet, index, total, deckTotal, code, deckAsOf, printedAt, wording, tail }) => {
+}> = ({ sheet, deckTotal, deckAsOf, printedAt, wording, tail }) => {
   const w = (k: string) => wordingOf(wording, k);
   return (
     <div style={p.sheet} data-print-sheet>
@@ -146,24 +127,13 @@ const Sheet: React.FC<{
 
       {tail}
 
-      <div style={p.ftr}>
-        <span>
-          {fill(w("print_footer_template"), {
-            code,
-            sheet: sheet.title,
-            n: String(sheet.rows.length),
-          })}
-        </span>
-        {/* SHEET, not page. The browser paginates physical pages itself; a sheet
-            with eight questions runs onto two of them and both would otherwise
-            have claimed to be the same numbered page. */}
-        <span>
-          {fill(w("print_sheet_number_template"), {
-            n: String(index + 1),
-            m: String(total),
-          })}
-        </span>
-      </div>
+      {/* NO FOOTER. Nothing trails a sheet's content, which is what makes it
+          impossible for a sheet to end on a page carrying only a footer — the
+          .405 defect. `break-before: avoid` was supposed to prevent that and
+          measurably did not: a forced footer-only page rendered byte-identical
+          with and without the rule. Chrome's own header carries the scenario
+          and the page number onto every page, per Roman's ruling, so nothing
+          is lost by removing ours. */}
     </div>
   );
 };
@@ -171,11 +141,15 @@ const Sheet: React.FC<{
 /**
  * Up to three sheets, in order, and only the ones with questions on them.
  *
- * A sheet with no questions is not printed at all and the sheet count adjusts —
- * a defense-only deck prints "sheet 1 of 1", never three sheets two of which are
- * a heading over white space. Most decks are partial; that is the normal case.
+ * A sheet with no questions is not printed at all — a defense-only deck prints
+ * one sheet, never three of which two are a heading over white space. Most decks
+ * are partial; that is the normal case.
+ *
+ * The scenario code is not a prop: it reaches the paper inside each sheet's own
+ * composed subtitle, and Chrome's page header carries it onto every physical
+ * page. Taking it twice would be two places for one fact to be wrong in.
  */
-const PrintSheets: React.FC<Props> = ({ plan, code, deckAsOf, printedAt, wording }) => {
+const PrintSheets: React.FC<Props> = ({ plan, deckAsOf, printedAt, wording }) => {
   // What the deck does NOT contain rides the LAST sheet — it is information Chuck
   // acts on, and a sheet he is not holding cannot carry it.
   const tailFor = (index: number): React.ReactNode => {
@@ -195,10 +169,7 @@ const PrintSheets: React.FC<Props> = ({ plan, code, deckAsOf, printedAt, wording
         <Sheet
           key={sheet.kind}
           sheet={sheet}
-          index={index}
-          total={plan.sheets.length}
           deckTotal={plan.deckTotal}
-          code={code}
           deckAsOf={deckAsOf}
           printedAt={printedAt}
           wording={wording}

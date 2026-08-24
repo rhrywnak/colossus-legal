@@ -326,3 +326,83 @@ fn the_citable_key_line_is_sorted_and_stable() {
     assert_eq!(once, twice);
     assert!(once.contains("THE KEYS YOU MAY CITE: P1 P2 P3 R1 R2 R3 S1 S2"));
 }
+
+// -----------------------------------------------------------------------------
+// ⚑ ONE AUTHORITY — the defect this section exists to make impossible
+// -----------------------------------------------------------------------------
+//
+// There were two places deciding what a citation key means: `citable_keys`,
+// which the prompt's key line and the reply parser both use, and the critique's
+// footnote list, assembled by hand in `api::practice_answers` from `points` and
+// `receipts`. They disagreed — the hand-built one omitted the sworn pair — so a
+// read could cite `S2` and the screen would show that key with NOTHING under it,
+// on every question carrying a sworn pair. Silent, and reachable in normal use.
+//
+// The fix was not to add S1 and S2 to the second list. It was to delete the
+// second list: `citable_keys` is now derived from `citable_sources`, and the
+// footnote list is built from the same function. These tests are what keep it
+// that way.
+
+/// Every key the model may cite has WORDS behind it, on a sworn-pair question.
+#[test]
+fn every_citable_key_carries_its_source() {
+    let payload = cross_payload();
+
+    for (key, text) in payload.citable_sources() {
+        assert!(
+            !text.trim().is_empty(),
+            "{key} is offered to the model with nothing behind it"
+        );
+    }
+}
+
+/// The sworn pair is citable, and it is IN THE SOURCES.
+///
+/// The exact gap that shipped: `citable_keys` named S1 and S2 while the footnote
+/// list did not carry them.
+#[test]
+fn the_sworn_pair_is_among_the_sources() {
+    let sources = cross_payload().citable_sources();
+    let keys: Vec<&str> = sources.iter().map(|(key, _)| key.as_str()).collect();
+
+    assert!(keys.contains(&"S1"), "what they said is citable: {keys:?}");
+    assert!(
+        keys.contains(&"S2"),
+        "what they admitted is citable: {keys:?}"
+    );
+}
+
+/// ⚑ THE TWO LISTS CANNOT DIVERGE, because one is derived from the other.
+///
+/// This is the test the architect asked for: add a key type to the citable set
+/// and forget the source list, and it fails. There is no longer a second list to
+/// forget — but if somebody re-hand-builds `citable_keys`, this catches it.
+#[test]
+fn the_citable_keys_are_exactly_the_sources_keys() {
+    for payload in [cross_payload(), direct_payload()] {
+        let from_sources: std::collections::BTreeSet<String> = payload
+            .citable_sources()
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+
+        assert_eq!(
+            payload.citable_keys(),
+            from_sources,
+            "the key set and the source list disagree — that is the defect of \
+             2026-08-23, which was a citation rendering with nothing under it"
+        );
+    }
+}
+
+/// A question with NO sworn pair offers neither key.
+///
+/// The absent case, on the shape that is 20 of 30 live rows: offering S1 to a
+/// question that has no `said` would invite a citation of nothing.
+#[test]
+fn a_question_without_a_sworn_pair_offers_neither_key() {
+    let keys = direct_payload().citable_keys();
+
+    assert!(!keys.contains("S1"), "no sworn pair, so no S1: {keys:?}");
+    assert!(!keys.contains("S2"), "no sworn pair, so no S2: {keys:?}");
+}

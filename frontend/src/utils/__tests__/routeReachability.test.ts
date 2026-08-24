@@ -32,7 +32,9 @@ import {
   homePath,
   peoplePath,
   practicePath,
+  practiceAnswersPath,
   practiceQuestionPath,
+  practiceWalkPath,
   practiceSessionPath,
   proofMatrixPath,
   proofReviewTabPath,
@@ -86,6 +88,11 @@ const BUILDER_ROUTES: string[] = [
   "/cases/:slug/trial-prep/practice/:scenarioId",
   "/cases/:slug/trial-prep/practice/:scenarioId/session/:sessionId",
   "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+  "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+  // The walk's side rides the QUERY STRING, so its builder emits a path with a
+  // `?` on it. What belongs here is the ROUTE, which carries no query — the
+  // matcher never sees one.
+  "/cases/:slug/trial-prep/practice/:scenarioId/walk",
 ];
 
 /**
@@ -118,7 +125,9 @@ const BUILDER_CALLS: Array<() => string> = [
   () => rehearsalScenarioPath("c", "S-1"),
   () => practicePath("c", "s"),
   () => practiceSessionPath("c", "s", "x"),
+  () => practiceAnswersPath("c", "s"),
   () => practiceQuestionPath("c", "s", "q"),
+  () => practiceWalkPath("c", "s", "george"),
 ];
 
 // -----------------------------------------------------------------------------

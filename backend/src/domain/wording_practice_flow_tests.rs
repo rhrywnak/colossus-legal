@@ -14,7 +14,7 @@
 // merely mislead; it stops her using a control that would have helped.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
@@ -30,11 +30,27 @@ const SEED_MIGRATION: &str =
 const HOTFIX_MIGRATION: &str =
     "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql";
 
+/// Migrations that CORRECT a value this block's seed already wrote.
+///
+/// ## ⚑ Why this exists, and what its absence was doing
+///
+/// It did not exist until 2026-08-23, and the parity test below read the seed
+/// migration ALONE. A row corrected by a later `UPDATE` therefore kept its
+/// ORIGINAL value in the fixture, the test went green, and the live store held
+/// something else — the exact drift this file exists to catch, reported as a
+/// pass. The base block (`wording_practice`) had learned this on 08-19 with
+/// `scenario_practice_link_label`; three of its siblings had not.
+///
+/// `corrected_value_in` uses `rfind`, so a key corrected TWICE ends up pinned to
+/// the LAST correction, which is what the store actually holds.
+const CORRECTION_MIGRATIONS: &[&str] =
+    &["pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql"];
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_DECK_HEADING, "The questions"),
-    (KEY_DECK_COUNT_TEMPLATE, "· {n} — {george} George's side · {chuck} Chuck"),
+    (KEY_DECK_COUNT_TEMPLATE, "· {george} from the defense · {chuck} from Chuck"),
     (KEY_DECK_SKIPPED_SUFFIX_TEMPLATE, "· {k} skipped today"),
     (KEY_DECK_HIDE_LINK, "Hide the questions"),
     (KEY_DECK_SHOW_LINK, "Show the questions"),
@@ -107,12 +123,25 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
         .expect("the practice flow migration is on disk");
+    let corrections: String = CORRECTION_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let hotfix = std::fs::read_to_string(root.join(HOTFIX_MIGRATION))
         .expect("the attribution hotfix migration is on disk");
 
     for key in PRACTICE_FLOW_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key)
+        // Corrections first: a value UPDATEd after its INSERT is the one the
+        // store actually holds, and searching the seed first pins the
+        // superseded string while looking perfectly green.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&corrections, key))
+            .or_else(|| seeded_value_in(&sql, key))
             .or_else(|| seeded_value_in(&hotfix, key))
             .unwrap_or_else(|| {
                 panic!(
@@ -170,7 +199,7 @@ fn every_template_carries_its_placeholders() {
         (
             "deck_count_template",
             &w.deck_count_template,
-            vec!["{n}", "{george}", "{chuck}"],
+            vec!["{george}", "{chuck}"],
         ),
         (
             "deck_skipped_suffix_template",

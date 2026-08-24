@@ -28,9 +28,9 @@ use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
+use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
 use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
-use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -120,9 +120,9 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // nested on the struct for the same Rule 17 reason and listed here for
         // the same reason as their siblings — one flat table.
         .chain(crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values())
-        .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
+        .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -679,10 +679,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        14,
-        "PRACTICE v1, the Chuck review: the words about ONE question — the way \
-         into it alone, its status on the row, the redirect tag and its drawer \
-         line, and what she would point to"
+        15,
+        "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
+         way into it alone, its status on the row, the redirect tag and its \
+         drawer line, and what she would point to. Plus the one-page work's \
+         `answered_on_template`, which becomes the ONLY status a row carries \
+         once the marks are retired from the interface"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
@@ -693,9 +695,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          the drag grip is the one addition on top"
     );
     assert_eq!(
-        PRACTICE_REVIEW_WORDING_KEYS.len(),
-        22,
-        "PRACTICE v1 Part B: the notes panel and the review page"
+        PRACTICE_LIST_WORDING_KEYS.len(),
+        30,
+        "PRACTICE one-page L2 (4): the practice bar's label, button and hint, plus \
+         the footnote that explains why a row now carries at most a date. Plus \
+         L3's line under a one-sentence critique, which is the COMMON rendering: \
+         12 of 14 stored answers carry no three-part read"
     );
     assert_eq!(
         PRACTICE_PRINT_WORDING_KEYS.len(),
@@ -732,10 +737,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
-            + PRACTICE_REVIEW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
-            + PRACTICE_PRINT_WORDING_KEYS.len(),
-        "the seed and the nineteen required lists must describe the same store"
+            + PRACTICE_PRINT_WORDING_KEYS.len()
+            + PRACTICE_LIST_WORDING_KEYS.len(),
+        "the seed and the twenty required lists must describe the same store"
     );
 }
 
@@ -1173,6 +1178,18 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // written: these go on PAPER that leaves the building, so a fixture that
         // drifted from the migration would be discovered by Chuck, not by a build.
         "pipeline_migrations/20260822154321_practice_print_questions_wording.sql",
+        // The seed-question warning: it CORRECTS practice_intro, and the
+        // correction pass below is what sees it.
+        "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
+        // L1 of the one-page work: `practice_row_answered_on_template`.
+        "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
+        // L2: the list page's new rows, and the three corrections —
+        // "George's side", the text-link Edit label, and the how-to
+        // sentence about a blue box that no longer prints.
+        "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
+        // L3: the line under a one-sentence critique.
+        "pipeline_migrations/20260823163653_practice_one_page_l3_plain_read_line.sql",
+        "pipeline_migrations/20260823164454_practice_one_page_l3_question_page_and_walk.sql",
     ]
     .iter()
     .map(|relative| {

@@ -17,18 +17,30 @@ use super::*;
 use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
-/// The migration that seeds every row this module reads.
-const SEED_MIGRATION: &str =
-    "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql";
-
-/// The hotfix that seeds the rows added on 2026-08-19 evening.
+/// Every migration that seeds a row of this block, oldest first.
 ///
-/// A block's rows can arrive in more than one migration — this one carries the
-/// hints the attribution/edit-mode hotfix added. Reading only the ORIGINAL seed
-/// would make every new key look un-seeded and fail this test for a row that is
-/// on disk two files along.
-const HOTFIX_MIGRATION: &str =
-    "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql";
+/// ## Why a LIST and not two named constants
+///
+/// A block's rows arrive over time — the v1 seed, the attribution hotfix that
+/// evening, and now the one-page work. Reading only the ORIGINAL seed makes
+/// every later key look un-seeded and fails this test for a row that is on disk
+/// two files along. It was two named constants and an `.or_else` chain; the
+/// third addition is where that shape stops paying, because the chain has to be
+/// edited in two places and one of them is easy to miss.
+///
+/// Order matters only for a key seeded twice — the FIRST file that carries it
+/// wins, which is the oldest. No key here is seeded twice today; if one ever is,
+/// the value that must win is the newest, and this becomes a `rev()` plus a
+/// comment saying why. (The `wording_practice` block already learned that lesson
+/// the hard way: its `corrected_value_in` searched forwards and returned the
+/// FIRST of two corrections.)
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260819100411_practice_v1_chuck_review_deck_keys_kinds_and_points_to.sql",
+    // The hints the attribution / case-timezone hotfix added, 2026-08-19.
+    "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql",
+    // `practice_row_answered_on_template` — the one status a one-page row carries.
+    "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -50,6 +62,9 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_UNFINISHED_TODAY_WORD, "today"),
     (KEY_ANSWER_EMPTY_HINT, "Type your answer first \u{2014} or press \"I don't recall.\""),
     (KEY_ANSWER_ALREADY_RECORDED, "That question is already answered in this sitting \u{2014} this tab is behind. Reload to see it."),
+    // The one status a one-page deck row carries. `{when}` is filled by
+    // `practice_clock::local_day_month` — no weekday, deliberately.
+    (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
 ];
 
 impl PracticeRowWording {
@@ -90,15 +105,18 @@ impl PracticeRowWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql =
-        std::fs::read_to_string(root.join(SEED_MIGRATION)).expect("the v1 migration is on disk");
-
-    let hotfix = std::fs::read_to_string(root.join(HOTFIX_MIGRATION))
-        .expect("the attribution hotfix migration is on disk");
+    let sources: Vec<String> = SEED_MIGRATIONS
+        .iter()
+        .map(|file| {
+            std::fs::read_to_string(root.join(file))
+                .unwrap_or_else(|cause| panic!("{file} is not on disk: {cause}"))
+        })
+        .collect();
 
     for key in PRACTICE_ROW_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key)
-            .or_else(|| seeded_value_in(&hotfix, key))
+        let seeded = sources
+            .iter()
+            .find_map(|sql| seeded_value_in(sql, key))
             .unwrap_or_else(|| {
                 panic!(
                     "{key} is declared to the boot loader but seeded by no migration \

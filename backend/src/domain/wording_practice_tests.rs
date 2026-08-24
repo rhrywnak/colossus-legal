@@ -25,16 +25,23 @@ const SEED_MIGRATION: &str = "pipeline_migrations/20260817213319_practice_sessio
 /// holds something else — the trap `scenario_practice_link_label` fell into on
 /// 08-19, where fixture and code agreed with each other and disagreed with every
 /// screen in the product.
-const CORRECTION_MIGRATIONS: &[&str] =
-    &["pipeline_migrations/20260819202208_build_403_labels_and_chuck_view.sql"];
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260819202208_build_403_labels_and_chuck_view.sql",
+    // The seed-question warning (2026-08-22): `practice_intro` stopped inviting a
+    // witness to rehearse and started saying the deck is unreviewed.
+    "pipeline_migrations/20260823101322_practice_seed_question_warning.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_KICKER, "Practice session"),
+    // A WARNING, not an invitation — Roman, 2026-08-22. Every deck on this system
+    // is seeded from the record and unreviewed, and the line this replaced told a
+    // witness to rehearse answers to questions no attorney had read.
     (
         KEY_INTRO,
-        "Twenty minutes, one accusation, no clock, nobody watching. Answer out loud first, then type it in a sentence or two. You'll see your own three points after every answer.",
+        "These are seed questions, drafted from the record. An attorney must review them before anyone practises answering.",
     ),
     (KEY_WHO_HEADING, "Who's asking?"),
     (KEY_WHO_GEORGE_TITLE, "The defense asks"),
@@ -98,9 +105,8 @@ impl PracticeWording {
         let row = crate::domain::wording_practice_row::PracticeRowWording::for_test_values();
         let editor =
             crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values();
-        let review =
-            crate::domain::wording_practice_review::PracticeReviewWording::for_test_values();
         let print = crate::domain::wording_practice_print::PracticePrintWording::for_test_values();
+        let list = crate::domain::wording_practice_list::PracticeListWording::for_test_values();
         build_practice_wording::<String>(|key| {
             TEST_SEED
                 .iter()
@@ -109,8 +115,8 @@ impl PracticeWording {
                 .or_else(|| flow.get(key).cloned())
                 .or_else(|| row.get(key).cloned())
                 .or_else(|| editor.get(key).cloned())
-                .or_else(|| review.get(key).cloned())
                 .or_else(|| print.get(key).cloned())
+                .or_else(|| list.get(key).cloned())
                 .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
         })
         .expect("every key in PRACTICE_WORDING_KEYS is in TEST_SEED")

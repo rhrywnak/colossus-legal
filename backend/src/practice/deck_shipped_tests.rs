@@ -336,3 +336,144 @@ fn every_redirect_still_follows_a_question_the_deck_holds() {
         }
     }
 }
+
+// -----------------------------------------------------------------------------
+// ⚑ NO RECEIPT NAMES A DECK KEY — the guard on the SOURCE
+// -----------------------------------------------------------------------------
+//
+// "Chuck's redirect after G3 — point 1." printed a question CODE on Chuck's
+// paper. Codes left the screen and the printed sheets on 2026-08-23; this one
+// survived inside AUTHORED PROSE, where no code change reached it. It pointed at
+// something appearing nowhere else on paper or on screen.
+//
+// ## What this guards, and what it does NOT
+//
+// It does not guard the fix — the fix is in the migration and in the YAML, and
+// both are done. It guards the SOURCE against the defect coming back: the YAML
+// is alive, Chuck will write receipts again, and this is where a code would
+// re-enter.
+//
+// ## ⚑ SELF-DERIVING, deliberately
+//
+// The forbidden strings come from the DECK'S OWN KEYS, not from a hardcoded
+// `g1`–`g5` / `c1`–`c5` / `r1`–`r5` pattern. A hardcoded pattern silently stops
+// guarding the day a deck gains a key shape nobody updated the test for; a
+// self-deriving one cannot.
+//
+// ## ⚑ CASE-INSENSITIVE, deliberately
+//
+// What printed was `G3`, uppercase. The keys in the file are lowercase. A
+// case-sensitive match would have found nothing and reported the deck clean.
+//
+// ## Domain note: "after the half-truth" is NOT this defect
+//
+// S-6's five redirects read "after the generalization", "after the half-truth",
+// "after the authority borrow", "after the echo", "after the braid". Those name
+// TACTICS and point at something a reader can use. The ruling was never about
+// the word "after" — it was about pointing at a code that appears nowhere else.
+// This test looks for KEYS, so it passes those and would fail `after g3`.
+
+/// Every shipped deck, by the path it lives at.
+// STRUCTURAL: a repo-internal fixture registry, not deployment configuration.
+// These deck files are committed to this codebase and read off disk by the test
+// itself (Rule 21) — they cannot vary between DEV and PROD, and a path that
+// moved would fail this test rather than mis-serve a request. The sibling
+// migration-path constants in the wording fixtures carry the same annotation for
+// the same reason.
+const SHIPPED_DECKS: &[&str] = &[
+    "practice_decks/S-5.yaml",
+    "practice_decks/S-6.yaml",
+    "practice_decks/S-7.yaml",
+];
+
+/// Is `key` present in `text` as a WORD, case-insensitively?
+///
+/// Bounded on both sides so a key never matches inside another word — `g1` must
+/// not fire on "g10", and `r1` must not fire on "Interrogatory R1esponse". The
+/// bounds are "not alphanumeric", which is what a deck key is made of.
+fn names_key(text: &str, key: &str) -> bool {
+    let haystack = text.to_lowercase();
+    let needle = key.to_lowercase();
+    let bytes = haystack.as_bytes();
+    let mut from = 0;
+    while let Some(at) = haystack[from..].find(&needle) {
+        let start = from + at;
+        let end = start + needle.len();
+        let before_ok = start == 0 || !bytes[start - 1].is_ascii_alphanumeric();
+        let after_ok = end == bytes.len() || !bytes[end].is_ascii_alphanumeric();
+        if before_ok && after_ok {
+            return true;
+        }
+        from = end;
+    }
+    false
+}
+
+#[test]
+fn no_shipped_receipt_names_a_deck_key() {
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+
+    let mut receipts_checked = 0_usize;
+    let mut keys_checked = 0_usize;
+
+    for file in SHIPPED_DECKS {
+        let raw = std::fs::read_to_string(root.join(file))
+            .unwrap_or_else(|cause| panic!("{file} is on disk: {cause}"));
+        let deck: DeckFile =
+            serde_yaml::from_str(&raw).unwrap_or_else(|cause| panic!("{file} parses: {cause}"));
+
+        // The keys THIS deck declares — derived, never a pattern.
+        let keys: Vec<String> = deck
+            .questions
+            .iter()
+            .filter_map(|q| q.key.clone())
+            .collect();
+        keys_checked += keys.len();
+
+        for question in &deck.questions {
+            let Some(receipt) = question.receipt.as_ref() else {
+                continue;
+            };
+            receipts_checked += 1;
+            for key in &keys {
+                assert!(
+                    !names_key(receipt, key),
+                    "{file}: a receipt names the deck key {key:?}, which appears \
+                     nowhere else on paper or on screen — so it points at nothing. \
+                     Receipt: {receipt:?}"
+                );
+            }
+        }
+    }
+
+    // ANTI-VACUITY. A parse that yielded no keys, or no receipts, would pass
+    // every assertion above forever. Both must be non-trivial.
+    assert!(
+        keys_checked > 0,
+        "no deck declared a key — the guard read nothing"
+    );
+    assert!(
+        receipts_checked > 0,
+        "no deck carried a receipt — the guard read nothing"
+    );
+}
+
+/// The matcher is case-insensitive and word-bounded.
+///
+/// Pinned directly because the whole guard rests on it: what printed was `G3`,
+/// uppercase, against lowercase keys in the file.
+#[test]
+fn the_key_matcher_ignores_case_and_respects_word_bounds() {
+    assert!(names_key("Chuck's redirect after G3 — point 1.", "g3"));
+    assert!(names_key("after g3 —", "g3"));
+
+    // Not inside another token: `g1` must not fire on `g10`.
+    assert!(!names_key("Chuck's redirect after g10 —", "g1"));
+    // Not inside a word.
+    assert!(!names_key("Interrogatory R1esponse", "r1"));
+    // A tactic name is not a key, which is why S-6 passes.
+    assert!(!names_key(
+        "Chuck's redirect after the half-truth — point 1.",
+        "g3"
+    ));
+}

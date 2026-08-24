@@ -12,7 +12,7 @@
 // deck believing nobody will know who did it.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
@@ -36,10 +36,26 @@ const HOTFIX_MIGRATION: &str =
 const NAV_MIGRATION: &str =
     "pipeline_migrations/20260819152958_nav_cleanup_scenario_header_buttons.sql";
 
+/// Migrations that CORRECT a value this block's seed already wrote.
+///
+/// ## ⚑ Why this exists, and what its absence was doing
+///
+/// It did not exist until 2026-08-23, and the parity test below read the seed
+/// migrations ALONE. A row corrected by a later `UPDATE` therefore kept its
+/// ORIGINAL value in the fixture, the test went green, and the live store held
+/// something else — the exact drift this file exists to catch, reported as a
+/// pass. The base block (`wording_practice`) had learned this on 08-19 with
+/// `scenario_practice_link_label`; three of its siblings had not.
+///
+/// `corrected_value_in` uses `rfind`, so a key corrected TWICE ends up pinned to
+/// the LAST correction, which is what the store actually holds.
+const CORRECTION_MIGRATIONS: &[&str] =
+    &["pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql"];
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
-    (KEY_EDITOR_SWITCH_LABEL, "Edit the deck"),
+    (KEY_EDITOR_SWITCH_LABEL, "✎ Edit the deck"),
     (KEY_EDITOR_DONE_LABEL, "Done editing"),
     (KEY_EDITOR_EDIT_LABEL, "Edit"),
     (KEY_EDITOR_HIDE_LABEL, "Hide"),
@@ -157,9 +173,22 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let nav = std::fs::read_to_string(root.join(NAV_MIGRATION))
         .expect("the nav cleanup migration is on disk");
     let sql = format!("{part_b}\n{nav}");
+    let corrections: String = CORRECTION_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     for key in PRACTICE_EDITOR_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key)
+        // Corrections first: a value UPDATEd after its INSERT is the one the
+        // store actually holds, and searching the seed first pins the
+        // superseded string while looking perfectly green.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&corrections, key))
+            .or_else(|| seeded_value_in(&sql, key))
             .or_else(|| seeded_value_in(&hotfix, key))
             .unwrap_or_else(|| {
                 panic!(

@@ -82,6 +82,17 @@ pub async fn session_queue_len(
 ///
 /// Returns whether a row was touched, so the route can tell "stored" from "no
 /// such question" rather than reporting success for a write that hit nothing.
+/// ## ⚑ `flag_note` IS UNUSED AND DELIBERATELY LEFT ALONE
+///
+/// Measured 2026-08-23: 0 rows across 46 questions, and its only reader — the
+/// end-of-sitting sheet's flag list — retired from the interface with the
+/// sitting. It is neither deleted nor wired to anything new.
+///
+/// **If a read-flag is ever wanted, its home is a column on `practice_answers`,
+/// not here.** This flag hangs off the QUESTION; "this read is wrong" is about
+/// the READ, which lives on the answer. Filing a bad read against the question
+/// would record a good question as a bad one and point prompt-tuning at the
+/// wrong signal. That is why the control mockup v7 drew was not built.
 pub async fn set_flag(
     pool: &PgPool,
     question_id: Uuid,
@@ -366,4 +377,156 @@ pub async fn last_mark_in_session(
     .fetch_optional(pool)
     .await?;
     Ok(row.map(|r| r.0))
+}
+
+/// The answer that stands for one question right now.
+///
+/// Deliberately thinner than [`RowStatusRecord`]: no `mark`, no `attempts`, no
+/// "today" arithmetic. The one-page deck row says `Answered on 22 Aug` or says
+/// nothing, and the marks it used to carry (`fine` / `repeat` / `attempt 2`) are
+/// retired from the interface by CC_TASK_PRACTICE_ONE_PAGE §3.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CurrentAnswerRecord {
+    pub question_id: Uuid,
+    /// Her words, as typed. Read here rather than fetched again per question:
+    /// the same row feeds `Print answers` and practice mode's reveal.
+    pub answer_text: String,
+    pub answered_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The current answer to each of a scenario's questions.
+///
+/// ## Domain note: EVERY user's answers, and why that is the change
+///
+/// Its neighbour [`row_statuses`] filters `s.user_id = $2`, and had to: it
+/// composed `answered today · repeat` — a report on what SHE did — and counting
+/// Chuck's test answers into it would have told Marie she had answered a question
+/// she had never seen.
+///
+/// This one carries no filter, and that is a deliberate consequence of the page
+/// becoming ONE PAGE FOR TWO PEOPLE. Chuck opens it to read Marie's answers and
+/// to print them; scoped to the requester, `Print answers` would hand him blank
+/// paper and every row would claim to be unanswered. The answer belongs to the
+/// question, not to whoever is looking at it.
+///
+/// ## Rust Learning: `DISTINCT ON`, a Postgres extension
+///
+/// `DISTINCT ON (a.question_id)` keeps the FIRST row of each question under the
+/// `ORDER BY` — so the ordering is not cosmetic, it is what selects the row. The
+/// leading `ORDER BY` column must match the `DISTINCT ON` expression, and the
+/// columns after it (`answered_at DESC, id DESC`) are what "first" then means:
+/// newest, and for two answers in the same microsecond, the later id. Without
+/// that `id` tiebreak the winner would be whichever the planner happened to
+/// return, which is not a thing to leave to a planner.
+pub async fn current_answers(
+    pool: &PgPool,
+    scenario_id: Uuid,
+) -> Result<Vec<CurrentAnswerRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, CurrentAnswerRecord>(
+        "SELECT DISTINCT ON (a.question_id) \
+                a.question_id, a.answer_text, a.answered_at \
+         FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
+         WHERE s.scenario_id = $1 \
+         ORDER BY a.question_id, a.answered_at DESC, a.id DESC",
+    )
+    .bind(scenario_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
+/// The session an answer written from the question page belongs to.
+///
+/// ## Domain note: the sitting is INVISIBLE PLUMBING, not a feature
+///
+/// `CC_TASK_PRACTICE_ONE_PAGE` retires the sitting apparatus from the
+/// INTERFACE — no Start, no counts, no sides to choose, no resume, no end. It
+/// does not retire it from the schema, and could not:
+/// `practice_answers.session_id` is `NOT NULL REFERENCES practice_sessions(id)`,
+/// so every answer must belong to one. Roman's ruling of 2026-08-23 was to keep
+/// the row and hide the concept.
+///
+/// **So: "no sittings" is true of the interface and false of the database.**
+/// That sentence needs to survive outside the conversation it was ruled in, and
+/// this is where a reader of the code will be standing when they need it.
+///
+/// Reuses the newest UNENDED session for this scenario and user if there is one,
+/// so a witness answering ten questions over an afternoon writes ten answers
+/// into one row rather than opening ten sittings nobody will ever look at.
+/// Returns `None` when there is none to reuse — the caller then opens one.
+pub async fn open_session_for_answers(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    user_id: &str,
+) -> Result<Option<Uuid>, PipelineRepoError> {
+    let row: Option<(Uuid,)> = sqlx::query_as(
+        "SELECT s.id FROM practice_sessions s \
+         WHERE s.scenario_id = $1 AND s.user_id = $2 AND s.ended_at IS NULL \
+         ORDER BY s.started_at DESC, s.id DESC LIMIT 1",
+    )
+    .bind(scenario_id)
+    .bind(user_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row.map(|r| r.0))
+}
+
+/// One answer in a question's history, newest first.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct AnswerVersionRecord {
+    pub answer_id: Uuid,
+    pub answer_text: String,
+    pub answered_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Every version of one question's answer, newest first.
+///
+/// ## Domain note: scenario-wide, like its siblings
+///
+/// No user filter, for the reason `current_answers` carries none: the page is
+/// one page for two people, and an answer belongs to the question rather than
+/// to whoever is looking at it.
+///
+/// ## Why the WHOLE history and not a count
+///
+/// The question page shows "▸ 2 earlier versions" as one quiet line she never
+/// has to open — but when she does open it, the words must already be there. A
+/// count now and a fetch on expand would put a spinner inside a disclosure
+/// triangle, which is a loading state for something she opened out of idle
+/// curiosity. Answers are short and there are rarely more than three.
+pub async fn answer_versions(
+    pool: &PgPool,
+    question_id: Uuid,
+) -> Result<Vec<AnswerVersionRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, AnswerVersionRecord>(
+        "SELECT a.id AS answer_id, a.answer_text, a.answered_at \
+         FROM practice_answers a \
+         WHERE a.question_id = $1 \
+         ORDER BY a.answered_at DESC, a.id DESC",
+    )
+    .bind(question_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
+/// The answer that stands for one question, if there is one — id and words.
+///
+/// Lighter than [`answer_versions`] and used on the write path: the answer
+/// handler needs to know whether what she just typed is byte-identical to what
+/// already stands, and loading a whole history to compare one string would be a
+/// read that grows with every version she writes.
+pub async fn current_answer_for(
+    pool: &PgPool,
+    question_id: Uuid,
+) -> Result<Option<(Uuid, String)>, PipelineRepoError> {
+    let row: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT a.id, a.answer_text FROM practice_answers a \
+         WHERE a.question_id = $1 \
+         ORDER BY a.answered_at DESC, a.id DESC LIMIT 1",
+    )
+    .bind(question_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
 }

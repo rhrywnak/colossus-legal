@@ -25,21 +25,25 @@ use uuid::Uuid;
 
 use crate::{
     auth::AuthUser,
-    dto::practice::{AnswerRequest, AnswerResponse, CloseAnswerRequest, SkipQuestionRequest},
+    dto::practice::{
+        AnswerRequest, AnswerResponse, CloseAnswerRequest, ReadPartsDto, ReadSourceDto,
+        SkipQuestionRequest,
+    },
     error::AppError,
     repositories::pipeline_repository::{
         practice::{get_question, list_deck, session_scenario, PracticeQuestionRecord},
         practice_answers::{attach_read, close_answer, insert_answer, mark_help_opened, NewAnswer},
+        practice_flow::current_answer_for,
     },
     services::{
-        practice_read::read_answer, practice_read_gather::gather_payload,
-        practice_read_outcome::ReadOutcome,
+        practice_answer_version::is_reread, practice_read::read_answer,
+        practice_read_gather::gather_payload, practice_read_outcome::ReadOutcome,
     },
     state::AppState,
 };
 
 use super::practice::repo_error;
-use super::practice_fences::{fence_answer_text, fence_not_already_answered};
+use super::practice_fences::fence_answer_text;
 
 /// Why a row that has just been opened carries no read.
 ///
@@ -98,7 +102,22 @@ pub async fn post_practice_answer(
 ) -> Result<Json<AnswerResponse>, AppError> {
     let (scenario_id, question) = fence_answer(&state, body.session_id, body.question_id).await?;
     fence_answer_text(&body)?;
-    fence_not_already_answered(&state, body.session_id, question.id).await?;
+
+    // ## ⚑ WHY THERE IS NO "already answered" REFUSAL HERE ANY MORE
+    //
+    // `fence_not_already_answered` used to 409 a second answer to the same
+    // question in the same sitting, and was right to: the sitting model dealt
+    // each question once, so a second arrival meant a stale tab — which is what
+    // its message said.
+    //
+    // CC_TASK_PRACTICE_ONE_PAGE makes that loop THE DESIGN. §4: "She edits the
+    // box and presses Answer again, or goes back and picks another question.
+    // That loop is the whole design." And the sitting is now invisible plumbing
+    // reused across an afternoon, so the fence would fire on her second edit of
+    // the day and tell her to reload a page that is perfectly current.
+    //
+    // What replaces it is Roman's ruling of 2026-08-23, below: a VERSION IS A
+    // CHANGE SHE MADE, NOT A BUTTON SHE PRESSED TWICE.
 
     // `None` when the control was never opened; `Some([])` when she opened it
     // and picked nothing. The column keeps the two apart, so the payload does
@@ -109,34 +128,68 @@ pub async fn post_practice_answer(
         .as_ref()
         .map(|picked| serde_json::json!(picked));
 
+    // Byte-identical to what already stands? Then she pressed Answer twice —
+    // after Stop waiting, or out of habit having re-read a critique — and this
+    // is a RE-REQUEST OF THE READ, not a new version. Her "2 earlier versions"
+    // line must count things that are versions of something.
+    //
+    // Byte-identical and not trimmed-equal: a trailing space she added and meant
+    // is a change, and this code cannot tell which spaces she meant.
+    let standing = current_answer_for(&state.pipeline_pool, question.id)
+        .await
+        .map_err(|e| repo_error("current_answer_for", e))?;
+    let unchanged = is_reread(
+        standing.as_ref().map(|(_, text)| text.as_str()),
+        &body.answer_text,
+    );
+
     // STEP ONE: her answer, on disk, before anything is asked of anybody.
-    let answer_id = insert_answer(
-        &state.pipeline_pool,
-        &NewAnswer {
-            session_id: body.session_id,
-            question_id: question.id,
-            answer_text: body.answer_text.clone(),
-            dont_recall: body.dont_recall,
-            // The row opens PROVISIONAL: no boxes ticked, and marked fine. Both
-            // are settled by `post_close_answer` when she leaves the reveal,
-            // which is the first moment either is known.
-            self_check: unticked_self_check(),
-            points_to: points_to_json,
-            // The question AS ASKED, copied onto the answer now. Chuck's sheet
-            // and the review page print this rather than joining the deck's
-            // current text — Chuck edits the deck on Thursday, and a sheet that
-            // silently re-worded itself would put her Tuesday answer under a
-            // question she was never asked.
-            question_text: question.text.clone(),
-            mark: "fine".to_string(),
-            read_error: Some(READ_IN_FLIGHT.to_string()),
-        },
-    )
-    .await
-    .map_err(|e| repo_error("insert_answer", e))?;
+    let answer_id = if let (true, Some((existing, _))) = (unchanged, standing.as_ref()) {
+        tracing::info!(
+            question_id = %question.id,
+            answer_id = %existing,
+            "practice: the text is unchanged — re-reading, not versioning"
+        );
+        *existing
+    } else {
+        // ⚑ THE OTHER ARM LOGS TOO, and that is Rule 1 rather than symmetry.
+        // Two operationally distinct states must produce two observables. With
+        // only the re-read logged, an operator would have to infer "a version
+        // was written" from the ABSENCE of a line — which is indistinguishable
+        // from the request never arriving.
+        tracing::info!(
+            question_id = %question.id,
+            had_previous = standing.is_some(),
+            "practice: the text changed — writing a new version"
+        );
+        insert_answer(
+            &state.pipeline_pool,
+            &NewAnswer {
+                session_id: body.session_id,
+                question_id: question.id,
+                answer_text: body.answer_text.clone(),
+                dont_recall: body.dont_recall,
+                // The row opens PROVISIONAL: no boxes ticked, and marked fine. Both
+                // are settled by `post_close_answer` when she leaves the reveal,
+                // which is the first moment either is known.
+                self_check: unticked_self_check(),
+                points_to: points_to_json,
+                // The question AS ASKED, copied onto the answer now. Chuck's sheet
+                // and the review page print this rather than joining the deck's
+                // current text — Chuck edits the deck on Thursday, and a sheet that
+                // silently re-worded itself would put her Tuesday answer under a
+                // question she was never asked.
+                question_text: question.text.clone(),
+                mark: "fine".to_string(),
+                read_error: Some(READ_IN_FLIGHT.to_string()),
+            },
+        )
+        .await
+        .map_err(|e| repo_error("insert_answer", e))?
+    };
 
     // STEP TWO: the read.
-    let outcome = read_for(
+    let (outcome, read_sources) = read_for(
         &state,
         scenario_id,
         &question,
@@ -164,6 +217,15 @@ pub async fn post_practice_answer(
 
     Ok(Json(AnswerResponse {
         answer_id,
+        // The composed line still ships for anything that wants one sentence;
+        // the parts ship beside it for the screen that draws three.
+        read_parts: outcome.parts.as_ref().map(|parts| ReadPartsDto {
+            call: parts.call.clone(),
+            why: parts.why.clone(),
+            pointers: parts.pointers.clone(),
+            keys: parts.keys.clone(),
+        }),
+        read_sources,
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
@@ -187,7 +249,7 @@ async fn read_for(
     question: &PracticeQuestionRecord,
     answer_text: &str,
     points_to: Option<&Vec<String>>,
-) -> ReadOutcome {
+) -> (ReadOutcome, Vec<ReadSourceDto>) {
     let settings = state.settings.current();
 
     if is_stored_dont_recall(&settings.practice_wording.dont_recall_text, answer_text) {
@@ -195,24 +257,54 @@ async fn read_for(
             question = %question.id,
             "practice read: the stored don't-recall line — no model call"
         );
-        return ReadOutcome::stored(
-            settings
-                .practice_report_wording
-                .read_dont_recall_line
-                .clone(),
+        // No model call, so nothing was cited and there is nothing to footnote.
+        return (
+            ReadOutcome::stored(
+                settings
+                    .practice_report_wording
+                    .read_dont_recall_line
+                    .clone(),
+            ),
+            Vec::new(),
         );
     }
 
     match gather_payload(state, scenario_id, question, answer_text, points_to).await {
-        Ok(payload) => read_answer(state, &payload).await,
+        Ok(payload) => {
+            // The sources are taken from the payload that was SENT, not from the
+            // reply: a key the model invented is already refused upstream, and a
+            // footnote list built from the reply could only ever agree with
+            // itself. These are the words Marie was judged against.
+            // ⚑ ONE AUTHORITY. `citable_sources` is the same function the
+            // prompt's key line is built from, so the footnote list cannot
+            // disagree with what the model was allowed to cite. It used to be
+            // assembled here by hand from points and receipts, and it omitted
+            // the sworn pair — a read could cite S2 and the screen would show
+            // that key with nothing under it, silently, on every sworn-pair
+            // question.
+            //
+            // These are the words that were SENT. Never words that came back:
+            // a list built from the reply would let a hallucinated citation
+            // render its own supporting evidence.
+            let sources = payload
+                .citable_sources()
+                .into_iter()
+                .map(|(key, text)| ReadSourceDto { key, text })
+                .collect();
+            (read_answer(state, &payload).await, sources)
+        }
         Err(failure) => {
             tracing::error!(
                 question = %question.id, %scenario_id, reason = %failure,
                 "practice read: abstaining — an input the read is judged against did not load"
             );
-            ReadOutcome::from_payload_failure(
-                &settings.practice_report_wording.read_abstain_line,
-                &failure,
+            // An abstain cites nothing, so it footnotes nothing.
+            (
+                ReadOutcome::from_payload_failure(
+                    &settings.practice_report_wording.read_abstain_line,
+                    &failure,
+                ),
+                Vec::new(),
             )
         }
     }
@@ -355,6 +447,11 @@ pub async fn post_skip_question(
         answer_id,
         read_text: None,
         read_ok: None,
+        // A skip makes no model call, so there is no critique and nothing to
+        // footnote. Both absent rather than empty-but-present: "no read" and
+        // "a read that said nothing" are different facts.
+        read_parts: None,
+        read_sources: Vec::new(),
     }))
 }
 
@@ -441,3 +538,7 @@ pub async fn post_close_answer(
     }
     Ok(Json(serde_json::json!({ "mark": body.mark })))
 }
+
+#[cfg(test)]
+#[path = "practice_answers_tests.rs"]
+mod tests;

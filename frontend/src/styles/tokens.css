@@ -587,6 +587,24 @@
   --practice-resume-border: #cddcf3;
   --practice-flagged-row-bg: #fffaf9;
 
+  /* The seed-question warning under the scenario title. Amber, from the
+     mockup's `.warn`: it replaced a grey blurb in the same position, and a
+     reader will not re-read a line that sits where the old one sat unless it
+     looks different. */
+  --practice-warn-bg: #fdf8e6;
+  --practice-warn-border: #e8dcae;
+  --practice-warn-ink: #5f4d17;
+
+  /* The critique's waiting state: the bars that stand in for text that has not
+     arrived yet. A gradient, so the sweep has something to sweep across. */
+  --practice-shimmer: linear-gradient(90deg, #e4ebf5 25%, #f2f6fb 37%, #e4ebf5 63%);
+
+  /* Delete on a deck row. Warm rather than red: the mechanism underneath is a
+     hide and nothing is destroyed, so a red control would promise a consequence
+     the code does not deliver. From the mockup's `.btn3`. */
+  --practice-delete-border: #e0c4c4;
+  --practice-delete-ink: #9c4040;
+
   /* The neutral pill, and the tactic tag beside it. */
   --practice-pill-border: #d6e0ee;
   --practice-tactic-bg: #eef1f5;
@@ -636,6 +654,13 @@
      below it are the lighter lines inside a question block. */
   --print-rule: #d8d8d8;
   --print-hairline: #e6e6e6;
+
+  /* Marie's answer on Chuck's reading copy. A rule and the faintest wash — it
+     must read as set apart from the question without competing with it for
+     the eye, and it has to survive a monochrome printer, which is what Chuck
+     actually has. */
+  --print-answer-rule: #c9d6ea;
+  --print-answer-bg: #fafbfd;
   --print-source-bar: #e4e4e4;
 
   /* The deck key's box — the one colour on the sheet, because the key is the

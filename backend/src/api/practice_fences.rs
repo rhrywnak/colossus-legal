@@ -20,9 +20,7 @@ use crate::{
     dto::practice::{AnswerRequest, StartSessionRequest},
     error::AppError,
     repositories::pipeline_repository::practice::list_deck,
-    repositories::pipeline_repository::practice_flow::{
-        answer_count_for_scenario, last_mark_in_session,
-    },
+    repositories::pipeline_repository::practice_flow::answer_count_for_scenario,
     state::AppState,
 };
 
@@ -60,54 +58,6 @@ pub(super) fn fence_answer_text(body: &AnswerRequest) -> Result<(), AppError> {
             message: "an answer needs words in it, or press \"I don't recall.\"".to_string(),
             details: serde_json::json!({ "field": "answer_text" }),
         });
-    }
-    Ok(())
-}
-
-/// Refuse a second answer to a question this sitting has already settled.
-///
-/// ## The case this is for: two tabs
-///
-/// The same sitting open twice. The first tab answers Q3; the second tab, which
-/// has not reloaded, still shows Q3 and answers it too. Without this the sitting
-/// carries two rows for one question and Chuck's sheet prints her answer twice,
-/// which reads as her having been asked twice.
-///
-/// ## Why a re-queued question is exempt
-///
-/// "Ask me this one again later" marks the row `repeat` and appends the question
-/// to the queue, so answering it a second time IS the feature. The rule is
-/// therefore about the LAST answer's mark, not about existence: a `repeat` is an
-/// invitation to answer again, anything else is a settled row.
-///
-/// # Errors
-/// 409 with the stored sentence, so the screen can show what happened rather
-/// than a generic failure.
-pub(super) async fn fence_not_already_answered(
-    state: &AppState,
-    session_id: Uuid,
-    question_id: Uuid,
-) -> Result<(), AppError> {
-    let settled = last_mark_in_session(&state.pipeline_pool, session_id, question_id)
-        .await
-        .map_err(|e| repo_error("last_mark_in_session", e))?;
-    if let Some(mark) = settled {
-        if mark != "repeat" {
-            tracing::warn!(
-                %session_id, %question_id, %mark,
-                "practice: a second answer arrived for a question this sitting had settled"
-            );
-            return Err(AppError::Conflict {
-                message: state
-                    .settings
-                    .current()
-                    .practice_wording
-                    .row
-                    .answer_already_recorded
-                    .clone(),
-                details: serde_json::json!({ "question_id": question_id.to_string() }),
-            });
-        }
     }
     Ok(())
 }

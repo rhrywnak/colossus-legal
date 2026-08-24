@@ -166,19 +166,56 @@ impl ReadPayload {
     /// it per process, which would make the sent prompt unstable for no reason
     /// and any diff of two payloads unreadable.
     pub fn citable_keys(&self) -> BTreeSet<String> {
-        let mut keys = BTreeSet::new();
+        // Derived from `citable_sources`, never assembled a second time. See
+        // that function for why.
+        self.citable_sources()
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect()
+    }
+
+    /// Every citable key WITH the words behind it, in the prompt's own order.
+    ///
+    /// ## ⚑ THE ONE AUTHORITY. `citable_keys` is derived from this.
+    ///
+    /// There used to be two: this set was computed here, and the critique's
+    /// footnote list was assembled by hand from `points` and `receipts`. They
+    /// disagreed — the hand-built one omitted the sworn pair — so a read could
+    /// cite `S2` and the screen would show that key with NOTHING under it, on
+    /// every question carrying a sworn pair. Silent, and reachable in normal use.
+    ///
+    /// One function now decides what a key means, so the next key type cannot
+    /// be added to one list and forgotten in the other. A caller that wants only
+    /// the names takes them from here; a caller that wants the words takes them
+    /// from here.
+    ///
+    /// ## Domain note: a key with NO text is not citable
+    ///
+    /// Excluded at the source rather than filtered at the far end — the model is
+    /// never told a key it cannot be shown the words for, so an empty footnote
+    /// is unreachable by construction rather than by care.
+    ///
+    /// ## Rust Learning: `BTreeMap`-like ordering from a sorted `Vec`
+    ///
+    /// Returned sorted, for the reason `citable_keys` used a `BTreeSet`: the
+    /// prompt's key line must be byte-identical for the same payload every time,
+    /// or two payloads cannot be diffed and the sent prompt wobbles for no
+    /// reason.
+    pub fn citable_sources(&self) -> Vec<(String, String)> {
+        let mut sources: Vec<(String, String)> = Vec::new();
         for item in self.points.iter().chain(self.receipts.iter()) {
-            if item.text.is_some() {
-                keys.insert(item.key.clone());
+            if let Some(text) = item.text.as_ref() {
+                sources.push((item.key.clone(), text.clone()));
             }
         }
-        if self.said.is_some() {
-            keys.insert("S1".to_string());
+        if let Some(text) = self.said.as_ref() {
+            sources.push(("S1".to_string(), text.clone()));
         }
-        if self.admitted.is_some() {
-            keys.insert("S2".to_string());
+        if let Some(text) = self.admitted.as_ref() {
+            sources.push(("S2".to_string(), text.clone()));
         }
-        keys
+        sources.sort_by(|a, b| a.0.cmp(&b.0));
+        sources
     }
 }
 

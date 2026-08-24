@@ -165,6 +165,27 @@ fn started_at_phrase(settings: &Settings, today: bool, at: DateTime<Utc>) -> Str
 /// The two pills and the mixed choice's title, rather than three rows of their
 /// own: the resume line names the same three things the choice buttons above it
 /// name, and a second vocabulary for them is a second thing to keep in step.
+/// ## ⚑ OWED, NOT DEAD — do not delete this alone
+///
+/// This composes a sentence nothing renders. Its only caller,
+/// [`open_session_detail`], runs on every deck request that finds an open
+/// sitting — which is now every request, since answering opens one invisibly —
+/// and the resume box that showed the result retired with the sitting apparatus
+/// on 2026-08-23.
+///
+/// It is WASTE, not a defect: one string per request, harming nothing.
+///
+/// **Removing it means removing the whole chain — this function,
+/// `open_session_detail`, `OpenSessionDto`, the payload's `open_session` field
+/// and the frontend type that still declares it — TOGETHER.** Do not take out
+/// the payload field on its own: removing payload fields produced ZERO
+/// TypeScript errors this week, because the frontend types are hand-written and
+/// nothing enforces that boundary. Do it with the wire audit in front of you.
+///
+/// Its three wording keys STAY DECLARED whatever happens here:
+/// `practice_pill_george` and `practice_pill_chuck` are live on the frontend —
+/// they are the deck row's side pills — and a declared key with no row is a boot
+/// refusal.
 fn who_word(settings: &Settings, who: &str) -> String {
     let w = &settings.practice_wording;
     match who {

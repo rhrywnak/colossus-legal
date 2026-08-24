@@ -187,7 +187,7 @@ questions:
     follows: g1
     source_kind: manual
     text: "Mr. Phillips told this jury you wanted your evidence kept secret. What did Judge Tighe actually order on December 15, 2009, about your request?"
-    receipt: "Repairs g1 with the grant on the record: \"I will instruct you not to share that because she's asked you not to…\" — Hearing, p. 22"
+    receipt: "Repairs it with the grant on the record: \"I will instruct you not to share that because she's asked you not to…\" — Hearing, p. 22"
     watch_for: "WATCH FOR — the repair is the court's own order. Date it, attribute it, stop."
 
   - key: r2
@@ -196,5 +196,5 @@ questions:
     follows: g4
     source_kind: manual
     text: "The defense read you the court's 2012 findings. In December 2009, when your lawyer objected to how Mr. Phillips was characterizing you, what did the judge say she would do with those characterizations?"
-    receipt: "Repairs g4 with Hearing p. 35: \"I'm not paying attention to any of the—characterizations. And that's not gonna be the order.\" The jury hears the same court, three years apart."
+    receipt: "Repairs it with Hearing p. 35: \"I'm not paying attention to any of the—characterizations. And that's not gonna be the order.\" The jury hears the same court, three years apart."
     watch_for: "WATCH FOR — no commentary on the judge. The two dates and the two quotes stand next to each other on their own."

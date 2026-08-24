@@ -72,28 +72,29 @@ export type PracticeQuestion = {
   /** The `deck_key` of the George question a redirect answers, or `null`. */
   follows_key: string | null;
   /**
-   * What happened to this question, ALREADY COMPOSED by the server —
-   * "answered today · repeat · attempt 2". `null` renders nothing at all.
-   */
-  status: string | null;
-  /**
-   * The RAW mark behind that status — `fine`, `repeat` or `skipped`, or `null`.
+   * `Answered on 22 Aug`, ALREADY COMPOSED by the server — or `null` when
+   * nobody has answered this question.
    *
-   * Sent beside the sentence rather than parsed out of it: the sentence is a
-   * Settings row and can be re-worded, and a screen that coloured itself by
-   * searching it for the word "repeat" would lose its colours the first time
-   * somebody edited the template.
+   * The ONE status a row carries. `null` renders NOTHING at all, not an empty
+   * line: an empty status under a question reads as one that failed to load,
+   * which is a different fact from "not answered yet". The stored footnote
+   * under the list is what tells a reader which they are looking at.
+   *
+   * ## ⚑ This is not scoped to the person reading it
+   *
+   * The page is one page for two people. Chuck opens it to read Marie's
+   * answers and to print them, so the answer belongs to the QUESTION rather
+   * than to the requester. Its retired predecessor (`status`) was user-scoped,
+   * because it reported what SHE did in a sitting.
    */
-  status_mark: string | null;
+  answered_on: string | null;
   /**
-   * True when the deck editor has hidden this question. Marie's list and every
-   * queue drop it; the editor still shows it, greyed, so it can be put back.
+   * True when this question has been deleted — the mechanism is a hide, so the
+   * row is gone from every list while her answers keep pointing at it.
    */
   hidden: boolean;
   /** Who drafted it when nobody has reviewed it (`architect`), or `null`. */
   draft_by: string | null;
-  /** True when it changed since her last sitting and she has not answered it since. */
-  changed: boolean;
 };
 
 /** One note, as every panel renders it. */
@@ -170,10 +171,6 @@ export type PracticeDeck = {
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */
   open_session: OpenSession | null;
-  /** The notes on this SCENARIO, oldest first. */
-  notes: PracticeNote[];
-  /** What changed since her last sitting. `null` withdraws the blue box. */
-  changed: PracticeChanged | null;
   /** What the editor's add form may attach a new question to. */
   attach_options: PracticeAttachOption[];
   wording: PracticeWording;
@@ -187,13 +184,85 @@ export type SelfCheck = {
   guessed: boolean;
 };
 
-/** What the reveal shows about the read. */
+/**
+ * The critique's three parts.
+ *
+ * ## ⚑ Checked BY EYE against `backend/src/dto/practice.rs::ReadPartsDto`
+ *
+ * Nothing enforces this boundary — these types are hand-written, not generated,
+ * and four fields left the deck payload this week with zero TypeScript errors.
+ *
+ *   pub call: String          → call: string
+ *   pub why: String           → why: string      (empty is LEGITIMATE, never null)
+ *   pub pointers: Vec<String> → pointers: string[]  (0–3, never absent)
+ *   pub keys: Vec<String>     → keys: string[]      (never absent)
+ */
+export type ReadParts = {
+  call: string;
+  why: string;
+  pointers: string[];
+  keys: string[];
+};
+
+/**
+ * One citable source, as the critique footnotes it.
+ *
+ * ## ⚑ Checked BY EYE against `ReadSourceDto`
+ *
+ *   pub key: String  → key: string
+ *   pub text: String → text: string
+ *
+ * ## ⚑ THESE ARE THE WORDS WE SENT, NEVER WORDS THAT CAME BACK
+ *
+ * The server builds this from the payload the model was GIVEN. That is the
+ * whole value of it: if the read cites S2 for a claim S2 does not support,
+ * Marie can see S2 say so. Built from the model's own reply instead, a
+ * hallucinated citation would render its own supporting evidence. If anything
+ * ever makes this list come from the response, it stops being a safeguard and
+ * becomes decoration.
+ */
+export type ReadSource = {
+  key: string;
+  text: string;
+};
+
+/**
+ * What the critique shows about the read.
+ *
+ * ## ⚑ Checked BY EYE against `AnswerResponse`
+ *
+ *   pub answer_id: Uuid                    → answer_id: string
+ *   pub read_text: Option<String>          → read_text: string | null
+ *   pub read_ok: Option<bool>              → read_ok: boolean | null
+ *   pub read_parts: Option<ReadPartsDto>   → read_parts: ReadParts | null
+ *     ⚑ `skip_serializing_if = "Option::is_none"` — ABSENT, not null, when there
+ *       are no parts. The client must treat missing and null alike.
+ *   pub read_sources: Vec<ReadSourceDto>   → read_sources: ReadSource[]
+ *
+ * ## Domain note: `read_text` is a LOSSY PROJECTION of `read_parts`
+ *
+ * Not a second copy. The server derives it with `compose_read_text`, which
+ * deliberately drops `why` and keeps only the first pointer — it was built for a
+ * screen that showed one sentence. So the screen renders PARTS IF PRESENT, ELSE
+ * TEXT, and never both: showing both would print the call and first pointer
+ * twice, and the two cannot be reconciled because one is a summary of the other.
+ *
+ * ## Domain note: text WITHOUT parts is the COMMON case, not an edge
+ *
+ * Measured on DEV, 2026-08-23: of 14 stored answers, 12 carry `read_text` and
+ * only 2 carry parts — 10 have text and no parts, written before T1 shipped in
+ * .404. The fallback is the majority path.
+ */
 export type AnswerResult = {
   answer_id: string;
   /** `null` → the screen shows "no system read this time". */
   read_text: string | null;
   /** `true` green, `false` red, `null` no read. Three states. */
   read_ok: boolean | null;
+  /** The three parts, or `null`/absent on an older answer, an abstain or a failure. */
+  read_parts: ReadParts | null;
+  /** What the cited keys refer to. Empty when nothing was cited. */
+  read_sources: ReadSource[];
 };
 
 /** One row of Chuck's sheet — every cell already a word. */
@@ -279,7 +348,6 @@ export async function fetchPracticeDeck(
     !Array.isArray(parsed.questions) ||
     !Array.isArray(parsed.points) ||
     !Array.isArray(parsed.receipts) ||
-    !Array.isArray(parsed.notes) ||
     !Array.isArray(parsed.attach_options) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
@@ -411,6 +479,14 @@ export async function submitPracticeAnswer(input: {
     answer_id: parsed.answer_id,
     read_text: parsed.read_text ?? null,
     read_ok: parsed.read_ok ?? null,
+    // `?? null` and not `?? undefined`: the field is ABSENT on the wire when
+    // there are no parts (`skip_serializing_if`), and the screen must not have
+    // to know the difference between missing and null.
+    read_parts: parsed.read_parts ?? null,
+    // An empty ARRAY, never undefined. A critique whose sources came back
+    // undefined would render its citation keys with nothing behind them, which
+    // is the one shape this list exists to prevent.
+    read_sources: parsed.read_sources ?? [],
   };
 }
 

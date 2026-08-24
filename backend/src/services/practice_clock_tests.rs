@@ -8,7 +8,7 @@
 
 use chrono::{TimeZone, Utc};
 
-use super::{local_clock, local_date, local_stamp};
+use super::{local_clock, local_date, local_day_month, local_stamp};
 
 const CASE_TZ: &str = "America/Detroit";
 
@@ -103,4 +103,58 @@ fn the_zone_argument_is_actually_read() {
         "2:36 pm"
     );
     assert_eq!(local_clock(summer_evening(), "UTC"), "9:36 pm");
+}
+
+// -----------------------------------------------------------------------------
+// `22 Aug` — the day without its weekday
+// -----------------------------------------------------------------------------
+
+/// The one-page deck row's day: the number and the month, and nothing else.
+#[test]
+fn the_day_month_carries_no_weekday_and_no_year() {
+    assert_eq!(local_day_month(summer_evening(), CASE_TZ), "19 Aug");
+}
+
+/// It is the same instant as `local_date` renders — minus exactly the weekday.
+///
+/// Asserted as a RELATIONSHIP rather than as a second literal: if either format
+/// is edited, this fails, which is what stops the two drifting into disagreeing
+/// about the day itself while both still look plausible on screen.
+#[test]
+fn the_day_month_is_its_sibling_without_the_weekday() {
+    let full = local_date(summer_evening(), CASE_TZ);
+    let short = local_day_month(summer_evening(), CASE_TZ);
+
+    assert!(
+        full.ends_with(&short),
+        "{full:?} should be a weekday followed by {short:?}"
+    );
+    assert_eq!(full.len(), short.len() + 4, "exactly `Wed ` more");
+}
+
+/// It crosses midnight in the case's zone, not in UTC.
+///
+/// 22 Aug 01:30 UTC is 21 Aug 21:30 in Michigan. Marie practises in the evening,
+/// so this is not an edge case — it is most of her sittings. A row composed in
+/// UTC tells her she answered a question TOMORROW, and the line is perfectly
+/// well-formed while it does so.
+#[test]
+fn the_late_evening_belongs_to_the_day_it_felt_like() {
+    let at = Utc
+        .with_ymd_and_hms(2026, 8, 22, 1, 30, 0)
+        .single()
+        .expect("a real instant");
+
+    assert_eq!(local_day_month(at, CASE_TZ), "21 Aug");
+}
+
+/// No leading zero on a single-digit day — `2 Sep`, never `02 Sep`.
+#[test]
+fn a_single_digit_day_has_no_leading_zero() {
+    let at = Utc
+        .with_ymd_and_hms(2026, 9, 2, 16, 0, 0)
+        .single()
+        .expect("a real instant");
+
+    assert_eq!(local_day_month(at, CASE_TZ), "2 Sep");
 }

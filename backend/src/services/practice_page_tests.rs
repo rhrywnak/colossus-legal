@@ -101,17 +101,12 @@ fn a_question_with_no_card_and_a_card_with_no_name_both_render_no_tag() {
 #[test]
 fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     let s = settings();
-    let dto = question_dto(
-        &s,
-        &[],
-        &[],
-        record(Some(5), Some("Barrage rows 1 · 2 · 5")),
-    );
+    let dto = question_dto(&s, &[], record(Some(5), Some("Barrage rows 1 · 2 · 5")));
 
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
 
-    let plain = question_dto(&s, &[], &[], record(Some(5), None));
+    let plain = question_dto(&s, &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
     assert!(!plain.braid);
 }
@@ -170,11 +165,8 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             points: vec![],
             receipts: &[],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -212,11 +204,8 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             points: vec![],
             receipts: &[],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -260,11 +249,8 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
                 },
             ],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -305,11 +291,8 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
                 text: "your certified letter, 16 Nov 2009".to_string(),
             }],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -340,11 +323,8 @@ fn a_point_with_neither_still_names_its_absence() {
                 text: "your certified letter, 16 Nov 2009".to_string(),
             }],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -389,11 +369,8 @@ fn the_deck_carries_the_date_of_its_newest_change() {
             points: vec![],
             receipts: &[],
             last: None,
-            statuses: &[],
+            current: &[],
             open: None,
-            badged: &[],
-            notes: vec![],
-            changed: None,
             attach_options: vec![],
         },
     );
@@ -403,5 +380,162 @@ fn the_deck_carries_the_date_of_its_newest_change() {
         payload.deck_as_of,
         Some(old),
         "the OLDEST change would tell Chuck a deck edited today is months stale"
+    );
+}
+
+// -----------------------------------------------------------------------------
+// `Answered on 22 Aug` — the one status a one-page deck row carries
+// -----------------------------------------------------------------------------
+//
+// The failure this section exists to catch is the quiet one: a row that says
+// nothing when there IS an answer behind it. Marie then re-answers a question she
+// already answered, and Chuck prints a sheet that claims she answered none of
+// them. Nothing crashes and no log records it.
+
+/// One current-answer record, at a fixed instant.
+fn current(question_id: Uuid, at: chrono::DateTime<Utc>) -> CurrentAnswerRecord {
+    CurrentAnswerRecord {
+        question_id,
+        answer_text: "her words".to_string(),
+        answered_at: at,
+    }
+}
+
+/// 22 Aug 2026, 01:30 UTC — which is still 21 Aug in Michigan. The zone is the
+/// point of the fixture, not decoration.
+fn late_night_utc() -> chrono::DateTime<Utc> {
+    Utc.with_ymd_and_hms(2026, 8, 22, 1, 30, 0)
+        .single()
+        .expect("a real instant")
+}
+
+#[test]
+fn a_row_with_an_answer_says_when_it_was_answered() {
+    let s = settings();
+    let id = Uuid::from_u128(7);
+    let mut rec = record(Some(5), None);
+    rec.id = id;
+
+    let dto = question_dto(
+        &s,
+        &[current(
+            id,
+            Utc.with_ymd_and_hms(2026, 8, 22, 16, 0, 0)
+                .single()
+                .expect("an instant"),
+        )],
+        rec,
+    );
+
+    let line = dto.answered_on.expect("an answered row carries the line");
+    assert!(
+        line.contains("22 Aug"),
+        "the day must reach the row, got {line:?}"
+    );
+    assert!(
+        !line.contains('{'),
+        "a raw template slot reached the screen: {line:?}"
+    );
+}
+
+#[test]
+fn a_row_with_no_answer_says_nothing_at_all() {
+    // NOT an empty string. An empty status line under a question reads as a
+    // status that failed to load, which is a different fact from "not answered
+    // yet" and the wrong one to show the person least able to diagnose it.
+    let s = settings();
+    let dto = question_dto(&s, &[], record(Some(5), None));
+
+    assert_eq!(dto.answered_on, None);
+}
+
+#[test]
+fn the_line_carries_no_weekday() {
+    // Its siblings say `last: Wed 19 Aug`, where the weekday earns its place.
+    // This one is on every row of a list, and Roman's mockup shows `22 Aug`.
+    let s = settings();
+    let id = Uuid::from_u128(7);
+    let mut rec = record(Some(5), None);
+    rec.id = id;
+
+    let line = question_dto(&s, &[current(id, late_night_utc())], rec)
+        .answered_on
+        .expect("an answered row carries the line");
+
+    for weekday in ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"] {
+        assert!(
+            !line.contains(weekday),
+            "{weekday} reached a line that should carry none: {line:?}"
+        );
+    }
+}
+
+#[test]
+fn the_day_is_the_case_s_day_and_not_utc_s() {
+    // 22 Aug 01:30 UTC is 21 Aug 21:30 in Michigan. Marie practises in the
+    // evening; a row composed in UTC would tell her she answered it TOMORROW.
+    // This is the same defect `row_statuses` was fixed for, and it does not
+    // announce itself — the line is well-formed and off by one day.
+    let mut s = settings();
+    s.practice_read.case_timezone = "America/Detroit".to_string();
+    let id = Uuid::from_u128(7);
+    let mut rec = record(Some(5), None);
+    rec.id = id;
+
+    let line = question_dto(&s, &[current(id, late_night_utc())], rec)
+        .answered_on
+        .expect("an answered row carries the line");
+
+    assert!(
+        line.contains("21 Aug"),
+        "the case's own day must win, got {line:?}"
+    );
+}
+
+#[test]
+fn one_question_s_answer_never_lands_on_another_s_row() {
+    // The match is by id, and this is the assertion that says so. A `first()`
+    // where a `find()` belongs would stamp every row with the same date and
+    // still pass every test above.
+    let s = settings();
+    let mine = Uuid::from_u128(7);
+    let other = Uuid::from_u128(8);
+    let mut rec = record(Some(5), None);
+    rec.id = mine;
+
+    let dto = question_dto(&s, &[current(other, late_night_utc())], rec);
+
+    assert_eq!(
+        dto.answered_on, None,
+        "another question's answer reached this row"
+    );
+}
+
+/// The printed answers sheet composes its date line the same way a row does.
+///
+/// One function, two surfaces. A second composer for the answers endpoint would
+/// agree with the row today and drift the first time either was touched — and
+/// the drift would be invisible, because both would still be well-formed dates.
+#[test]
+fn the_answers_sheet_and_the_row_speak_the_same_line() {
+    let mut s = settings();
+    s.practice_read.case_timezone = "America/Detroit".to_string();
+    let at = late_night_utc();
+
+    // What the endpoint composes.
+    let sheet_line = answered_on_line(&s, at);
+
+    // What the row composes, through the whole payload path.
+    let id = Uuid::from_u128(7);
+    let mut rec = record(Some(5), None);
+    rec.id = id;
+    let row_line = question_dto(&s, &[current(id, at)], rec)
+        .answered_on
+        .expect("the answered row carries the line");
+
+    assert_eq!(sheet_line, row_line);
+    assert!(
+        sheet_line.contains("21 Aug"),
+        "the case's own day, got {sheet_line:?}"
     );
 }
