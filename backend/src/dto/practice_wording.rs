@@ -128,6 +128,10 @@ pub struct PracticeWordingDto {
     // dropped" — a nested object would be the one field on this page whose
     // name is not a key, and the two tests below could no longer say so.
     pub deck_heading: String,
+    // RETAINED, NOT DEAD: nothing has rendered this since .409 — the side
+    // picker carries both counts on its buttons. Kept because whether the line
+    // returns is an open ruling. See `PracticeFlowWording::deck_count_template`
+    // for the whole reason and for the five places it comes out of if it goes.
     pub deck_count_template: String,
     pub deck_skipped_suffix_template: String,
     pub deck_hide_link: String,
@@ -221,6 +225,10 @@ pub struct PracticeWordingDto {
     pub row_delete_label: String,
     pub row_deleted_notice: String,
     pub row_undo_label: String,
+    pub deck_side_tab_template: String,
+    pub deck_defense_countline: String,
+    pub deck_chuck_countline: String,
+    pub directs_subheader: String,
     pub print_answers_label: String,
     pub print_answers_page_title: String,
     pub print_answers_howto: String,

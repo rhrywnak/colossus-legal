@@ -17,12 +17,23 @@
 // ("after G3") is being removed from the receipts, because it named something
 // that appears nowhere else on paper or on screen.
 //
+// ## Why it takes a palette and not a second copy (2026-08-23)
+//
+// Mockup v8 puts the same antecedent on the SCREEN, above each redirect in
+// Chuck's half of the deck list, and the task ruled it be drawn by this
+// component rather than a screen twin. The composition is what matters and is
+// what is shared — the template split on `{question}`, the italic quote, and the
+// missing case below, which is the part a copy would forget. Only the two style
+// objects differ, because `printStyles` reads `--print-*` tokens that are scoped
+// to `[data-print-desk]` deliberately: those are a DOCUMENT's colours, and a
+// screen borrowing them would follow the paper into a dark theme.
+//
 // ## Domain note: the question TEXT, never its ANSWER
 //
 // Even on the answers sheet. An answer printed in two places is two things that
 // can disagree, and Chuck reads the defense sheet first.
 
-import React from "react";
+import React, { type CSSProperties } from "react";
 
 import type { PracticeWording } from "../../services/practice";
 import { wordingOf } from "../../services/practice";
@@ -32,14 +43,18 @@ import * as p from "./printStyles";
 const PrintAntecedent: React.FC<{
   after: PrintRow["after"];
   wording: PracticeWording;
-}> = ({ after, wording }) => {
+  /** The box. Defaults to the printed sheet's — the screen passes its own. */
+  style?: CSSProperties;
+  /** The quoted question inside it. Same default, same reason. */
+  quoteStyle?: CSSProperties;
+}> = ({ after, wording, style = p.after, quoteStyle = p.afterQuote }) => {
   if (after === null) return null;
 
   // The question it repairs is gone from the deck. Said plainly rather than
   // withheld: a redirect with no antecedent is not a redirect Chuck can judge,
   // and silence would leave him judging it as though it stood alone.
   if (after.kind === "missing") {
-    return <p style={p.after}>{wordingOf(wording, "print_after_missing")}</p>;
+    return <p style={style}>{wordingOf(wording, "print_after_missing")}</p>;
   }
 
   // The template carries `{question}` and nothing else. It carried a `{key}`
@@ -48,9 +63,9 @@ const PrintAntecedent: React.FC<{
   // lookup.
   const [before, quoted] = wordingOf(wording, "print_after_template").split("{question}");
   return (
-    <p style={p.after}>
+    <p style={style}>
       {before}
-      <i style={p.afterQuote}>“{after.antecedent.text}”</i>
+      <i style={quoteStyle}>“{after.antecedent.text}”</i>
       {quoted ?? ""}
     </p>
   );

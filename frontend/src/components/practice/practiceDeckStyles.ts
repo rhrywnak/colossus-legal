@@ -192,14 +192,14 @@ export const flagged: CSSProperties = {
  * third side. `font` is NOT used as a shorthand here — the .401 defect was a
  * shorthand resetting a size set on the line above it.
  */
-export const redirectsSubheader: CSSProperties = {
-  marginTop: 14,
-  marginBottom: 2,
-  paddingTop: 10,
-  borderTop: "1px solid var(--practice-line)",
+export const sectionLabel: CSSProperties = {
+  margin: "26px 0 4px",
+  paddingBottom: 6,
+  borderBottom: "2px solid var(--practice-line)",
   fontSize: 12,
-  fontWeight: 600,
-  letterSpacing: ".04em",
+  fontWeight: 700,
+  letterSpacing: ".06em",
+  textTransform: "uppercase",
   color: "var(--practice-separator)",
 };
 
@@ -249,4 +249,71 @@ export const questionLink: CSSProperties = {
   textDecoration: "none",
   borderBottom: "1px dotted var(--practice-blue)",
   cursor: "pointer",
+};
+
+
+/**
+ * The side picker — a two-button segmented control above the list.
+ *
+ * A real `<button>` pair and not a `<select>`: the practice bar three inches
+ * above already carries a select, and both counts must be readable WITHOUT
+ * opening anything. What is on the other side is half of what the control is
+ * for.
+ */
+export const picker: CSSProperties = {
+  display: "flex",
+  border: "1px solid var(--practice-picker-border)",
+  borderRadius: 8,
+  overflow: "hidden",
+  width: "fit-content",
+  margin: "8px 0 0",
+};
+
+export const pickerButton: CSSProperties = {
+  border: "none",
+  background: "var(--practice-picker-bg)",
+  padding: "10px 22px",
+  fontSize: 14,
+  fontWeight: 600,
+  color: "var(--practice-ink)",
+  cursor: "pointer",
+  // `fontFamily` and NOT the `font` shorthand: `font` resets every font
+  // property it does not name, `fontSize` above included, so the buttons would
+  // have rendered at the inherited size. `practiceStyles.test.ts` caught it.
+  fontFamily: "inherit",
+};
+
+/** The chosen side. Filled, so which one is showing survives a glance. */
+export const pickerButtonOn: CSSProperties = {
+  background: "var(--practice-blue)",
+  color: "var(--practice-on-fill)",
+};
+
+/** What the side showing beneath it IS, in one line. */
+export const countLine: CSSProperties = {
+  fontSize: 12.5,
+  color: "var(--practice-separator)",
+  margin: "6px 0 18px",
+};
+
+/**
+ * The quoted defense question above a redirect, ON SCREEN.
+ *
+ * Same shape as `printStyles.after` and a different palette — see the tokens'
+ * own note for why a screen must not read a document's colours. The component
+ * that draws it is shared; only these two objects differ.
+ */
+export const ante: CSSProperties = {
+  background: "var(--practice-ante-bg)",
+  borderLeft: "3px solid var(--practice-ante-bar)",
+  borderRadius: "0 6px 6px 0",
+  padding: "7px 10px",
+  margin: "0 0 7px",
+  fontSize: 12,
+  color: "var(--practice-separator)",
+};
+
+export const anteQuote: CSSProperties = {
+  color: "var(--practice-ante-label)",
+  fontStyle: "normal",
 };
