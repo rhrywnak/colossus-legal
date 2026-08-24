@@ -27,30 +27,45 @@
 
 -- The third button in the title row. Chuck prints questions to mark up; he
 -- prints answers to read. Two different sheets for two different acts.
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_print_answers_label',
     '🖨 Print answers',
+    'text',
     '🖨 Print answers',
-    'string',
+    NULL, NULL,
     'The button that prints Marie''s answers for Chuck to read. Sits beside Print questions in the title row of the practice page.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_print_answers_page_title',
     'Answers — {code}',
+    'text',
     'Answers — {code}',
-    'string',
+    NULL, NULL,
     'The browser tab''s title on the printed-answers view. {code} is the scenario code. A person with three print tabs open needs to tell them apart from the tab strip alone — and to tell an answers tab from a questions tab.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_print_answers_howto',
     'Marie''s answers as they stand today, in the same order as the questions. The current answer only — not the earlier versions.',
+    'text',
     'Marie''s answers as they stand today, in the same order as the questions. The current answer only — not the earlier versions.',
-    'string',
+    NULL, NULL,
     'The line under the header on every answers sheet. Domain note: it states BOTH facts a reader needs — that these are current as of printing, and that an answer Marie has since rewritten is not what he is holding. Paper outlives the deck it came from.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
@@ -59,12 +74,17 @@ ON CONFLICT (key) DO NOTHING;
 -- Domain note: the question still PRINTS. Omitting it would make the answers
 -- sheet disagree with the questions sheet about how many questions there are,
 -- and Chuck reads them side by side.
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_print_answer_missing',
     'Not answered yet.',
+    'text',
     'Not answered yet.',
-    'string',
+    NULL, NULL,
     'Printed in place of an answer where Marie has not written one. The question itself still prints: omitting it would make the answers sheet disagree with the questions sheet about how many questions the deck holds.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
@@ -74,69 +94,104 @@ ON CONFLICT (key) DO NOTHING;
 -- which is exactly what the bar offers. Seeding a second pair would be two
 -- places to edit and one of them eventually not edited.
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_practice_mode_label',
     'Practice mode',
+    'text',
     'Practice mode',
-    'string',
+    NULL, NULL,
     'The label at the left of the practice bar, above the question list.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_start_practising_label',
     'Start practising',
+    'text',
     'Start practising',
-    'string',
+    NULL, NULL,
     'The button that begins a practice walk. Domain note: this does NOT open a sitting and writes nothing — practice mode makes no model call and no database write of any kind. It walks questions Marie has already answered so she can say them out loud and check herself.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_practice_hint',
     'One question at a time, your answer hidden until you ask for it.',
+    'text',
     'One question at a time, your answer hidden until you ask for it.',
-    'string',
+    NULL, NULL,
     'The one line of hint beside Start practising. Standing rule of 2026-08-19: no control on a practice page is dim and silent — a person must be able to tell what a control does before pressing it.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
 -- ── Delete, and the undo that replaces a confirm dialog ──────────────────────
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_row_delete_label',
     'Delete',
+    'text',
     'Delete',
-    'string',
+    NULL, NULL,
     'The control that removes a question from the deck, on the row and on the question page. Domain note: the LABEL is Delete and the mechanism underneath is the existing hide, unchanged — so a question Marie has answered can never be orphaned from her answers. The user''s contract is "I will not see this again" and that is what is kept.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_row_deleted_notice',
     'Question deleted.',
+    'text',
     'Question deleted.',
-    'string',
+    NULL, NULL,
     'The line that replaces a row after it is deleted, carrying the undo beside it. Domain note: this exists INSTEAD of a confirm dialog. A dialog costs a step every time to guard against the rare case; an undo costs nothing in the normal case and still covers the misclick.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_row_undo_label',
     'Undo',
+    'text',
     'Undo',
-    'string',
+    NULL, NULL,
     'The control beside "Question deleted." that puts the question back. It lives until the page is left or reloaded; there is no restore path beyond it, deliberately, because a second one would be a state nobody ruled on.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
 -- The footnote under the list, explaining the one status a row carries.
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_deck_status_footnote',
     'No date means not answered yet. That is the only status a row carries.',
+    'text',
     'No date means not answered yet. That is the only status a row carries.',
-    'string',
+    NULL, NULL,
     'The small line under the question list. It exists because the row''s marks were removed: a reader who remembers "answered today · repeat · attempt 2" needs to be told once that their absence is not a fault.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
 

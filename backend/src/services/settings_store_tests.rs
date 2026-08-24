@@ -1456,3 +1456,135 @@ fn an_invalid_parameter_keeps_the_detail_that_makes_it_fixable() {
     assert!(message.contains(KEY_TALKING_POINTS_CAP), "{message}");
     assert!(message.contains("at least 1"), "{message}");
 }
+
+// -----------------------------------------------------------------------------
+// ⚑ EVERY app_settings INSERT NAMES THE COLUMNS THE TABLE ACTUALLY HAS
+// -----------------------------------------------------------------------------
+//
+// Written after .406 crash-looped DEV. Four migrations inserted into
+// `app_settings` naming a column `kind`; the column is `value_kind`. The boot
+// migrator hit it, panicked, and the backend restarted forever.
+//
+// NOTHING IN THIS REPOSITORY EXECUTED A MIGRATION BEFORE THE DEPLOY DID.
+// `check-migrations.sh` compares filename prefixes. The wording fixtures PARSE
+// the SQL for values and never look at the column list. Four migrations, 38
+// inserts, four gate passes, and a column name that never existed.
+//
+// This is the cheapest possible guard against that exact class: read the
+// migrations off disk (Rule 21) and require the column list of every
+// `INSERT INTO app_settings` to be the one the CREATE TABLE declares.
+//
+// ## What it does NOT do
+//
+// It does not execute anything, so it cannot catch a null violation, a type
+// mismatch or a constraint failure. Those need a migration run against a real
+// database, which this project has no tier for — the same hole that leaves 113
+// routed handlers reachable only by inspection. Until that tier exists, run
+// `BEGIN; <file>; ROLLBACK;` against DEV before any deploy carrying a migration.
+
+/// The columns `app_settings` actually has, in declaration order.
+// STRUCTURAL: the shape of a table this repository owns, read from its own
+// CREATE TABLE below and pinned here so a drift in either is a failure rather
+// than a surprise at boot.
+const APP_SETTINGS_COLUMNS: &[&str] = &[
+    "key",
+    "value",
+    "value_kind",
+    "default_value",
+    "min_value",
+    "max_value",
+    "meaning",
+    "consumed_by",
+    "updated_at",
+    "updated_by",
+];
+
+/// Every `.sql` under `pipeline_migrations`, oldest first.
+fn every_pipeline_migration() -> Vec<(String, String)> {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("pipeline_migrations");
+    let mut files: Vec<_> = std::fs::read_dir(&dir)
+        .expect("pipeline_migrations is readable")
+        .map(|e| e.expect("dir entry readable").path())
+        .filter(|p| p.extension().and_then(|e| e.to_str()) == Some("sql"))
+        .collect();
+    files.sort();
+    files
+        .into_iter()
+        .map(|p| {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("?")
+                .to_string();
+            (
+                name,
+                std::fs::read_to_string(&p).expect("migration is UTF-8"),
+            )
+        })
+        .collect()
+}
+
+/// The declared column list matches the table's own CREATE TABLE.
+///
+/// ANTI-VACUITY for the test below: it compares inserts against
+/// `APP_SETTINGS_COLUMNS`, so a constant that had drifted from the real table
+/// would let every wrong insert through while looking authoritative.
+#[test]
+fn the_pinned_columns_are_the_ones_the_table_declares() {
+    let (_, create) = every_pipeline_migration()
+        .into_iter()
+        .find(|(_, sql)| sql.contains("CREATE TABLE app_settings"))
+        .expect("app_settings is created by a migration");
+
+    let body = &create[create.find("CREATE TABLE app_settings").unwrap_or(0)..];
+    let body = &body[..body.find("\n);").unwrap_or(body.len())];
+
+    for column in APP_SETTINGS_COLUMNS {
+        assert!(
+            body.contains(&format!("\n    {column} ")),
+            "{column} is pinned here but not declared by CREATE TABLE app_settings"
+        );
+    }
+}
+
+/// No migration inserts into `app_settings` naming a column it does not have.
+#[test]
+fn every_app_settings_insert_names_real_columns() {
+    let mut checked = 0_usize;
+
+    for (name, sql) in every_pipeline_migration() {
+        let mut from = 0;
+        while let Some(at) = sql[from..].find("INSERT INTO app_settings") {
+            let start = from + at;
+            let open = sql[start..]
+                .find('(')
+                .map(|i| start + i)
+                .expect("an INSERT names its columns");
+            let close = sql[open..]
+                .find(')')
+                .map(|i| open + i)
+                .expect("the column list closes");
+
+            for column in sql[open + 1..close].split(',') {
+                let column = column.trim();
+                if column.is_empty() {
+                    continue;
+                }
+                assert!(
+                    APP_SETTINGS_COLUMNS.contains(&column),
+                    "{name} inserts into app_settings naming {column:?}, which the \
+                     table does not have. This is what crash-looped DEV on .406: \
+                     `kind` where the column is `value_kind`. Real columns: \
+                     {APP_SETTINGS_COLUMNS:?}"
+                );
+            }
+            checked += 1;
+            from = close;
+        }
+    }
+
+    assert!(
+        checked > 0,
+        "no app_settings INSERT was examined — the scan read nothing"
+    );
+}

@@ -330,6 +330,24 @@ impl Settings {
 /// schema migration. That is why the column is free TEXT rather than a CHECK —
 /// see the migration header.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// ## ⚑ OWED: this vocabulary belongs in the DATABASE, as a CHECK constraint
+///
+/// `app_settings.value_kind` should allow exactly `text`, `count`, `float`,
+/// `ratio` and nothing else. Then a bad value is refused AT INSERT, the
+/// `BEGIN; … ROLLBACK;` dry-run catches it before any deploy, nothing has to
+/// parse anything, and the constraint cannot go stale the way the CREATE TABLE
+/// comment did — that comment still lists only float/count/ratio and omits
+/// `text`, which every wording row uses.
+///
+/// This is not hypothetical. .406 shipped `value_kind = 'string'` alongside a
+/// bad column name; the column name crash-looped the migrator and MASKED it. On
+/// its own, `'string'` would have let the migration succeed and killed the boot
+/// loader on the first read instead — the same crash loop, moved later and
+/// harder to read from a log.
+///
+/// **Adding the constraint must first verify no existing row violates it.** It
+/// is one small migration and a job for a rested morning, not the tail of an
+/// outage. Filed 2026-08-23.
 pub enum ValueKind {
     /// A real number, e.g. a band cutoff or a similarity tolerance.
     Float,

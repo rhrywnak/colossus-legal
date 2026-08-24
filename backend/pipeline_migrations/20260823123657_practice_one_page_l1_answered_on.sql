@@ -44,12 +44,16 @@
 -- reported the key as seeded by NO migration at all.
 --
 -- No answer, note, flag or change-log row is read or written.
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_row_answered_on_template',
     'Answered on {when}',
+    'text',
     'Answered on {when}',
-    'string',
+    NULL, NULL,
     'The deck row''s only status line, shown when an answer exists and withheld entirely when one does not. {when} is the day the current answer was given, in the case''s own timezone, without a weekday (e.g. "22 Aug"). Domain note: an empty status line under a question reads as a status that FAILED TO LOAD, which is why the absent case renders nothing rather than an empty string.',
-    'migration'
-)
+    NULL,
+    NOW(),
+    'migration')
 ON CONFLICT (key) DO NOTHING;

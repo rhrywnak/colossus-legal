@@ -29,11 +29,16 @@
 -- `seeded_value_in` for why that matters and what it costs when ignored.
 --
 -- No answer, note, flag or change-log row is read or written.
-INSERT INTO app_settings (key, value, default_value, kind, meaning, updated_by)
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
 VALUES ('practice_read_plain_hint',
     'This is an older read. Press Answer again for the fuller one.',
+    'text',
     'This is an older read. Press Answer again for the fuller one.',
-    'string',
+    NULL, NULL,
     'Shown under a critique that is one sentence rather than three parts. Domain note: answers written before the three-part read shipped carry only a composed sentence, and without this line the two renderings read as breakage. Pressing Answer on unchanged text re-runs the read and attaches the parts to the same answer row — no new version — so the line points at a fix that already works.',
+    NULL,
+    NOW(),
     'migration')
 ON CONFLICT (key) DO NOTHING;
