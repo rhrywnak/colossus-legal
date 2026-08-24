@@ -32,6 +32,25 @@ const read = (dir: string, file: string) => readFileSync(join(dir, file), "utf8"
 /** A component's JSX opening tags — where a thing is actually rendered. */
 const tagsOf = (source: string): string[] => source.match(/<[a-zA-Z][^>]*>/g) ?? [];
 
+/**
+ * Source with its `//` comments removed.
+ *
+ * ## ⚑ The rule, met for the fourth time in one day
+ *
+ * This codebase documents its rules next to its rules, so a scanner searching
+ * for a forbidden word finds the DOCUMENTATION first. `PrintAntecedent.tsx`
+ * explains that it belongs on "the answers sheet", and the assertion below —
+ * that it never reaches for an answer — failed on that sentence.
+ *
+ * Anything that reads source strips comments before it looks. The canonical
+ * statement is in `backend/src/domain/wording_tests.rs` above `seeded_value_in`.
+ */
+const withoutComments = (source: string): string =>
+  source
+    .split("\n")
+    .map((line) => (line.includes("//") ? line.slice(0, line.indexOf("//")) : line))
+    .join("\n");
+
 describe("a deck row carries five things and no sixth", () => {
   const row = () => read(HERE, "PracticeDeckRow.tsx");
 
@@ -181,3 +200,56 @@ describe("the printed sheet", () => {
     expect(answers).not.toContain("p.line");
   });
 });
+
+describe("the redirect's antecedent, on both sheets", () => {
+  const antecedent = () => withoutComments(read(HERE, "PrintAntecedent.tsx"));
+
+  it("is drawn by ONE component, used by both sheets", () => {
+    // Roman: do not invent a new visual language for the answers sheet. Two
+    // copies would be two things to keep in step, and the one that drifted
+    // would be the one nobody was looking at.
+    for (const sheet of ["PrintSheets.tsx", "PrintAnswers.tsx"]) {
+      const source = read(HERE, sheet);
+      expect(source, `${sheet} must use the shared antecedent`).toContain("<PrintAntecedent");
+      expect(source, `${sheet} must hand it the row's own antecedent`).toContain(
+        "after={row.after}",
+      );
+    }
+  });
+
+  it("renders the antecedent QUESTION and never its answer", () => {
+    // On the answers sheet this is the rule that matters: an answer printed in
+    // two places is two things that can disagree, and Chuck reads the defense
+    // sheet first. TypeScript also prevents it today — `PracticeQuestion` has no
+    // answer-text field — but a type can gain one, and this is the claim.
+    const source = antecedent();
+
+    expect(source).toContain("after.antecedent.text");
+    for (const answerish of ["answer_text", ".answer", "answers", "answered_on"]) {
+      expect(source, `the antecedent must not reach for ${answerish}`).not.toContain(answerish);
+    }
+  });
+
+  it("says so when the question it repairs is gone", () => {
+    // A redirect with no antecedent is not one Chuck can judge. Silence would
+    // leave him judging it as though it stood alone.
+    const source = antecedent();
+
+    expect(source).toContain('after.kind === "missing"');
+    expect(source).toContain("print_after_missing");
+  });
+
+  it("draws nothing at all for a row that is not a redirect", () => {
+    expect(antecedent()).toMatch(/if \(after === null\) return null;/);
+  });
+
+  it("carries no question code — the quoted question IS the identification", () => {
+    // The template lost its `{key}` when codes left the paper. A `fill` with a
+    // key would be filling a slot that no longer exists.
+    const source = antecedent();
+
+    expect(source).not.toContain("deck_key");
+    expect(source).not.toMatch(/fill\(/);
+  });
+});
+
