@@ -282,6 +282,15 @@ const ACKNOWLEDGMENT_MIGRATION: &str =
 //        met, not the cause. `set -o pipefail`, `PIPESTATUS`, or do not pipe a
 //        command whose status you need.
 //
+//   7.   `cd backend && python …` run from the wrong directory: the `cd`
+//        failed, `&&` short-circuited, and a test believed to have been written
+//        did not exist. The chain reported success for work that never ran.
+//
+// ⚑ THE RULE THAT COVERS 6 AND 7: NEVER LET SHELL STATE BE A PRECONDITION OF A
+// VERIFICATION STEP. A pipeline's exit status is its LAST command's, and a `cd`
+// that fails takes the rest of the chain with it. Absolute paths, always;
+// `set -o pipefail` or `PIPESTATUS` when a pipe is unavoidable.
+//
 // Two of the six were indistinguishable from correct BY READING. That is what
 // makes this a rule rather than advice: reading a test is not a way to know
 // whether it works. Break the thing it guards and watch it fail. If it does not

@@ -275,39 +275,21 @@ async fn read_for(
             // reply: a key the model invented is already refused upstream, and a
             // footnote list built from the reply could only ever agree with
             // itself. These are the words Marie was judged against.
-            // ⚑ THE SWORN PAIR IS PART OF THIS LIST. `citable_keys()` — the one
-            // authority on what the model may cite — adds S1 when `said` is
-            // present and S2 when `admitted` is. Iterating only points and
-            // receipts left a critique free to cite S2 with NOTHING behind it,
-            // which is the exact failure `practice_read_source_missing` exists
-            // to expose, reachable on every sworn-pair question. Caught by the
-            // architecture gate before it shipped.
+            // ⚑ ONE AUTHORITY. `citable_sources` is the same function the
+            // prompt's key line is built from, so the footnote list cannot
+            // disagree with what the model was allowed to cite. It used to be
+            // assembled here by hand from points and receipts, and it omitted
+            // the sworn pair — a read could cite S2 and the screen would show
+            // that key with nothing under it, silently, on every sworn-pair
+            // question.
             //
-            // The keys are literals here because they are literals in
-            // `citable_keys` — the model is told those two names, and a
-            // constant that drifted from the payload builder would produce a
-            // footnote list that agreed with itself and not with the prompt.
-            let sworn = [
-                payload.said.as_ref().map(|text| ReadSourceDto {
-                    key: "S1".to_string(),
-                    text: text.clone(),
-                }),
-                payload.admitted.as_ref().map(|text| ReadSourceDto {
-                    key: "S2".to_string(),
-                    text: text.clone(),
-                }),
-            ];
+            // These are the words that were SENT. Never words that came back:
+            // a list built from the reply would let a hallucinated citation
+            // render its own supporting evidence.
             let sources = payload
-                .points
-                .iter()
-                .chain(payload.receipts.iter())
-                .filter_map(|item| {
-                    item.text.as_ref().map(|text| ReadSourceDto {
-                        key: item.key.clone(),
-                        text: text.clone(),
-                    })
-                })
-                .chain(sworn.into_iter().flatten())
+                .citable_sources()
+                .into_iter()
+                .map(|(key, text)| ReadSourceDto { key, text })
                 .collect();
             (read_answer(state, &payload).await, sources)
         }

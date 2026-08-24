@@ -255,45 +255,34 @@ fn both_arms_of_the_version_decision_are_logged() {
     );
 }
 
-/// The critique's source list carries the SWORN PAIR, not only points and receipts.
+/// The footnote list is built from the ONE authority, not assembled here.
 ///
-/// ## The gap this closes, caught by the architecture gate before it shipped
+/// ## What this replaces, and why the old test had to go
 ///
-/// `ReadPayload::citable_keys()` is the one authority on what the model may
-/// cite, and it adds `S1` when `said` is present and `S2` when `admitted` is.
-/// The first version of the source list iterated points and receipts only — so a
-/// critique was free to cite S2 with NOTHING behind it, on every question that
-/// carries a sworn pair.
+/// It used to assert that `payload.said` and `payload.admitted` appeared in a
+/// hand-built list. That list is gone: `citable_sources()` is now the single
+/// function the prompt's key line, the reply parser and this footnote list all
+/// read, so the divergence that shipped — a citation with nothing under it — is
+/// impossible by construction rather than by care.
 ///
-/// That is not a cosmetic gap. The source list is the one place a bad read can
-/// be caught by the person reading it, and a citation with an empty footnote is
-/// the shape it exists to expose.
+/// What is left to guard is that nobody rebuilds it by hand.
 #[test]
-fn the_source_list_includes_the_sworn_pair() {
+fn the_footnote_list_comes_from_the_single_authority() {
     let body = post_answer_body();
-    let at = body
-        .find("let sources = payload")
-        .expect("the source list is built here");
-    let built = &body[body[..at].rfind("let sworn").unwrap_or(at)..];
-    let expression = &built[..built.find(".collect()").expect("the list is collected")];
 
-    for field in ["payload.said", "payload.admitted"] {
-        assert!(
-            expression.contains(field),
-            "{field} is citable — `citable_keys` names it — but is missing from \
-             the source list, so a critique citing it shows an empty footnote"
-        );
-    }
-
-    // ⚑ AND IT MUST REACH THE LIST, not merely be built beside it.
-    //
-    // The first version of this test asserted only that the two fields were
-    // MENTIONED in the region. Deleting the `.chain(...)` that folds them in
-    // left them mentioned, unused, and absent from the payload — and the test
-    // passed. Shape is not effect; that is the third time today.
-    let after_sworn = &expression[expression.find("let sworn").unwrap_or(0)..];
     assert!(
-        after_sworn.contains("chain(sworn"),
-        "the sworn pair is built and then never folded into the list: {expression}"
+        body.contains("citable_sources()"),
+        "the footnote list must come from `citable_sources`, the same function \
+         the model's key line is built from"
+    );
+    assert!(
+        !body.contains("payload.said") && !body.contains("payload.admitted"),
+        "the sworn pair is being folded in BY HAND again — that is the second \
+         list, and the second list is what disagreed: {body}"
+    );
+    assert!(
+        !body.contains(".chain(payload.receipts.iter())"),
+        "points and receipts are being assembled here again rather than taken \
+         from the authority: {body}"
     );
 }
