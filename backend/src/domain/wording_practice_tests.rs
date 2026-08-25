@@ -33,6 +33,9 @@ const CORRECTION_MIGRATIONS: &[&str] = &[
     // The side picker (2026-08-23): `practice_redirects_subheader` stopped
     // naming an internal database value on Marie's screen.
     "pipeline_migrations/20260823231335_practice_list_side_picker.sql",
+    // American spelling (2026-08-25, Roman): `practice_intro` stopped saying
+    // "practises answering".
+    "pipeline_migrations/20260825134653_american_spelling_practice_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -42,9 +45,12 @@ const TEST_SEED: &[(&str, &str)] = &[
     // A WARNING, not an invitation — Roman, 2026-08-22. Every deck on this system
     // is seeded from the record and unreviewed, and the line this replaced told a
     // witness to rehearse answers to questions no attorney had read.
+    //
+    // "practices", not "practises": American spelling throughout, ruled
+    // 2026-08-25 and corrected by 20260825134653.
     (
         KEY_INTRO,
-        "These are seed questions, drafted from the record. An attorney must review them before anyone practises answering.",
+        "These are seed questions, drafted from the record. An attorney must review them before anyone practices answering.",
     ),
     (KEY_WHO_HEADING, "Who's asking?"),
     (KEY_WHO_GEORGE_TITLE, "The defense asks"),

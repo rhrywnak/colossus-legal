@@ -338,9 +338,31 @@ export const attemptNumber: CSSProperties = { color: INK, fontWeight: 600 };
 /** The scenario title and the print control, on one line — mockup v1, view 1. */
 export const titleRow: CSSProperties = {
   display: "flex",
-  justifyContent: "space-between",
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: 12,
+};
+
+/**
+ * The three controls, in a row directly under the title.
+ *
+ * ## Why they came off the title's line (Roman, 2026-08-25)
+ *
+ * They used to share one row with the `h1`, and `justify-content: space-between`
+ * gave the buttons whatever width they wanted first — which left the title a
+ * ~360px column and wrapped "The auction was unnecessary and costly" onto three
+ * lines on a MacBook. The title is the thing a person reads to know where they
+ * are, so it gets the full width and the controls get their own line.
+ *
+ * `flexWrap` because three buttons plus a long enough label will not always fit
+ * one line on a narrow window, and a control pushed off the edge is a control
+ * nobody can press.
+ */
+export const titleActions: CSSProperties = {
+  display: "flex",
   alignItems: "center",
-  gap: 20,
+  gap: 12,
+  flexWrap: "wrap",
 };
 
 /**

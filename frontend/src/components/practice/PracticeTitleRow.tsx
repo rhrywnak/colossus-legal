@@ -42,7 +42,15 @@ type Props = {
 };
 
 /**
- * The title and the three controls, on one line — mockup v7, view 1.
+ * The title on its own full-width line, and the three controls in a row below.
+ *
+ * ## Domain note: the title stopped sharing a row (Roman, 2026-08-25)
+ *
+ * The three controls used to sit beside the `h1`, which left the title about
+ * 360px of a MacBook-width card and wrapped "The auction was unnecessary and
+ * costly" onto three lines. The buttons are unchanged — same three, same order,
+ * same styles — they simply moved to their own line underneath, and the title
+ * takes the full width it needs to read horizontally.
  *
  * ## Three buttons for two people
  *
@@ -87,48 +95,50 @@ const PracticeTitleRow: React.FC<Props> = ({
       <h1 style={s.h1}>
         {code} · {title}
       </h1>
-      <a
-        // No `href` at all when locked: an anchor without one is not focusable and
-        // not activatable, which is the honest disabled state for a link. The
-        // `onClick` guard covers a middle-click that ignores `aria-disabled`.
-        href={lock === null ? printHref : undefined}
-        target="_blank"
-        rel="noopener noreferrer"
-        role="button"
-        aria-disabled={lock !== null}
-        title={lock ?? undefined}
-        style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
-        onClick={(event) => {
-          if (lock !== null) event.preventDefault();
-        }}
-      >
-        {w("print_questions_label")}
-      </a>
-      <a
-        // Same lock and the same honest disabled state as its sibling: an empty
-        // deck has no answers to print either, and a deck being edited is one
-        // whose paper would be out of date before it left the printer.
-        href={lock === null ? answersHref : undefined}
-        target="_blank"
-        rel="noopener noreferrer"
-        role="button"
-        aria-disabled={lock !== null}
-        title={lock ?? undefined}
-        style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
-        onClick={(event) => {
-          if (lock !== null) event.preventDefault();
-        }}
-      >
-        {w("print_answers_label")}
-      </a>
-      <button
-        type="button"
-        style={e.printControl}
-        aria-pressed={editing}
-        onClick={onToggleEditing}
-      >
-        {editing ? w("editor_done_label") : w("editor_switch_label")}
-      </button>
+      <div style={e.titleActions}>
+        <a
+          // No `href` at all when locked: an anchor without one is not focusable and
+          // not activatable, which is the honest disabled state for a link. The
+          // `onClick` guard covers a middle-click that ignores `aria-disabled`.
+          href={lock === null ? printHref : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          role="button"
+          aria-disabled={lock !== null}
+          title={lock ?? undefined}
+          style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
+          onClick={(event) => {
+            if (lock !== null) event.preventDefault();
+          }}
+        >
+          {w("print_questions_label")}
+        </a>
+        <a
+          // Same lock and the same honest disabled state as its sibling: an empty
+          // deck has no answers to print either, and a deck being edited is one
+          // whose paper would be out of date before it left the printer.
+          href={lock === null ? answersHref : undefined}
+          target="_blank"
+          rel="noopener noreferrer"
+          role="button"
+          aria-disabled={lock !== null}
+          title={lock ?? undefined}
+          style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
+          onClick={(event) => {
+            if (lock !== null) event.preventDefault();
+          }}
+        >
+          {w("print_answers_label")}
+        </a>
+        <button
+          type="button"
+          style={e.printControl}
+          aria-pressed={editing}
+          onClick={onToggleEditing}
+        >
+          {editing ? w("editor_done_label") : w("editor_switch_label")}
+        </button>
+      </div>
     </div>
   );
 };

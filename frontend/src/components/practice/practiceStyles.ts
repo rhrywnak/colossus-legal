@@ -496,7 +496,31 @@ export const practiceBarSelect: CSSProperties = {
   background: "var(--practice-paper)",
 };
 
-/** The button is an ANCHOR: the walk has an address a reload can land on. */
-export const practiceBarGo: CSSProperties = { textDecoration: "none", display: "inline-block" };
+/**
+ * The button is an ANCHOR: the walk has an address a reload can land on.
+ *
+ * ## It comes DOWN to meet the dropdown (Roman, 2026-08-25)
+ *
+ * `buttonPrimary` is the page's full-size button — 17px type, 11px of vertical
+ * padding — and beside the 14px dropdown it read as a different weight of
+ * control on what is meant to be one uniform row. The dropdown was NOT
+ * restyled; these three properties bring the anchor to the select's exact box.
+ *
+ * The `lineHeight` is the load-bearing one, and it is a PIXEL value because the
+ * number came from a measurement rather than a ratio. A `<select>` lays its text
+ * out with the user agent's own metrics: measured in the browser at 14px type,
+ * its content box is 18px and its rendered border is 0, so the control stands
+ * 18 + (9 × 2) = 36px. An anchor inheriting the page's 1.45 line-height computes
+ * 20.3px of content and stands taller; at a ratio-free `16px` it stands 34px and
+ * is two pixels SHORT, which is how this value was arrived at rather than
+ * guessed. At `18px` both boxes report exactly 36.00px.
+ */
+export const practiceBarGo: CSSProperties = {
+  textDecoration: "none",
+  display: "inline-block",
+  fontSize: 14,
+  lineHeight: "18px",
+  padding: "9px 16px",
+};
 
 export const practiceBarHint: CSSProperties = { color: "var(--practice-muted)", fontSize: 12.5 };
