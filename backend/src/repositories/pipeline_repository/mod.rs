@@ -39,11 +39,20 @@
 //!   `scenario_responses` / `response_items` / `response_item_fact_refs`. Split
 //!   from `scenario_store.rs` to stay under the 300-line limit; same tag-not-copy
 //!   discipline (evidence referenced by graph node id, never copied).
+//! - `chronology.rs` / `chronology_links.rs` / `chronology_write.rs` — the
+//!   case chronology (CASE_CHRONOLOGY_DESIGN_v2 §4). Row types and the
+//!   phase/event reads; then links, notes, history and target resolution;
+//!   then the inserts, which ONLY the seed one-shot calls in Phase A. Split
+//!   three ways for Rule 17, and the write split also makes the
+//!   "no HTTP write path yet" boundary visible rather than asserted.
 //! - `models.rs`, `report_queries.rs`, `review.rs`, `steps.rs`,
 //!   `users.rs` — other table-scoped repository modules.
 
 pub mod app_settings;
 pub mod authored_entities;
+pub mod chronology;
+pub mod chronology_links;
+pub mod chronology_write;
 pub mod config;
 pub mod config_overrides;
 pub mod document_records;
