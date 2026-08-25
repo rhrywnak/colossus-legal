@@ -1,0 +1,167 @@
+# =============================================================================
+# practice_decks/S-8.yaml — the practice deck for scenario S-8, "The auction was
+# unnecessary and costly"
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5, 2026-08-25) — loaded to DEV for Chuck's review in the
+# practice session; Chuck's redlines flow back through `--update`.
+#
+# Built from S-8's ruled record on DEV, completed by Roman this morning: 23
+# included facts (Opus 5 scan of 2026-08-25, 29 proposed, all addressed), 5
+# marked instances, 5 pairs, the watch-list, and Marie's three talking points.
+# Every quote carries the pinpoint from its fact card; nothing outside the
+# ruled record.
+#
+# Schema follows practice_decks/S-7.yaml exactly. The standing rulings hold:
+# no `stronger` fields anywhere (nothing in this deck is written to be spoken),
+# and every watch_for POINTS — names the move, never supplies words Marie could
+# speak verbatim. Every question is `source_kind: manual`; re-bind to instance
+# indexes under `--update` if that ever becomes the practice.
+
+scenario_code: S-8
+
+points:
+  - position: 1
+    text: "Certified letter to George Phillips, 5 Nov 2009 — the written offer to divide amicably, before any auction · Motion for Default p. 5 — the sisters DID divide the property amicably once the auction was over"
+  - position: 2
+    text: "Motion for Default p. 14 — auction lost the estate $6,000+; Phillips/CFS billed ~$7,500 · Phillips Admissions p. 16 — admits the auction costs were billed · the first auctioneer withdrew because there was no value in it"
+  - position: 3
+    text: "Phillips's brief, 4 Oct 2010 — 'impossible for Marie to do anything amicably' (quoted, Motion for Default p. 22) · Interrogatory 14 — he never named who said it · Admissions pp. 6, 13, 19 (2016) — 'Denied as untrue' · Response to Discovery p. 30 — 'personal conclusions'"
+
+questions:
+
+  # ---------- The defense asks (cross) — the courts first, then the premise, then the braid ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Court of Appeals ruling, 12 Jan 2012, p. 11 · Phillips Admissions Response, p. 16 (2016)"
+    tactic: 6            # authority borrow — the COA's own words
+    source_kind: manual
+    text: "Ms. Awad, the Michigan Court of Appeals looked at this very auction and found — quote — no inappropriate actions on the part of CFS and counsel in conducting it. You're not telling this jury the Court of Appeals got it wrong, are you?"
+    receipt: "Built from the Court of Appeals ruling, 12 Jan 2012, p. 11: \"We find no inappropriate actions on the part of CFS and counsel in handling the personal property and in conducting the auction.\""
+    pair_said: "\"We find no inappropriate actions on the part of CFS and counsel in handling the personal property and in conducting the auction.\" — Court of Appeals, 12 Jan 2012, p. 11"
+    pair_admitted: "\"It is admitted that there were some costs related to the auction billed by Mr. Phillips.\" — Phillips Admissions Response, p. 16 — sworn in 2016, four years AFTER that ruling; no admission existed for that court to read"
+    watch_for: "WATCH FOR — the borrowed robe. Never argue with a court. The answer is when that ruling was written and what did not yet exist: the 2016 sworn answers. Say the dates, then stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 5 · Phillips Response to Discovery, p. 30"
+    tactic: 6            # authority borrow + echo — Judge Tighe's finding
+    source_kind: manual
+    text: "Judge Tighe — who watched this estate for years — wrote that most of the extra work was due to YOUR unwillingness to let go. She said that, not Mr. Phillips. Was the judge wrong too?"
+    receipt: "Built from the Opinion and Order, 12 Apr 2012, p. 5: \"Most of the extra work was due to Marie Awad's unwillingness to let go.\""
+    pair_said: "\"Most of the extra work was due to Marie Awad's unwillingness to let go. She has hired a succession of attorneys…\" — Opinion and Order, 12 Apr 2012, p. 5"
+    pair_admitted: "\"Those statements were personal conclusions I made…\" — Phillips, Response to Discovery, p. 30: the account the court relied on, conceded under oath to be personal conclusions, not evidence"
+    watch_for: "WATCH FOR — never a word against the judge. The question is where the court's picture of you came from, and what its author called it when finally under oath. Attribute, date, stop."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Phillips's brief, 4 Oct 2010, quoted at Motion for Default p. 22 · Motion for Default p. 5"
+    tactic: 4            # false premise — "you couldn't agree"
+    source_kind: manual
+    text: "The truth is you and your sisters could never have divided that property peacefully — that's why there had to be an auction, isn't that right?"
+    receipt: "Built from Phillips's brief of 4 Oct 2010, quoted in the Motion for Default p. 22: \"There was no credible reason to believe that the parties could have split the personal property amicably.\""
+    pair_said: "\"There was no credible reason to believe that the parties could have split the personal property amicably. Other parties had indicated that it would be impossible for Marie to do anything amicably.\" — Phillips's brief, 4 Oct 2010"
+    pair_admitted: "\"…the sisters did in fact meet amicably to divide up numerous personal effects as the probate proceedings were being resolved.\" — Motion for Default p. 5: the amicable division HAPPENED, right after the auction stopped billing"
+    watch_for: "WATCH FOR — the smuggled premise. Events disproved it: the letter before, the peaceful division after. Correct the premise once — what you offered in writing, what actually happened — then stop."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 5 · Phillips Admissions Response, p. 6 (2016)"
+    tactic: 5            # compound — attorneys + objections + fees braided
+    source_kind: manual
+    text: "You hired attorney after attorney, objected to everything the personal representative did, buried a simple estate in paper — and now you blame HIM for the fees. Those fees were the cost of dealing with you, weren't they?"
+    receipt: "Built from the Opinion and Order p. 5 braided with the fee narrative; the braid is the tactic."
+    pair_said: "\"She has hired a succession of attorneys to file objections to everything performed by the personal representative.\" — Opinion and Order, 12 Apr 2012, p. 5"
+    pair_admitted: "\"Denied as untrue.\" — Phillips Admissions Response, p. 6 (2016), asked to admit he had raised Marie's attorneys against her: under oath he now denies the very blaming the fee story was built on"
+    watch_for: "WATCH FOR — several accusations tied into one rope. That's three things — which one? Take one strand only, or ask which he means, and stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "Opinion and Order, 12 Apr 2012, p. 5 (both halves on the same page)"
+    tactic: 2            # half-truth — the customary rates
+    source_kind: manual
+    text: "Mr. Phillips's rates were found to be perfectly ordinary for the region — two hundred dollars an hour, nothing unusual. You're not claiming he overcharged, are you?"
+    receipt: "Built from the Opinion and Order p. 5 (rates customary). The missing half is the same page: fees high, fee reduced."
+    pair_said: "\"These fees are not out of the ordinary for the Bay/Saginaw/Midland region.\" — Opinion and Order, 12 Apr 2012, p. 5"
+    pair_admitted: "\"While the Court agreed that the fees were high, and actually reduced the attorney fee of Mr. Phillips…\" — the SAME Opinion and Order, p. 5"
+    watch_for: "WATCH FOR — a true fact, amputated. The hourly rate was never the complaint — choosing the path that billed was. The same page supplies the missing half. Supply it, then stop."
+
+  - key: g6
+    side: george
+    kind: cross
+    source_line: "Phillips's brief, 4 Oct 2010 · Motion for Default pp. 5, 14"
+    tactic: 4            # false premise wearing a concession
+    source_kind: manual
+    text: "Holding an auction is simply what a fiduciary does when heirs can't cooperate — and he even let you and your sisters divide what was left afterward, didn't he? That was generous, wasn't it?"
+    receipt: "Built from the ruled sequence: the $7,500 auction first, the free amicable division after (A-43, A-44)."
+    pair_said: "\"There was no credible reason to believe that the parties could have split the personal property amicably.\" — Phillips's brief, 4 Oct 2010"
+    pair_admitted: "The remaining property WAS divided amicably by the sisters — after the estate had paid ~$7,500 for an auction that lost ~$6,000 on property the first auctioneer refused. — Motion for Default pp. 5, 14"
+    watch_for: "WATCH FOR — 'generous' is the trap word. The afterward is your proof, not his: the thing he called impossible happened the moment it stopped billing. Say the order of events, then stop."
+
+  # ---------- Chuck asks (direct) — the story in the order the jury needs it ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, before any auction was ever held, what did you put in writing about dividing your father's belongings?"
+    receipt: "The foundation: the certified letter of 5 Nov 2009 — the written offer to divide the personal property amicably, before the auction (A-41). The jury meets the letter before it meets any fight."
+    watch_for: "WATCH FOR — her story, not a fight. The letter, its date, what it offered. No adjectives about Phillips."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Whose decision was the auction? What choices did Mr. Phillips himself say he had?"
+    receipt: "The frame: an unsupervised estate — his decisions were final, and by his own words in open court the options included throwing the property out, auctioning it, or simply letting the sisters take what they wanted."
+    watch_for: "WATCH FOR — the point is that he HAD choices and said so himself. His options, in his words, nothing more."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "What happened when auctioneers were asked to run this sale? And what did the auction finally bring in, against what it cost?"
+    receipt: "The numbers: the first auctioneer withdrew because there was simply no value in assisting (A-42); about $2,300 came in; ~$7,500 was billed by Phillips and CFS — he admits the billing (Admissions p. 16) — roughly $6,000 net loss (Motion for Default p. 14)."
+    watch_for: "WATCH FOR — four numbers, in order, no commentary. The arithmetic is the argument."
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "After the auction, what happened to everything that didn't sell?"
+    receipt: "The contrast: the sisters divided it amicably (Motion for Default p. 5; A-43, A-44) — the exact thing the court had been told was impossible."
+    watch_for: "WATCH FOR — let the contrast sit. What happened, when, with whom. The jury does the rest."
+
+  - key: c5
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "While this was going on, what was Mr. Phillips telling the court about you in writing — and when you finally got to question him under oath in 2016, what happened to those statements?"
+    receipt: "The collapse, in date order: 'impossible for Marie to do anything amicably' in his 4 Oct 2010 brief; Interrogatory 14 — asked to name who said it, he never named one person (Motion for Default p. 22); 2016 Admissions — 'Denied as untrue' (pp. 6, 13, 19); Response to Discovery p. 30 — 'personal conclusions.'"
+    watch_for: "WATCH FOR — three beats, in date order: what he wrote, who he couldn't name, what he denied. Dates carry it; keep them attached."
+
+  # ---------- Chuck, after the defense (redirect) ----------
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    source_kind: manual
+    text: "The defense read you the Court of Appeals' 2012 finding about the auction. When that court wrote those words, had Mr. Phillips yet answered a single question under oath about the auction, or about what he had written about you?"
+    receipt: "Repairs it with the calendar: the ruling is January 2012; the admissions, Interrogatory 14, and 'personal conclusions' are 2016 discovery. The court graded a record he wrote."
+    watch_for: "WATCH FOR — two dates, side by side. No comment on the court; the calendar is the repair."
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g2
+    source_kind: manual
+    text: "You were asked about Judge Tighe's finding that the extra work was your fault. Where did the account of you in that courtroom come from — and when its author was asked under oath in 2016 to stand behind it, what did he say?"
+    receipt: "Repairs it at the source: the account was his filings; under oath he denied the statements (Admissions pp. 6, 19) and called them personal conclusions (Response to Discovery p. 30)."
+    watch_for: "WATCH FOR — attribute the account to its author, then his own words about it. The judge is never the subject."
