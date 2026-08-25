@@ -13,7 +13,7 @@
 // the screen does not look broken; it looks like the old one.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
@@ -27,11 +27,38 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260823231335_practice_list_side_picker.sql",
 ];
 
+/// Migrations that CORRECT a value one of the seeds above already wrote.
+///
+/// ## ⚑ Why this list had to exist (2026-08-25)
+///
+/// Until today this module read SEEDED values only. That was safe for exactly as
+/// long as no row in this block was ever corrected — and the American-spelling
+/// ruling corrected three of them at once. Without this list the fixture would
+/// have kept reading `'Start practising'` out of the August INSERT, agreed with
+/// itself, gone green, and disagreed with every screen in the product. That is
+/// the trap `scenario_practice_link_label` fell into on 08-19 and the reason
+/// `wording_practice_tests` has carried a correction list since; this module
+/// simply had not needed one yet.
+///
+/// Searched BEFORE the seeds, so the newest word wins.
+// STRUCTURAL: test-fixture pointer, not configuration — it names one specific
+// migration in this repository's version-controlled history. The file is
+// immutable (an applied migration is never edited) and identical in every
+// environment, so there is nothing here a deployment could vary. Same judgement
+// as `SEED_MIGRATIONS` above.
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    // American spelling (2026-08-25, Roman): three of this block's rows stopped
+    // saying "practise".
+    "pipeline_migrations/20260825134653_american_spelling_practice_wording.sql",
+];
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to the
 /// migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_PRACTICE_MODE_LABEL, "Practice mode"),
-    (KEY_START_PRACTISING_LABEL, "Start practising"),
+    // American spelling, ruled 2026-08-25 and corrected by 20260825134653. The
+    // KEY keeps its British spelling: a key is an identifier, not a rendered word.
+    (KEY_START_PRACTISING_LABEL, "Start practicing"),
     (
         KEY_PRACTICE_HINT,
         "One question at a time, your answer hidden until you ask for it.",
@@ -65,8 +92,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_PRACTICE_SKIP_HINT, "To skip it, just press Next question."),
     (KEY_PRACTICE_END_TITLE, "That's all of them."),
     (KEY_PRACTICE_END_COUNT_TEMPLATE, "{n} questions from {side}."),
-    (KEY_PRACTISE_AGAIN_LABEL, "Practise them again"),
-    (KEY_PRACTICE_NONE_ANSWERED, "There is nothing to practise yet — practice walks the questions you have already answered."),
+    (KEY_PRACTISE_AGAIN_LABEL, "Practice them again"),
+    (KEY_PRACTICE_NONE_ANSWERED, "There is nothing to practice yet — practice walks the questions you have already answered."),
     (KEY_DECK_QUESTION_MISSING, "That question is no longer in this deck."),
     (KEY_READ_FALLIBLE, "This read is generated and can be wrong. If something here looks wrong to you, tell Chuck."),
     (KEY_ROW_DELETE_LABEL, "Delete"),
@@ -101,27 +128,39 @@ impl PracticeListWording {
     }
 }
 
-#[test]
-fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
+/// Read every named migration off disk, failing loudly if one has moved.
+fn read_all(files: &[&str]) -> Vec<String> {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sources: Vec<String> = SEED_MIGRATIONS
+    files
         .iter()
         .map(|file| {
             std::fs::read_to_string(root.join(file))
                 .unwrap_or_else(|cause| panic!("{file} is not on disk: {cause}"))
         })
-        .collect();
+        .collect()
+}
+
+/// The value the store actually ends up holding for one key: the newest
+/// correction if there is one, otherwise the seed.
+fn effective_value(corrections: &[String], seeds: &[String], key: &str) -> Option<String> {
+    corrections
+        .iter()
+        .find_map(|sql| corrected_value_in(sql, key))
+        .or_else(|| seeds.iter().find_map(|sql| seeded_value_in(sql, key)))
+}
+
+#[test]
+fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
+    let sources = read_all(SEED_MIGRATIONS);
+    let corrections = read_all(CORRECTION_MIGRATIONS);
 
     for key in PRACTICE_LIST_WORDING_KEYS {
-        let seeded = sources
-            .iter()
-            .find_map(|sql| seeded_value_in(sql, key))
-            .unwrap_or_else(|| {
-                panic!(
-                    "{key} is declared to the boot loader but seeded by no migration \
+        let seeded = effective_value(&corrections, &sources, key).unwrap_or_else(|| {
+            panic!(
+                "{key} is declared to the boot loader but seeded by no migration \
                  — the backend would refuse to start"
-                )
-            });
+            )
+        });
         let expected = TEST_SEED
             .iter()
             .find(|(k, _)| k == key)
@@ -197,4 +236,61 @@ fn a_missing_row_refuses_the_block_and_names_the_key() {
             .any(|key| reason.contains(key)),
         "the refusal must name a declared key, got {reason:?}"
     );
+}
+
+/// THE MUTATION PROOF FOR THE CORRECTION LOOKUP ADDED ON 2026-08-25.
+///
+/// The check above can only be trusted if the correction path is what makes it
+/// pass. So this asserts BOTH halves for one key: the seed migration still says
+/// the British word, the correction migration says the American one, and
+/// `effective_value` returns the correction. Delete `CORRECTION_MIGRATIONS` and
+/// this test goes red — which is exactly what a fixture reading a superseded
+/// INSERT deserves.
+#[test]
+fn the_correction_is_what_makes_the_fixture_current_not_the_seed() {
+    let seeds = read_all(SEED_MIGRATIONS);
+    let corrections = read_all(CORRECTION_MIGRATIONS);
+
+    let seeded = seeds
+        .iter()
+        .find_map(|sql| seeded_value_in(sql, KEY_START_PRACTISING_LABEL))
+        .expect("the August INSERT is still on disk and untouched");
+    assert_eq!(
+        seeded, "Start practising",
+        "an applied migration is history — the correction must not have edited it"
+    );
+
+    let corrected = corrections
+        .iter()
+        .find_map(|sql| corrected_value_in(sql, KEY_START_PRACTISING_LABEL))
+        .expect("the correction migration names this key in the shape the parser reads");
+    assert_eq!(corrected, "Start practicing");
+
+    assert_eq!(
+        effective_value(&corrections, &seeds, KEY_START_PRACTISING_LABEL).as_deref(),
+        Some("Start practicing"),
+        "the newest word must win"
+    );
+}
+
+/// A key this file corrects ONLY the meaning of must not pick up a neighbour's value.
+///
+/// `corrected_value_in` scans backwards from a key's WHERE clause for the nearest
+/// assignment to `value`, and a meaning-only statement has none of its own. If the
+/// correction file is ever reordered so a meaning-only statement follows a value
+/// correction, this returns the WRONG row's text — and it returned this
+/// migration's own header prose on the first attempt, before the decoy was
+/// removed from it. Pinned so a reorder is a failure and not a mystery.
+#[test]
+fn a_meaning_only_correction_yields_no_value_for_its_key() {
+    let corrections = read_all(CORRECTION_MIGRATIONS);
+    for key in ["practice_case_timezone", "practice_practice_hint"] {
+        let found = corrections
+            .iter()
+            .find_map(|sql| corrected_value_in(sql, key));
+        assert_eq!(
+            found, None,
+            "{key} has no value correction, so the parser must find none — it found {found:?}"
+        );
+    }
 }
