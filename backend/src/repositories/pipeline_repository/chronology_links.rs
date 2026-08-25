@@ -32,7 +32,7 @@ const LINK_COLUMNS: &str =
 /// N+1 the design's volume assumption does not need.
 pub async fn list_links_for_case(
     executor: impl sqlx::PgExecutor<'_>,
-    case_id: &str,
+    case_slug: &str,
 ) -> Result<Vec<ChronologyLinkRow>, PipelineRepoError> {
     // Spelled out with the alias rather than derived from LINK_COLUMNS: a
     // string transform that inserts "l." would be one clever line nobody could
@@ -43,10 +43,10 @@ pub async fn list_links_for_case(
                 l.created_by, l.created_at \
          FROM chronology_event_links l \
          JOIN chronology_events e ON e.id = l.event_id \
-         WHERE e.case_id = $1 AND e.deleted_at IS NULL \
+         WHERE e.case_slug = $1 AND e.deleted_at IS NULL \
          ORDER BY l.event_id, l.target_type, l.target_id",
     )
-    .bind(case_id)
+    .bind(case_slug)
     .fetch_all(executor)
     .await?;
     Ok(rows)
@@ -74,15 +74,15 @@ pub async fn list_links_for_event(
 /// zero, which is the same fact expressed with fewer rows.
 pub async fn note_counts_for_case(
     executor: impl sqlx::PgExecutor<'_>,
-    case_id: &str,
+    case_slug: &str,
 ) -> Result<Vec<(Uuid, i64)>, PipelineRepoError> {
     let rows = sqlx::query_as::<_, (Uuid, i64)>(
         "SELECT n.event_id, COUNT(*) FROM chronology_event_notes n \
          JOIN chronology_events e ON e.id = n.event_id \
-         WHERE e.case_id = $1 AND e.deleted_at IS NULL AND n.deleted_at IS NULL \
+         WHERE e.case_slug = $1 AND e.deleted_at IS NULL AND n.deleted_at IS NULL \
          GROUP BY n.event_id",
     )
-    .bind(case_id)
+    .bind(case_slug)
     .fetch_all(executor)
     .await?;
     Ok(rows)

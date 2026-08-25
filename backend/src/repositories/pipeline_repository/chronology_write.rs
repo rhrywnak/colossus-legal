@@ -27,10 +27,13 @@ use super::PipelineRepoError;
 /// where a reader stops tracking positions.
 #[derive(Debug, Clone)]
 pub struct NewChronologyEvent<'a> {
-    pub case_id: &'a str,
+    pub case_slug: &'a str,
     pub event_date: NaiveDate,
     pub date_precision: &'a str,
     pub approximate: bool,
+    /// The phase slug. A real column with a foreign key, so a value that is not
+    /// one of the four is refused by the database, not merely by a reviewer.
+    pub phase: &'a str,
     pub title: &'a str,
     pub fact: Option<&'a str>,
     pub attributes: &'a serde_json::Value,
@@ -50,14 +53,15 @@ pub async fn insert_event(
 ) -> Result<Uuid, PipelineRepoError> {
     let id = sqlx::query_scalar::<_, Uuid>(
         "INSERT INTO chronology_events \
-             (case_id, event_date, date_precision, approximate, title, fact, \
-              attributes, created_by) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id",
+             (case_slug, event_date, date_precision, approximate, phase, title, \
+              fact, attributes, created_by) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id",
     )
-    .bind(event.case_id)
+    .bind(event.case_slug)
     .bind(event.event_date)
     .bind(event.date_precision)
     .bind(event.approximate)
+    .bind(event.phase)
     .bind(event.title)
     .bind(event.fact)
     .bind(event.attributes)
@@ -111,14 +115,14 @@ pub async fn insert_link(
 /// How many link rows one case's live events carry. Part of the seed's proof.
 pub async fn count_links(
     executor: impl sqlx::PgExecutor<'_>,
-    case_id: &str,
+    case_slug: &str,
 ) -> Result<i64, PipelineRepoError> {
     let n = sqlx::query_scalar::<_, i64>(
         "SELECT COUNT(*) FROM chronology_event_links l \
          JOIN chronology_events e ON e.id = l.event_id \
-         WHERE e.case_id = $1 AND e.deleted_at IS NULL",
+         WHERE e.case_slug = $1 AND e.deleted_at IS NULL",
     )
-    .bind(case_id)
+    .bind(case_slug)
     .fetch_one(executor)
     .await?;
     Ok(n)

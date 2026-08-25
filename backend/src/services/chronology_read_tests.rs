@@ -1,10 +1,19 @@
-//! Behavioural tests for the chronology read composition.
+//! Behavioural tests for the chronology read composition: the attribute
+//! helpers, the phase column, and `build_timeline`.
+//!
+//! `build_event_detail` has its own file next door — this one crossed the
+//! 300-line module limit, and the split follows the two functions rather than
+//! cutting the file in half at an arbitrary point. The fixtures are duplicated
+//! deliberately: sharing them would mean a third module existing only to hold
+//! six constructors, and a test fixture that two files must agree on is worse
+//! than two that are each obviously right.
 //!
 //! Pure: every case builds rows by hand, states the expected payload, and never
 //! touches a database. The degradation cases matter most — they are the ones
 //! that must produce a WARNING and a rendered row, never an error.
 
 use super::*;
+use crate::dto::chronology::LinkResolution;
 use chrono::{NaiveDate, TimeZone, Utc};
 
 fn ts() -> chrono::DateTime<Utc> {
@@ -27,10 +36,11 @@ fn phase(id: &str, order: i32) -> ChronologyPhaseRow {
 fn event(id: Uuid, attributes: serde_json::Value) -> ChronologyEventRow {
     ChronologyEventRow {
         id,
-        case_id: "a_case".to_string(),
+        case_slug: "a_case".to_string(),
         event_date: NaiveDate::from_ymd_opt(2012, 4, 12).expect("a real date"),
         date_precision: "day".to_string(),
         approximate: false,
+        phase: "appeals".to_string(),
         title: "Judge Tighe Issues Post-Appeal Order".to_string(),
         fact: Some("Judge Tighe issues Opinion and Order.".to_string()),
         attributes,
@@ -54,27 +64,58 @@ fn link(event_id: Uuid, target_type: &str, target_id: &str) -> ChronologyLinkRow
 }
 
 fn seeded_attributes() -> serde_json::Value {
-    serde_json::json!({"tags": ["court_action"], "phase": "appeals", "source": "legacy_json"})
+    // NOTE what is absent: `phase`. It lives in the column and nowhere else.
+    serde_json::json!({"tags": ["court_action"], "source": "legacy_json", "source_id": "e016"})
 }
 
 // ─── tags_of / phase_of ──────────────────────────────────────────────────────
 
 #[test]
-fn a_well_formed_bag_yields_its_tags_and_phase_with_no_warning() {
+fn a_well_formed_bag_yields_its_tags_with_no_warning() {
     let (tags, odd) = tags_of(&seeded_attributes());
     assert_eq!(tags, vec!["court_action".to_string()]);
     assert!(!odd);
+}
 
-    let (phase, odd) = phase_of(&seeded_attributes());
-    assert_eq!(phase.as_deref(), Some("appeals"));
-    assert!(!odd);
+#[test]
+fn the_bag_carries_no_phase_and_the_column_is_the_only_home() {
+    assert!(
+        seeded_attributes().get("phase").is_none(),
+        "a mirrored attributes.phase is the second home that goes stale"
+    );
+
+    let composed = build_timeline(
+        &[],
+        &[event(Uuid::from_u128(1), seeded_attributes())],
+        &[],
+        &HashMap::new(),
+        &HashSet::new(),
+    );
+    assert_eq!(composed.payload.events[0].phase, "appeals");
+}
+
+#[test]
+fn the_phase_on_the_wire_comes_from_the_column_even_if_a_stale_bag_disagrees() {
+    // A bag written by some future caller that wrongly mirrors the phase must
+    // not be able to change what the payload says. The column wins, always.
+    let stale = serde_json::json!({"tags": ["court_action"], "phase": "probate"});
+    let composed = build_timeline(
+        &[],
+        &[event(Uuid::from_u128(2), stale)],
+        &[],
+        &HashMap::new(),
+        &HashSet::new(),
+    );
+    assert_eq!(
+        composed.payload.events[0].phase, "appeals",
+        "the column is the single source of truth for the phase"
+    );
 }
 
 #[test]
 fn an_empty_bag_is_a_real_state_not_a_failure() {
     let empty = serde_json::json!({});
     assert_eq!(tags_of(&empty), (Vec::new(), false));
-    assert_eq!(phase_of(&empty), (None, false));
 }
 
 #[test]
@@ -91,14 +132,6 @@ fn an_array_holding_non_strings_keeps_the_strings_and_still_reports() {
     let (tags, odd) = tags_of(&mixed);
     assert_eq!(tags, vec!["filing".to_string()], "the usable half survives");
     assert!(odd, "the unusable half is still reported");
-}
-
-#[test]
-fn a_phase_key_that_is_not_a_string_degrades_and_says_so() {
-    let bad = serde_json::json!({"phase": ["appeals"]});
-    let (phase, odd) = phase_of(&bad);
-    assert_eq!(phase, None);
-    assert!(odd);
 }
 
 // ─── build_timeline ──────────────────────────────────────────────────────────
@@ -118,7 +151,7 @@ fn a_link_to_a_document_that_exists_resolves() {
     );
 
     let link_dto = &composed.payload.events[0].links[0];
-    assert!(link_dto.resolves);
+    assert_eq!(link_dto.resolution, LinkResolution::Resolves);
     assert!(composed.warnings.is_empty());
 }
 
@@ -136,7 +169,11 @@ fn a_link_to_a_document_that_does_not_exist_is_data_not_an_error() {
     );
 
     let link_dto = &composed.payload.events[0].links[0];
-    assert!(!link_dto.resolves, "the dead link is reported, not dropped");
+    assert_eq!(
+        link_dto.resolution,
+        LinkResolution::Missing,
+        "looked for and not there is an ANSWER, not an absence of one"
+    );
     assert_eq!(link_dto.target_id, "doc-vanished", "and it keeps its id");
     assert_eq!(
         composed.payload.events[0].links.len(),
@@ -146,7 +183,7 @@ fn a_link_to_a_document_that_does_not_exist_is_data_not_an_error() {
 }
 
 #[test]
-fn a_target_type_this_build_cannot_check_warns_rather_than_claiming_to_know() {
+fn a_target_type_this_build_cannot_check_is_unchecked_not_missing() {
     let id = Uuid::from_u128(3);
     let links = vec![link(id, "paperless_document", "42")];
 
@@ -158,12 +195,35 @@ fn a_target_type_this_build_cannot_check_warns_rather_than_claiming_to_know() {
         &HashSet::new(),
     );
 
-    assert!(!composed.payload.events[0].links[0].resolves);
-    assert_eq!(composed.warnings.len(), 1);
+    assert_eq!(
+        composed.payload.events[0].links[0].resolution,
+        LinkResolution::Unchecked,
+        "reporting it as Missing would be a claim nobody checked"
+    );
     assert!(
-        composed.warnings[0].contains("paperless_document"),
-        "the warning must name the type, got: {}",
-        composed.warnings[0]
+        composed.warnings.is_empty(),
+        "not knowing is not a degradation; it has its own name on the wire"
+    );
+}
+
+#[test]
+fn the_three_resolutions_serialise_to_the_agreed_wire_tokens() {
+    let tokens: Vec<serde_json::Value> = [
+        LinkResolution::Resolves,
+        LinkResolution::Missing,
+        LinkResolution::Unchecked,
+    ]
+    .iter()
+    .map(|r| serde_json::to_value(r).expect("serialises"))
+    .collect();
+
+    assert_eq!(
+        tokens,
+        vec![
+            serde_json::json!("resolves"),
+            serde_json::json!("missing"),
+            serde_json::json!("unchecked")
+        ]
     );
 }
 
@@ -250,66 +310,4 @@ fn phases_travel_in_their_stored_order_with_their_subtitle() {
         Some("a subtitle")
     );
     assert_eq!(composed.payload.phases[0].date_range, "2014\u{2013}Present");
-}
-
-// ─── build_event_detail ──────────────────────────────────────────────────────
-
-#[test]
-fn the_detail_payload_carries_notes_history_and_a_note_count_that_matches() {
-    let id = Uuid::from_u128(9);
-    let notes = vec![ChronologyNoteRow {
-        id: Uuid::from_u128(90),
-        event_id: id,
-        note: "Check this against the docket.".to_string(),
-        created_by: Some("marie".to_string()),
-        created_at: ts(),
-    }];
-    let history = vec![ChronologyHistoryRow {
-        id: Uuid::from_u128(91),
-        event_id: id,
-        action: "created".to_string(),
-        snapshot: serde_json::json!({"title": "Judge Tighe Issues Post-Appeal Order"}),
-        changed_by: Some("roman".to_string()),
-        changed_at: ts(),
-    }];
-
-    let composed = build_event_detail(
-        &event(id, seeded_attributes()),
-        &[],
-        &notes,
-        &history,
-        &HashSet::new(),
-    );
-
-    assert_eq!(composed.payload.notes.len(), 1);
-    assert_eq!(
-        composed.payload.notes[0].created_by.as_deref(),
-        Some("marie")
-    );
-    assert_eq!(composed.payload.history.len(), 1);
-    assert_eq!(composed.payload.history[0].action, "created");
-    assert_eq!(
-        composed.payload.event.note_count, 1,
-        "the count and the list must be the same fact"
-    );
-}
-
-#[test]
-fn an_event_with_no_history_returns_an_empty_list_not_an_absence() {
-    let id = Uuid::from_u128(10);
-    let composed = build_event_detail(
-        &event(id, seeded_attributes()),
-        &[],
-        &[],
-        &[],
-        &HashSet::new(),
-    );
-
-    assert!(composed.payload.history.is_empty());
-    assert!(composed.payload.notes.is_empty());
-    // Serialised, the field is PRESENT and empty — "no changes recorded" — not
-    // missing, which a frontend could not tell from an older payload shape.
-    let json = serde_json::to_value(&composed.payload).expect("serialises");
-    assert_eq!(json["history"], serde_json::json!([]));
-    assert_eq!(json["notes"], serde_json::json!([]));
 }

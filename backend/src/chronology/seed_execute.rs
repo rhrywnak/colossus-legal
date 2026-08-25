@@ -48,11 +48,11 @@ pub struct SeedOutcome {
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum SeedExecError {
     #[error(
-        "case '{case_id}' already holds {existing} chronology event(s). This tool \
+        "case '{case_slug}' already holds {existing} chronology event(s). This tool \
          seeds a case ONCE; re-running it would double the chronology. If the \
          seed must be redone, the existing rows are removed deliberately first"
     )]
-    AlreadySeeded { case_id: String, existing: i64 },
+    AlreadySeeded { case_slug: String, existing: i64 },
 
     #[error(
         "the plan links to {missing_count} document(s) that do not exist: {missing}. \
@@ -111,17 +111,17 @@ pub async fn check_targets(pool: &PgPool, plan: &SeedPlan) -> Result<(), SeedExe
 pub async fn run(
     pool: &PgPool,
     plan: &SeedPlan,
-    case_id: &str,
+    case_slug: &str,
     created_by: &str,
     expected_phases: i64,
     mode: SeedMode,
 ) -> Result<SeedOutcome, SeedExecError> {
-    let existing = count_events(pool, case_id)
+    let existing = count_events(pool, case_slug)
         .await
         .map_err(|e| SeedExecError::Database(e.to_string()))?;
     if existing > 0 {
         return Err(SeedExecError::AlreadySeeded {
-            case_id: case_id.to_string(),
+            case_slug: case_slug.to_string(),
             existing,
         });
     }
@@ -140,7 +140,7 @@ pub async fn run(
         });
     }
 
-    write_and_verify(pool, plan, case_id, created_by, expected_phases, mode).await
+    write_and_verify(pool, plan, case_slug, created_by, expected_phases, mode).await
 }
 
 /// The writing half: one transaction, every insert, then the verification, then
@@ -148,7 +148,7 @@ pub async fn run(
 async fn write_and_verify(
     pool: &PgPool,
     plan: &SeedPlan,
-    case_id: &str,
+    case_slug: &str,
     created_by: &str,
     expected_phases: i64,
     mode: SeedMode,
@@ -158,8 +158,8 @@ async fn write_and_verify(
         .await
         .map_err(|e| SeedExecError::Database(e.to_string()))?;
 
-    insert_all(&mut tx, plan, case_id, created_by).await?;
-    let outcome = verify(&mut tx, plan, case_id, expected_phases).await?;
+    insert_all(&mut tx, plan, case_slug, created_by).await?;
+    let outcome = verify(&mut tx, plan, case_slug, expected_phases).await?;
 
     if mode == SeedMode::Apply {
         tx.commit()
@@ -193,17 +193,18 @@ async fn write_and_verify(
 async fn insert_all(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     plan: &SeedPlan,
-    case_id: &str,
+    case_slug: &str,
     created_by: &str,
 ) -> Result<(), SeedExecError> {
     for event in &plan.events {
         let id = insert_event(
             &mut **tx,
             &NewChronologyEvent {
-                case_id,
+                case_slug,
                 event_date: event.event_date,
                 date_precision: SEED_PRECISION,
                 approximate: event.approximate,
+                phase: &event.phase,
                 title: &event.title,
                 fact: event.fact.as_deref(),
                 attributes: &event.attributes,
@@ -211,7 +212,11 @@ async fn insert_all(
             },
         )
         .await
-        .map_err(|e| SeedExecError::Database(e.to_string()))?;
+        // The event's own source id, so a constraint that fires mid-loop names
+        // WHICH of the 22 legacy events triggered it. Without it an operator
+        // gets a table name and has to correlate insert order against the plan
+        // report by hand.
+        .map_err(|e| SeedExecError::Database(format!("event {}: {e}", event.source_id)))?;
 
         let Some(link) = &event.link else { continue };
         insert_link(
@@ -228,7 +233,12 @@ async fn insert_all(
             },
         )
         .await
-        .map_err(|e| SeedExecError::Database(e.to_string()))?;
+        .map_err(|e| {
+            SeedExecError::Database(format!(
+                "event {} link -> {}: {e}",
+                event.source_id, link.target_id
+            ))
+        })?;
     }
     Ok(())
 }
@@ -241,18 +251,19 @@ async fn insert_all(
 async fn verify(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     plan: &SeedPlan,
-    case_id: &str,
+    case_slug: &str,
     expected_phases: i64,
 ) -> Result<SeedOutcome, SeedExecError> {
-    let events = count_events(&mut **tx, case_id)
+    let events = count_events(&mut **tx, case_slug)
         .await
         .map_err(|e| SeedExecError::Database(e.to_string()))?;
     expect("events", plan.events.len() as i64, events)?;
 
-    let links =
-        crate::repositories::pipeline_repository::chronology_write::count_links(&mut **tx, case_id)
-            .await
-            .map_err(|e| SeedExecError::Database(e.to_string()))?;
+    let links = crate::repositories::pipeline_repository::chronology_write::count_links(
+        &mut **tx, case_slug,
+    )
+    .await
+    .map_err(|e| SeedExecError::Database(e.to_string()))?;
     expect("link rows", plan.link_count() as i64, links)?;
 
     let phases = count_phases(&mut **tx)
@@ -279,3 +290,7 @@ fn expect(what: &'static str, expected: i64, counted: i64) -> Result<(), SeedExe
         counted,
     })
 }
+
+#[cfg(test)]
+#[path = "seed_execute_tests.rs"]
+mod tests;

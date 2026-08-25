@@ -8,16 +8,17 @@
 //! runbook, and both want fixed-width lines with nothing to render.
 
 use super::seed::{SeedPlan, NO_DOCUMENT_YET, REPOINT_MAP, SEED_PRECISION, SEED_SOURCE};
+use super::seed_execute::{SeedMode, SeedOutcome};
 
 /// Render the whole proof: the map, every row, and the totals.
 ///
 /// `applied` switches the tense — the same numbers describe what WOULD be
 /// written and what WAS written, and printing "would write" after a successful
 /// `--apply` would be a small lie that costs an operator real confusion.
-pub fn render_report(plan: &SeedPlan, case_id: &str, created_by: &str, applied: bool) -> String {
+pub fn render_report(plan: &SeedPlan, case_slug: &str, created_by: &str, applied: bool) -> String {
     let mut out = String::new();
     out.push_str("=== CHRONOLOGY SEED — one-shot ===\n\n");
-    out.push_str(&format!("case_id    : {case_id}\n"));
+    out.push_str(&format!("case_slug  : {case_slug}\n"));
     out.push_str(&format!("created_by : {created_by}\n"));
     out.push_str(&format!(
         "precision  : {SEED_PRECISION} (every seeded event)\n"
@@ -64,8 +65,8 @@ fn render_rows(plan: &SeedPlan) -> String {
     for event in &plan.events {
         let approx = if event.approximate { " ~approx" } else { "" };
         out.push_str(&format!(
-            "  {}  {}{}  {}\n",
-            event.source_id, event.event_date, approx, event.title
+            "  {}  {}{}  [{}]  {}\n",
+            event.source_id, event.event_date, approx, event.phase, event.title
         ));
         out.push_str(&format!("        attributes: {}\n", event.attributes));
         match (&event.link, &event.unlinkable_target) {
@@ -109,6 +110,44 @@ fn render_totals(plan: &SeedPlan, applied: bool) -> String {
         "  events with no document yet : {}\n",
         plan.unlinkable().len()
     ));
+    out
+}
+
+/// What the run actually established, appended to the report once it is known.
+///
+/// ## Why the file gets this and the early print does not
+///
+/// A dry run prints its plan BEFORE opening the database, so an operator can
+/// eyeball the re-point map even when the tables are not deployed. But a report
+/// FILE that stops there would say "DRY RUN — nothing written" and give no hint
+/// that the target check then failed — a file that reads as a clean run when it
+/// was not. So the file is written only once the outcome is known, and it
+/// carries this section.
+pub fn render_outcome(outcome: &SeedOutcome, mode: SeedMode) -> String {
+    let mut out = String::from("\n--- OUTCOME ---\n");
+    out.push_str("  targets checked    : OK — every linked document exists\n");
+    out.push_str(&format!(
+        "  phase rows present : {}\n",
+        outcome.phases_present
+    ));
+    out.push_str(&format!(
+        "  events             : {}\n",
+        outcome.events_written
+    ));
+    out.push_str(&format!(
+        "  link rows          : {}\n",
+        outcome.links_written
+    ));
+    out.push_str(match mode {
+        SeedMode::Apply => "  RESULT             : COMMITTED\n",
+        SeedMode::ProveInTransaction => {
+            "  RESULT             : PROVED, then ROLLED BACK — nothing was kept\n"
+        }
+        SeedMode::DryRun => "  RESULT             : DRY RUN — nothing was written\n",
+    });
+    if outcome.rolled_back {
+        out.push_str("  (the writes executed for real and were discarded)\n");
+    }
     out
 }
 

@@ -26,6 +26,10 @@ use crate::domain::chronology::is_known_tag;
 ///
 /// The chronology supports ten target kinds (see the migration); the legacy JSON
 /// only ever pointed at documents, so the seed only ever writes this one.
+// CONST: a wire token in the schema this migration writes, not a setting. This
+// tool runs ONCE over a frozen file whose links are all documents; making it
+// configurable would imply an operator could point the seed at another kind of
+// target, which would mean a different corpus and a different tool.
 pub const SEED_TARGET_TYPE: &str = "document";
 
 /// The precision every seeded event carries.
@@ -33,11 +37,26 @@ pub const SEED_TARGET_TYPE: &str = "document";
 /// All 22 legacy events state a full date. The three flagged `approximate` keep
 /// their full stored date AND their flag — precision says which parts are known,
 /// the flag says the whole thing is a best estimate (see `domain::chronology`).
+// CONST: a fact about the 2026-08-25 corpus — all 22 legacy events state a full
+// date — not a knob. An operator who changed it would be asserting something
+// untrue about a file they cannot edit either, since it retires after the seed.
 pub const SEED_PRECISION: &str = "day";
 
 /// The value stamped into `attributes.source` on every seeded row, so a later
 /// reader can tell a migrated event from one a human typed.
+// CONST: the provenance stamp this one-shot leaves behind, and the value later
+// readers match on to tell a migrated event from a typed one. It identifies THIS
+// tool; a configurable provenance would let two runs disagree about who wrote a row.
 pub const SEED_SOURCE: &str = "legacy_json";
+
+/// The bag key holding the source document's own event id (`e001`…`e022`).
+///
+/// Ruled 2026-08-25 (report v1, R-D). It is the only way to reconcile a stored
+/// row against the retiring file: two events can share a date and a title, so
+/// nothing else in the row identifies which JSON entry it came from.
+// CONST: a key name in the attributes schema, read back by the guard and by any
+// future reconciliation. Renaming it is a data migration, not a config change.
+pub const SEED_SOURCE_ID_KEY: &str = "source_id";
 
 /// Design R12: the six near-miss ids, plus the one that was already real.
 ///
@@ -93,6 +112,8 @@ pub const NO_DOCUMENT_YET: &[&str] = &[
 
 /// One phase block of `timeline.json`. Read by the guard, not by the seed —
 /// the phases are seeded by migration, never by this tool.
+// serde: allows unknown fields because the source file is FROZEN and retires
+// after this seed; a key this struct does not name must not stop the load.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourcePhase {
     pub id: String,
@@ -103,6 +124,8 @@ pub struct SourcePhase {
 }
 
 /// One event block of `timeline.json`.
+// serde: allows unknown fields because the source file is FROZEN and retires
+// after this seed; a key this struct does not name must not stop the load.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceEvent {
     pub id: String,
@@ -117,6 +140,8 @@ pub struct SourceEvent {
 }
 
 /// One category block — the tag vocabulary and its colours.
+// serde: allows unknown fields because every category in the source file carries
+// an `icon` this build has never rendered, and refusing it would fail the seed.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceCategory {
     pub label: String,
@@ -131,6 +156,8 @@ pub struct SourceCategory {
 /// opposite case: the file is FROZEN and about to be deleted, and a key this
 /// struct does not name (`icon`, on every category) must not stop the seed. Read
 /// what is needed; ignore the rest.
+// serde: allows unknown fields because the source file is FROZEN and about to be
+// deleted — read what is needed, ignore the rest. See the doc comment above.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SourceTimeline {
     pub phases: Vec<SourcePhase>,
@@ -153,11 +180,14 @@ pub struct PlannedLink {
 /// One event the seed will write, with its link if it has one.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedEvent {
-    /// The JSON's own id (`e001`). Not stored — it identifies the row in the
-    /// report and in test assertions only.
+    /// The JSON's own id (`e001`). Stamped into `attributes.source_id` as well
+    /// as used to identify the row in the report and in test assertions.
     pub source_id: String,
     pub event_date: NaiveDate,
     pub approximate: bool,
+    /// The phase slug, bound for the real `chronology_events.phase` column.
+    /// It is deliberately NOT also in `attributes` — one fact, one home.
+    pub phase: String,
     pub title: String,
     pub fact: Option<String>,
     pub attributes: serde_json::Value,
@@ -284,12 +314,16 @@ fn plan_one(event: &SourceEvent, phases: &[&str]) -> Result<PlannedEvent, SeedEr
         source_id: event.id.clone(),
         event_date,
         approximate: event.approximate,
+        // The phase goes to the COLUMN, and only to the column. A mirrored
+        // `attributes.phase` would be a second home for one fact, and the second
+        // home is the one that goes stale.
+        phase: event.phase.clone(),
         title: event.title.clone(),
         fact: event.description.clone(),
         attributes: serde_json::json!({
             "tags": [event.category],
-            "phase": event.phase,
             "source": SEED_SOURCE,
+            SEED_SOURCE_ID_KEY: event.id,
         }),
         link,
         unlinkable_target,

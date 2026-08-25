@@ -42,7 +42,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use colossus_legal_backend::chronology::seed::{build_plan, parse_source, SeedError, SeedPlan};
 use colossus_legal_backend::chronology::seed_execute::{run, SeedExecError, SeedMode, SeedOutcome};
-use colossus_legal_backend::chronology::seed_report::render_report;
+use colossus_legal_backend::chronology::seed_report::{render_outcome, render_report};
 use colossus_legal_backend::oneshot::cli::{
     connect_pool, emit_report, init_tracing, pipeline_database_url,
 };
@@ -211,6 +211,12 @@ async fn main() -> ExitCode {
 async fn execute(args: &Args) -> Result<ExitCode, ExitCode> {
     let mode = mode_for(args)?;
     let plan = plan_from(&args.source)?;
+    let rendered = render_report(
+        &plan,
+        &args.case_slug,
+        &args.created_by,
+        mode == SeedMode::Apply,
+    );
 
     // THE PLAN IS PRINTED BEFORE THE DATABASE IS TOUCHED, on a dry run.
     //
@@ -219,9 +225,7 @@ async fn execute(args: &Args) -> Result<ExitCode, ExitCode> {
     // means that when the tables are not deployed yet, the dry run still hands
     // back the thing it was run for before it reports what it could not check.
     if mode == SeedMode::DryRun {
-        let rendered = render_report(&plan, &args.case_slug, &args.created_by, false);
         println!("{rendered}");
-        emit_report(&rendered, &args.report)?;
     }
 
     let url = pipeline_database_url(args.database_url.as_deref())?;
@@ -239,16 +243,18 @@ async fn execute(args: &Args) -> Result<ExitCode, ExitCode> {
     .await
     .map_err(|e| exit_for(&e))?;
 
-    if mode != SeedMode::DryRun {
-        let rendered = render_report(
-            &plan,
-            &args.case_slug,
-            &args.created_by,
-            mode == SeedMode::Apply,
-        );
-        println!("{rendered}");
-        emit_report(&rendered, &args.report)?;
+    // THE FILE IS WRITTEN ONLY ONCE THE OUTCOME IS KNOWN, and it carries that
+    // outcome. Writing it beside the early print would have produced a report
+    // saying "DRY RUN — nothing written" even when the target check then failed
+    // — a file that reads as a clean run when it was not. A failed run leaves no
+    // new file, and its exit code and log say why.
+    let outcome_section = render_outcome(&outcome, mode);
+    if mode == SeedMode::DryRun {
+        println!("{outcome_section}");
+    } else {
+        println!("{rendered}{outcome_section}");
     }
+    emit_report(&format!("{rendered}{outcome_section}"), &args.report)?;
     announce(&outcome, mode);
     Ok(ExitCode::from(EXIT_OK))
 }

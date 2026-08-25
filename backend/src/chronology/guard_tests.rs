@@ -38,8 +38,8 @@ use crate::domain::chronology::{is_known_tag, CHRONOLOGY_TAGS};
 /// The seed file, relative to the backend crate root.
 const SEED_RELATIVE_PATH: &str = "../frontend/public/data/timeline.json";
 
-/// The migration that seeded `chronology_phases`.
-const PHASES_MIGRATION: &str = "pipeline_migrations/20260825105447_chronology_phases.sql";
+/// The migration that creates every chronology table and seeds `chronology_phases`.
+const PHASES_MIGRATION: &str = "pipeline_migrations/20260825105447_chronology_tables.sql";
 
 /// The migration that put the phase CHECK on `documents`.
 const DOCUMENTS_PHASE_MIGRATION: &str = "pipeline_migrations/20260817150412_add_document_phase.sql";

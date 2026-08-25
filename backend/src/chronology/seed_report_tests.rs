@@ -3,6 +3,7 @@
 
 use super::*;
 use crate::chronology::seed::{PlannedEvent, PlannedLink};
+use crate::chronology::seed_execute::{SeedMode, SeedOutcome};
 use chrono::NaiveDate;
 
 fn planned(source_id: &str, link: Option<PlannedLink>, unlinkable: Option<&str>) -> PlannedEvent {
@@ -10,9 +11,10 @@ fn planned(source_id: &str, link: Option<PlannedLink>, unlinkable: Option<&str>)
         source_id: source_id.to_string(),
         event_date: NaiveDate::from_ymd_opt(2012, 4, 12).expect("a real date"),
         approximate: false,
+        phase: "appeals".to_string(),
         title: "Judge Tighe Issues Post-Appeal Order".to_string(),
         fact: None,
-        attributes: serde_json::json!({"tags": ["court_action"], "phase": "appeals"}),
+        attributes: serde_json::json!({"tags": ["court_action"], "source_id": "e016"}),
         link,
         unlinkable_target: unlinkable.map(str::to_string),
     }
@@ -110,4 +112,46 @@ fn the_totals_count_links_and_absences_separately() {
     assert!(out.contains("events to write      : 3"));
     assert!(out.contains("link rows to write   : 1"));
     assert!(out.contains("events with no document yet : 1"));
+}
+
+fn outcome(rolled_back: bool) -> SeedOutcome {
+    SeedOutcome {
+        events_written: 22,
+        links_written: 7,
+        phases_present: 4,
+        rolled_back,
+    }
+}
+
+#[test]
+fn the_outcome_section_records_that_the_targets_were_checked() {
+    // The whole reason this section exists: a report file that stopped at the
+    // plan would read as a clean dry run even when the target check had failed.
+    let rendered = render_outcome(&outcome(false), SeedMode::DryRun);
+    assert!(rendered.contains("targets checked    : OK"), "{rendered}");
+    assert!(rendered.contains("phase rows present : 4"), "{rendered}");
+    assert!(rendered.contains("events             : 22"), "{rendered}");
+    assert!(rendered.contains("link rows          : 7"), "{rendered}");
+}
+
+#[test]
+fn each_mode_states_a_different_result() {
+    assert!(
+        render_outcome(&outcome(false), SeedMode::DryRun).contains("DRY RUN — nothing was written")
+    );
+    assert!(render_outcome(&outcome(false), SeedMode::Apply).contains("COMMITTED"));
+
+    let proved = render_outcome(&outcome(true), SeedMode::ProveInTransaction);
+    assert!(proved.contains("PROVED, then ROLLED BACK — nothing was kept"));
+    assert!(
+        proved.contains("executed for real and were discarded"),
+        "a proof that says nothing was kept must also say the writes really ran: {proved}"
+    );
+}
+
+#[test]
+fn a_committed_run_never_claims_to_have_rolled_back() {
+    let committed = render_outcome(&outcome(false), SeedMode::Apply);
+    assert!(!committed.contains("ROLLED BACK"), "{committed}");
+    assert!(!committed.contains("discarded"), "{committed}");
 }

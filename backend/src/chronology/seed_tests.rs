@@ -44,17 +44,46 @@ fn source(events: Vec<SourceEvent>) -> SourceTimeline {
 }
 
 #[test]
-fn an_event_carries_its_category_as_a_tag_and_its_phase_as_an_attribute() {
+fn an_event_carries_its_category_as_a_tag_and_its_source_id() {
     let plan = build_plan(&source(vec![event("e010", "filing", "probate", None)]))
         .expect("a valid event plans");
     let attrs = &plan.events[0].attributes;
 
     assert_eq!(attrs["tags"], serde_json::json!(["filing"]));
-    assert_eq!(attrs["phase"], serde_json::json!("probate"));
     assert_eq!(attrs["source"], serde_json::json!("legacy_json"));
+    // Ruled 2026-08-25 (R-D): the JSON's own id, so a stored row can be
+    // reconciled against the retiring file. Two events can share a date and a
+    // title, so nothing else in the row identifies which entry it came from.
+    assert_eq!(attrs["source_id"], serde_json::json!("e010"));
     // The LABEL is never what is stored — the colour and display name are both
     // looked up by the key.
     assert_ne!(attrs["tags"], serde_json::json!(["Filing"]));
+}
+
+#[test]
+fn the_phase_goes_to_the_column_and_is_absent_from_the_bag() {
+    let plan = build_plan(&source(vec![event("e010", "filing", "probate", None)]))
+        .expect("a valid event plans");
+
+    assert_eq!(plan.events[0].phase, "probate", "the column carries it");
+    assert!(
+        plan.events[0].attributes.get("phase").is_none(),
+        "and the bag does NOT mirror it — one fact, one home"
+    );
+}
+
+#[test]
+fn the_seeded_bag_holds_exactly_three_keys() {
+    // Pinned so a fourth key cannot appear without a deliberate decision: what
+    // the seed writes into 22 rows is not something to add to by accident.
+    let plan = build_plan(&source(vec![event("e010", "filing", "probate", None)])).expect("plans");
+    let object = plan.events[0]
+        .attributes
+        .as_object()
+        .expect("the bag is a JSON object");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, vec!["source", "source_id", "tags"]);
 }
 
 #[test]
@@ -258,4 +287,57 @@ fn parse_source_names_the_file_when_the_json_is_not_the_expected_document() {
         err.to_string().contains("/tmp/broken.json"),
         "the message must name the file, got: {err}"
     );
+}
+
+#[test]
+fn an_unreadable_file_names_the_path_and_the_cause() {
+    // `Unreadable` is the one variant no function in this module returns — the
+    // binary constructs it, because the binary is what opens the file. It is
+    // tested here anyway: an untested Display string is one nobody has ever
+    // read, and this one is the first thing an operator sees when the seed
+    // cannot start at all.
+    let error = SeedError::Unreadable {
+        path: "/data/documents/timeline.json".to_string(),
+        cause: "No such file or directory (os error 2)".to_string(),
+    };
+    let rendered = error.to_string();
+
+    assert!(
+        rendered.contains("/data/documents/timeline.json"),
+        "the message must name the file it could not read, got: {rendered}"
+    );
+    assert!(
+        rendered.contains("No such file or directory"),
+        "and the reason it could not, got: {rendered}"
+    );
+}
+
+#[test]
+fn every_plan_refusal_names_the_event_it_refused_over() {
+    // Five of the six variants carry a source_id, and the message is useless
+    // without it: "a tag is unknown" sends an operator through 22 rows by hand.
+    let refusals = [
+        SeedError::BadDate {
+            source_id: "e005".to_string(),
+            date: "nope".to_string(),
+        },
+        SeedError::UnknownTag {
+            source_id: "e007".to_string(),
+            tag: "hearsay".to_string(),
+        },
+        SeedError::UnknownPhase {
+            source_id: "e009".to_string(),
+            phase: "mediation".to_string(),
+        },
+        SeedError::UnmappedDocument {
+            source_id: "e011".to_string(),
+            document_id: "doc-x".to_string(),
+        },
+    ];
+    for (error, expected_id) in refusals.iter().zip(["e005", "e007", "e009", "e011"]) {
+        assert!(
+            error.to_string().contains(expected_id),
+            "{error:?} does not name {expected_id}"
+        );
+    }
 }

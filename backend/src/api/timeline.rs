@@ -62,8 +62,8 @@ fn read_failure(error: PipelineRepoError, what: &str) -> AppError {
     }
 }
 
-/// The configured case, or a 503 naming the variable that is missing.
-fn case_id(state: &AppState) -> Result<String, AppError> {
+/// The configured case slug, or a 503 naming the variable that is missing.
+fn case_slug(state: &AppState) -> Result<String, AppError> {
     state.config.case_slug.clone().ok_or_else(|| {
         tracing::error!("CASE_SLUG is unset; the chronology cannot know which case to read");
         AppError::ServiceUnavailable {
@@ -114,7 +114,7 @@ pub async fn get_timeline(
     if let Some(ref u) = user {
         tracing::info!("{} GET /timeline", u.username);
     }
-    let case = case_id(&state)?;
+    let case = case_slug(&state)?;
 
     let phases = list_phases(&state.pipeline_pool)
         .await

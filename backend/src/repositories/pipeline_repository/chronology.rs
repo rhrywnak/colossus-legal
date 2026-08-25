@@ -46,10 +46,16 @@ pub struct ChronologyPhaseRow {
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ChronologyEventRow {
     pub id: Uuid,
-    pub case_id: String,
+    pub case_slug: String,
     pub event_date: NaiveDate,
     pub date_precision: String,
     pub approximate: bool,
+    /// Which phase of the case this event sits in.
+    ///
+    /// A real column with a real foreign key to `chronology_phases`, ruled
+    /// 2026-08-25. NOT an `Option`: the column is `NOT NULL`, and there is no
+    /// `attributes.phase` mirror to fall back to — one fact, one home.
+    pub phase: String,
     pub title: String,
     pub fact: Option<String>,
     pub attributes: serde_json::Value,
@@ -107,8 +113,8 @@ pub struct ChronologyHistoryRow {
 ///
 /// `deleted_at` is deliberately absent: no read in this module returns a deleted
 /// row, so no caller is handed a column it must remember to check.
-const EVENT_COLUMNS: &str = "id, case_id, event_date, date_precision, approximate, \
-     title, fact, attributes, created_by, created_at, updated_by, updated_at";
+const EVENT_COLUMNS: &str = "id, case_slug, event_date, date_precision, approximate, \
+     phase, title, fact, attributes, created_by, created_at, updated_by, updated_at";
 
 /// Every phase, in the case's chronological order.
 ///
@@ -132,15 +138,15 @@ pub async fn list_phases(
 /// data can never swap two events that share a date.
 pub async fn list_events(
     executor: impl sqlx::PgExecutor<'_>,
-    case_id: &str,
+    case_slug: &str,
 ) -> Result<Vec<ChronologyEventRow>, PipelineRepoError> {
     let sql = format!(
         "SELECT {EVENT_COLUMNS} FROM chronology_events \
-         WHERE case_id = $1 AND deleted_at IS NULL \
+         WHERE case_slug = $1 AND deleted_at IS NULL \
          ORDER BY event_date, id"
     );
     let rows = sqlx::query_as::<_, ChronologyEventRow>(&sql)
-        .bind(case_id)
+        .bind(case_slug)
         .fetch_all(executor)
         .await?;
     Ok(rows)
@@ -176,12 +182,12 @@ pub async fn get_event(
 /// before and after without pulling 22 rows across the wire to length them.
 pub async fn count_events(
     executor: impl sqlx::PgExecutor<'_>,
-    case_id: &str,
+    case_slug: &str,
 ) -> Result<i64, PipelineRepoError> {
     let n = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM chronology_events WHERE case_id = $1 AND deleted_at IS NULL",
+        "SELECT COUNT(*) FROM chronology_events WHERE case_slug = $1 AND deleted_at IS NULL",
     )
-    .bind(case_id)
+    .bind(case_slug)
     .fetch_one(executor)
     .await?;
     Ok(n)
