@@ -60,9 +60,9 @@ pub(crate) struct AllWording {
     pub(crate) card_grammar: CardGrammarWording,
     /// The models admin's temperature control (ruling R5, 2026-08-09).
     pub(crate) model_params: ModelParamsWording,
-    /// The Proof Matrix's strong-first vocabulary (task 396, P1).
     /// The words the case timeline speaks (chronology Phase B).
     pub(crate) chronology: ChronologyWording,
+    /// The Proof Matrix's strong-first vocabulary (task 396, P1).
     pub(crate) matrix: MatrixWording,
     /// The Trial Prep dashboard's own words (task 396, P3b — the R2 §3 rows
     /// that batch never migrated).

@@ -63,7 +63,7 @@ fn the_display_labels_are_not_accepted_as_slugs() {
         assert_eq!(
             CasePhase::from_slug(label),
             None,
-            "{label:?} is a display label from timeline.json, not a stored slug",
+            "{label:?} is a display label from the phases table, not a stored slug",
         );
     }
 }
@@ -128,64 +128,89 @@ fn an_unknown_phase_is_refused_with_a_message_naming_the_valid_slugs() {
 // now load-bearing in both directions: if the ids drift, a document's phase
 // stops resolving to a label and the Documents column renders blank.
 
-/// Where the timeline's phases actually live. Relative to the backend crate,
+/// Where the case's phases actually live, since Phase B retired the JSON.
+///
+/// `chronology_phases` is seeded by this migration and served by the backend;
+/// the file this used to read is gone (ruling R15). Relative to the crate root,
 /// because `CARGO_MANIFEST_DIR` is the only path a test can trust.
-fn timeline_json() -> std::path::PathBuf {
-    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../frontend/public/data/timeline.json")
+// STRUCTURAL: a repo-internal pointer to one immutable, version-controlled
+// migration. Identical in every environment; nothing here varies by deployment.
+const PHASES_MIGRATION: &str = "pipeline_migrations/20260825105447_chronology_tables.sql";
+
+fn phases_migration() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(PHASES_MIGRATION)
 }
 
-/// Read the phase ids and labels out of the data file.
-fn timeline_phases() -> Vec<(String, String)> {
-    let path = timeline_json();
+/// The phase ids and labels the migration seeds, in the order it seeds them.
+///
+/// Parses the one `INSERT INTO chronology_phases … VALUES` block. Deliberately
+/// crude, like every sibling migration reader in this repo: the rows have a
+/// fixed shape, and a shape that stops matching returns nothing — which the
+/// vacuity guard below turns into a failure rather than a silent pass.
+fn seeded_phases() -> Vec<(String, String)> {
+    let path = phases_migration();
     let body = std::fs::read_to_string(&path)
         .unwrap_or_else(|e| panic!("cannot read {}: {e}", path.display()));
-    let parsed: serde_json::Value = serde_json::from_str(&body)
-        .unwrap_or_else(|e| panic!("{} is not valid JSON: {e}", path.display()));
 
-    parsed["phases"]
-        .as_array()
-        .unwrap_or_else(|| panic!("{} has no `phases` array", path.display()))
-        .iter()
-        .map(|p| {
-            let id = p["id"].as_str().unwrap_or_default().to_string();
-            let label = p["label"].as_str().unwrap_or_default().to_string();
-            (id, label)
+    // Comments first: this codebase documents its rules next to its rules, and a
+    // header quoting a row would otherwise be parsed as one.
+    let sql: String = body
+        .lines()
+        .map(|line| match line.find("--") {
+            Some(at) => &line[..at],
+            None => line,
         })
-        .collect()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    let Some(at) = sql.find("INSERT INTO chronology_phases") else {
+        return Vec::new();
+    };
+    let block = &sql[at..];
+    let end = block.find(';').unwrap_or(block.len());
+
+    let mut out = Vec::new();
+    for row in block[..end].split("\n    (").skip(1) {
+        let mut literals = row.split('\'').skip(1).step_by(2);
+        let (Some(id), Some(label)) = (literals.next(), literals.next()) else {
+            continue;
+        };
+        out.push((id.to_string(), label.to_string()));
+    }
+    out
 }
 
-/// THE CONTRACT. Every phase this enum defines exists in `timeline.json` under
-/// the same id, in the same order, and there are no others.
+/// THE CONTRACT. Every phase this enum defines exists in `chronology_phases`
+/// under the same id, in the same order, and there are no others.
 ///
 /// A test that only checked "every enum slug appears somewhere" would pass while
-/// the file grew a fifth phase no document could ever be tagged with. Order is
+/// the table grew a fifth phase no document could ever be tagged with. Order is
 /// asserted too, because both the UI's dropdown and the timeline render in it.
 #[test]
-fn the_enum_and_the_timeline_data_file_define_the_same_four_phases() {
-    let from_file: Vec<String> = timeline_phases().into_iter().map(|(id, _)| id).collect();
+fn the_enum_and_the_phases_table_define_the_same_four_phases() {
+    let from_migration: Vec<String> = seeded_phases().into_iter().map(|(id, _)| id).collect();
     let from_code: Vec<String> = ALL_CASE_PHASES
         .iter()
         .map(|p| p.slug().to_string())
         .collect();
 
     assert_eq!(
-        from_code, from_file,
-        "domain::case_phase and frontend/public/data/timeline.json disagree about \
-         the case's phases. They are one vocabulary: fix whichever is wrong, and \
-         remember the labels live in the JSON while the slugs live in both.",
+        from_code, from_migration,
+        "domain::case_phase and the chronology_phases seed disagree about the \
+         case's phases. They are one vocabulary: fix whichever is wrong, and \
+         remember the labels live in the table while the slugs live in both.",
     );
 }
 
 /// Every phase carries a non-empty label, because the frontend renders the label
 /// and a blank one would silently produce an empty cell in the Documents table.
 ///
-/// The label TEXT is deliberately not asserted: Roman renames these at will and a
-/// test pinning "PRE-PROBATE" would turn a data edit back into a code change,
-/// which is exactly what the ruling moved them to the JSON to avoid.
+/// The label TEXT is deliberately not asserted here: Roman renames these at will
+/// and a test pinning "PRE-PROBATE" would turn a data edit back into a code
+/// change, which is what moving them out of code was for.
 #[test]
-fn every_timeline_phase_carries_a_usable_label() {
-    for (id, label) in timeline_phases() {
+fn every_seeded_phase_carries_a_usable_label() {
+    for (id, label) in seeded_phases() {
         assert!(!id.trim().is_empty(), "a phase has a blank id");
         assert!(
             !label.trim().is_empty(),
@@ -194,20 +219,26 @@ fn every_timeline_phase_carries_a_usable_label() {
     }
 }
 
-/// Guard against the scan silently passing because it read nothing: if the path
-/// ever moves, this fails rather than the two above passing vacuously.
+/// Guard against the scan silently passing because it read nothing.
+///
+/// ⚑ This is the half that matters. The two tests above are both satisfied by an
+/// empty list — `assert_eq!(vec![], vec![])` is a pass — so if the migration
+/// moves or its INSERT changes shape, they would go green while checking
+/// nothing at all. This says how many rows the reader must actually have found.
 #[test]
-fn the_scan_can_actually_see_the_file_it_claims_to_check() {
-    let path = timeline_json();
+fn the_scan_can_actually_see_the_rows_it_claims_to_check() {
+    let path = phases_migration();
     assert!(
         path.exists(),
-        "timeline.json not found at {}",
+        "the chronology phases migration is not at {}",
         path.display()
     );
     assert_eq!(
-        timeline_phases().len(),
-        4,
-        "expected four phases in {}",
+        seeded_phases().len(),
+        ALL_CASE_PHASES.len(),
+        "the reader found {} phase rows in {} — the INSERT's shape has changed \
+         and the two tests above are now passing vacuously",
+        seeded_phases().len(),
         path.display(),
     );
 }

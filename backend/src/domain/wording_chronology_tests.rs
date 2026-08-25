@@ -44,8 +44,6 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NOTE_COUNT_TEMPLATE, "💬 {count} notes"),
     (KEY_NOTE_COUNT_ONE, "💬 1 note"),
     (KEY_NO_PINPOINT_LABEL, "no pinpoint"),
-    (KEY_LOADING_LABEL, "Loading the timeline…"),
-    (KEY_ERROR_TEMPLATE, "The case timeline could not be loaded ({reason}). Try reloading the page."),
     (KEY_EMPTY_LABEL, "No events in this case yet."),
     (KEY_NO_MATCHES_LABEL, "No events match these filters."),
     (KEY_UNKNOWN_PHASE_TEMPLATE, "Event {id} names a phase this build does not know ({phase}). It is shown here so it can be corrected."),
@@ -170,7 +168,6 @@ fn the_templates_carry_the_placeholders_their_callers_fill() {
         w.phase_count_template.contains("{range}") && w.phase_count_template.contains("{count}")
     );
     assert!(w.note_count_template.contains("{count}"));
-    assert!(w.error_template.contains("{reason}"));
     assert!(
         w.unknown_phase_template.contains("{id}") && w.unknown_phase_template.contains("{phase}")
     );

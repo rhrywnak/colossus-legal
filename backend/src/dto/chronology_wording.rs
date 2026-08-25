@@ -45,8 +45,6 @@ pub struct ChronologyWordingDto {
     pub note_count_template: String,
     pub note_count_one: String,
     pub no_pinpoint_label: String,
-    pub loading_label: String,
-    pub error_template: String,
     pub empty_label: String,
     pub no_matches_label: String,
     pub unknown_phase_template: String,
@@ -85,8 +83,6 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             note_count_template: w.note_count_template.clone(),
             note_count_one: w.note_count_one.clone(),
             no_pinpoint_label: w.no_pinpoint_label.clone(),
-            loading_label: w.loading_label.clone(),
-            error_template: w.error_template.clone(),
             empty_label: w.empty_label.clone(),
             no_matches_label: w.no_matches_label.clone(),
             unknown_phase_template: w.unknown_phase_template.clone(),
@@ -156,3 +152,7 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "chronology_wording_reach_tests.rs"]
+mod reach_tests;

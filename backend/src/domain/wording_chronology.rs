@@ -13,6 +13,17 @@
 //! — seven rows seeded, declared in no block, and a page that rendered blank
 //! against a database that was correct the whole time.
 //!
+//! ## ⚑ TWO STRINGS THIS BLOCK DELIBERATELY DOES NOT CARRY
+//!
+//! A loading line and a load-failure line. Both were drafted, and both were
+//! withdrawn on the same reasoning: the wording store is DELIVERED BY the
+//! request whose failure they would describe. A key that can only be read after
+//! the read succeeded cannot speak about the read failing, and a key nothing can
+//! reach is a row seeded, mirrored and paid for that no screen ever says.
+//!
+//! The bootstrap text lives in ONE named place in the frontend service instead,
+//! marked as the exception it is. See the report's NEEDS A RULING.
+//!
 //! ## Why the glyphs are IN the stored strings
 //!
 //! `⚠`, `💬`, `⤢`, `⇲` and `◌` are part of the words, not decoration a component
@@ -74,10 +85,6 @@ pub struct ChronologyWording {
     /// to-scan to-do list, so it is marked rather than left blank.
     pub no_pinpoint_label: String,
 
-    /// While the one fetch is in flight.
-    pub loading_label: String,
-    /// When the fetch fails. `{reason}` carries the thrown message.
-    pub error_template: String,
     /// The case genuinely holds no events.
     pub empty_label: String,
     /// The case holds events but the filters match none of them.
@@ -135,8 +142,6 @@ pub(crate) const KEY_LINK_UNCHECKED_LABEL: &str = "chronology_link_unchecked_lab
 pub(crate) const KEY_NOTE_COUNT_TEMPLATE: &str = "chronology_note_count_template";
 pub(crate) const KEY_NOTE_COUNT_ONE: &str = "chronology_note_count_one";
 pub(crate) const KEY_NO_PINPOINT_LABEL: &str = "chronology_no_pinpoint_label";
-pub(crate) const KEY_LOADING_LABEL: &str = "chronology_loading_label";
-pub(crate) const KEY_ERROR_TEMPLATE: &str = "chronology_error_template";
 pub(crate) const KEY_EMPTY_LABEL: &str = "chronology_empty_label";
 pub(crate) const KEY_NO_MATCHES_LABEL: &str = "chronology_no_matches_label";
 pub(crate) const KEY_UNKNOWN_PHASE_TEMPLATE: &str = "chronology_unknown_phase_template";
@@ -169,8 +174,6 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_NOTE_COUNT_TEMPLATE,
     KEY_NOTE_COUNT_ONE,
     KEY_NO_PINPOINT_LABEL,
-    KEY_LOADING_LABEL,
-    KEY_ERROR_TEMPLATE,
     KEY_EMPTY_LABEL,
     KEY_NO_MATCHES_LABEL,
     KEY_UNKNOWN_PHASE_TEMPLATE,
@@ -216,8 +219,6 @@ pub fn build_chronology_wording<E>(
         note_count_template: read(KEY_NOTE_COUNT_TEMPLATE)?,
         note_count_one: read(KEY_NOTE_COUNT_ONE)?,
         no_pinpoint_label: read(KEY_NO_PINPOINT_LABEL)?,
-        loading_label: read(KEY_LOADING_LABEL)?,
-        error_template: read(KEY_ERROR_TEMPLATE)?,
         empty_label: read(KEY_EMPTY_LABEL)?,
         no_matches_label: read(KEY_NO_MATCHES_LABEL)?,
         unknown_phase_template: read(KEY_UNKNOWN_PHASE_TEMPLATE)?,

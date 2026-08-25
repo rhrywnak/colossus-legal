@@ -213,17 +213,11 @@ pub struct Settings {
     /// provider changes what it accepts, which has nothing to do with what a
     /// candidate card says.
     pub model_params_wording: ModelParamsWording,
-    /// The words the PROOF MATRIX speaks now that a row leads with the strong
-    /// count (task 396, P1).
-    ///
-    /// A tenth nested block, on the same test the other nine pass: these are
-    /// spoken on the case-wide proof grid, to Chuck, about how hard a piece of
-    /// proof is to dispute — a different surface and a different reader from
-    /// anything that curates one scenario.
     /// Every string the case-timeline surfaces speak (chronology Phase B).
     ///
     /// A nested block for the reason every sibling has one: these are the words
-    /// ONE surface family speaks, and they move independently of the rest.
+    /// ONE surface family speaks — the timeline list, the event page and the
+    /// home band — and they move independently of the rest.
     pub chronology_wording: ChronologyWording,
     /// How many events a phase's scroll window shows before it scrolls (R6).
     ///
@@ -231,6 +225,13 @@ pub struct Settings {
     /// Roman decides four is too few after watching Marie read, edits one row,
     /// and the next page load obeys. No rebuild, no deploy.
     pub chronology_phase_window_events: usize,
+    /// The words the PROOF MATRIX speaks now that a row leads with the strong
+    /// count (task 396, P1).
+    ///
+    /// A tenth nested block, on the same test the other nine pass: these are
+    /// spoken on the case-wide proof grid, to Chuck, about how hard a piece of
+    /// proof is to dispute — a different surface and a different reader from
+    /// anything that curates one scenario.
     pub matrix_wording: MatrixWording,
     /// The words the TRIAL PREP dashboard speaks (task 396, P3b).
     ///

@@ -262,34 +262,6 @@ ON CONFLICT (key) DO NOTHING;
 INSERT INTO app_settings
     (key, value, value_kind, default_value, min_value, max_value, meaning,
      consumed_by, updated_at, updated_by)
-VALUES ('chronology_loading_label',
-    'Loading the timeline…',
-    'text',
-    'Loading the timeline…',
-    NULL, NULL,
-    'Shown while the timeline''s one request is in flight.',
-    NULL,
-    NOW(),
-    'migration')
-ON CONFLICT (key) DO NOTHING;
-
-INSERT INTO app_settings
-    (key, value, value_kind, default_value, min_value, max_value, meaning,
-     consumed_by, updated_at, updated_by)
-VALUES ('chronology_error_template',
-    'The case timeline could not be loaded ({reason}). Try reloading the page.',
-    'text',
-    'The case timeline could not be loaded ({reason}). Try reloading the page.',
-    NULL, NULL,
-    'Shown when the timeline request fails. {reason} carries the thrown message. Domain note: this replaces a page that swallowed the failure and rendered nothing at all.',
-    NULL,
-    NOW(),
-    'migration')
-ON CONFLICT (key) DO NOTHING;
-
-INSERT INTO app_settings
-    (key, value, value_kind, default_value, min_value, max_value, meaning,
-     consumed_by, updated_at, updated_by)
 VALUES ('chronology_empty_label',
     'No events in this case yet.',
     'text',
@@ -467,8 +439,6 @@ BEGIN
             'chronology_note_count_template',
             'chronology_note_count_one',
             'chronology_no_pinpoint_label',
-            'chronology_loading_label',
-            'chronology_error_template',
             'chronology_empty_label',
             'chronology_no_matches_label',
             'chronology_unknown_phase_template',
@@ -481,9 +451,9 @@ BEGIN
             'chronology_band_mismatch_template',
             'chronology_phase_window_events'
      );
-    IF n <> 30 THEN
+    IF n <> 28 THEN
         RAISE EXCEPTION
-            'the chronology block must hold all 30 rows, found %', n;
+            'the chronology block must hold all 28 rows, found %', n;
     END IF;
 
     SELECT COUNT(*) INTO n FROM app_settings

@@ -1,238 +1,204 @@
-import React, { useEffect, useState } from "react";
-import { useLocation } from "react-router-dom";
-import { API_BASE_URL } from "../services/api";
+// =============================================================================
+// TimelinePage.tsx — the case chronology, read from the database
+// =============================================================================
+//
+// Chronology Phase B, mockup v2 Screens 1 and 1b. This page used to fetch a
+// static JSON file baked into the frontend image; it reads `GET /api/timeline`
+// now, and the file is gone.
+//
+// ## ⚑ TWO DEFECTS DIE WITH THIS REWRITE
+//
+// The page it replaces did `fetch("/data/timeline.json").catch(() => {})` with
+// no timeout at all. Both are closed here, not by care but by construction: the
+// request goes through `authFetch`, which arms an `AbortController` at the
+// standing ceiling, and every failure below reaches a rendered, stored sentence.
+// A network failure and an empty case are DIFFERENT screens.
+//
+// ## And a third silent path, which was never even a defect report
+//
+// An event naming a phase that has no row used to fall out of the render
+// entirely — it belonged to no section, so nothing drew it. It now renders in a
+// loud row naming its id. An event nobody can see is an event nobody can fix.
+//
+// ## What is deliberately NOT here
+//
+// Add event, the ✎/🗑 controls, the People filter and the "Spine only" toggle.
+// Writes are Phase C; People and spine have no data behind them. The honest-gap
+// law: a control that cannot work is not drawn.
 
-// ─── Types ───────────────────────────────────────────────────────────────────
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
-type Phase = {
-  id: string;
-  label: string;
-  date_range: string;
-  color: string;
-  description: string;
-};
+import { timelineEventPath } from "../utils/routePaths";
 
-type TimelineEvent = {
-  id: string;
-  phase: string;
-  date: string;
-  approximate: boolean;
-  title: string;
-  description: string;
-  category: string;
-  document_id: string | null;
-  document_label: string | null;
-};
+import TimelineEventCard from "../components/timeline/TimelineEventCard";
+import TimelineFilterBar from "../components/timeline/TimelineFilterBar";
+import TimelinePhaseSection from "../components/timeline/TimelinePhaseSection";
+import {
+  applyFilters,
+  groupByPhase,
+  isFiltered,
+  NO_FILTERS,
+  subtitleOf,
+  type TimelineFilters,
+  unknownPhaseEvents,
+} from "../components/timeline/timelineFilters";
+import * as s from "../components/timeline/timelineStyles";
+import {
+  BOOTSTRAP_TEXT,
+  type CaseTimeline,
+  cw,
+  fill,
+  getCaseTimeline,
+} from "../services/caseTimeline";
 
-type CategoryInfo = {
-  color: string;
-  label: string;
-  icon: string;
-};
-
-type TimelineData = {
-  phases: Phase[];
-  events: TimelineEvent[];
-  categories: Record<string, CategoryInfo>;
-};
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-function formatDate(dateStr: string, approximate: boolean): string {
-  const d = new Date(dateStr + "T00:00:00");
-  const formatted = d.toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-    year: "numeric",
-  });
-  return approximate ? `~${formatted}` : formatted;
-}
-
-// ─── Component ───────────────────────────────────────────────────────────────
+/** The query parameter that carries an expanded phase across a reload. */
+const PHASE_PARAM = "phase";
 
 const TimelinePage: React.FC = () => {
-  const location = useLocation();
-  const [data, setData] = useState<TimelineData | null>(null);
+  const navigate = useNavigate();
+  const [params, setParams] = useSearchParams();
+  const [data, setData] = useState<CaseTimeline | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<string | null>(null);
+  const [local, setLocal] = useState<TimelineFilters>(NO_FILTERS);
+
+  // The phase filter lives in the URL so an expanded phase survives a reload and
+  // can be linked to — which is what the home band's pills point at.
+  const filters: TimelineFilters = useMemo(
+    () => ({ ...local, phase: params.get(PHASE_PARAM) }),
+    [local, params],
+  );
 
   useEffect(() => {
-    fetch("/data/timeline.json")
-      .then((r) => r.json())
-      .then((d) => setData(d))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    getCaseTimeline()
+      .then((payload) => {
+        if (!cancelled) setData(payload);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : "unknown error");
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Scroll to phase anchor after data loads
-  useEffect(() => {
-    if (!data || !location.hash) return;
-    const el = document.getElementById(location.hash.slice(1));
-    if (el) {
-      setTimeout(() => el.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
-    }
-  }, [data, location.hash]);
+  const setPhase = useCallback(
+    (phase: string | null) => {
+      const next = new URLSearchParams(params);
+      if (phase === null) next.delete(PHASE_PARAM);
+      else next.set(PHASE_PARAM, phase);
+      setParams(next, { replace: false });
+    },
+    [params, setParams],
+  );
+
+  const openEvent = useCallback(
+    // `params`, not `window.location.search`: the router's state is the
+    // authority here, and reading the URL directly returns the PREVIOUS value
+    // while a queued update has not yet committed — which would carry the wrong
+    // phase back with the reader, silently, with nothing to see or log.
+    (id: string) => {
+      const query = params.toString();
+      navigate(timelineEventPath(id) + (query === "" ? "" : `?${query}`));
+    },
+    [navigate, params],
+  );
 
   if (loading) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Loading timeline...</div>;
+    // See BOOTSTRAP_TEXT: the store that holds every other word on this page
+    // has not arrived yet, and cannot, until this request finishes.
+    return (
+      <div style={s.state} aria-busy="true">
+        {BOOTSTRAP_TEXT.loading}
+      </div>
+    );
+  }
+  if (error !== null || data === null) {
+    // A network failure NAMES ITSELF. The page this replaces rendered nothing
+    // at all here, having swallowed the rejection.
+    return (
+      <div style={s.errorState}>
+        {BOOTSTRAP_TEXT.timelineFailed(error ?? "unknown error")}
+      </div>
+    );
   }
 
-  if (!data) {
-    return <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)" }}>Failed to load timeline data.</div>;
-  }
-
-  const filteredEvents = filter
-    ? data.events.filter((e) => e.category === filter)
-    : data.events;
-
-  const categoryKeys = Object.keys(data.categories);
+  const shown = applyFilters(data.events, filters);
+  const groups = groupByPhase(data.phases, shown);
+  const orphans = unknownPhaseEvents(data.phases, shown);
+  const visiblePhases =
+    filters.phase === null ? groups : groups.filter((g) => g.phase.id === filters.phase);
 
   return (
-    <div style={{ paddingTop: "2rem", paddingBottom: "4rem" }}>
-      {/* Header */}
-      <div style={{ marginBottom: "1.5rem" }}>
-        <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text-primary)", margin: 0, marginBottom: "0.3rem" }}>
-          Case Timeline
-        </h1>
-        <p style={{ fontSize: "0.84rem", color: "var(--text-muted)", margin: 0 }}>
-          {filteredEvents.length} event{filteredEvents.length !== 1 ? "s" : ""}
-          {filter ? ` in ${data.categories[filter]?.label}` : ""} across {data.phases.length} phases
-        </p>
+    <div style={s.page}>
+      <div style={s.titleRow}>
+        <h1 style={s.h1}>{cw(data.wording, "page_title")}</h1>
+        <p style={s.subCount}>{subtitleOf(data, filters, shown.length)}</p>
       </div>
 
-      {/* Filter chips */}
-      <div style={{ display: "flex", gap: "0.4rem", flexWrap: "wrap", marginBottom: "1.75rem" }}>
-        <button
-          onClick={() => setFilter(null)}
-          style={{
-            padding: "0.3rem 0.75rem", borderRadius: "9999px", fontSize: "0.76rem",
-            fontWeight: 600, cursor: "pointer", border: "1px solid",
-            fontFamily: "inherit", transition: "all 0.15s ease",
-            backgroundColor: filter === null ? "var(--text-primary)" : "var(--bg-surface)",
-            color: filter === null ? "var(--bg-surface)" : "var(--text-secondary)",
-            borderColor: filter === null ? "var(--text-primary)" : "var(--border-default)",
-          }}
-        >
-          All
-        </button>
-        {categoryKeys.map((key) => {
-          const cat = data.categories[key];
-          const active = filter === key;
-          return (
-            <button
-              key={key}
-              onClick={() => setFilter(active ? null : key)}
-              style={{
-                padding: "0.3rem 0.75rem", borderRadius: "9999px", fontSize: "0.76rem",
-                fontWeight: 600, cursor: "pointer", border: "1px solid",
-                fontFamily: "inherit", transition: "all 0.15s ease",
-                backgroundColor: active ? cat.color : "var(--bg-surface)",
-                color: active ? "var(--bg-surface)" : cat.color,
-                borderColor: active ? cat.color : "var(--border-default)",
-              }}
-            >
-              {cat.label}
-            </button>
-          );
-        })}
-      </div>
+      <TimelineFilterBar
+        tags={data.tags}
+        phases={data.phases}
+        wording={data.wording}
+        filters={filters}
+        onChange={(next) => {
+          setLocal({ ...next, phase: null });
+          if (next.phase !== filters.phase) setPhase(next.phase);
+        }}
+      />
 
-      {/* Phases + events */}
-      {data.phases.map((phase) => {
-        const phaseEvents = filteredEvents.filter((e) => e.phase === phase.id);
-        if (phaseEvents.length === 0 && filter) return null;
-
-        return (
-          <section
-            key={phase.id}
-            id={`phase-${phase.id}`}
-            style={{ marginBottom: "2rem", scrollMarginTop: "80px" }}
-          >
-            {/* Phase header */}
-            <div style={{
-              borderLeft: `4px solid ${phase.color}`, paddingLeft: "1rem",
-              marginBottom: "1rem",
-            }}>
-              <div style={{ fontSize: "1.05rem", fontWeight: 700, color: "var(--text-primary)" }}>
-                {phase.label}
-              </div>
-              <div style={{ fontSize: "0.78rem", color: "var(--text-muted)" }}>
-                {phase.date_range} {"\u00b7"} {phaseEvents.length} event{phaseEvents.length !== 1 ? "s" : ""}
-              </div>
-            </div>
-
-            {/* Events list */}
-            <div style={{ display: "flex", flexDirection: "column", gap: "0.5rem", paddingLeft: "1rem" }}>
-              {phaseEvents.map((evt) => {
-                const cat = data.categories[evt.category];
-                return (
-                  <div
-                    key={evt.id}
-                    style={{
-                      backgroundColor: "var(--bg-surface)", border: "1px solid var(--border-default)",
-                      borderRadius: "8px", padding: "1rem 1.25rem",
-                      display: "flex", gap: "1rem", alignItems: "flex-start",
-                    }}
-                  >
-                    {/* Dot + date column */}
-                    <div style={{ flexShrink: 0, width: "90px", textAlign: "right", paddingTop: "0.15rem" }}>
-                      <div style={{ fontSize: "0.72rem", color: "var(--text-muted)", fontWeight: 500, whiteSpace: "nowrap" }}>
-                        {formatDate(evt.date, evt.approximate)}
-                      </div>
-                    </div>
-
-                    {/* Dot */}
-                    <div style={{
-                      width: "10px", height: "10px", borderRadius: "50%",
-                      backgroundColor: cat?.color ?? "var(--text-disabled)",
-                      flexShrink: 0, marginTop: "0.3rem",
-                    }} />
-
-                    {/* Content */}
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap", marginBottom: "0.25rem" }}>
-                        <span style={{ fontSize: "0.88rem", fontWeight: 600, color: "var(--text-primary)" }}>
-                          {evt.title}
-                        </span>
-                        {cat && (
-                          <span style={{
-                            display: "inline-block", padding: "0.1rem 0.5rem",
-                            borderRadius: "9999px", fontSize: "0.65rem", fontWeight: 600,
-                            backgroundColor: cat.color + "18", color: cat.color,
-                          }}>
-                            {cat.label}
-                          </span>
-                        )}
-                      </div>
-                      <div style={{ fontSize: "0.82rem", color: "var(--text-secondary)", lineHeight: 1.55, fontFamily: "'Georgia', serif" }}>
-                        {evt.description}
-                      </div>
-                      {evt.document_id && evt.document_label && (
-                        <a
-                          href={`${API_BASE_URL}/api/documents/${evt.document_id}/file`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          style={{
-                            display: "inline-block", marginTop: "0.4rem",
-                            fontSize: "0.78rem", color: "var(--accent-primary)", textDecoration: "none", fontWeight: 500,
-                          }}
-                        >
-                          {evt.document_label} {"\u2192"}
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {phaseEvents.length === 0 && (
-                <div style={{ fontSize: "0.82rem", color: "var(--text-disabled)", fontStyle: "italic", padding: "0.5rem 0" }}>
-                  No events in this phase match the current filter.
+      {data.events.length === 0 ? (
+        <div style={s.state}>{cw(data.wording, "empty_label")}</div>
+      ) : shown.length === 0 && isFiltered(filters) ? (
+        // A different sentence from the empty case, deliberately: "there is
+        // nothing here" and "your filters hid everything" send a reader to two
+        // different places.
+        <div style={s.state}>{cw(data.wording, "no_matches_label")}</div>
+      ) : (
+        <>
+          {orphans.length > 0 && (
+            <div>
+              {orphans.map((event) => (
+                <div key={event.id} style={s.unknownPhase}>
+                  {fill(cw(data.wording, "unknown_phase_template"), {
+                    id: event.id,
+                    phase: event.phase,
+                  })}
+                  <TimelineEventCard
+                    event={event}
+                    tags={data.tags}
+                    wording={data.wording}
+                    onOpen={openEvent}
+                  />
                 </div>
-              )}
+              ))}
             </div>
-          </section>
-        );
-      })}
+          )}
+
+          {visiblePhases.map((group) => (
+            <TimelinePhaseSection
+              key={group.phase.id}
+              phase={group.phase}
+              events={group.events}
+              tags={data.tags}
+              wording={data.wording}
+              windowEvents={data.phase_window_events}
+              expanded={filters.phase === group.phase.id}
+              onToggleExpand={() =>
+                setPhase(filters.phase === group.phase.id ? null : group.phase.id)
+              }
+              onOpenEvent={openEvent}
+            />
+          ))}
+        </>
+      )}
     </div>
   );
 };

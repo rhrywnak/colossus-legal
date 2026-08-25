@@ -55,7 +55,7 @@ use tracing::{error, info, warn};
 #[derive(Parser, Debug)]
 #[command(
     name = "seed_chronology",
-    about = "Load the legacy timeline.json into the chronology tables. Dry run unless --apply.",
+    about = "Load an archived legacy timeline document into the chronology tables. Dry run unless --apply.",
     after_help = help_text()
 )]
 struct Args {
@@ -67,16 +67,19 @@ struct Args {
     #[arg(long, value_name = "NAME")]
     created_by: String,
 
-    /// The timeline document to read. Defaults to the repo's copy.
+    /// The timeline document to read. REQUIRED — there is no default any more.
     ///
-    /// A relative default rather than an env var, matching `seed_practice_deck`:
-    /// this is an operator's tool run from a checkout, and nothing about the
-    /// path varies per environment.
-    #[arg(
-        long,
-        value_name = "PATH",
-        default_value = "../frontend/public/data/timeline.json"
-    )]
+    /// ## ⚑ The file this used to default to has been deleted
+    ///
+    /// `frontend/public/data/timeline.json` retired with Phase B (ruling R15):
+    /// the phases and tags are tables now, the 22 events are rows, and nothing
+    /// in the product reads it. This tool has RUN. Keeping a default that points
+    /// at a deleted path would turn "the seed is finished" into a file-not-found
+    /// an operator has to interpret; making the argument required means anyone
+    /// re-running it must deliberately supply an archived copy, which is the
+    /// only circumstance in which running it again makes sense. Against a case
+    /// that already holds events it refuses anyway.
+    #[arg(long, value_name = "PATH")]
     source: PathBuf,
 
     /// Execute every insert and its verification inside a transaction, then ROLL

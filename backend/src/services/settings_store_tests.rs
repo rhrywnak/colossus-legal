@@ -782,6 +782,32 @@ fn a_missing_accusation_wording_row_refuses_the_snapshot_too() {
     }
 }
 
+/// A missing CHRONOLOGY row refuses the snapshot exactly as the others do.
+///
+/// ## Why this is not covered by `wording_chronology_tests`
+///
+/// That file proves `build_chronology_wording` refuses a missing key in
+/// ISOLATION. This proves the refusal survives the wiring — that
+/// `build_all_wording` actually calls it and actually propagates. A wiring
+/// defect that dropped the `?`, or omitted the call and left the field filled
+/// from somewhere else, would pass every assertion written against the builder
+/// alone and boot a backend serving a page with no words on it.
+#[test]
+fn a_missing_chronology_wording_row_refuses_the_snapshot_too() {
+    for key in CHRONOLOGY_WORDING_KEYS {
+        let mut rows = seeded();
+        rows.remove(*key);
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("a store missing {key} must not produce a snapshot");
+        };
+        assert!(
+            error.to_string().contains(key),
+            "the refusal must name the missing string: {error}"
+        );
+    }
+}
+
 /// A missing WORDING row refuses the snapshot exactly as a missing number does.
 ///
 /// The point of Roman's ruling is that a string is a stored parameter with the
