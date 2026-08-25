@@ -296,6 +296,77 @@ const ACKNOWLEDGMENT_MIGRATION: &str =
 // whether it works. Break the thing it guards and watch it fail. If it does not
 // fail, it was never guarding anything, however carefully it was written.
 
+/// SQL with its `--` comments removed and its STRING LITERALS left intact.
+///
+/// ## ⚑ Why this is quote-aware when its Rust siblings are not
+///
+/// The rule is the same one stated above `seeded_value_in`: this codebase
+/// documents its rules next to its rules, so a scanner hunting for a token finds
+/// the DOCUMENTATION first. It fired for real on 2026-08-25 — a migration header
+/// explaining the required `SET value` alignment quoted that literal, and the
+/// fixture reported the migration's own prose as a settings key's stored value.
+/// `rfind` had been the only thing hiding it, which the 08-23 note said in
+/// writing was luck rather than design.
+///
+/// The Rust-source siblings (`api::practice_answers::tests`,
+/// `dto::practice_wording_reach_tests`) strip line-by-line at the first `//` and
+/// say plainly that they do not know about `//` inside a string. Copying that
+/// shape here would have been a NEW defect: **six `--` sequences occur inside
+/// string literals in this repo's migrations today** — em-dash-style asides in
+/// `meaning` text, e.g. "…the same two rows the practice bar reads -- and {n}
+/// is how many questions that side holds." A line-based strip truncates those
+/// literals mid-sentence, and the walk that reads a value then runs past its
+/// missing closing quote into whatever comes next.
+///
+/// So this tracks literal state. `''` is SQL's escaped apostrophe and stays
+/// inside the literal, which is the same rule `literal_after_quote` walks by.
+///
+/// ## Rust Learning: a hand-rolled scanner instead of a regex
+///
+/// A regex cannot express "unless we are inside a quoted run", because that is
+/// context a regular language has no memory for. Twenty lines of explicit state
+/// is the smaller thing to read, and it is the same shape the value-walker below
+/// already uses.
+pub(crate) fn sql_without_comments(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    let mut in_literal = false;
+
+    while let Some(c) = chars.next() {
+        if in_literal {
+            out.push(c);
+            if c == '\'' {
+                // A doubled quote is an escaped apostrophe: consume both and
+                // stay inside. Otherwise the literal has ended.
+                if chars.peek() == Some(&'\'') {
+                    out.push(chars.next().unwrap_or('\''));
+                } else {
+                    in_literal = false;
+                }
+            }
+            continue;
+        }
+        if c == '\'' {
+            in_literal = true;
+            out.push(c);
+            continue;
+        }
+        if c == '-' && chars.peek() == Some(&'-') {
+            // A comment, outside any literal: drop it, keep the newline so line
+            // structure — which the alignment markers rely on — survives.
+            for next in chars.by_ref() {
+                if next == '\n' {
+                    out.push('\n');
+                    break;
+                }
+            }
+            continue;
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Pull one key's seeded value out of the migration's INSERT.
 ///
 /// ## Why this handles doubled quotes and the 1.6 version did not
@@ -306,6 +377,9 @@ const ACKNOWLEDGMENT_MIGRATION: &str =
 /// would fail on every row that contains an apostrophe — which is most of the
 /// interesting ones. So this walks the literal, treating `''` as one character.
 pub(crate) fn seeded_value_in(sql: &str, key: &str) -> Option<String> {
+    // Comments first — see `sql_without_comments`. A header quoting an INSERT
+    // would otherwise be found before the INSERT.
+    let sql = sql_without_comments(sql);
     let marker = format!("('{key}',");
     let at = sql.find(&marker)?;
     let rest = &sql[at + marker.len()..];
@@ -360,6 +434,11 @@ pub(crate) fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
     // moved `practice_read_prompt_file` from v2 to v3 and this reported v2. A
     // fixture pinned to a superseded correction is the exact drift these helpers
     // exist to catch, reported as a pass.
+    // Comments first — see `sql_without_comments`. This is the parser whose
+    // known fragility fired on 2026-08-25; stripping is what closes it, and
+    // `rfind` below is no longer the only thing standing between a header's
+    // prose and a fixture reporting it as a stored value.
+    let sql = sql_without_comments(sql);
     let at = sql.rfind(&format!("key           = '{key}'"))?;
     // The SET clause precedes the WHERE in an UPDATE, so scan backwards.
     let before = &sql[..at];
@@ -368,6 +447,113 @@ pub(crate) fn corrected_value_in(sql: &str, key: &str) -> Option<String> {
     // containing an escaped apostrophe would be truncated at it — see
     // `literal_after_quote`.
     literal_after_quote(&before[set + "SET value         = '".len()..])
+}
+
+// ─── the decoy proof, prescribed by the 2026-08-23 prose-versus-parser note ──
+
+/// ⚑ A COMMENT QUOTING THE MARKER MUST NOT BE READ AS A VALUE.
+///
+/// The note of 2026-08-23 recorded that `corrected_value_in` survived this decoy
+/// "ONLY because it uses `rfind` — the decoy always happens to come first. That
+/// is luck, not design." On 2026-08-25 the luck ran out: a migration header
+/// explaining the required alignment quoted it, and the fixture reported that
+/// prose as `practice_practice_hint`'s stored value.
+///
+/// The decoy here is placed AFTER the real statement, exactly as that note
+/// prescribed, so `rfind` finds the DECOY first and only comment-stripping can
+/// save it. Before the strip this returns the comment's text; after it, the
+/// real value.
+#[test]
+fn a_comment_quoting_the_marker_after_the_statement_is_not_read_as_a_value() {
+    let sql = "\
+UPDATE app_settings
+SET value         = 'the real value',
+    updated_at    = NOW()
+WHERE key           = 'some_key';
+
+-- A later header explaining the format: write it as
+-- SET value         = 'not this one'
+-- and WHERE key           = 'some_key' beneath it.
+";
+    assert_eq!(
+        corrected_value_in(sql, "some_key").as_deref(),
+        Some("the real value"),
+        "the parser read a COMMENT instead of the statement"
+    );
+    // And the decoy really is in the raw text, after the statement — otherwise
+    // this test would pass by describing a file it does not have.
+    let last_marker = sql
+        .rfind("SET value         = '")
+        .expect("the decoy is present");
+    let statement = sql
+        .find("SET value         = '")
+        .expect("the statement is present");
+    assert!(
+        last_marker > statement,
+        "the decoy must sit AFTER the real statement or this proves nothing"
+    );
+}
+
+/// The same decoy, against the INSERT reader.
+#[test]
+fn a_comment_quoting_an_insert_is_not_read_as_a_seeded_value() {
+    let sql = "\
+INSERT INTO app_settings (key, value) VALUES
+    ('some_key', 'the real value');
+
+-- Authors: seed a row as ('some_key', 'not this one') with the columns above.
+";
+    assert_eq!(
+        seeded_value_in(sql, "some_key").as_deref(),
+        Some("the real value")
+    );
+}
+
+/// ⚑ AND THE STRIP MUST NOT EAT A LITERAL.
+///
+/// Six `--` sequences occur INSIDE string literals in this repo's migrations
+/// today — em-dash-style asides in `meaning` text. A line-based strip, which is
+/// what the Rust-source siblings use, truncates those literals mid-sentence and
+/// leaves the value walker running past a closing quote that is no longer there.
+/// This is the guard against fixing one defect by introducing another.
+#[test]
+fn a_double_dash_inside_a_literal_survives_the_strip() {
+    let sql = "\
+UPDATE app_settings
+SET value         = 'a sentence -- with an aside -- inside it',
+    updated_at    = NOW()
+WHERE key           = 'some_key';
+";
+    assert_eq!(
+        corrected_value_in(sql, "some_key").as_deref(),
+        Some("a sentence -- with an aside -- inside it")
+    );
+    assert!(
+        sql_without_comments(sql).contains("-- with an aside --"),
+        "the strip removed text from inside a string literal"
+    );
+}
+
+/// An escaped apostrophe does not end a literal, so a `--` after one is still
+/// inside it.
+#[test]
+fn the_strip_treats_a_doubled_quote_as_an_escaped_apostrophe() {
+    let sql = "SET value         = 'Chuck''s note -- kept' WHERE key           = 'k';";
+    assert!(sql_without_comments(sql).contains("-- kept"));
+    assert_eq!(
+        corrected_value_in(sql, "k").as_deref(),
+        Some("Chuck's note -- kept")
+    );
+}
+
+/// A real comment outside any literal is still removed.
+#[test]
+fn the_strip_still_removes_an_ordinary_comment() {
+    let stripped = sql_without_comments("SELECT 1; -- a note\nSELECT 2;\n");
+    assert!(!stripped.contains("a note"));
+    assert!(stripped.contains("SELECT 1;") && stripped.contains("SELECT 2;"));
+    // The newline survives, because the alignment markers are line-shaped.
+    assert!(stripped.contains('\n'));
 }
 
 /// The value the store actually ends up holding for one key.

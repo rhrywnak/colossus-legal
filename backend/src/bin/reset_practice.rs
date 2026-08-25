@@ -114,7 +114,7 @@ async fn execute(args: &Args) -> Result<String, RunFailure> {
     if !args.apply {
         let before = count(&pool, id, code).await.map_err(RunFailure::Reset)?;
         if before.is_empty() {
-            info!(scenario = %code, "nothing to clear — this scenario has never been practised");
+            info!(scenario = %code, "nothing to clear — this scenario has never been practiced");
         }
         warn!("DRY RUN — re-run with --apply to clear this scenario's practice record");
         return Ok(render_report(code, &before, None));

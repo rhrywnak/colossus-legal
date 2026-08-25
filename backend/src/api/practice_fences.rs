@@ -88,13 +88,13 @@ pub async fn refuse_if_practised(state: &AppState, scenario_id: Uuid) -> Result<
         .map_err(|e| {
             tracing::error!(error = %e, %scenario_id, "failed to count practice answers");
             AppError::Internal {
-                message: "could not check whether this scenario has been practised".to_string(),
+                message: "could not check whether this scenario has been practiced".to_string(),
             }
         })?;
     if answers > 0 {
         tracing::warn!(
             %scenario_id, answers,
-            "practice: refused to delete a scenario that has been practised"
+            "practice: refused to delete a scenario that has been practiced"
         );
         return Err(AppError::Conflict {
             message: format!(

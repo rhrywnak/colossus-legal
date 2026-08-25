@@ -10,6 +10,12 @@
 //! compiled-in default task 1.6 exists to delete.
 
 use super::*;
+// `validate_candidate` and its trial-snapshot siblings moved to
+// `settings_write` on 2026-08-25. The TESTS did not move with them: this file
+// exercises the read and the write halves against ONE seeded fixture, and
+// splitting it would mean two copies of `seeded()` that could drift.
+use crate::domain::settings::ValueKind;
+use crate::services::settings_write::validate_candidate;
 
 // The three key LISTS moved with the boot loader (task 2.11 B2 split); this
 // module still counts them, because the count is what proves the seed and the
@@ -1322,8 +1328,12 @@ fn the_single_row_check_accepts_a_value_the_whole_store_rejects() {
 /// commit-then-discover sequence would come back for the new rule.
 #[test]
 fn the_trial_path_is_the_same_builder_the_boot_uses() {
+    // `settings_write.rs` since the 2026-08-25 split — the write half moved out
+    // of `settings_store` when that file reached 294 non-comment lines. This
+    // test found the move by failing, which is the whole point of it reading
+    // source rather than trusting a comment.
     let source = std::fs::read_to_string(
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/settings_store.rs"),
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/settings_write.rs"),
     )
     .expect("readable");
 

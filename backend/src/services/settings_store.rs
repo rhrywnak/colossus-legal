@@ -41,25 +41,14 @@
 //! moment of failure would silently reinstate the defect §2b bans.
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
-use chrono::Utc;
-use sqlx::PgPool;
-
-// `parse_text` / `parse_token_list` / `Bounds` / `Ratio` left with the per-row
-// readers when they were split out; what remains here is the write path's own
-// validation (`parse_count` / `parse_float` / `parse_ratio`) plus the snapshot.
+// The write path's imports — the pool, the clock, the change ledger, the
+// template check and the candidate parsers — left with it in the 2026-08-25
+// split. What this file still needs is the row shape, the snapshot type and the
+// readers that turn one stored string into a number.
 use crate::domain::evidence_tier::{EvidenceTier, EvidenceTierMap};
-use crate::domain::settings::{
-    parse_count, parse_float, parse_ratio, SettingError, Settings, ValueKind,
-};
-use crate::domain::wording_templates::validate_wording_candidate;
-use crate::repositories::pipeline_repository::{
-    get_setting, insert_setting_change, list_settings, update_setting_value, AppSettingRecord,
-    PipelineRepoError,
-};
-use crate::services::settings_handle::SettingsHandle;
-use crate::services::settings_template_file::{check_named_file, TemplateDir};
+use crate::domain::settings::{SettingError, Settings};
+use crate::repositories::pipeline_repository::{AppSettingRecord, PipelineRepoError};
 
 // KEYS: the stable identifiers of the seven stored parameters. These are not
 // tunables — they are the NAMES of tunables, the join key between this code and
@@ -246,9 +235,7 @@ impl From<SettingError> for SettingsError {
 // module reached the 300-line limit (2026-08-09). They answer "what does this ONE
 // row say?"; what stays here answers "does the whole store make a usable
 // snapshot?" — which is why the cross-row band invariant is below and not there.
-use super::settings_row_readers::{
-    bounds_of, count_of, float_of, ratio_of, token_count_of, token_list_of,
-};
+use super::settings_row_readers::{count_of, float_of, ratio_of, token_count_of, token_list_of};
 // Re-exported, not re-implemented: `settings_wording` imports both from THIS
 // module's path, and the split is an internal reorganisation that has no business
 // changing a sibling's import line.
@@ -365,202 +352,6 @@ fn build_evidence_tier_map(
 /// Index rows by key.
 pub(crate) fn by_key(rows: Vec<AppSettingRecord>) -> HashMap<String, AppSettingRecord> {
     rows.into_iter().map(|r| (r.key.clone(), r)).collect()
-}
-
-/// Returns [`SettingsError`] if the parameter vanished mid-change or a write fails.
-async fn commit_change(
-    pool: &PgPool,
-    key: &str,
-    old_value: &str,
-    new_value: &str,
-    actor: &str,
-    at: chrono::DateTime<Utc>,
-) -> Result<(), SettingsError> {
-    let mut tx = pool
-        .begin()
-        .await
-        .map_err(|e| SettingsError::Write { source: e.into() })?;
-
-    let changed = update_setting_value(&mut *tx, key, new_value, actor, at)
-        .await
-        .map_err(|source| SettingsError::Write { source })?;
-
-    // Zero rows means the parameter vanished between the caller's read and this
-    // write. Recording a change to a row that no longer exists would put a
-    // fiction in the ledger, so the transaction is dropped without a commit —
-    // which rolls it back.
-    if changed == 0 {
-        tracing::error!(%key, %actor, "the parameter disappeared mid-change; nothing recorded");
-        return Err(SettingsError::UnknownKey {
-            key: key.to_string(),
-        });
-    }
-
-    insert_setting_change(&mut *tx, key, old_value, new_value, actor, at)
-        .await
-        .map_err(|source| SettingsError::Write { source })?;
-
-    tx.commit()
-        .await
-        .map_err(|e| SettingsError::Write { source: e.into() })
-}
-
-/// change is a no-op, or a write fails.
-pub async fn set_setting(
-    pool: &PgPool,
-    handle: &SettingsHandle,
-    key: &str,
-    new_value: &str,
-    actor: &str,
-    templates: &TemplateDir,
-) -> Result<Arc<Settings>, SettingsError> {
-    let record = get_setting(pool, key)
-        .await
-        .map_err(|source| SettingsError::Read { source })?
-        .ok_or_else(|| SettingsError::UnknownKey {
-            key: key.to_string(),
-        })?;
-
-    let new_value = new_value.trim();
-
-    // A no-op is refused rather than recorded. The ledger's CHECK would reject it
-    // anyway, as an opaque 500 instead of this sentence.
-    if record.value == new_value {
-        return Err(SettingsError::Unchanged {
-            key: key.to_string(),
-            value: record.value.clone(),
-        });
-    }
-
-    validate_candidate(&record, new_value)?;
-    check_named_file(key, new_value, templates)?;
-    trial_snapshot(pool, key, new_value).await?;
-
-    let now = Utc::now();
-    commit_change(pool, key, &record.value, new_value, actor, now).await?;
-
-    tracing::info!(
-        %key,
-        from = %record.value,
-        to = %new_value,
-        %actor,
-        "configuration changed"
-    );
-
-    swap_snapshot(pool, handle, key, new_value).await
-}
-
-/// Re-read the whole store and swap the running snapshot.
-///
-/// Split from [`set_setting`] for the function-size limit; the seam is the write
-/// boundary — everything before it decides and records, this makes the change
-/// LIVE.
-///
-/// Re-reads the WHOLE store, not just this row: the snapshot must stay internally
-/// consistent, and this is also where a change that broke a cross-row invariant
-/// surfaces — before anything serves with it.
-///
-/// THE FRESHNESS LAW, in one function: the swap happens before the response is
-/// sent, so the next read of `AppState` already sees the new value.
-///
-/// # Errors
-/// Returns [`SettingsError::SavedButStale`] — and NOT a plain read error —
-/// because the value is already committed by the time this runs. The two are
-/// opposite states with opposite remedies: retry, versus restart. See the
-/// variant's doc for why it earns its own branch.
-async fn swap_snapshot(
-    pool: &PgPool,
-    handle: &SettingsHandle,
-    key: &str,
-    new_value: &str,
-) -> Result<Arc<Settings>, SettingsError> {
-    let fresh = crate::services::settings_boot::load_settings(pool)
-        .await
-        .map_err(|source| {
-            tracing::error!(
-                %key,
-                %new_value,
-                error = %source,
-                "the change WAS committed but the snapshot could not be refreshed; \
-                 the process is still serving the previous value until it restarts"
-            );
-            SettingsError::SavedButStale {
-                key: key.to_string(),
-                value: new_value.to_string(),
-                source: Box::new(source),
-            }
-        })?;
-
-    let fresh = Arc::new(fresh);
-    handle.replace(Arc::clone(&fresh));
-    Ok(fresh)
-}
-
-/// Prove the whole store still builds with the candidate in place.
-///
-/// ## Why a trial snapshot, and not just the single row's bounds
-///
-/// `validate_candidate` checks ONE row against its own declared kind and bounds.
-/// It cannot see a sibling — so it cannot catch `confidence_band_high = 0.40`
-/// while medium sits at 0.50, because 0.40 is perfectly valid for its own row.
-///
-/// That gap had teeth. Without this function the sequence was: validate (passes),
-/// COMMIT, reload, discover `BandsCrossed`, return an error — leaving the stored
-/// value crossed. Nothing served with it, because the snapshot swap never
-/// happened, but the next restart would read that row, refuse, and `exit(1)`. A
-/// 400 on the Settings page would have left the database unable to boot, with
-/// nothing on screen saying so.
-///
-/// Building the trial snapshot BEFORE the write closes it, and closes it for any
-/// future cross-row rule too — this runs the real `build_settings`, so a new
-/// invariant added there is pre-checked here automatically rather than needing
-/// someone to remember this function exists.
-///
-/// The extra read is on the coldest path in the system (a human editing a
-/// parameter), and it buys the guarantee that a change accepted here can never
-/// produce a store that refuses to boot.
-///
-/// # Errors
-/// Returns [`SettingsError`] if the read fails, or if the store would not build
-/// with this value in place.
-async fn trial_snapshot(pool: &PgPool, key: &str, candidate: &str) -> Result<(), SettingsError> {
-    let rows = list_settings(pool)
-        .await
-        .map_err(|source| SettingsError::Read { source })?;
-
-    let mut trial = by_key(rows);
-    if let Some(row) = trial.get_mut(key) {
-        row.value = candidate.to_string();
-    }
-
-    build_settings(&trial)?;
-    Ok(())
-}
-
-/// Check a proposed value against its row's declared kind and bounds.
-///
-/// Pure and separate from the write, so the rule is testable without a database
-/// and so the API can refuse before opening a transaction.
-///
-/// # Errors
-/// Returns [`SettingError`] naming the parameter and what is wrong with the value.
-pub fn validate_candidate(record: &AppSettingRecord, candidate: &str) -> Result<(), SettingError> {
-    let kind = ValueKind::try_from(record.value_kind.as_str())?;
-    match kind {
-        ValueKind::Float => {
-            parse_float(&record.key, candidate, bounds_of(record))?;
-        }
-        ValueKind::Count => {
-            parse_count(&record.key, candidate, bounds_of(record))?;
-        }
-        ValueKind::Ratio => {
-            parse_ratio(&record.key, candidate)?;
-        }
-        // Two rules, both in `domain::wording`: non-blank, and (for a template)
-        // still carrying the placeholders that put the facts in the sentence.
-        ValueKind::Text => validate_wording_candidate(&record.key, candidate)?,
-    }
-    Ok(())
 }
 
 #[cfg(test)]

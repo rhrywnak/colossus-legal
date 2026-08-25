@@ -64,6 +64,7 @@ pub mod settings_row_readers;
 pub mod settings_store;
 pub mod settings_template_file;
 pub mod settings_wording;
+pub mod settings_write;
 pub mod theme_scan;
 pub mod theme_scan_judge;
 pub mod theme_scan_parse;

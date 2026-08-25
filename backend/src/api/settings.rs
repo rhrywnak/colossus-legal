@@ -34,8 +34,9 @@ use crate::{
     dto::settings::{SetSettingRequest, SettingChangedDto, SettingDto, SettingsPageDto},
     error::AppError,
     repositories::pipeline_repository::{list_settings, AppSettingRecord},
-    services::settings_store::{set_setting, SettingsError},
+    services::settings_store::SettingsError,
     services::settings_template_file::TemplateDir,
+    services::settings_write::set_setting,
     state::AppState,
 };
 

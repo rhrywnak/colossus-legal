@@ -50,13 +50,38 @@ pub fn routes() -> Router<AppState> {
         .route("/timeline/events/:id", get(get_timeline_event))
 }
 
-/// Turn a repository failure into a 500 that names the operation and the cause.
+/// What the `case_slug` field says when a read does not belong to one case.
+///
+/// ## Rust Learning: a named constant so a span and its events cannot disagree
+///
+/// This value is written in TWO places — the span field and the error event —
+/// and they are joined by name in any structured trace processor. Two literals
+/// would be two copies of one string, and the day someone edited one, a trace
+/// would carry a span saying one thing and its own error saying another. One
+/// constant makes that impossible rather than merely unlikely.
+const NOT_CASE_SCOPED: &str = "(not case-scoped)";
+
+/// Turn a repository failure into a 500 that names the case, the operation and
+/// the cause.
 ///
 /// Every `?` in this module terminates here, so a reader of the logs can always
 /// tell WHICH read failed and why — the alternative, one generic "database
 /// error", is the silent failure Standing Rule 1 forbids.
-fn read_failure(error: PipelineRepoError, what: &str) -> AppError {
-    tracing::error!(operation = %what, error = %error, "chronology read failed");
+///
+/// ## Why the case is an `Option` and not a `&str`
+///
+/// The list read resolves a case before it does anything, so it always has one.
+/// The EVENT read does not need one — it looks an event up by its own id — and
+/// forcing it to resolve `CASE_SLUG` just to log would turn an unconfigured
+/// deployment into a 503 on a read that would otherwise have worked. `None` is
+/// the honest field value for "this read did not depend on a case".
+fn read_failure(error: PipelineRepoError, what: &str, case: Option<&str>) -> AppError {
+    tracing::error!(
+        case_slug = case.unwrap_or(NOT_CASE_SCOPED),
+        operation = %what,
+        error = %error,
+        "chronology read failed"
+    );
     AppError::Internal {
         message: format!("the chronology could not be read ({what})"),
     }
@@ -106,7 +131,10 @@ fn log_warnings(warnings: &[String], surface: &str) {
 /// and the note counts. The links are then resolved against `documents` in one
 /// more query. At the design's volume (100–200 events) this is five round trips
 /// for the entire page.
-#[tracing::instrument(skip(state, user))]
+// `case_slug` is Empty at entry and recorded below, because the value comes
+// from configuration rather than from an argument the attribute could name.
+// Same shape as `api::proof_review`'s `document_id`.
+#[tracing::instrument(skip(state, user), fields(case_slug = tracing::field::Empty))]
 pub async fn get_timeline(
     user: Option<AuthUser>,
     State(state): State<AppState>,
@@ -115,19 +143,20 @@ pub async fn get_timeline(
         tracing::info!("{} GET /timeline", u.username);
     }
     let case = case_slug(&state)?;
+    tracing::Span::current().record("case_slug", tracing::field::display(&case));
 
     let phases = list_phases(&state.pipeline_pool)
         .await
-        .map_err(|e| read_failure(e, "the phase list"))?;
+        .map_err(|e| read_failure(e, "the phase list", Some(&case)))?;
     let events = list_events(&state.pipeline_pool, &case)
         .await
-        .map_err(|e| read_failure(e, "the event list"))?;
+        .map_err(|e| read_failure(e, "the event list", Some(&case)))?;
     let links = list_links_for_case(&state.pipeline_pool, &case)
         .await
-        .map_err(|e| read_failure(e, "this case's event links"))?;
+        .map_err(|e| read_failure(e, "this case's event links", Some(&case)))?;
     let counts = note_counts_for_case(&state.pipeline_pool, &case)
         .await
-        .map_err(|e| read_failure(e, "the per-event note counts"))?;
+        .map_err(|e| read_failure(e, "the per-event note counts", Some(&case)))?;
 
     let resolved = resolve_targets(&state, &links).await?;
     let note_counts: HashMap<Uuid, i64> = counts.into_iter().collect();
@@ -144,7 +173,7 @@ pub async fn get_timeline(
 }
 
 /// `GET /api/timeline/events/:id` — one event, with notes and history.
-#[tracing::instrument(skip(state, user), fields(event_id = %id))]
+#[tracing::instrument(skip(state, user), fields(event_id = %id, case_slug = tracing::field::Empty))]
 pub async fn get_timeline_event(
     user: Option<AuthUser>,
     State(state): State<AppState>,
@@ -153,6 +182,16 @@ pub async fn get_timeline_event(
     if let Some(ref u) = user {
         tracing::info!("{} GET /timeline/events/{}", u.username, id);
     }
+    // Recorded UNCONDITIONALLY, with the same sentinel the error event uses.
+    // Recording it only when a case is configured left the span field Empty
+    // while every error event on the same trace carried the sentinel — one field
+    // name, two values, on one trace. This read does not depend on a case (it
+    // looks an event up by its own id), so "not scoped" is the honest value
+    // rather than a reason to resolve CASE_SLUG and risk a 503.
+    tracing::Span::current().record(
+        "case_slug",
+        tracing::field::display(state.config.case_slug.as_deref().unwrap_or(NOT_CASE_SCOPED)),
+    );
     let event_id = Uuid::parse_str(&id).map_err(|_| AppError::BadRequest {
         message: format!("'{id}' is not a chronology event id"),
         details: serde_json::json!({ "expected": "a UUID" }),
@@ -160,20 +199,20 @@ pub async fn get_timeline_event(
 
     let event = get_event(&state.pipeline_pool, event_id)
         .await
-        .map_err(|e| read_failure(e, "the event"))?
+        .map_err(|e| read_failure(e, "the event", state.config.case_slug.as_deref()))?
         .ok_or_else(|| AppError::NotFound {
             message: format!("no chronology event {event_id}"),
         })?;
 
     let links = list_links_for_event(&state.pipeline_pool, event_id)
         .await
-        .map_err(|e| read_failure(e, "this event's links"))?;
+        .map_err(|e| read_failure(e, "this event's links", state.config.case_slug.as_deref()))?;
     let notes = list_notes_for_event(&state.pipeline_pool, event_id)
         .await
-        .map_err(|e| read_failure(e, "this event's notes"))?;
+        .map_err(|e| read_failure(e, "this event's notes", state.config.case_slug.as_deref()))?;
     let history = list_history_for_event(&state.pipeline_pool, event_id)
         .await
-        .map_err(|e| read_failure(e, "this event's history"))?;
+        .map_err(|e| read_failure(e, "this event's history", state.config.case_slug.as_deref()))?;
 
     let resolved = resolve_targets(&state, &links).await?;
     let composed = build_event_detail(&event, &links, &notes, &history, &resolved);
@@ -189,7 +228,13 @@ async fn resolve_targets(
     let ids = checkable_target_ids(links);
     existing_document_ids(&state.pipeline_pool, &ids)
         .await
-        .map_err(|e| read_failure(e, "which linked documents exist"))
+        .map_err(|e| {
+            read_failure(
+                e,
+                "which linked documents exist",
+                state.config.case_slug.as_deref(),
+            )
+        })
 }
 
 #[cfg(test)]

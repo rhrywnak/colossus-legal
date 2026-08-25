@@ -152,6 +152,7 @@ These come from accumulated lessons across the project. They are not as universa
 23. **Pin container versions.** Never `:latest`.
 24. **Never deploy via `ansible-playbook` directly.** Always Semaphore web UI.
 25. **Never create migration files manually.** Use `./scripts/new-migration.sh` — the HHMMSS suffix prevents collisions.
+25a. **Every migration that seeds or UPDATEs expected rows ends with a row-count assertion** — a `DO $$ … RAISE EXCEPTION` block asserting the END state — because a statement matching zero rows is silent in Postgres and the old value keeps being served (ruled 2026-08-25).
 26. **`.env`, `.env.local`, `.fastembed_cache/` are gitignored.** Verify before first commit on a new feature branch.
 27. **Audit before deploy.** Verify the full path: browser → Traefik → Authentik → backend → external services → response. Component-level testing passing is necessary but not sufficient.
 
