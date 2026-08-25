@@ -13,6 +13,7 @@
 //! that must produce a WARNING and a rendered row, never an error.
 
 use super::*;
+use crate::domain::wording_chronology::ChronologyWording;
 use crate::dto::chronology::LinkResolution;
 use chrono::{NaiveDate, TimeZone, Utc};
 
@@ -63,6 +64,31 @@ fn link(event_id: Uuid, target_type: &str, target_id: &str) -> ChronologyLinkRow
     }
 }
 
+/// `build_timeline` with the arguments these cases do not vary.
+///
+/// Phase B gave the builder a tag list, the wording block and the scroll-window
+/// size. Every case here is about phases, events, links, counts and resolution —
+/// so those three are supplied once, here, rather than repeated verbatim in a
+/// dozen call sites where they would be noise a reader has to skip.
+fn timeline_of(
+    phases: &[ChronologyPhaseRow],
+    events: &[ChronologyEventRow],
+    links: &[ChronologyLinkRow],
+    note_counts: &HashMap<Uuid, i64>,
+    resolved_documents: &HashSet<String>,
+) -> Composed<TimelineDto> {
+    build_timeline(TimelineSources {
+        phases,
+        tags: &[],
+        events,
+        links,
+        note_counts,
+        resolved_documents,
+        wording: &ChronologyWording::for_test(),
+        phase_window_events: 4,
+    })
+}
+
 fn seeded_attributes() -> serde_json::Value {
     // NOTE what is absent: `phase`. It lives in the column and nowhere else.
     serde_json::json!({"tags": ["court_action"], "source": "legacy_json", "source_id": "e016"})
@@ -84,7 +110,7 @@ fn the_bag_carries_no_phase_and_the_column_is_the_only_home() {
         "a mirrored attributes.phase is the second home that goes stale"
     );
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(Uuid::from_u128(1), seeded_attributes())],
         &[],
@@ -99,7 +125,7 @@ fn the_phase_on_the_wire_comes_from_the_column_even_if_a_stale_bag_disagrees() {
     // A bag written by some future caller that wrongly mirrors the phase must
     // not be able to change what the payload says. The column wins, always.
     let stale = serde_json::json!({"tags": ["court_action"], "phase": "probate"});
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(Uuid::from_u128(2), stale)],
         &[],
@@ -142,7 +168,7 @@ fn a_link_to_a_document_that_exists_resolves() {
     let links = vec![link(id, "document", "doc-real")];
     let resolved: HashSet<String> = ["doc-real".to_string()].into_iter().collect();
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[phase("appeals", 3)],
         &[event(id, seeded_attributes())],
         &links,
@@ -160,7 +186,7 @@ fn a_link_to_a_document_that_does_not_exist_is_data_not_an_error() {
     let id = Uuid::from_u128(2);
     let links = vec![link(id, "document", "doc-vanished")];
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(id, seeded_attributes())],
         &links,
@@ -187,7 +213,7 @@ fn a_target_type_this_build_cannot_check_is_unchecked_not_missing() {
     let id = Uuid::from_u128(3);
     let links = vec![link(id, "paperless_document", "42")];
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(id, seeded_attributes())],
         &links,
@@ -233,7 +259,7 @@ fn note_counts_default_to_zero_for_an_event_with_no_notes() {
     let without = Uuid::from_u128(5);
     let counts: HashMap<Uuid, i64> = [(with_notes, 3)].into_iter().collect();
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[
             event(with_notes, seeded_attributes()),
@@ -254,7 +280,7 @@ fn links_are_attached_to_their_own_event_and_no_other() {
     let b = Uuid::from_u128(7);
     let links = vec![link(a, "document", "doc-a"), link(b, "document", "doc-b")];
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(a, seeded_attributes()), event(b, seeded_attributes())],
         &links,
@@ -273,7 +299,7 @@ fn the_whole_attributes_bag_survives_the_trip() {
     let bag =
         serde_json::json!({"tags": ["filing"], "phase": "probate", "invented_later": {"x": 1}});
 
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[],
         &[event(id, bag.clone())],
         &[],
@@ -290,7 +316,7 @@ fn the_whole_attributes_bag_survives_the_trip() {
 
 #[test]
 fn phases_travel_in_their_stored_order_with_their_subtitle() {
-    let composed = build_timeline(
+    let composed = timeline_of(
         &[phase("estate", 1), phase("civil_lawsuit", 4)],
         &[],
         &[],
@@ -310,4 +336,83 @@ fn phases_travel_in_their_stored_order_with_their_subtitle() {
         Some("a subtitle")
     );
     assert_eq!(composed.payload.phases[0].date_range, "2014\u{2013}Present");
+}
+
+// ─── what Phase B added to the payload ───────────────────────────────────────
+
+fn tag(id: &str, label: &str, order: i32) -> ChronologyTagRow {
+    ChronologyTagRow {
+        id: id.to_string(),
+        label: label.to_string(),
+        color: "#059669".to_string(),
+        sort_order: order,
+    }
+}
+
+#[test]
+fn the_tag_vocabulary_travels_in_its_stored_order() {
+    // The filter chips ARE the stored vocabulary (ruling R-F): a sixth tag is a
+    // row, not a build, and the order is the one Roman wrote — not alphabetical.
+    let composed = build_timeline(TimelineSources {
+        phases: &[],
+        tags: &[
+            tag("financial", "Financial", 1),
+            tag("court_action", "Court Action", 2),
+        ],
+        events: &[],
+        links: &[],
+        note_counts: &HashMap::new(),
+        resolved_documents: &HashSet::new(),
+        wording: &ChronologyWording::for_test(),
+        phase_window_events: 4,
+    });
+
+    let ids: Vec<&str> = composed
+        .payload
+        .tags
+        .iter()
+        .map(|t| t.id.as_str())
+        .collect();
+    assert_eq!(ids, vec!["financial", "court_action"]);
+    assert_eq!(composed.payload.tags[1].label, "Court Action");
+    assert_eq!(composed.payload.tags[0].color, "#059669");
+}
+
+#[test]
+fn the_payload_carries_the_words_and_the_window_size() {
+    // One fetch serves the page: the rows, the vocabulary, every sentence, and
+    // the one number the scroll window reads.
+    let composed = build_timeline(TimelineSources {
+        phases: &[],
+        tags: &[],
+        events: &[],
+        links: &[],
+        note_counts: &HashMap::new(),
+        resolved_documents: &HashSet::new(),
+        wording: &ChronologyWording::for_test(),
+        phase_window_events: 7,
+    });
+
+    assert_eq!(composed.payload.phase_window_events, 7);
+    assert_eq!(composed.payload.wording.page_title, "Case Timeline");
+    assert!(composed
+        .payload
+        .wording
+        .no_document_label
+        .contains("no document"));
+    assert_ne!(
+        composed.payload.wording.no_document_label,
+        composed.payload.wording.link_unchecked_label
+    );
+}
+
+#[test]
+fn an_empty_vocabulary_is_served_as_an_empty_list_not_an_absence() {
+    let composed = timeline_of(&[], &[], &[], &HashMap::new(), &HashSet::new());
+    let json = serde_json::to_value(&composed.payload).expect("serialises");
+    assert_eq!(json["tags"], serde_json::json!([]));
+    assert!(
+        json.get("wording").is_some(),
+        "the words are always present, even when there is nothing to say them about"
+    );
 }

@@ -18,6 +18,7 @@ use crate::domain::wording::{build_wording, Wording};
 use crate::domain::wording_accusation::{build_accusation_wording, AccusationWording};
 use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
+use crate::domain::wording_chronology::{build_chronology_wording, ChronologyWording};
 use crate::domain::wording_matrix::{build_matrix_wording, MatrixWording};
 use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
 use crate::domain::wording_practice::{build_practice_wording, PracticeWording};
@@ -60,6 +61,8 @@ pub(crate) struct AllWording {
     /// The models admin's temperature control (ruling R5, 2026-08-09).
     pub(crate) model_params: ModelParamsWording,
     /// The Proof Matrix's strong-first vocabulary (task 396, P1).
+    /// The words the case timeline speaks (chronology Phase B).
+    pub(crate) chronology: ChronologyWording,
     pub(crate) matrix: MatrixWording,
     /// The Trial Prep dashboard's own words (task 396, P3b — the R2 §3 rows
     /// that batch never migrated).
@@ -99,6 +102,7 @@ pub(crate) fn build_all_wording(
     let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
     let card_grammar = build_card_grammar_wording(|key| text_of(require(rows, key)?))?;
     let model_params = build_model_params_wording(|key| text_of(require(rows, key)?))?;
+    let chronology = build_chronology_wording(|key| text_of(require(rows, key)?))?;
     let matrix = build_matrix_wording(|key| text_of(require(rows, key)?))?;
     let war_room = build_war_room_wording(|key| text_of(require(rows, key)?))?;
     let practice = build_practice_wording(|key| text_of(require(rows, key)?))?;
@@ -117,6 +121,7 @@ pub(crate) fn build_all_wording(
         scan,
         card_grammar,
         model_params,
+        chronology,
         matrix,
         war_room,
         practice,

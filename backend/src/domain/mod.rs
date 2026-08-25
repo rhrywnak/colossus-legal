@@ -50,6 +50,7 @@ pub mod wording;
 pub mod wording_accusation;
 pub mod wording_authoring;
 pub mod wording_card_grammar;
+pub mod wording_chronology;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;
