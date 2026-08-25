@@ -82,6 +82,7 @@ pub mod scenarios;
 pub mod schema;
 pub mod search;
 pub mod settings;
+pub mod timeline;
 pub mod trial_prep;
 
 /// API router — all routes are relative (no `/api/` prefix).
@@ -121,6 +122,7 @@ pub fn router() -> Router<AppState> {
         .merge(rehearsal::routes())
         .merge(practice::routes())
         .merge(settings::routes())
+        .merge(timeline::routes())
         .merge(claim_routes())
         .merge(document_routes())
         .merge(entity_routes())
