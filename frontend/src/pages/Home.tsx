@@ -222,7 +222,7 @@ const Home: React.FC = () => {
         <CaseSummaryCard complaintDocumentId={header.complaint_document_id} />
       </div>
 
-      {/* 3. Timeline band — compact per-phase pills from /data/timeline.json */}
+      {/* 3. Timeline band — compact per-phase pills from GET /api/timeline */}
       <TimelineBand />
 
       {/* 4. Causes of Action — stacked Count summary cards. The header fetch

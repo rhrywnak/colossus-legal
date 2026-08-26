@@ -28,13 +28,15 @@ use std::collections::{HashMap, HashSet};
 
 use uuid::Uuid;
 
+use crate::domain::wording_chronology::ChronologyWording;
 use crate::dto::chronology::{
     LinkResolution, TimelineDto, TimelineEventDetailDto, TimelineEventDto, TimelineHistoryDto,
-    TimelineLinkDto, TimelineNoteDto, TimelinePhaseDto,
+    TimelineLinkDto, TimelineNoteDto, TimelinePhaseDto, TimelineTagDto,
 };
+use crate::dto::chronology_wording::ChronologyWordingDto;
 use crate::repositories::pipeline_repository::chronology::{
     ChronologyEventRow, ChronologyHistoryRow, ChronologyLinkRow, ChronologyNoteRow,
-    ChronologyPhaseRow,
+    ChronologyPhaseRow, ChronologyTagRow,
 };
 
 /// The `target_type` this build knows how to check.
@@ -105,6 +107,16 @@ pub fn resolve_link(
     LinkResolution::Missing
 }
 
+/// One tag row on the wire.
+pub fn tag_dto(row: &ChronologyTagRow) -> TimelineTagDto {
+    TimelineTagDto {
+        id: row.id.clone(),
+        label: row.label.clone(),
+        color: row.color.clone(),
+        sort_order: row.sort_order,
+    }
+}
+
 /// One phase row on the wire.
 pub fn phase_dto(row: &ChronologyPhaseRow) -> TimelinePhaseDto {
     TimelinePhaseDto {
@@ -171,13 +183,41 @@ fn link_dtos(
 /// `links` is every link for the case in one flat list, and `note_counts` holds
 /// only the events that HAVE notes — an event missing from the map has zero,
 /// which is the same fact with fewer rows.
-pub fn build_timeline(
-    phases: &[ChronologyPhaseRow],
-    events: &[ChronologyEventRow],
-    links: &[ChronologyLinkRow],
-    note_counts: &HashMap<Uuid, i64>,
-    resolved_documents: &HashSet<String>,
-) -> Composed<TimelineDto> {
+/// Everything one timeline read composes from.
+///
+/// ## Rust Learning: a parameter struct instead of eight arguments
+///
+/// Phase B gave this function three more inputs and clippy refused it at 8/7 —
+/// rightly. Four of the eight were slices of different row types, which the
+/// compiler would catch if transposed, and two were a `HashMap` and a `HashSet`,
+/// which it would not. Naming each at the call site removes the whole class of
+/// mistake and makes the next addition free.
+#[derive(Debug, Clone, Copy)]
+pub struct TimelineSources<'a> {
+    pub phases: &'a [ChronologyPhaseRow],
+    pub tags: &'a [ChronologyTagRow],
+    pub events: &'a [ChronologyEventRow],
+    pub links: &'a [ChronologyLinkRow],
+    /// Only events that HAVE notes appear; a missing event has zero.
+    pub note_counts: &'a HashMap<Uuid, i64>,
+    /// Which linked document ids exist, from one query.
+    pub resolved_documents: &'a HashSet<String>,
+    pub wording: &'a ChronologyWording,
+    /// How many events a phase's scroll window shows before it scrolls (R6).
+    pub phase_window_events: usize,
+}
+
+pub fn build_timeline(sources: TimelineSources<'_>) -> Composed<TimelineDto> {
+    let TimelineSources {
+        phases,
+        tags,
+        events,
+        links,
+        note_counts,
+        resolved_documents,
+        wording,
+        phase_window_events,
+    } = sources;
     let mut warnings = Vec::new();
     let mut by_event: HashMap<Uuid, Vec<ChronologyLinkRow>> = HashMap::new();
     for link in links {
@@ -200,7 +240,10 @@ pub fn build_timeline(
     Composed {
         payload: TimelineDto {
             phases: phases.iter().map(phase_dto).collect(),
+            tags: tags.iter().map(tag_dto).collect(),
             events,
+            wording: ChronologyWordingDto::from(wording),
+            phase_window_events,
         },
         warnings,
     }

@@ -21,6 +21,7 @@ use crate::domain::settings::Settings;
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
+use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
@@ -73,6 +74,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         scenario_authoring_wording = SCENARIO_AUTHORING_WORDING_KEYS.len(),
         scan_wording = SCAN_WORDING_KEYS.len(),
         model_params_wording = MODEL_PARAMS_WORDING_KEYS.len(),
+        chronology_wording = CHRONOLOGY_WORDING_KEYS.len(),
         matrix_wording = MATRIX_WORDING_KEYS.len(),
         war_room_wording = WAR_ROOM_WORDING_KEYS.len(),
         practice_params = PRACTICE_PARAM_KEYS.len(),

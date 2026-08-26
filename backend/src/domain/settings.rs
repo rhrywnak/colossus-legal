@@ -30,6 +30,7 @@ use crate::domain::wording::Wording;
 use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_card_grammar::CardGrammarWording;
+use crate::domain::wording_chronology::ChronologyWording;
 use crate::domain::wording_matrix::MatrixWording;
 use crate::domain::wording_model_params::ModelParamsWording;
 use crate::domain::wording_practice::PracticeWording;
@@ -212,6 +213,18 @@ pub struct Settings {
     /// provider changes what it accepts, which has nothing to do with what a
     /// candidate card says.
     pub model_params_wording: ModelParamsWording,
+    /// Every string the case-timeline surfaces speak (chronology Phase B).
+    ///
+    /// A nested block for the reason every sibling has one: these are the words
+    /// ONE surface family speaks — the timeline list, the event page and the
+    /// home band — and they move independently of the rest.
+    pub chronology_wording: ChronologyWording,
+    /// How many events a phase's scroll window shows before it scrolls (R6).
+    ///
+    /// A stored number and not a constant precisely so changing it is data:
+    /// Roman decides four is too few after watching Marie read, edits one row,
+    /// and the next page load obeys. No rebuild, no deploy.
+    pub chronology_phase_window_events: usize,
     /// The words the PROOF MATRIX speaks now that a row leads with the strong
     /// count (task 396, P1).
     ///
@@ -266,62 +279,6 @@ pub struct Settings {
     /// "what harm was done" indicator, so folding them entirely would cost the
     /// card the one thing it says about damages.
     pub card_element_chips_visible_k: usize,
-}
-
-/// A snapshot for TESTS ONLY.
-///
-/// ## Why this is `#[cfg(test)]` and not a `Default` impl
-///
-/// A `Default for Settings` would be a compiled-in set of parameters — the exact
-/// defect v2 §2b bans — and worse, it would be reachable from production code by
-/// accident (`..Default::default()`, `unwrap_or_default()`). Gating it on
-/// `cfg(test)` means it cannot exist in a release binary at all: production has
-/// one way to obtain a `Settings`, and that is to read the store.
-///
-/// The values match the migration's seed so a test reads the way the product
-/// behaves. `settings_store_tests` separately asserts the seed still produces
-/// exactly these numbers, so the two cannot drift apart silently.
-#[cfg(test)]
-impl Settings {
-    pub fn for_test() -> Self {
-        Settings {
-            confidence_band_high: 0.80,
-            confidence_band_medium: 0.50,
-            quote_context_window_chars: 240,
-            talking_points_cap: 3,
-            readiness_item_threshold_n: 5,
-            card_test_ratio: Ratio {
-                numerator: 9,
-                denominator: 10,
-            },
-            reanchor_close_match_tolerance: 0.85,
-            link_short_list_max: 8,
-            wording: Wording::for_test(),
-            accusation_wording: AccusationWording::for_test(),
-            rehearsal_wording: RehearsalWording::for_test(),
-            rehearsal_timeline_min_distinct_dates: 2,
-            rehearsal_chrome_wording: RehearsalChromeWording::for_test(),
-            authoring_wording: AuthoringWording::for_test(),
-            scenario_authoring_wording: ScenarioAuthoringWording::for_test(),
-            theme_scan_prompt_file: "theme_scan_prompt_v3.md".to_string(),
-            theme_scan_max_tokens: 8192,
-            theme_scan_default_model: "claude-opus-5".to_string(),
-            theme_scan_prefilter_min_chars: 60,
-            theme_scan_prefilter_statement_types: vec!["referral".to_string()],
-            scan_wording: ScanWording::for_test(),
-            rehearsal_instance_rows_expand_max: 3,
-            card_grammar_wording: CardGrammarWording::for_test(),
-            model_params_wording: ModelParamsWording::for_test(),
-            matrix_wording: MatrixWording::for_test(),
-            war_room_wording: WarRoomWording::for_test(),
-            practice_wording: PracticeWording::for_test(),
-            practice_report_wording: PracticeReportWording::for_test(),
-            practice_read: PracticeReadParams::for_test(),
-            evidence_tier_map: EvidenceTierMap::for_test(),
-            card_question_truncate_chars: 110,
-            card_element_chips_visible_k: 2,
-        }
-    }
 }
 
 /// How a stored value should be read.
@@ -723,3 +680,7 @@ pub fn parse_token_list(key: &str, value: &str) -> Result<Vec<String>, SettingEr
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "settings_test_fixture.rs"]
+mod test_fixture;

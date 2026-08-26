@@ -1,17 +1,26 @@
 // =============================================================================
 // TimelineBand.tsx — compact case-timeline band for the Home page
 // -----------------------------------------------------------------------------
-// Restores the band removed in commit bfb20d3. Reads the live, intact
-// /data/timeline.json (via services/caseTimeline), renders one pill per phase
-// linking to that phase anchor on the full Timeline page, plus a
-// "View Full Timeline →" link. Unlike the original effect, the fetch failure is
-// surfaced visibly instead of being swallowed by `.catch(() => {})` (Rule 1).
+// Reads `GET /api/timeline` through services/caseTimeline (Phase B — the static
+// JSON it used to read is gone), renders one pill per phase linking to that
+// phase's filtered view on the Timeline page, plus a "View Full Timeline →"
+// link. The fetch failure is surfaced visibly, never swallowed (Rule 1).
+//
+// ## ⚑ AND IT NO LONGER DROPS AN EVENT IN SILENCE
+//
+// The band groups events by phase. An event whose phase had no pill used to be
+// counted NOWHERE and shown nothing — the last silent path on this surface. It
+// now renders a stored marker saying how many of the total it can account for
+// (design B6). An event nobody can see is an event nobody can fix.
 // =============================================================================
 
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   buildPhaseSummaries,
+  ChronologyWording,
+  cw,
+  fill,
   getCaseTimeline,
   PhaseSummary,
 } from "../services/caseTimeline";
@@ -39,6 +48,20 @@ const PILL_SUBLINE_STYLE: React.CSSProperties = {
   fontSize: "13px",
   color: "var(--text-secondary)",
   marginTop: "2px",
+};
+
+const MISMATCH_STYLE: React.CSSProperties = {
+  marginTop: "10px",
+  fontSize: "13px",
+  fontWeight: 600,
+  // The SAME token the timeline's "no document yet" mark uses, deliberately:
+  // both say "this needs a human's attention", and a reader who learns the
+  // colour on one surface should not have to learn it again on the other.
+  // (It was a var() naming a token that is declared NOWHERE, with a hex literal
+  // in the fallback slot quietly doing all the work. The literal is not repeated
+  // here: a scanner hunting for hex codes finds documentation before code, and
+  // this codebase documents its rules next to its rules.)
+  color: "var(--burden-warning-text)",
 };
 
 const VIEW_FULL_LINK_STYLE: React.CSSProperties = {
@@ -96,15 +119,31 @@ const PhasePill: React.FC<{ phase: PhaseSummary }> = ({ phase }) => {
  * Same idiom as Home/CaseSummaryCard — the cleanup sets `cancelled` so a late
  * response after unmount never setStates.
  */
+type BandState = {
+  phases: PhaseSummary[];
+  matched: number;
+  unmatched: number;
+  total: number;
+  wording: ChronologyWording;
+};
+
 const TimelineBand: React.FC = () => {
-  const [phases, setPhases] = useState<PhaseSummary[] | null>(null);
+  const [band, setBand] = useState<BandState | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     getCaseTimeline()
       .then((data) => {
-        if (!cancelled) setPhases(buildPhaseSummaries(data));
+        if (cancelled) return;
+        const rolled = buildPhaseSummaries(data);
+        setBand({
+          phases: rolled.phases,
+          matched: rolled.matched,
+          unmatched: rolled.unmatched,
+          total: data.events.length,
+          wording: data.wording,
+        });
       })
       .catch((err: unknown) => {
         // No silent failure (Rule 1) — the original effect swallowed this.
@@ -120,7 +159,7 @@ const TimelineBand: React.FC = () => {
   }, []);
 
   // Loading: render nothing (the band is supplementary; no spinner needed).
-  if (!error && phases === null) return null;
+  if (!error && band === null) return null;
 
   return (
     <div style={BAND_STYLE}>
@@ -129,13 +168,23 @@ const TimelineBand: React.FC = () => {
         <div style={{ marginTop: "12px", color: "var(--status-dropped-text)", fontSize: "14px" }}>
           {error}
         </div>
-      ) : phases && phases.length > 0 ? (
+      ) : band && band.phases.length > 0 ? (
         <>
           <div style={PILL_ROW_STYLE}>
-            {phases.map((phase) => (
+            {band.phases.map((phase) => (
               <PhasePill key={phase.id} phase={phase} />
             ))}
           </div>
+          {band.unmatched > 0 && (
+            // The marker, not a silent drop (design B6). Amber rather than red:
+            // the data is readable, it is the grouping that cannot place it.
+            <div style={MISMATCH_STYLE}>
+              {fill(cw(band.wording, "band_mismatch_template"), {
+                shown: band.matched,
+                total: band.total,
+              })}
+            </div>
+          )}
           <Link to="/timeline" style={VIEW_FULL_LINK_STYLE}>
             View Full Timeline →
           </Link>

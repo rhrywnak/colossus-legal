@@ -23,6 +23,7 @@ use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
+use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
@@ -103,6 +104,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_scan::ScanWording::for_test_values())
         .chain(crate::domain::wording_card_grammar::CardGrammarWording::for_test_values())
         .chain(crate::domain::wording_model_params::ModelParamsWording::for_test_values())
+        .chain(crate::domain::wording_chronology::ChronologyWording::for_test_values())
         .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
         .chain(crate::domain::wording_war_room::WarRoomWording::for_test_values())
         .chain(crate::domain::wording_practice::PracticeWording::for_test_values())
@@ -220,6 +222,15 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             None,
         ),
         row(KEY_READINESS_N, "5", ValueKind::Count, Some(1.0), None),
+        // The chronology scroll window (design R6). Bounded so it stays a
+        // WINDOW: below one there is nothing to see, above forty it is the page.
+        row(
+            KEY_CHRONOLOGY_PHASE_WINDOW,
+            "4",
+            ValueKind::Count,
+            Some(1.0),
+            Some(40.0),
+        ),
         row(KEY_CARD_TEST_RATIO, "9/10", ValueKind::Ratio, None, None),
         row(
             KEY_REANCHOR_TOLERANCE,
@@ -576,7 +587,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        32,
+        33,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -588,7 +599,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          seven — the read's prompt file, its model, its token cap, its two word \
          caps, the word it reserves for \"fine\", and the seven tactic-card names \
          — plus the case's own timezone, which decides what \"today\" means on a \
-         deck row (hotfix, 2026-08-19)"
+         deck row (hotfix, 2026-08-19) — and the chronology scroll window, how \
+         many events one phase shows before it scrolls (Phase B, design R6)"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -743,8 +755,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
-            + PRACTICE_LIST_WORDING_KEYS.len(),
-        "the seed and the twenty required lists must describe the same store"
+            + PRACTICE_LIST_WORDING_KEYS.len()
+            + CHRONOLOGY_WORDING_KEYS.len(),
+        "the seed and the twenty-one required lists must describe the same store"
     );
 }
 
@@ -756,6 +769,32 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
 #[test]
 fn a_missing_accusation_wording_row_refuses_the_snapshot_too() {
     for key in ACCUSATION_WORDING_KEYS {
+        let mut rows = seeded();
+        rows.remove(*key);
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("a store missing {key} must not produce a snapshot");
+        };
+        assert!(
+            error.to_string().contains(key),
+            "the refusal must name the missing string: {error}"
+        );
+    }
+}
+
+/// A missing CHRONOLOGY row refuses the snapshot exactly as the others do.
+///
+/// ## Why this is not covered by `wording_chronology_tests`
+///
+/// That file proves `build_chronology_wording` refuses a missing key in
+/// ISOLATION. This proves the refusal survives the wiring — that
+/// `build_all_wording` actually calls it and actually propagates. A wiring
+/// defect that dropped the `?`, or omitted the call and left the field filled
+/// from somewhere else, would pass every assertion written against the builder
+/// alone and boot a backend serving a page with no words on it.
+#[test]
+fn a_missing_chronology_wording_row_refuses_the_snapshot_too() {
+    for key in CHRONOLOGY_WORDING_KEYS {
         let mut rows = seeded();
         rows.remove(*key);
 
@@ -1194,6 +1233,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // L3: the line under a one-sentence critique.
         "pipeline_migrations/20260823163653_practice_one_page_l3_plain_read_line.sql",
         "pipeline_migrations/20260823164454_practice_one_page_l3_question_page_and_walk.sql",
+        // The chronology block, and the one number the scroll window reads.
+        "pipeline_migrations/20260825150938_chronology_wording_and_phase_window.sql",
     ]
     .iter()
     .map(|relative| {
