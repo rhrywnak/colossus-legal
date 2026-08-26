@@ -58,10 +58,26 @@ const gridStyle: React.CSSProperties = {
   gap: "16px 32px",
 };
 
-// Mockup `.lbl`: 11px/600, .08em, uppercase, --text-3, 3px bottom.
+// Mockup `.lbl`: 11px, .08em, uppercase, --text-3, 3px bottom.
+//
+// ## The weight is 700, not the mockup's 600 (Roman, 2026-08-25, from live S-9)
+//
+// The four names this style renders — the attack, our theme, their motivation,
+// and what the scenario bears on — are the card's only wayfinding. At 11px in
+// --text-muted they read as chrome, and a person scanning the card for "what do
+// THEY say" was finding it by position rather than by the label. Weight is the
+// only change: size, tracking, casing and colour are the mockup's and stay.
+//
+// ## Nothing else is bolded by this
+//
+// This object is PRIVATE to this file and is applied in exactly four places (the
+// three `Field`s and the Bears-on heading below), so no derived style is needed
+// to keep the change to the four Roman named. The header's `SCENARIO` eyebrow is
+// its own object in `ScenarioHeaderTiers.tsx` and the identity MODAL's field
+// labels are their own in `ScenarioIdentityModal.tsx`; both are untouched.
 const labelStyle: React.CSSProperties = {
   fontSize: "11px",
-  fontWeight: 600,
+  fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
   color: "var(--text-muted)",
