@@ -71,6 +71,73 @@ pub async fn document_titles_by_ids(
 /// Query text, not config — Rule 13 does not apply.
 const DOCUMENT_TITLES_BY_IDS_SQL: &str = "SELECT id, title FROM documents WHERE id = ANY($1)";
 
+/// How many documents matched a search, and the page of them being offered.
+///
+/// ## Why the total travels with the page
+///
+/// The picker offers a bounded short list (`chronology_document_picker_max`).
+/// A truncated list that looked complete is how somebody links the wrong
+/// document with no idea a better match was cut off — so the count of ALL
+/// matches comes back beside the ones being shown, and the surface says so when
+/// they differ. A silent cap is a silent failure (Standing Rule 1).
+#[derive(Debug, Clone)]
+pub struct DocumentSearchPage {
+    /// The documents being offered, by title.
+    pub matches: Vec<(String, String)>,
+    /// How many documents matched in total, before the cap.
+    pub total: i64,
+}
+
+/// Documents whose title contains `needle`, case-insensitively, title-ordered.
+///
+/// Serves the chronology's document picker (design R9: links are HUMAN-MADE —
+/// the author searches the store and picks the target).
+///
+/// ## ⚑ It reads the SAME table the link resolver reads
+///
+/// `chronology_links::existing_document_ids` answers "does this link point at
+/// something real?" from `documents` in the pipeline database. If the picker
+/// searched anywhere else — the Neo4j document list, say — an author could pick
+/// a document that the very next page render marked "⚠ no document yet". Pick
+/// and resolve are the same question asked twice, so they ask the same table.
+///
+/// ## Rust Learning: `ILIKE` with a bound pattern, not a formatted one
+///
+/// The `%` wildcards are concatenated in SQL (`'%' || $1 || '%'`) rather than in
+/// Rust, so the needle stays a bound PARAMETER. Building `format!("%{needle}%")`
+/// would still bind safely here, but it puts the pattern's syntax in two
+/// languages; keeping it in the statement means a needle containing `%` matches
+/// a literal-looking search the same way whichever caller sends it.
+///
+/// # Errors
+/// Any database failure, verbatim — the caller names the operation in its log.
+pub async fn search_document_titles(
+    pool: &PgPool,
+    needle: &str,
+    limit: i64,
+) -> Result<DocumentSearchPage, PipelineRepoError> {
+    let total = sqlx::query_scalar::<_, i64>(DOCUMENT_SEARCH_COUNT_SQL)
+        .bind(needle)
+        .fetch_one(pool)
+        .await?;
+    let matches = sqlx::query_as::<_, (String, String)>(DOCUMENT_SEARCH_SQL)
+        .bind(needle)
+        .bind(limit)
+        .fetch_all(pool)
+        .await?;
+    Ok(DocumentSearchPage { matches, total })
+}
+
+/// The picker's page query. Pinned by a unit test, like its sibling above.
+const DOCUMENT_SEARCH_SQL: &str = "SELECT id, title FROM documents \
+     WHERE title ILIKE '%' || $1 || '%' ORDER BY title, id LIMIT $2";
+
+/// The same predicate, counted. Two statements rather than a window function
+/// because the count must be over ALL matches while the rows are capped, and a
+/// reader should be able to see at a glance that the two agree on the WHERE.
+const DOCUMENT_SEARCH_COUNT_SQL: &str =
+    "SELECT COUNT(*) FROM documents WHERE title ILIKE '%' || $1 || '%'";
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -115,5 +182,50 @@ mod tests {
         // The two columns the orphan strip needs, from the table that holds them.
         assert!(sql.contains("SELECT id, title"), "got: {sql}");
         assert!(sql.contains("FROM documents"), "got: {sql}");
+    }
+
+    #[test]
+    fn the_picker_search_and_its_count_agree_on_the_predicate() {
+        // The cap is only honest if the total is counted over the SAME matches
+        // the page is drawn from. Two statements can drift; this is what stops
+        // them — an edit to one predicate that forgets the other fails here.
+        let predicate = "title ILIKE '%' || $1 || '%'";
+        assert!(
+            DOCUMENT_SEARCH_SQL.contains(predicate),
+            "got: {DOCUMENT_SEARCH_SQL}"
+        );
+        assert!(
+            DOCUMENT_SEARCH_COUNT_SQL.contains(predicate),
+            "got: {DOCUMENT_SEARCH_COUNT_SQL}"
+        );
+        // The page is capped and ordered; the count is neither, or it would be
+        // counting the cap rather than the matches.
+        assert!(
+            DOCUMENT_SEARCH_SQL.contains("LIMIT $2"),
+            "got: {DOCUMENT_SEARCH_SQL}"
+        );
+        assert!(
+            DOCUMENT_SEARCH_SQL.contains("ORDER BY title, id"),
+            "got: {DOCUMENT_SEARCH_SQL}"
+        );
+        assert!(
+            !DOCUMENT_SEARCH_COUNT_SQL.contains("LIMIT"),
+            "got: {DOCUMENT_SEARCH_COUNT_SQL}"
+        );
+    }
+
+    #[test]
+    fn the_picker_search_binds_its_needle_rather_than_formatting_it() {
+        // The wildcards are concatenated IN SQL so the needle stays a bound
+        // parameter. A `format!("%{needle}%")` in Rust would put the pattern's
+        // syntax in two languages and is the shape this pins against.
+        assert!(
+            DOCUMENT_SEARCH_SQL.contains("'%' || $1 || '%'"),
+            "got: {DOCUMENT_SEARCH_SQL}"
+        );
+        assert!(
+            !DOCUMENT_SEARCH_SQL.contains("{"),
+            "the needle must not be interpolated: {DOCUMENT_SEARCH_SQL}"
+        );
     }
 }

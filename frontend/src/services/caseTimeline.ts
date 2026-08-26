@@ -75,6 +75,16 @@ export type TimelineEvent = {
   created_at: string;
   updated_by?: string;
   updated_at: string;
+  /**
+   * When this event was soft-deleted, if it was (design R10).
+   *
+   * ABSENT on every read: the list and the event page never return a deleted
+   * event. It is present because the WRITE endpoints answer with this same
+   * shape, and a DELETE's response is the event it just deleted — which is what
+   * lets the surface replace the card in place with the undo line instead of
+   * inferring "it is gone" from a status code (§C3).
+   */
+  deleted_at?: string;
 };
 
 /** One attributed note. */

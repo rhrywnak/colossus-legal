@@ -144,6 +144,7 @@ pub(crate) async fn run_completeness(
                 AppError::Unauthorized { message } => message.clone(),
                 AppError::Forbidden { message } => message.clone(),
                 AppError::Conflict { message, .. } => message.clone(),
+                AppError::UnprocessableEntity { message, .. } => message.clone(),
                 AppError::Internal { message } => message.clone(),
                 AppError::ServiceUnavailable { message } => message.clone(),
             };

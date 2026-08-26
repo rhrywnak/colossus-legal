@@ -123,6 +123,101 @@ pub struct ChronologyWording {
     /// no pill was previously counted nowhere and dropped without a word. This
     /// line is what it says instead.
     pub band_mismatch_template: String,
+
+    // ─── Phase C: the words the WRITE controls speak ────────────────────────
+    //
+    // Every label, placeholder and button the add/edit form, the delete/undo
+    // line, the note box and the document picker wear. They arrive in this
+    // block rather than one of their own because they are the SAME surface
+    // family's words — the list, the event page and the home band — and a
+    // second block would mean a second payload field, a second reach scan and
+    // a second place for a key to hide.
+    /// The control that opens an empty form on the list page.
+    pub add_event_label: String,
+    /// The always-visible, muted edit control on a card and on the event page (R17).
+    pub edit_label: String,
+    /// The always-visible, muted delete control (R17). No confirm dialog follows it (R10).
+    pub delete_label: String,
+    /// The first half of the line that replaces a deleted card in place. The renderer supplies the joining space; the Undo control follows.
+    pub deleted_line_label: String,
+    /// The control that restores a soft-deleted event. This IS the safety R10 chose instead of a confirm dialog.
+    pub undo_label: String,
+    /// The form's heading when it is creating.
+    pub form_add_title: String,
+    /// The form's heading when it is editing. The same form, pre-filled.
+    pub form_edit_title: String,
+    /// The date field's label. Required by R11.
+    pub form_date_label: String,
+    /// How much of the date is actually known.
+    pub form_precision_label: String,
+    /// The `day` precision, as the form offers it.
+    pub precision_day_label: String,
+    /// The `month` precision, as the form offers it.
+    pub precision_month_label: String,
+    /// The `year` precision, as the form offers it.
+    pub precision_year_label: String,
+    /// The approximate flag, which is SEPARATE from precision.
+    pub form_approximate_label: String,
+    /// The title field's label. Required by R11.
+    pub form_title_label: String,
+    /// The title field's placeholder, which says what the field is FOR.
+    pub form_title_placeholder: String,
+    /// The fact field's label. Optional by R11, encouraged by the wording.
+    pub form_fact_label: String,
+    /// The fact field's placeholder — the standard the sentence is held to.
+    pub form_fact_placeholder: String,
+    /// The tag multi-select's label. The chips ARE the stored vocabulary.
+    pub form_tags_label: String,
+    /// The phase select's label. The options are the stored phases.
+    pub form_phase_label: String,
+    /// The document picker's label on the form.
+    pub form_documents_label: String,
+    /// The document picker's search box.
+    pub document_search_placeholder: String,
+    /// Shown when the picker's search matched nothing.
+    pub document_search_empty_label: String,
+    /// The pinpoint field's placeholder, which states the consequence of leaving it empty.
+    pub pinpoint_placeholder: String,
+    /// The form's commit control.
+    pub save_label: String,
+    /// Closes the form without writing.
+    pub cancel_label: String,
+    /// The label a write control wears while its request is in flight.
+    pub saving_label: String,
+    /// The note input on the event page (R8).
+    pub add_note_placeholder: String,
+    /// The note input's commit control.
+    pub add_note_button_label: String,
+    /// Opens the document picker on the event page.
+    pub link_document_label: String,
+    /// Removes one link, addressed by its natural key.
+    pub remove_link_label: String,
+    /// Deletes one note. The author may delete their own.
+    pub delete_note_label: String,
+    /// One history line. `{when}`, `{who}` and `{what}`.
+    pub history_line_template: String,
+    /// The display word for the stored `created` action.
+    pub history_created_label: String,
+    /// The display word for the stored `updated` action — deliberately a different word.
+    pub history_updated_label: String,
+    /// The display word for the stored `deleted` action.
+    pub history_deleted_label: String,
+    /// The display word for the stored `restored` action — what Undo lands.
+    pub history_restored_label: String,
+    /// The fallback for a stored action this build has no word for. `{action}`.
+    pub history_unknown_template: String,
+    /// Every failed write reaches this rendered sentence. `{reason}`.
+    pub write_failed_template: String,
+    /// The line under a capped document-picker list. `{shown}` and `{total}`.
+    ///
+    /// ## Domain note: the cap is never silent
+    ///
+    /// A short list that looked complete is how somebody links the wrong
+    /// document with no idea a better match was cut off. The picker says how
+    /// many it is showing of how many matched, so an author who cannot see what
+    /// they wanted knows to narrow the search rather than concluding it is not
+    /// there.
+    pub picker_capped_template: String,
 }
 
 pub(crate) const KEY_PAGE_TITLE: &str = "chronology_page_title";
@@ -152,6 +247,45 @@ pub(crate) const KEY_HISTORY_HEADING: &str = "chronology_history_heading";
 pub(crate) const KEY_NO_HISTORY_LABEL: &str = "chronology_no_history_label";
 pub(crate) const KEY_NO_NOTES_LABEL: &str = "chronology_no_notes_label";
 pub(crate) const KEY_BAND_MISMATCH_TEMPLATE: &str = "chronology_band_mismatch_template";
+pub(crate) const KEY_ADD_EVENT_LABEL: &str = "chronology_add_event_label";
+pub(crate) const KEY_EDIT_LABEL: &str = "chronology_edit_label";
+pub(crate) const KEY_DELETE_LABEL: &str = "chronology_delete_label";
+pub(crate) const KEY_DELETED_LINE_LABEL: &str = "chronology_deleted_line_label";
+pub(crate) const KEY_UNDO_LABEL: &str = "chronology_undo_label";
+pub(crate) const KEY_FORM_ADD_TITLE: &str = "chronology_form_add_title";
+pub(crate) const KEY_FORM_EDIT_TITLE: &str = "chronology_form_edit_title";
+pub(crate) const KEY_FORM_DATE_LABEL: &str = "chronology_form_date_label";
+pub(crate) const KEY_FORM_PRECISION_LABEL: &str = "chronology_form_precision_label";
+pub(crate) const KEY_PRECISION_DAY_LABEL: &str = "chronology_precision_day_label";
+pub(crate) const KEY_PRECISION_MONTH_LABEL: &str = "chronology_precision_month_label";
+pub(crate) const KEY_PRECISION_YEAR_LABEL: &str = "chronology_precision_year_label";
+pub(crate) const KEY_FORM_APPROXIMATE_LABEL: &str = "chronology_form_approximate_label";
+pub(crate) const KEY_FORM_TITLE_LABEL: &str = "chronology_form_title_label";
+pub(crate) const KEY_FORM_TITLE_PLACEHOLDER: &str = "chronology_form_title_placeholder";
+pub(crate) const KEY_FORM_FACT_LABEL: &str = "chronology_form_fact_label";
+pub(crate) const KEY_FORM_FACT_PLACEHOLDER: &str = "chronology_form_fact_placeholder";
+pub(crate) const KEY_FORM_TAGS_LABEL: &str = "chronology_form_tags_label";
+pub(crate) const KEY_FORM_PHASE_LABEL: &str = "chronology_form_phase_label";
+pub(crate) const KEY_FORM_DOCUMENTS_LABEL: &str = "chronology_form_documents_label";
+pub(crate) const KEY_DOCUMENT_SEARCH_PLACEHOLDER: &str = "chronology_document_search_placeholder";
+pub(crate) const KEY_DOCUMENT_SEARCH_EMPTY_LABEL: &str = "chronology_document_search_empty_label";
+pub(crate) const KEY_PINPOINT_PLACEHOLDER: &str = "chronology_pinpoint_placeholder";
+pub(crate) const KEY_SAVE_LABEL: &str = "chronology_save_label";
+pub(crate) const KEY_CANCEL_LABEL: &str = "chronology_cancel_label";
+pub(crate) const KEY_SAVING_LABEL: &str = "chronology_saving_label";
+pub(crate) const KEY_ADD_NOTE_PLACEHOLDER: &str = "chronology_add_note_placeholder";
+pub(crate) const KEY_ADD_NOTE_BUTTON_LABEL: &str = "chronology_add_note_button_label";
+pub(crate) const KEY_LINK_DOCUMENT_LABEL: &str = "chronology_link_document_label";
+pub(crate) const KEY_REMOVE_LINK_LABEL: &str = "chronology_remove_link_label";
+pub(crate) const KEY_DELETE_NOTE_LABEL: &str = "chronology_delete_note_label";
+pub(crate) const KEY_HISTORY_LINE_TEMPLATE: &str = "chronology_history_line_template";
+pub(crate) const KEY_HISTORY_CREATED_LABEL: &str = "chronology_history_created_label";
+pub(crate) const KEY_HISTORY_UPDATED_LABEL: &str = "chronology_history_updated_label";
+pub(crate) const KEY_HISTORY_DELETED_LABEL: &str = "chronology_history_deleted_label";
+pub(crate) const KEY_HISTORY_RESTORED_LABEL: &str = "chronology_history_restored_label";
+pub(crate) const KEY_HISTORY_UNKNOWN_TEMPLATE: &str = "chronology_history_unknown_template";
+pub(crate) const KEY_WRITE_FAILED_TEMPLATE: &str = "chronology_write_failed_template";
+pub(crate) const KEY_PICKER_CAPPED_TEMPLATE: &str = "chronology_picker_capped_template";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -184,6 +318,45 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_NO_HISTORY_LABEL,
     KEY_NO_NOTES_LABEL,
     KEY_BAND_MISMATCH_TEMPLATE,
+    KEY_ADD_EVENT_LABEL,
+    KEY_EDIT_LABEL,
+    KEY_DELETE_LABEL,
+    KEY_DELETED_LINE_LABEL,
+    KEY_UNDO_LABEL,
+    KEY_FORM_ADD_TITLE,
+    KEY_FORM_EDIT_TITLE,
+    KEY_FORM_DATE_LABEL,
+    KEY_FORM_PRECISION_LABEL,
+    KEY_PRECISION_DAY_LABEL,
+    KEY_PRECISION_MONTH_LABEL,
+    KEY_PRECISION_YEAR_LABEL,
+    KEY_FORM_APPROXIMATE_LABEL,
+    KEY_FORM_TITLE_LABEL,
+    KEY_FORM_TITLE_PLACEHOLDER,
+    KEY_FORM_FACT_LABEL,
+    KEY_FORM_FACT_PLACEHOLDER,
+    KEY_FORM_TAGS_LABEL,
+    KEY_FORM_PHASE_LABEL,
+    KEY_FORM_DOCUMENTS_LABEL,
+    KEY_DOCUMENT_SEARCH_PLACEHOLDER,
+    KEY_DOCUMENT_SEARCH_EMPTY_LABEL,
+    KEY_PINPOINT_PLACEHOLDER,
+    KEY_SAVE_LABEL,
+    KEY_CANCEL_LABEL,
+    KEY_SAVING_LABEL,
+    KEY_ADD_NOTE_PLACEHOLDER,
+    KEY_ADD_NOTE_BUTTON_LABEL,
+    KEY_LINK_DOCUMENT_LABEL,
+    KEY_REMOVE_LINK_LABEL,
+    KEY_DELETE_NOTE_LABEL,
+    KEY_HISTORY_LINE_TEMPLATE,
+    KEY_HISTORY_CREATED_LABEL,
+    KEY_HISTORY_UPDATED_LABEL,
+    KEY_HISTORY_DELETED_LABEL,
+    KEY_HISTORY_RESTORED_LABEL,
+    KEY_HISTORY_UNKNOWN_TEMPLATE,
+    KEY_WRITE_FAILED_TEMPLATE,
+    KEY_PICKER_CAPPED_TEMPLATE,
 ];
 
 /// Build a [`ChronologyWording`] from the stored rows, or say which key is wrong.
@@ -229,6 +402,45 @@ pub fn build_chronology_wording<E>(
         no_history_label: read(KEY_NO_HISTORY_LABEL)?,
         no_notes_label: read(KEY_NO_NOTES_LABEL)?,
         band_mismatch_template: read(KEY_BAND_MISMATCH_TEMPLATE)?,
+        add_event_label: read(KEY_ADD_EVENT_LABEL)?,
+        edit_label: read(KEY_EDIT_LABEL)?,
+        delete_label: read(KEY_DELETE_LABEL)?,
+        deleted_line_label: read(KEY_DELETED_LINE_LABEL)?,
+        undo_label: read(KEY_UNDO_LABEL)?,
+        form_add_title: read(KEY_FORM_ADD_TITLE)?,
+        form_edit_title: read(KEY_FORM_EDIT_TITLE)?,
+        form_date_label: read(KEY_FORM_DATE_LABEL)?,
+        form_precision_label: read(KEY_FORM_PRECISION_LABEL)?,
+        precision_day_label: read(KEY_PRECISION_DAY_LABEL)?,
+        precision_month_label: read(KEY_PRECISION_MONTH_LABEL)?,
+        precision_year_label: read(KEY_PRECISION_YEAR_LABEL)?,
+        form_approximate_label: read(KEY_FORM_APPROXIMATE_LABEL)?,
+        form_title_label: read(KEY_FORM_TITLE_LABEL)?,
+        form_title_placeholder: read(KEY_FORM_TITLE_PLACEHOLDER)?,
+        form_fact_label: read(KEY_FORM_FACT_LABEL)?,
+        form_fact_placeholder: read(KEY_FORM_FACT_PLACEHOLDER)?,
+        form_tags_label: read(KEY_FORM_TAGS_LABEL)?,
+        form_phase_label: read(KEY_FORM_PHASE_LABEL)?,
+        form_documents_label: read(KEY_FORM_DOCUMENTS_LABEL)?,
+        document_search_placeholder: read(KEY_DOCUMENT_SEARCH_PLACEHOLDER)?,
+        document_search_empty_label: read(KEY_DOCUMENT_SEARCH_EMPTY_LABEL)?,
+        pinpoint_placeholder: read(KEY_PINPOINT_PLACEHOLDER)?,
+        save_label: read(KEY_SAVE_LABEL)?,
+        cancel_label: read(KEY_CANCEL_LABEL)?,
+        saving_label: read(KEY_SAVING_LABEL)?,
+        add_note_placeholder: read(KEY_ADD_NOTE_PLACEHOLDER)?,
+        add_note_button_label: read(KEY_ADD_NOTE_BUTTON_LABEL)?,
+        link_document_label: read(KEY_LINK_DOCUMENT_LABEL)?,
+        remove_link_label: read(KEY_REMOVE_LINK_LABEL)?,
+        delete_note_label: read(KEY_DELETE_NOTE_LABEL)?,
+        history_line_template: read(KEY_HISTORY_LINE_TEMPLATE)?,
+        history_created_label: read(KEY_HISTORY_CREATED_LABEL)?,
+        history_updated_label: read(KEY_HISTORY_UPDATED_LABEL)?,
+        history_deleted_label: read(KEY_HISTORY_DELETED_LABEL)?,
+        history_restored_label: read(KEY_HISTORY_RESTORED_LABEL)?,
+        history_unknown_template: read(KEY_HISTORY_UNKNOWN_TEMPLATE)?,
+        write_failed_template: read(KEY_WRITE_FAILED_TEMPLATE)?,
+        picker_capped_template: read(KEY_PICKER_CAPPED_TEMPLATE)?,
     })
 }
 

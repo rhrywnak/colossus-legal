@@ -25,6 +25,28 @@ pub enum AppError {
         message: String,
         details: serde_json::Value,
     },
+    /// The request was well-formed and understood, and one of its VALUES names
+    /// something that does not exist.
+    ///
+    /// Maps to HTTP 422 Unprocessable Content. Distinct from `BadRequest` (400)
+    /// on purpose, and the distinction is the caller's next move: a 400 says
+    /// "you sent the wrong SHAPE — a missing field, an unparseable date, a title
+    /// of nothing", which a form fixes by validating before it sends. A 422 says
+    /// "the shape is right and the VALUE is not one this deployment has" — a
+    /// phase slug with no row, a document id that is not in the store — which a
+    /// form can only fix by offering different choices.
+    ///
+    /// # Domain note
+    ///
+    /// Introduced for the chronology's write endpoints (Phase C), where a phase
+    /// is a foreign key. Without this variant an unknown phase reaches Postgres
+    /// and comes back as a foreign-key violation, which this codebase turns into
+    /// a 500 — an operator paging over a typo somebody made in a form. The 422
+    /// names the value instead, and the author reads which one was wrong.
+    UnprocessableEntity {
+        message: String,
+        details: serde_json::Value,
+    },
     Internal {
         message: String,
     },
@@ -131,6 +153,14 @@ impl IntoResponse for AppError {
                 };
                 (StatusCode::CONFLICT, Json(body)).into_response()
             }
+            AppError::UnprocessableEntity { message, details } => {
+                let body = ErrorBody {
+                    error: "unprocessable_entity".to_string(),
+                    message,
+                    details,
+                };
+                (StatusCode::UNPROCESSABLE_ENTITY, Json(body)).into_response()
+            }
             AppError::Internal { message } => {
                 let body = ErrorBody {
                     error: "internal_error".to_string(),
@@ -189,5 +219,42 @@ mod tests {
             body_json["message"],
             serde_json::json!("Restate ingress not configured")
         );
+    }
+
+    /// Pins the mapping for `UnprocessableEntity`: HTTP 422 + the
+    /// `unprocessable_entity` slug, with the offending value carried in
+    /// `details` where a form can read it.
+    ///
+    /// Written per the pattern the doc comment above establishes. It also pins
+    /// the thing that made the variant worth adding: 422 and 400 must not be
+    /// the same number, because the chronology's form treats them differently —
+    /// a 400 is its own bug, a 422 means the choices it offered are stale.
+    #[tokio::test]
+    async fn unprocessable_entity_maps_to_422_and_is_not_a_bad_request() {
+        let err = AppError::UnprocessableEntity {
+            message: "no phase named 'apeals'".to_string(),
+            details: json!({ "field": "phase", "value": "apeals" }),
+        };
+        let response = err.into_response();
+        assert_eq!(response.status(), StatusCode::UNPROCESSABLE_ENTITY);
+        assert_ne!(response.status(), StatusCode::BAD_REQUEST);
+
+        let body_bytes = to_bytes(response.into_body(), 4096)
+            .await
+            .expect("body must be small and readable");
+        let body_json: serde_json::Value =
+            serde_json::from_slice(&body_bytes).expect("body must be valid JSON");
+
+        assert_eq!(
+            body_json["error"],
+            serde_json::json!("unprocessable_entity")
+        );
+        assert_eq!(
+            body_json["message"],
+            serde_json::json!("no phase named 'apeals'")
+        );
+        // The VALUE reaches the caller. A 422 whose body did not name what was
+        // rejected would send an author back to guess which field it meant.
+        assert_eq!(body_json["details"]["value"], serde_json::json!("apeals"));
     }
 }

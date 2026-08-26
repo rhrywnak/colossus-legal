@@ -142,6 +142,21 @@ pub struct TimelineEventDto {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub updated_by: Option<String>,
     pub updated_at: DateTime<Utc>,
+    /// When this event was soft-deleted, if it was (design R10).
+    ///
+    /// ## Why a READ shape carries a field the reads never set
+    ///
+    /// The list and the event page never return a deleted event, so this is
+    /// always absent there. It is present because the WRITE endpoints return
+    /// this same shape, and a DELETE's response is the event it just deleted —
+    /// which is what lets the surface replace the card IN PLACE with the undo
+    /// line rather than guessing from an HTTP status that the row is now gone.
+    ///
+    /// Absent and null are the same here (`skip_serializing_if`), and both mean
+    /// live. That is safe in a way it would not be for `fact`, because "deleted
+    /// at no time" has exactly one meaning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deleted_at: Option<DateTime<Utc>>,
 }
 
 /// The whole page in one read: the phases in order, the events by date.

@@ -20,11 +20,11 @@
 //! inventing a case or returning an empty chronology — an empty timeline and an
 //! unconfigured deployment must not look the same (Standing Rule 1).
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use axum::{
     extract::{Path, State},
-    routing::get,
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use uuid::Uuid;
@@ -33,23 +33,67 @@ use crate::auth::AuthUser;
 use crate::dto::chronology::{TimelineDto, TimelineEventDetailDto};
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::chronology::{
-    get_event, list_events, list_phases, list_tags, ChronologyLinkRow,
+    get_event, list_events, list_phases, list_tags,
 };
 use crate::repositories::pipeline_repository::chronology_links::{
-    existing_document_ids, list_history_for_event, list_links_for_case, list_links_for_event,
-    list_notes_for_event, note_counts_for_case,
+    list_history_for_event, list_links_for_case, list_links_for_event, list_notes_for_event,
+    note_counts_for_case,
 };
 use crate::repositories::pipeline_repository::PipelineRepoError;
-use crate::services::chronology_read::{
-    build_event_detail, build_timeline, TimelineSources, CHECKABLE_TARGET_TYPE,
-};
+use crate::services::chronology_read::{build_event_detail, build_timeline, TimelineSources};
 use crate::state::AppState;
 
+// The target resolution lives with the write handlers since Phase C, so the
+// read and the writes answer "does this document exist?" with one function.
+use super::timeline_write::support::resolve_targets;
+
 /// The chronology's routes, merged into the API router by `api::router`.
+///
+/// ## ⚑ THE READ/WRITE LINE IS VISIBLE HERE
+///
+/// The two `get` routes take `Option<AuthUser>` and are open — looking at the
+/// chronology is not privileged (Phase A). Every route below them is a WRITE and
+/// its handler takes `AuthUser`, so an anonymous request is a 401 before the
+/// body runs. One table, so a reader can see which is which without opening two
+/// files; `timeline_write_guard_tests` proves the second group has no optional
+/// extractor in it.
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/timeline", get(get_timeline))
         .route("/timeline/events/:id", get(get_timeline_event))
+        // The document picker: a read, and open like the two above.
+        .route(
+            "/timeline/documents",
+            get(super::timeline_write::links::get_document_choices),
+        )
+        // The writes (Phase C, §C1). Each one requires an authenticated user,
+        // stamps them, and lands exactly one history row.
+        .route(
+            "/timeline/events",
+            post(super::timeline_write::events::post_event),
+        )
+        .route(
+            "/timeline/events/:id",
+            put(super::timeline_write::events::put_event)
+                .delete(super::timeline_write::events::delete_event),
+        )
+        .route(
+            "/timeline/events/:id/undelete",
+            post(super::timeline_write::events::post_undelete),
+        )
+        .route(
+            "/timeline/events/:id/links",
+            post(super::timeline_write::links::post_link)
+                .delete(super::timeline_write::links::delete_event_link),
+        )
+        .route(
+            "/timeline/events/:id/notes",
+            post(super::timeline_write::links::post_note),
+        )
+        .route(
+            "/timeline/events/:id/notes/:note_id",
+            delete(super::timeline_write::links::delete_note),
+        )
 }
 
 /// What the `case_slug` field says when a read does not belong to one case.
@@ -90,7 +134,11 @@ fn read_failure(error: PipelineRepoError, what: &str, case: Option<&str>) -> App
 }
 
 /// The configured case slug, or a 503 naming the variable that is missing.
-fn case_slug(state: &AppState) -> Result<String, AppError> {
+///
+/// `pub(super)` since Phase C: the CREATE endpoint needs the same answer this
+/// read does, and a second resolution of `CASE_SLUG` would be a second place for
+/// an unconfigured deployment to behave differently.
+pub(super) fn case_slug(state: &AppState) -> Result<String, AppError> {
     state.config.case_slug.clone().ok_or_else(|| {
         tracing::error!("CASE_SLUG is unset; the chronology cannot know which case to read");
         AppError::ServiceUnavailable {
@@ -99,25 +147,6 @@ fn case_slug(state: &AppState) -> Result<String, AppError> {
                 .to_string(),
         }
     })
-}
-
-/// Every document id the given links point at, so resolution is ONE query.
-///
-/// ## Rust Learning: collecting borrowed strs into owned Strings for a query
-///
-/// The repository takes `&[String]` because sqlx binds an owned `text[]`. The
-/// links own their ids already, so this clones only the ones that are actually
-/// checkable — a link to a target type this build cannot check is never asked
-/// about, because the answer would be meaningless.
-fn checkable_target_ids(links: &[ChronologyLinkRow]) -> Vec<String> {
-    let mut ids: Vec<String> = links
-        .iter()
-        .filter(|l| l.target_type == CHECKABLE_TARGET_TYPE)
-        .map(|l| l.target_id.clone())
-        .collect();
-    ids.sort();
-    ids.dedup();
-    ids
 }
 
 /// Log every degradation the composition reported, one line each.
@@ -166,7 +195,7 @@ pub async fn get_timeline(
         .await
         .map_err(|e| read_failure(e, "the per-event note counts", Some(&case)))?;
 
-    let resolved = resolve_targets(&state, &links).await?;
+    let resolved = resolve_targets(&state, &links, "which linked documents exist").await?;
     let note_counts: HashMap<Uuid, i64> = counts.into_iter().collect();
 
     // ONE snapshot read, held for the whole composition: the words and the
@@ -235,27 +264,10 @@ pub async fn get_timeline_event(
         .await
         .map_err(|e| read_failure(e, "this event's history", state.config.case_slug.as_deref()))?;
 
-    let resolved = resolve_targets(&state, &links).await?;
+    let resolved = resolve_targets(&state, &links, "which linked documents exist").await?;
     let composed = build_event_detail(&event, &links, &notes, &history, &resolved);
     log_warnings(&composed.warnings, "/timeline/events/:id");
     Ok(Json(composed.payload))
-}
-
-/// Which of these links' document targets actually exist.
-async fn resolve_targets(
-    state: &AppState,
-    links: &[ChronologyLinkRow],
-) -> Result<HashSet<String>, AppError> {
-    let ids = checkable_target_ids(links);
-    existing_document_ids(&state.pipeline_pool, &ids)
-        .await
-        .map_err(|e| {
-            read_failure(
-                e,
-                "which linked documents exist",
-                state.config.case_slug.as_deref(),
-            )
-        })
 }
 
 #[cfg(test)]

@@ -49,9 +49,17 @@ use crate::repositories::pipeline_repository::chronology::{
 /// means new code — a new query against a different store — so the day a second
 /// kind becomes checkable, the signature changing is a feature: it makes the
 /// compiler point at every place that has to learn the new answer.
-// CONST: this build's resolver CAPABILITY, which is defined by the code it
+// STRUCTURAL: this build's resolver CAPABILITY, which is defined by the code it
 // contains and not by its configuration. There is nothing here an operator could
-// usefully change without also shipping the resolver that backs it.
+// usefully change without also shipping the resolver that backs it — pointing
+// this at `statement` would not make a statement resolvable, it would make every
+// statement link report "missing" from a store nothing ever queried.
+//
+// The marker was `// CONST:` until 2026-08-26. That form is explicitly NOT an
+// exemption (architecture-reviewer Check 4, as ruled in bc3d6dc): it names a
+// constant of this codebase's own choosing, which is the kind of value that
+// should come from configuration. The argument above was always structural; only
+// the word in front of it was wrong.
 pub const CHECKABLE_TARGET_TYPE: &str = "document";
 
 /// A payload plus everything that degraded while composing it.
@@ -159,6 +167,12 @@ fn event_dto(
         created_at: row.created_at,
         updated_by: row.updated_by.clone(),
         updated_at: row.updated_at,
+        // Always `None` on a READ: `ChronologyEventRow` has no `deleted_at`
+        // column, because the read module promises never to hand a caller a
+        // deleted row. The field exists on the wire shape for the WRITE
+        // endpoints, whose delete response is the event it just deleted — see
+        // `services::chronology_write_response`.
+        deleted_at: None,
     }
 }
 

@@ -60,6 +60,7 @@ impl Settings {
             model_params_wording: ModelParamsWording::for_test(),
             chronology_wording: ChronologyWording::for_test(),
             chronology_phase_window_events: 4,
+            chronology_document_picker_max: 20,
             matrix_wording: MatrixWording::for_test(),
             war_room_wording: WarRoomWording::for_test(),
             practice_wording: PracticeWording::for_test(),

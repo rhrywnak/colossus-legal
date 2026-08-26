@@ -1,7 +1,10 @@
 //! Service layer modules for business logic.
 
 pub mod audit_checks;
+pub mod chronology_guard;
 pub mod chronology_read;
+pub mod chronology_validate;
+pub mod chronology_write_response;
 pub mod claim_validator;
 pub mod claude_client;
 pub mod embedding_pipeline;

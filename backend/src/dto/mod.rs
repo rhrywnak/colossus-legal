@@ -8,6 +8,7 @@ pub mod case_summary;
 pub mod causes_of_action;
 pub mod chronology;
 pub mod chronology_wording;
+pub mod chronology_write;
 pub mod claim;
 pub mod contradiction;
 pub mod decision;

@@ -225,6 +225,15 @@ pub struct Settings {
     /// Roman decides four is too few after watching Marie read, edits one row,
     /// and the next page load obeys. No rebuild, no deploy.
     pub chronology_phase_window_events: usize,
+    /// How many documents the timeline's document picker offers for one search
+    /// (design R9, chronology Phase C).
+    ///
+    /// A stored number for the same reason the window above is one: the right
+    /// size of a short list is a judgement about the case's document store, not
+    /// a fact about the code. It is a CAP and never a silent one — the picker's
+    /// response carries how many documents matched alongside the page it
+    /// returns, so a truncated list says so rather than looking complete.
+    pub chronology_document_picker_max: usize,
     /// The words the PROOF MATRIX speaks now that a row leads with the strong
     /// count (task 396, P1).
     ///

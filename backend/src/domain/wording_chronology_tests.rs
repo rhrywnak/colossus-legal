@@ -13,8 +13,13 @@ use std::collections::HashMap;
 /// The migration that seeds every row this module reads.
 // STRUCTURAL: a repo-internal pointer to one immutable, version-controlled
 // migration. Identical in every environment; nothing here can vary by deployment.
-const SEED_MIGRATIONS: &[&str] =
-    &["pipeline_migrations/20260825150938_chronology_wording_and_phase_window.sql"];
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260825150938_chronology_wording_and_phase_window.sql",
+    // Phase C's write controls. In the list on the day they were written: this
+    // list going stale is exactly the drift the test exists to catch, and a key
+    // declared with no migration here makes the backend refuse to start.
+    "pipeline_migrations/20260826104928_chronology_write_wording.sql",
+];
 
 /// Migrations that CORRECT a value the seed already wrote.
 ///
@@ -54,6 +59,45 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NO_HISTORY_LABEL, "No changes recorded yet"),
     (KEY_NO_NOTES_LABEL, "No notes yet"),
     (KEY_BAND_MISMATCH_TEMPLATE, "{shown} of {total} events are in a phase this page can show."),
+    (KEY_ADD_EVENT_LABEL, "+ Add event"),
+    (KEY_EDIT_LABEL, "✎ Edit"),
+    (KEY_DELETE_LABEL, "🗑 Delete"),
+    (KEY_DELETED_LINE_LABEL, "Deleted —"),
+    (KEY_UNDO_LABEL, "Undo"),
+    (KEY_FORM_ADD_TITLE, "Add event"),
+    (KEY_FORM_EDIT_TITLE, "Edit event"),
+    (KEY_FORM_DATE_LABEL, "Date"),
+    (KEY_FORM_PRECISION_LABEL, "Precision"),
+    (KEY_PRECISION_DAY_LABEL, "Exact day"),
+    (KEY_PRECISION_MONTH_LABEL, "Month only"),
+    (KEY_PRECISION_YEAR_LABEL, "Year only"),
+    (KEY_FORM_APPROXIMATE_LABEL, "Approximate (~)"),
+    (KEY_FORM_TITLE_LABEL, "Title"),
+    (KEY_FORM_TITLE_PLACEHOLDER, "One short line — this is what the list shows"),
+    (KEY_FORM_FACT_LABEL, "What happened (one plain sentence or two)"),
+    (KEY_FORM_FACT_PLACEHOLDER, "Write it so anyone can check it against the source."),
+    (KEY_FORM_TAGS_LABEL, "Tags"),
+    (KEY_FORM_PHASE_LABEL, "Phase"),
+    (KEY_FORM_DOCUMENTS_LABEL, "Documents"),
+    (KEY_DOCUMENT_SEARCH_PLACEHOLDER, "🔍 Search documents and pick one…"),
+    (KEY_DOCUMENT_SEARCH_EMPTY_LABEL, "No documents match that search."),
+    (KEY_PINPOINT_PLACEHOLDER, "pinpoint (page / ¶) optional — a link without one is marked"),
+    (KEY_SAVE_LABEL, "Save"),
+    (KEY_CANCEL_LABEL, "Cancel"),
+    (KEY_SAVING_LABEL, "Saving…"),
+    (KEY_ADD_NOTE_PLACEHOLDER, "Add a note…"),
+    (KEY_ADD_NOTE_BUTTON_LABEL, "Add"),
+    (KEY_LINK_DOCUMENT_LABEL, "+ Link a document…"),
+    (KEY_REMOVE_LINK_LABEL, "✕ Remove"),
+    (KEY_DELETE_NOTE_LABEL, "✕ Delete note"),
+    (KEY_HISTORY_LINE_TEMPLATE, "{when} · {who} · {what}"),
+    (KEY_HISTORY_CREATED_LABEL, "created"),
+    (KEY_HISTORY_UPDATED_LABEL, "edited"),
+    (KEY_HISTORY_DELETED_LABEL, "deleted"),
+    (KEY_HISTORY_RESTORED_LABEL, "restored"),
+    (KEY_HISTORY_UNKNOWN_TEMPLATE, "{action}"),
+    (KEY_WRITE_FAILED_TEMPLATE, "That change was not saved — {reason}"),
+    (KEY_PICKER_CAPPED_TEMPLATE, "Showing {shown} of {total} matches — narrow the search to see the rest."),
 ];
 
 impl ChronologyWording {
@@ -175,6 +219,63 @@ fn the_templates_carry_the_placeholders_their_callers_fill() {
         w.band_mismatch_template.contains("{shown}")
             && w.band_mismatch_template.contains("{total}")
     );
+
+    // Phase C's three. Added when they were, because the failure they guard
+    // against is the quietest one this block has: a CORRECTION migration that
+    // edits a placeholder out leaves a sentence that renders with a word missing
+    // and nothing anywhere that notices — "That change was not saved — " with no
+    // reason, or a history line with no date on it.
+    for token in ["{when}", "{who}", "{what}"] {
+        assert!(
+            w.history_line_template.contains(token),
+            "the history line lost {token}"
+        );
+    }
+    assert!(
+        w.write_failed_template.contains("{reason}"),
+        "a failed write would render with no reason in it, which is a dead \
+         button with a sentence over it"
+    );
+    for token in ["{shown}", "{total}"] {
+        assert!(
+            w.picker_capped_template.contains(token),
+            "the picker's cap line lost {token}, so a truncated list would say \
+             it was capped without saying by how much"
+        );
+    }
+}
+
+/// Every template the block carries names at least one placeholder.
+///
+/// ## Why this is derived rather than a second hand-written list
+///
+/// The test above pins WHICH placeholders each template carries, and it is a
+/// list somebody has to remember to extend — the Phase C gap the test-auditor
+/// found on 2026-08-26 was exactly that. This one needs no extending: it walks
+/// the block's own fields, and a `_template` field seeded with a sentence
+/// carrying no `{` at all fails it whether or not anybody added a line above.
+#[test]
+fn every_field_named_a_template_actually_carries_a_placeholder() {
+    let w = ChronologyWording::for_test();
+    let mut checked = 0usize;
+    for (key, value) in ChronologyWording::for_test_values() {
+        if !key.ends_with("_template") {
+            continue;
+        }
+        checked += 1;
+        assert!(
+            value.contains('{') && value.contains('}'),
+            "{key} is named a template and carries no placeholder: '{value}'"
+        );
+    }
+    // Anti-vacuity: a renamed suffix would leave this comparing nothing.
+    assert!(
+        checked >= 8,
+        "only {checked} templates were checked; the naming convention moved"
+    );
+    // And the block itself is reachable, so a fixture that failed to build
+    // could not leave this green.
+    assert!(!w.page_title.is_empty());
 }
 
 #[test]

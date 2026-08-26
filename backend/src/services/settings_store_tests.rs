@@ -237,6 +237,16 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             Some(1.0),
             Some(40.0),
         ),
+        // The document picker's short list (design R9, Phase C). Bounds mirror
+        // the migration's: below one it offers nothing, above two hundred it
+        // has stopped being a short list.
+        row(
+            KEY_CHRONOLOGY_PICKER_MAX,
+            "20",
+            ValueKind::Count,
+            Some(1.0),
+            Some(200.0),
+        ),
         row(KEY_CARD_TEST_RATIO, "9/10", ValueKind::Ratio, None, None),
         row(
             KEY_REANCHOR_TOLERANCE,
@@ -593,7 +603,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        33,
+        34,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -606,7 +616,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          caps, the word it reserves for \"fine\", and the seven tactic-card names \
          — plus the case's own timezone, which decides what \"today\" means on a \
          deck row (hotfix, 2026-08-19) — and the chronology scroll window, how \
-         many events one phase shows before it scrolls (Phase B, design R6)"
+         many events one phase shows before it scrolls (Phase B, design R6), \
+         and the chronology document picker's short list, how many documents \
+         one search offers (Phase C, design R9)"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -1241,6 +1253,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260823164454_practice_one_page_l3_question_page_and_walk.sql",
         // The chronology block, and the one number the scroll window reads.
         "pipeline_migrations/20260825150938_chronology_wording_and_phase_window.sql",
+        // Phase C's write words and the document picker's cap.
+        "pipeline_migrations/20260826104928_chronology_write_wording.sql",
     ]
     .iter()
     .map(|relative| {
