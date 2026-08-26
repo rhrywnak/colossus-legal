@@ -427,7 +427,7 @@ fn build_pass1_result_summary_passes_concrete_values_through() {
 }
 
 #[test]
-fn build_pass2_result_summary_emits_pass_literal_2_and_10_keys() {
+fn build_pass2_result_summary_emits_pass_literal_2_and_11_keys() {
     let result = crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult {
         relationship_count: 14,
         local_entities: 8,
@@ -439,11 +439,34 @@ fn build_pass2_result_summary_emits_pass_literal_2_and_10_keys() {
         model: Some("claude-opus-4-7".to_string()),
         pass2_template_file: Some("pass2_complaint.md".to_string()),
         skipped_already_complete: false,
+        edge_bar: crate::pipeline::edge_bar::EdgeBarCounts {
+            accepted: 14,
+            exact_duplicates: 1,
+            deduped: 2,
+            rejected_by_pattern: 0,
+            pattern_warnings: 3,
+        },
     };
     let summary = super::build_pass2_result_summary(&result);
     // The literal `pass: 2` is the audit-trail contract — not
     // a result-struct field. Pinning it here guards against
     // accidental removal.
+    // The edge bar's tally rides the same summary. Pinned per-field rather than
+    // as one blob so a dropped counter names itself in the failure.
+    assert_eq!(summary["edge_bar"]["accepted"], serde_json::json!(14));
+    assert_eq!(
+        summary["edge_bar"]["exact_duplicates"],
+        serde_json::json!(1)
+    );
+    assert_eq!(summary["edge_bar"]["deduped"], serde_json::json!(2));
+    assert_eq!(
+        summary["edge_bar"]["rejected_by_pattern"],
+        serde_json::json!(0)
+    );
+    assert_eq!(
+        summary["edge_bar"]["pattern_warnings"],
+        serde_json::json!(3)
+    );
     assert_eq!(
         summary["pass"],
         serde_json::json!(2),
@@ -460,7 +483,10 @@ fn build_pass2_result_summary_emits_pass_literal_2_and_10_keys() {
     let obj = summary
         .as_object()
         .expect("result_summary must be a JSON object");
-    assert_eq!(obj.len(), 10);
+    // 11 since 2026-08-25: the ten original keys plus `edge_bar`. The count is
+    // pinned deliberately — a new key on this payload is an audit-trail change
+    // and should have to be stated here, not arrive by accident.
+    assert_eq!(obj.len(), 11);
 }
 
 #[test]
