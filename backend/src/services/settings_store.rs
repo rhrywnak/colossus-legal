@@ -63,6 +63,7 @@ const KEY_READINESS_N: &str = "readiness_item_threshold_n";
 const KEY_CARD_TEST_RATIO: &str = "card_test_ratio";
 const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
 const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
+const KEY_CHRONOLOGY_PHASE_WINDOW: &str = "chronology_phase_window_events";
 const KEY_TIMELINE_MIN_DATES: &str = "rehearsal_timeline_min_distinct_dates";
 const KEY_ROWS_EXPAND_MAX: &str = "rehearsal_instance_rows_expand_max";
 // Task 2.15 Tier 2. The first is TEXT but is NOT wording — it names a file, not a
@@ -127,6 +128,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CARD_TEST_RATIO,
     KEY_REANCHOR_TOLERANCE,
     KEY_LINK_SHORT_LIST_MAX,
+    KEY_CHRONOLOGY_PHASE_WINDOW,
     KEY_TIMELINE_MIN_DATES,
     KEY_ROWS_EXPAND_MAX,
     KEY_THEME_SCAN_PROMPT_FILE,
@@ -299,6 +301,8 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         model_params_wording: words.model_params,
         card_question_truncate_chars: count_of(require(rows, KEY_CARD_QUESTION_TRUNCATE)?)?,
         card_element_chips_visible_k: count_of(require(rows, KEY_CARD_ELEMENT_CHIPS_K)?)?,
+        chronology_wording: words.chronology,
+        chronology_phase_window_events: count_of(require(rows, KEY_CHRONOLOGY_PHASE_WINDOW)?)?,
         matrix_wording: words.matrix,
         war_room_wording: words.war_room,
         practice_wording: words.practice,

@@ -65,6 +65,7 @@ import {
   proofReviewTabPath,
   rehearsalScenarioPath,
   scenarioPagePath,
+  timelineEventPath,
   timelinePath,
   trialPrepPath,
 } from "../routePaths";
@@ -235,6 +236,15 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
   { name: "askPath", route: "/ask", emit: askPath },
   { name: "peoplePath", route: "/people", emit: peoplePath },
   { name: "timelinePath", route: "/timeline", emit: timelinePath },
+  {
+    // The chronology's ONE second level. The phase filter is a query
+    // parameter on /timeline, not a route, so expanding a phase stays on
+    // the same page (design R16) and this is the only place a reader goes
+    // deeper.
+    name: "timelineEventPath",
+    route: "/timeline/events/:id",
+    emit: () => timelineEventPath("7f3a9c10-0000-4000-8000-000000000001"),
+  },
   { name: "allegationsPath", route: "/allegations", emit: allegationsPath },
   {
     name: "proofMatrixPath",

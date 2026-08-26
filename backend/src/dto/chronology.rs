@@ -17,6 +17,8 @@
 
 use chrono::{DateTime, NaiveDate, Utc};
 use serde::{Deserialize, Serialize};
+
+use crate::dto::chronology_wording::ChronologyWordingDto;
 use uuid::Uuid;
 
 /// One phase, as `chronology_phases` holds it.
@@ -68,6 +70,17 @@ pub enum LinkResolution {
     /// This build has no resolver for that `target_type`, so nothing was
     /// checked. Never presented as though it were `Missing`.
     Unchecked,
+}
+
+/// One tag of the case's vocabulary, as the filter bar renders it.
+// serde: allows unknown fields because a chronology payload is additive by
+// design R4; a field added by a newer build must not fail an older reader.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimelineTagDto {
+    pub id: String,
+    pub label: String,
+    pub color: String,
+    pub sort_order: i32,
 }
 
 /// One link from an event to its evidence.
@@ -137,7 +150,22 @@ pub struct TimelineEventDto {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TimelineDto {
     pub phases: Vec<TimelinePhaseDto>,
+    /// The tag vocabulary, from `chronology_tags` (ruling R-F).
+    ///
+    /// Served rather than hardcoded so the filter chips ARE the stored
+    /// vocabulary: adding a sixth tag is a row, not a build.
+    #[serde(default)]
+    pub tags: Vec<TimelineTagDto>,
     pub events: Vec<TimelineEventDto>,
+    /// Every string these surfaces speak, from the settings store.
+    ///
+    /// Rides this payload because the page cannot render a row without the read
+    /// anyway — a second request for twenty-nine strings fired at the same
+    /// instant would buy nothing.
+    pub wording: ChronologyWordingDto,
+    /// How many events a phase's scroll window shows before it scrolls (R6).
+    #[serde(default)]
+    pub phase_window_events: usize,
 }
 
 /// One attributed note (design R8).

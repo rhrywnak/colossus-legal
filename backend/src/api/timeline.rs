@@ -33,14 +33,16 @@ use crate::auth::AuthUser;
 use crate::dto::chronology::{TimelineDto, TimelineEventDetailDto};
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::chronology::{
-    get_event, list_events, list_phases, ChronologyLinkRow,
+    get_event, list_events, list_phases, list_tags, ChronologyLinkRow,
 };
 use crate::repositories::pipeline_repository::chronology_links::{
     existing_document_ids, list_history_for_event, list_links_for_case, list_links_for_event,
     list_notes_for_event, note_counts_for_case,
 };
 use crate::repositories::pipeline_repository::PipelineRepoError;
-use crate::services::chronology_read::{build_event_detail, build_timeline, CHECKABLE_TARGET_TYPE};
+use crate::services::chronology_read::{
+    build_event_detail, build_timeline, TimelineSources, CHECKABLE_TARGET_TYPE,
+};
 use crate::state::AppState;
 
 /// The chronology's routes, merged into the API router by `api::router`.
@@ -148,6 +150,12 @@ pub async fn get_timeline(
     let phases = list_phases(&state.pipeline_pool)
         .await
         .map_err(|e| read_failure(e, "the phase list", Some(&case)))?;
+    // main's tag read (Phase B) keeps its place; this branch's third argument —
+    // the case slug — is applied to it as to every other read on this handler,
+    // so a tag-vocabulary failure names the case like the rest of them.
+    let tags = list_tags(&state.pipeline_pool)
+        .await
+        .map_err(|e| read_failure(e, "the tag vocabulary", Some(&case)))?;
     let events = list_events(&state.pipeline_pool, &case)
         .await
         .map_err(|e| read_failure(e, "the event list", Some(&case)))?;
@@ -161,10 +169,23 @@ pub async fn get_timeline(
     let resolved = resolve_targets(&state, &links).await?;
     let note_counts: HashMap<Uuid, i64> = counts.into_iter().collect();
 
-    let composed = build_timeline(&phases, &events, &links, &note_counts, &resolved);
+    // ONE snapshot read, held for the whole composition: the words and the
+    // window size must describe the same configuration as each other.
+    let settings = state.settings.current();
+    let composed = build_timeline(TimelineSources {
+        phases: &phases,
+        tags: &tags,
+        events: &events,
+        links: &links,
+        note_counts: &note_counts,
+        resolved_documents: &resolved,
+        wording: &settings.chronology_wording,
+        phase_window_events: settings.chronology_phase_window_events,
+    });
     log_warnings(&composed.warnings, "/timeline");
     tracing::info!(
         phases = composed.payload.phases.len(),
+        tags = composed.payload.tags.len(),
         events = composed.payload.events.len(),
         links = links.len(),
         "chronology read"

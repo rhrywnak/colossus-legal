@@ -36,6 +36,7 @@ import NotFoundPage from "./pages/NotFoundPage";
 import Admin from "./pages/Admin";
 import People from "./pages/People";
 import PersonDetailPage from "./pages/PersonDetailPage";
+import TimelineEventPage from "./pages/TimelineEventPage";
 import TimelinePage from "./pages/TimelinePage";
 
 /**
@@ -183,6 +184,7 @@ const App: React.FC = () => {
               <Route path="/search" element={<SearchPage />} />
               <Route path="/ask" element={<AskPage />} />
               <Route path="/timeline" element={<TimelinePage />} />
+              <Route path="/timeline/events/:id" element={<TimelineEventPage />} />
               {/* Admin: five ADDRESSES where there were nine tabs in component
                   state. A tab nobody can bookmark, return to with Back, or link
                   to is a place that does not exist as far as the browser is

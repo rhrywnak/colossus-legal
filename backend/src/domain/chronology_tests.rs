@@ -20,7 +20,7 @@ fn the_five_seed_tags_are_the_vocabulary() {
             "discovery",
             "personal"
         ],
-        "the seed tag vocabulary changed; the timeline.json categories must change with it"
+        "the seed tag vocabulary changed; the chronology_tags migration must change with it"
     );
 }
 

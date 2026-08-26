@@ -34,6 +34,18 @@ pub struct ChronologyPhaseRow {
     pub sort_order: i32,
 }
 
+/// One tag of the case's vocabulary, as `chronology_tags` stores it.
+///
+/// Seeded from the retiring JSON's `categories` block (ruling R-F). The JSON's
+/// `icon` is deliberately not carried — nothing rendered it.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct ChronologyTagRow {
+    pub id: String,
+    pub label: String,
+    pub color: String,
+    pub sort_order: i32,
+}
+
 /// One dated fact, as `chronology_events` stores it.
 ///
 /// ## Rust Learning: `serde_json::Value` as a sqlx column type
@@ -126,6 +138,21 @@ pub async fn list_phases(
     let rows = sqlx::query_as::<_, ChronologyPhaseRow>(
         "SELECT id, label, date_range, color, description, sort_order \
          FROM chronology_phases ORDER BY sort_order",
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
+/// Every tag, in the order the filter chips offer them.
+///
+/// Ordered by the stored `sort_order` and not alphabetically: the order is the
+/// one Roman wrote in the source file, and it is data.
+pub async fn list_tags(
+    executor: impl sqlx::PgExecutor<'_>,
+) -> Result<Vec<ChronologyTagRow>, PipelineRepoError> {
+    let rows = sqlx::query_as::<_, ChronologyTagRow>(
+        "SELECT id, label, color, sort_order FROM chronology_tags ORDER BY sort_order",
     )
     .fetch_all(executor)
     .await?;

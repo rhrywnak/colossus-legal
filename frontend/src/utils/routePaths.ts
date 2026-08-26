@@ -337,6 +337,17 @@ export function timelinePath(): string {
 }
 
 /**
+ * One chronology event, in full. Declared as `/timeline/events/:id`.
+ *
+ * A SECOND level and not a third: the list's phase filter lives in a query
+ * parameter on `/timeline`, so expanding a phase is still the same page (design
+ * R16), and this is the only place a reader goes deeper.
+ */
+export function timelineEventPath(id: string): string {
+  return `/timeline/events/${encodeURIComponent(id)}`;
+}
+
+/**
  * The allegation list.
  *
  * Declared as `/allegations`. Reached from `AllegationDetailPage`'s Back button

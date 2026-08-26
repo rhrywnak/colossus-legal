@@ -823,3 +823,100 @@ describe("the facts region scrolls itself during a drag", () => {
     expect(read("components/dragAutoScroll.ts")).toContain("useEffect(() => stop");
   });
 });
+
+
+// ── 2026-08-25: the title got its own line and the labels got their weight ───
+
+describe("the scenario header stacks, and the four card labels are bold", () => {
+  /**
+   * The defect Roman ruled from, measured in the harness before the fix:
+   * `.hd`'s `justify-content: space-between` gave the five controls and the
+   * draft-notice sentence their width FIRST, leaving "Marie refused to pay for
+   * the funeral" a 235px column inside the page's 1016px one — two lines. After
+   * the fix the same title measures 385px on one line.
+   *
+   * These read the SOURCE, like every fence in this file: component testing is
+   * not set up (CLAUDE.md Rule 30), and what would actually be undone here is a
+   * style declaration, not a rendered pixel.
+   */
+  it("puts the header's two sides in a COLUMN, not one shared row", () => {
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    const rowStyle = header.slice(
+      header.indexOf("const headerRowStyle"),
+      header.indexOf("const identityRowStyle"),
+    );
+    expect(rowStyle, "the header container declares a column").toContain(
+      'flexDirection: "column"',
+    );
+    expect(
+      rowStyle,
+      "space-between is what squeezed the title — it must not come back",
+    ).not.toContain("justifyContent");
+    // `stretch` is what makes the identity row occupy the whole column rather
+    // than shrinking to its content — the half of "full width" that is not the
+    // `column` itself. `flex-start` here would silently restore a title box
+    // sized to its neighbours.
+    expect(rowStyle).toContain('alignItems: "stretch"');
+    // The old 24px separated the two SIDES; 12px separates the title from the
+    // controls beneath it, and matches `practiceEditorStyles.titleRow`. Pinned
+    // so the two pages cannot drift apart one pixel at a time.
+    expect(rowStyle).toContain('gap: "12px"');
+  });
+
+  it("lets the actions row wrap, so no control lands off the edge", () => {
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    const actions = header.slice(
+      header.indexOf("const actionsRowStyle"),
+      header.indexOf("The gap between the routine actions"),
+    );
+    expect(actions, "five controls plus the notice will not always fit").toContain(
+      'flexWrap: "wrap"',
+    );
+    expect(
+      actions,
+      "flexShrink: 0 was this side refusing to give the title width back",
+    ).not.toContain("flexShrink");
+    // The other property that belonged to the old arrangement: it hand-nudged
+    // this block down to the title's optical baseline when the two shared a
+    // row. `headerRowStyle`'s column gap is what separates them now, so a
+    // restored padding would be 14px of unexplained space, twice-specified.
+    expect(actions).not.toContain("paddingTop");
+  });
+
+  it("bolds the four identity labels, and changes nothing else about them", () => {
+    const block = read("components", "ScenarioIdentityBlock.tsx");
+    const label = block.slice(
+      block.indexOf("const labelStyle"),
+      block.indexOf("const textStyle"),
+    );
+    expect(label, "Roman asked for BOLD").toContain("fontWeight: 700");
+    // Weight ONLY. The size, tracking, casing and colour are the mockup's `.lbl`
+    // and a change to any of them would be this task exceeding its scope.
+    expect(label).toContain('fontSize: "11px"');
+    expect(label).toContain('letterSpacing: "0.08em"');
+    expect(label).toContain('textTransform: "uppercase"');
+    expect(label).toContain('color: "var(--text-muted)"');
+  });
+
+  it("does not bold the SCENARIO eyebrow as a side effect", () => {
+    // The eyebrow is the same visual family (11px, uppercase, tracked, muted) and
+    // Roman named the four labels, not it. It is a separate object in a separate
+    // file, and this asserts the separation still holds — the cheap way to make
+    // them one shared style is exactly the change that would bold it silently.
+    //
+    // ## This one is a FORWARD fence, and says so
+    //
+    // Unlike its three neighbours it does NOT fail if 2026-08-25's change is
+    // reverted: the eyebrow was 600 before and after, so a plain revert leaves it
+    // green. It is here to fail on the NEXT edit — the one that merges these two
+    // objects, or reaches for "make the small caps bold" a second time and takes
+    // the kicker with it. Recorded plainly so nobody later reads it as evidence
+    // that the scenario-card change happened.
+    const header = read("components", "ScenarioHeaderTiers.tsx");
+    const eyebrow = header.slice(
+      header.indexOf("const eyebrowStyle"),
+      header.indexOf("const headerRowStyle"),
+    );
+    expect(eyebrow).toContain("fontWeight: 600");
+  });
+});

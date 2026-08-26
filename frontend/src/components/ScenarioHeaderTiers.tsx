@@ -51,15 +51,33 @@ const eyebrowStyle: React.CSSProperties = {
   marginBottom: "4px",
 };
 
-/** Mockup `.hd`: the two sides, top-aligned, 24px apart. */
+/**
+ * The header, as a COLUMN: identity first, actions on their own row beneath.
+ *
+ * ## Why this is no longer the mockup's `.hd` (Roman, 2026-08-25, from live S-9)
+ *
+ * `.hd` put the two sides in one row with `justify-content: space-between`, and
+ * that hands the actions whatever width they ask for FIRST. On the real page the
+ * content column is 1016px (App.tsx's `main` is 1080 with 2rem of padding), the
+ * five controls plus the draft notice took ~780px of it, and "Marie refused to
+ * pay for the funeral" was left a ~235px column and wrapped onto two lines —
+ * measured, not estimated. The title is what a person reads to know where they
+ * are, so it takes the full width and the controls take their own line.
+ *
+ * This is the same change the practice page's `titleRow` took the same day, and
+ * deliberately the same shape: one pattern for "title above its controls", not
+ * two. See `practiceEditorStyles.titleRow` for the parallel reasoning.
+ *
+ * The earlier note here argued the opposite — that wrapping the actions read as a
+ * stray toolbar. That was true of actions wrapping OUT of a shared row by
+ * accident, at whatever width the title happened to leave them. A row that is
+ * always its own row is not the same thing: it is where the controls live.
+ */
 const headerRowStyle: React.CSSProperties = {
   display: "flex",
-  alignItems: "flex-start",
-  justifyContent: "space-between",
-  gap: "24px",
-  // NO wrap: the mockup's `.hd` keeps the actions on the title's row. With wrap on,
-  // a long scenario name pushed Edit / Rehearsal / ⋯ onto a second line, which read
-  // as a stray toolbar — the first thing the screenshot comparison caught.
+  flexDirection: "column",
+  alignItems: "stretch",
+  gap: "12px",
 };
 
 /** Mockup `.hd-title`: centre-aligned, 12px gaps. */
@@ -86,13 +104,28 @@ const nameStyle: React.CSSProperties = {
   color: "var(--text-primary)",
 };
 
-/** Mockup `.hd-actions`: centre-aligned, 10px gaps, 14px top pad. */
+/**
+ * The controls, in a row directly under the title. Mockup `.hd-actions`'
+ * centre-alignment and 10px gaps are kept; its `padding-top: 14px` and
+ * `flex-shrink: 0` are not.
+ *
+ * Both dropped because both described the OLD arrangement and would now be
+ * stale claims: the top pad manually nudged this block down to the title's
+ * optical baseline when the two shared a row (`headerRowStyle`'s 12px column gap
+ * is what separates them now), and `flex-shrink: 0` was this side refusing to
+ * give width back to the title — the very squeeze that was fixed above.
+ *
+ * `flexWrap` for the same reason `practiceEditorStyles.titleActions` has it: five
+ * controls plus the draft-notice sentence will not always fit one line in a
+ * narrow window, and a control pushed off the edge is a control nobody can
+ * press. Wrapping keeps every button reachable; the notice is the item that
+ * moves, which is the right one to move.
+ */
 const actionsRowStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
   gap: "10px",
-  flexShrink: 0,
-  paddingTop: "14px",
 };
 
 /**

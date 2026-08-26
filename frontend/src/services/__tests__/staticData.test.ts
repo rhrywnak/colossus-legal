@@ -2,16 +2,19 @@
  * Service tests for the static-JSON loaders.
  *
  * Covers the shared fetch helper (fetchStaticJson) and the two thin validators
- * built on it (getCaseSummaryDoc, getCaseTimeline). Standing Rule 1 (no silent
+ * built on it (getCaseSummaryDoc). Standing Rule 1 (no silent
  * failures): every distinct failure path — network/timeout, non-OK status,
  * unparseable body, and missing-required-shape — produces its own observable
  * error. Mocks `global.fetch` (these loaders call raw fetch, not authFetch,
  * because static files are same-origin and uncredentialed).
+ *
+ * `getCaseTimeline` USED to be covered here. It stopped being a static-file
+ * loader in Phase B — it reads `GET /api/timeline` now — so its tests moved to
+ * `caseTimeline.test.ts`, where they can mock the credentialed client instead.
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { fetchStaticJson } from "../staticData";
 import { getCaseSummaryDoc } from "../caseSummaryDoc";
-import { getCaseTimeline } from "../caseTimeline";
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -116,38 +119,5 @@ describe("getCaseSummaryDoc", () => {
     });
 
     await expect(getCaseSummaryDoc()).rejects.toThrow(/missing required fields/);
-  });
-});
-
-describe("getCaseTimeline", () => {
-  it("returns the validated timeline when phases and events are arrays", async () => {
-    const valid = { phases: [], events: [] };
-    // @ts-ignore
-    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => valid });
-
-    await expect(getCaseTimeline()).resolves.toEqual(valid);
-  });
-
-  it("throws when phases is not an array (left branch of the guard)", async () => {
-    // @ts-ignore — phases missing, events valid
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ events: [] }),
-    });
-
-    await expect(getCaseTimeline()).rejects.toThrow(/missing required arrays/);
-  });
-
-  it("throws when events is not an array (right branch of the guard)", async () => {
-    // @ts-ignore — phases valid, events missing: exercises the second operand
-    // of the `||` independently so both shape-failures are covered.
-    global.fetch = vi.fn().mockResolvedValue({
-      ok: true,
-      status: 200,
-      json: async () => ({ phases: [] }),
-    });
-
-    await expect(getCaseTimeline()).rejects.toThrow(/missing required arrays/);
   });
 });
