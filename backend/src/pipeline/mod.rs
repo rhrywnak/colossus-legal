@@ -4,6 +4,12 @@ pub mod chunking_strategies;
 pub mod config;
 pub mod constants;
 pub mod context;
+/// The pre-ingest edge bar (2026-08-25 rulings) — pure verdicts over pass-2
+/// relationship output. See the module docs for the three rules.
+pub mod edge_bar;
+/// Configuration and reporting for the edge bar — kept out of `edge_bar` so
+/// that module stays pure and directly assertable.
+pub mod edge_bar_report;
 pub mod extraction_engine;
 pub mod providers;
 pub mod registry;

@@ -115,7 +115,7 @@ schema_file: appellate_brief_schema_v5_3.yaml
 
 template_file: appellate_brief_pass1_v5_3.md
 global_rules_file: global_rules_v4.md
-pass2_template_file: appellate_brief_pass2_v5_3.md
+pass2_template_file: appellate_brief_pass2_v5_4.md
 system_prompt_file: legal_extraction_system.md
 
 extraction_model: claude-opus-4-6

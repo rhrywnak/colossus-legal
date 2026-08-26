@@ -46,6 +46,7 @@ use crate::api::pipeline::ingest_helpers::stable_entity_id;
 use crate::models::document_status::{RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_RUNNING};
 use crate::pipeline::config::{resolve_config, CrossDocContextRecord, ProcessingProfile};
 use crate::pipeline::context::AppContext;
+use crate::pipeline::edge_bar_report;
 use crate::pipeline::providers::provider_for_model;
 use crate::pipeline::steps::llm_extract::{
     compute_cost, default_profile_name_from_schema, load_global_rules, resolve_effective_mode,
@@ -123,6 +124,16 @@ impl Step<DocProcessing> for LlmExtractPass2 {
             "profile": result.profile,
             "model": result.model,
             "pass2_template_file": result.pass2_template_file,
+            // The edge bar's tally, on the record an operator reads without
+            // devtools. Present and zero on a clean run — "the bar removed
+            // nothing" must not look like "the bar did not run".
+            "edge_bar": {
+                "accepted": result.edge_bar.accepted,
+                "exact_duplicates": result.edge_bar.exact_duplicates,
+                "deduped": result.edge_bar.deduped,
+                "rejected_by_pattern": result.edge_bar.rejected_by_pattern,
+                "pattern_warnings": result.edge_bar.pattern_warnings,
+            },
         }));
 
         Ok(StepResult::Next(DocProcessing::Verify(Verify {
@@ -223,6 +234,11 @@ pub struct Pass2ExtractionResult {
     /// True when this invocation hit the already-COMPLETED
     /// idempotency short-circuit and did no extraction work.
     pub skipped_already_complete: bool,
+    /// What the pre-ingest edge bar removed, by class. All zeros on the
+    /// short-circuit path AND on a clean run — the two are told apart by
+    /// [`skipped_already_complete`](Self::skipped_already_complete), the same
+    /// way every other count on this struct is.
+    pub edge_bar: crate::pipeline::edge_bar::EdgeBarCounts,
 }
 
 /// Run the pass-2 (relationship-only) extraction for a document.
@@ -664,8 +680,44 @@ pub async fn run_pass2_extraction(
         }
     };
 
+    // 14a-bis. THE PRE-INGEST EDGE BAR (2026-08-25 rulings).
+    //
+    // Runs between the model's output and the database, on pass-2 output ONLY —
+    // pass-1's structural CONTAINED_IN layer never reaches this code path and is
+    // deliberately not barred (the census classified it as plumbing the case
+    // health pane reads, not as noise).
+    //
+    // The bar gets a filtered COPY. `parsed` itself stays intact for the
+    // cross-tier writer below, which resolves authored `ctx:element-*` endpoints
+    // this bar cannot type and must not have truncated out from under it.
+    let barred = edge_bar_report::apply_and_report(
+        document_id,
+        run_id,
+        &parsed,
+        |r| {
+            let (f, t, ty) = resolve_relationship_fields(r);
+            (f.to_string(), t.to_string(), ty.to_string())
+        },
+        |payload, i| {
+            let r = payload.get("relationships")?.as_array()?.get(i)?;
+            Some(resolve_relationship_fields(r))
+        },
+        entities
+            .iter()
+            .map(|e| (e.id.clone(), e.entity_type.clone()))
+            .chain(
+                cross_doc_entities
+                    .iter()
+                    .map(|c| (c.prefixed_id.clone(), c.entity_type.clone())),
+            ),
+        schema
+            .valid_patterns
+            .iter()
+            .map(|p| (p.from.clone(), p.relationship.clone(), p.to.clone())),
+    );
+
     let rel_count =
-        extraction::store_pass2_relationships(db, run_id, document_id, &parsed, &id_map)
+        extraction::store_pass2_relationships(db, run_id, document_id, &barred.payload, &id_map)
             .await
             .map_err(|e| LlmExtractError::StoreFailed {
                 message: format!("{e}"),
@@ -756,6 +808,7 @@ pub async fn run_pass2_extraction(
     crate::pipeline::step_progress::write_end(db, context, document_id, "llm_extract_pass2").await;
 
     Ok(Pass2ExtractionResult {
+        edge_bar: barred.outcome.counts,
         relationship_count: rel_count,
         local_entities: entities.len(),
         cross_doc_entities: cross_doc_entities.len(),

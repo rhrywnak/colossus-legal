@@ -350,6 +350,17 @@ fn build_pass2_result_summary(
         "profile": result.profile,
         "model": result.model,
         "pass2_template_file": result.pass2_template_file,
+        // The pre-ingest edge bar's tally (2026-08-25). Emitted on BOTH result
+        // paths — this workflow one and the step one in `llm_extract_pass2` —
+        // because an operator reading a run record should not have to know which
+        // engine produced it to learn what the bar removed.
+        "edge_bar": {
+            "accepted": result.edge_bar.accepted,
+            "exact_duplicates": result.edge_bar.exact_duplicates,
+            "deduped": result.edge_bar.deduped,
+            "rejected_by_pattern": result.edge_bar.rejected_by_pattern,
+            "pattern_warnings": result.edge_bar.pattern_warnings,
+        },
     })
 }
 
