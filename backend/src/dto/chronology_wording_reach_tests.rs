@@ -201,7 +201,18 @@ fn the_scan_can_actually_see_the_surfaces_it_claims_to_check() {
     // stopped working.
     let asked: BTreeSet<String> = requested_keys().into_iter().map(|(key, _)| key).collect();
 
-    for sentinel in ["page_title", "no_document_label", "no_history_label"] {
+    for sentinel in [
+        "page_title",
+        "no_document_label",
+        "no_history_label",
+        // Phase C's surfaces, one sentinel each: the form, the undo line, the
+        // picker and the history mapper. A scan that stopped seeing any of the
+        // four new files would be caught by whichever of these it lost.
+        "form_title_placeholder",
+        "undo_label",
+        "picker_capped_template",
+        "history_updated_label",
+    ] {
         assert!(
             asked.contains(sentinel),
             "the scan did not find {sentinel:?} — it read {} keys from {} files, \
@@ -212,16 +223,48 @@ fn the_scan_can_actually_see_the_surfaces_it_claims_to_check() {
     }
 }
 
+/// Keys declared ahead of the screen that will read them.
+///
+/// EMPTY, and that is the point. Phase B left the other direction reported
+/// rather than enforced because the write surfaces were a phase away and half
+/// the block had no asker yet. Phase C shipped them, every declared key is now
+/// requested by name, and the door closes behind it: a row seeded, mirrored and
+/// paid for that no screen speaks is a row that drifts unnoticed forever, which
+/// is the .407 defect read backwards.
+///
+/// Declaring a key one commit before its screen is still allowed — it costs one
+/// line here, and that line is a promise with a name on it rather than a
+/// silence.
+// STRUCTURAL: a list of wording keys, which are join keys between code and rows
+// in the same category as a column name. Not deployment configuration.
+const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[];
+
 #[test]
 fn no_declared_word_is_left_with_no_asker() {
-    // The other direction, reported rather than enforced: a declared key nothing
-    // requests is a row seeded, mirrored and paid for that no screen speaks.
-    // Phase C adds the write surfaces and will claim some of these, so this
-    // PRINTS rather than fails — a failing test here would be wrong the moment
-    // a key is declared one commit before the screen that reads it.
     let asked: BTreeSet<String> = requested_keys().into_iter().map(|(key, _)| key).collect();
-    let unasked: Vec<String> = wire_fields().difference(&asked).cloned().collect();
-    if !unasked.is_empty() {
-        println!("chronology wording declared but not yet requested: {unasked:?}");
+    let unasked: Vec<String> = wire_fields()
+        .difference(&asked)
+        .filter(|key| !DECLARED_AHEAD_OF_THEIR_SCREEN.contains(&key.as_str()))
+        .cloned()
+        .collect();
+    assert!(
+        unasked.is_empty(),
+        "these chronology words are declared, seeded and mirrored, and no screen \
+         asks for them — either wire them up or retire the rows, or name them in \
+         DECLARED_AHEAD_OF_THEIR_SCREEN with the screen that is coming:\n  {}",
+        unasked.join("\n  ")
+    );
+}
+
+#[test]
+fn the_ahead_of_their_screen_list_holds_only_real_keys() {
+    // A typo in that list would silently excuse nothing, leaving a genuinely
+    // unasked key to slip through under a name that does not exist.
+    let fields = wire_fields();
+    for key in DECLARED_AHEAD_OF_THEIR_SCREEN {
+        assert!(
+            fields.contains(*key),
+            "{key} is excused from the reach check but is not a field on the wire"
+        );
     }
 }

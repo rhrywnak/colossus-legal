@@ -21,7 +21,9 @@ import type {
 } from "../../services/caseTimeline";
 import { cw, fill } from "../../services/caseTimeline";
 import TimelineEventCard from "./TimelineEventCard";
+import TimelineUndoLine from "./TimelineUndoLine";
 import * as s from "./timelineStyles";
+import { rowsForPhase } from "./timelineWriteRules";
 
 type Props = {
   phase: TimelinePhase;
@@ -32,8 +34,19 @@ type Props = {
   windowEvents: number;
   /** True when this phase owns the page — no window, normal page scrolling. */
   expanded: boolean;
+  /**
+   * Events deleted in this visit, across every phase.
+   *
+   * This section draws the undo line only for its OWN — see `rowsForPhase`. The
+   * whole list is passed rather than a filtered one so the filtering decision
+   * stays in the tested pure function rather than in the page above.
+   */
+  undoable: TimelineEvent[];
   onToggleExpand: () => void;
   onOpenEvent: (id: string) => void;
+  onEditEvent?: (event: TimelineEvent) => void;
+  onDeleteEvent?: (event: TimelineEvent) => void;
+  onUndoDelete?: (event: TimelineEvent) => void;
 };
 
 const TimelinePhaseSection: React.FC<Props> = ({
@@ -43,23 +56,41 @@ const TimelinePhaseSection: React.FC<Props> = ({
   wording,
   windowEvents,
   expanded,
+  undoable,
   onToggleExpand,
   onOpenEvent,
+  onEditEvent,
+  onDeleteEvent,
+  onUndoDelete,
 }) => {
   // The window only earns its scroll hint when there is something below the
   // fold. A hint over four events in a four-event window would be a lie.
   const scrolls = !expanded && events.length > windowEvents;
+  // A deleted event's undo line sits where its card was, so the window's own
+  // height is unchanged by a delete — the row is replaced, not removed.
+  const rows = rowsForPhase(events, undoable, phase.id);
   const body = (
     <>
-      {events.map((event) => (
-        <TimelineEventCard
-          key={event.id}
-          event={event}
-          tags={tags}
-          wording={wording}
-          onOpen={onOpenEvent}
-        />
-      ))}
+      {rows.map((row) =>
+        row.kind === "event" ? (
+          <TimelineEventCard
+            key={row.event.id}
+            event={row.event}
+            tags={tags}
+            wording={wording}
+            onOpen={onOpenEvent}
+            onEdit={onEditEvent}
+            onDelete={onDeleteEvent}
+          />
+        ) : (
+          <TimelineUndoLine
+            key={`undo:${row.event.id}`}
+            event={row.event}
+            wording={wording}
+            onUndo={onUndoDelete}
+          />
+        ),
+      )}
     </>
   );
 

@@ -83,6 +83,7 @@ pub mod schema;
 pub mod search;
 pub mod settings;
 pub mod timeline;
+pub mod timeline_write;
 pub mod trial_prep;
 
 /// API router — all routes are relative (no `/api/` prefix).

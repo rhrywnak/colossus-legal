@@ -139,6 +139,7 @@ impl From<AppError> for CompletenessError {
             AppError::Unauthorized { message } => message,
             AppError::Forbidden { message } => message,
             AppError::Conflict { message, .. } => message,
+            AppError::UnprocessableEntity { message, .. } => message,
             AppError::Internal { message } => message,
             AppError::ServiceUnavailable { message } => message,
         };
