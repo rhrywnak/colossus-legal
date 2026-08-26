@@ -324,3 +324,51 @@ describe("no page renders a wording key nothing serves (the P1a class)", () => {
     }
   });
 });
+
+// ── 2026-08-25: the rehearsal page's half of the label-weight ruling ─────────
+
+describe("the rehearsal labels carry the same weight as the scenario card's", () => {
+  /**
+   * Roman ruled the scenario card's four identity labels bold in .411; these two
+   * are the same visual family (11px / .08em / uppercase) on the page Marie
+   * reads from, and the ruling's second half. Left at 600 they would render
+   * "THE ATTACK" semibold on the rehearsal page and bold on the scenario page —
+   * the same words, two weights, which is the inconsistency the ruling closes.
+   *
+   * Source scans, like every fence in this file, and for the same stated reason.
+   */
+  const cases: [string, string, string][] = [
+    ["PrepTopBlock.tsx", "attackLabelStyle", "var(--v3-red-text)"],
+    ["PairCard.tsx", "answerLabelStyle", "var(--state-success-strong)"],
+  ];
+
+  for (const [file, styleName, color] of cases) {
+    it(`${styleName} is 700, and nothing else about it moved`, () => {
+      const source = read(COMPONENTS, file);
+      const start = source.indexOf(`const ${styleName}`);
+      expect(start, `${styleName} must still exist in ${file}`).toBeGreaterThan(-1);
+      const block = source.slice(start, source.indexOf("};", start));
+      expect(block, "Roman asked for BOLD").toContain("fontWeight: 700");
+      // Weight ONLY. Each of these is part of the mockup's `.lbl` family and a
+      // change to any of them would be this rider exceeding its scope.
+      expect(block).toContain('fontSize: "11px"');
+      expect(block).toContain('letterSpacing: "0.08em"');
+      expect(block).toContain('textTransform: "uppercase"');
+      expect(block).toContain(`color: "${color}"`);
+    });
+  }
+
+  it("leaves the scenario page's SCENARIO eyebrow at 600", () => {
+    // The one member of the family Roman excluded, twice now. Asserted here as
+    // well as in scenarioPageStructure.test.ts because "make the small caps
+    // bold" is the edit that would sweep it up, and the person making it will be
+    // looking at the rehearsal page.
+    const header = read(COMPONENTS, "ScenarioHeaderTiers.tsx");
+    const eyebrow = header.slice(
+      header.indexOf("const eyebrowStyle"),
+      header.indexOf("const headerRowStyle"),
+    );
+    expect(eyebrow).toContain("fontWeight: 600");
+  });
+});
+

@@ -322,6 +322,10 @@ impl ExtractionEngine for RigExtractionEngine {
             response_text,
             input_tokens: Some(response.usage.input_tokens),
             output_tokens: Some(response.usage.output_tokens),
+            // Carried out of the raw Anthropic body, which is where Rig keeps
+            // the fields its own abstraction does not model. This is the field
+            // that says whether the answer above is the whole answer.
+            stop_reason: response.raw_response.stop_reason.clone(),
             request_id: response.message_id.clone(),
             duration: start.elapsed(),
         })

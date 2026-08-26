@@ -74,9 +74,17 @@ const attackCardStyle: React.CSSProperties = {
   borderLeft: "4px solid var(--state-danger-strong)",
 };
 
+// The rehearsal page's half of the 2026-08-25 label-weight ruling. The scenario
+// card's four identity labels went 600 -> 700 in .411; this is the same family
+// (11px / .08em / uppercase) on the page Marie actually reads from, and leaving
+// it at 600 would have made "THE ATTACK" render bold on one page and semibold on
+// the other. Weight ONLY — size, tracking, casing and colour are untouched.
+//
+// Third member of the family, for the next reader: `rehearsalStyles.alwaysLabelStyle`
+// was already 700, so this is the family's existing setting, not a new one.
 const attackLabelStyle: React.CSSProperties = {
   fontSize: "11px",
-  fontWeight: 600,
+  fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
   color: "var(--v3-red-text)",

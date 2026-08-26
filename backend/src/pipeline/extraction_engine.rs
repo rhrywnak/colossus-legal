@@ -65,6 +65,21 @@ pub struct LlmCallResult {
     /// Output tokens produced, if the provider reported them.
     pub output_tokens: Option<u64>,
 
+    /// Why the model stopped, as the provider reported it (Anthropic's
+    /// `stop_reason`: `end_turn`, `max_tokens`, `tool_use`, …).
+    ///
+    /// `None` means the provider did not report one — distinguishable from
+    /// `Some("end_turn")`, which is an affirmative "I finished". The distinction
+    /// is load-bearing: [`crate::pipeline::truncation`] fails a call ONLY on the
+    /// affirmative ceiling value, so an adapter that reports nothing degrades to
+    /// today's behaviour rather than failing every extraction.
+    ///
+    /// Added 2026-08-25 (census R-3). Before this field existed the value was
+    /// discarded at the provider boundary, and a truncated response was
+    /// indistinguishable from a complete one once `repair_json` had closed its
+    /// JSON.
+    pub stop_reason: Option<String>,
+
     /// Provider-supplied request id (Anthropic's `x-request-id` header,
     /// OpenAI's `id` field). Used to correlate a log/trace event
     /// with the provider's own logs when a request goes wrong.

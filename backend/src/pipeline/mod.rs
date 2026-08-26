@@ -19,6 +19,8 @@ pub mod step_progress;
 pub mod step_recorder;
 pub mod steps;
 pub mod task;
+/// Truncation detection at the provider boundary — census R-3's fix.
+pub mod truncation;
 pub mod validation;
 pub mod workflow;
 pub mod workflow_admin;

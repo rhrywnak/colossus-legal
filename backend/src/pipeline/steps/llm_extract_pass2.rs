@@ -657,7 +657,13 @@ pub async fn run_pass2_extraction(
     })?;
 
     // 13. LLM call with rate-limit retry.
-    let response = call_with_rate_limit_retry(
+    // An LLM-call failure now marks the run FAILED with its reason, like the
+    // prompt-build and parse failures on either side of it. It did not before:
+    // the error propagated and the `extraction_runs` row was left as the caller
+    // found it, so the one class of failure that Rider 2 makes common — a
+    // truncated response — would have failed the step while the run record said
+    // nothing about why. Found while wiring the truncation gate (2026-08-25); same change on pass 1..
+    let response = match call_with_rate_limit_retry(
         &*llm_provider,
         system_prompt.as_deref(),
         &prompt,
@@ -666,7 +672,20 @@ pub async fn run_pass2_extraction(
         1,
     )
     .await
-    .map_err(|e| LlmExtractError::LlmCallFailed { source: e })?;
+    {
+        Ok(r) => r,
+        Err(e) => {
+            let failure = LlmExtractError::LlmCallFailed { source: e };
+            // The stored string names the pass. `extraction_runs.pass_number`
+            // already does too, but a truncation failure reads identically for
+            // both passes of the same document at the same cap — which is
+            // exactly the Penzien shape — and an operator reading the error text
+            // alone should not have to join back to the row to tell them apart.
+            let recorded = format!("[pass 2] {failure}");
+            mark_run_failed(db, run_id, &recorded).await;
+            return Err(failure.into());
+        }
+    };
 
     // 14. Parse + store. Pass 2 output is relationships-only; absent
     //     `entities` is fine, absent `relationships` yields a 0-count

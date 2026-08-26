@@ -46,7 +46,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 
-use crate::pipeline::extraction_engine::{ExtractionEngine, ExtractionEngineError};
+use crate::pipeline::extraction_engine::{ExtractionEngine, ExtractionEngineError, LlmCallResult};
+use crate::pipeline::truncation;
 
 /// Default `retry-after` value when the engine reports a rate limit
 /// with no header value.
@@ -194,6 +195,47 @@ fn map_engine_error(err: ExtractionEngineError) -> PipelineError {
     }
 }
 
+impl RigLlmProviderBridge {
+    /// Refuse a response the provider cut off at the token ceiling.
+    ///
+    /// ## THE TRUNCATION GATE (census R-3, ruled 2026-08-25)
+    ///
+    /// Here and not in the parsers: this is where a provider answer becomes a
+    /// pipeline answer, upstream of `repair_json` — which closes a truncated
+    /// array so convincingly that run 171 stored 386 well-formed relationships
+    /// from a response that had been cut off. After that point there is nothing
+    /// left to detect.
+    ///
+    /// Both `invoke` and `invoke_with_system` call this, because pass 1 uses one
+    /// and pass 2 the other; a guard on either alone leaves half the pipeline
+    /// unprotected. It fails rather than retrying, by ruling — the operator
+    /// raises `max_tokens` in the profile and re-runs.
+    fn guard_truncation(
+        &self,
+        result: &LlmCallResult,
+        max_tokens: u32,
+    ) -> Result<(), PipelineError> {
+        let shape = truncation::CallShape {
+            stop_reason: result.stop_reason.as_deref(),
+            output_tokens: result.output_tokens,
+            configured_max_tokens: max_tokens,
+            model: &self.model,
+        };
+        if !truncation::is_truncated(&shape) {
+            return Ok(());
+        }
+        tracing::error!(
+            model = %self.model,
+            output_tokens = ?result.output_tokens,
+            max_tokens,
+            "LLM response TRUNCATED at the token ceiling — extraction discarded"
+        );
+        Err(PipelineError::LlmProvider(truncation::truncation_message(
+            &shape,
+        )))
+    }
+}
+
 #[async_trait]
 impl LlmProvider for RigLlmProviderBridge {
     async fn invoke(&self, prompt: &str, max_tokens: u32) -> Result<LlmResponse, PipelineError> {
@@ -202,6 +244,8 @@ impl LlmProvider for RigLlmProviderBridge {
             .extract(None, prompt, &self.model, max_tokens, self.temperature)
             .await
             .map_err(map_engine_error)?;
+        self.guard_truncation(&result, max_tokens)?;
+
         Ok(LlmResponse {
             text: result.response_text,
             input_tokens: convert_tokens(result.input_tokens),
@@ -226,6 +270,8 @@ impl LlmProvider for RigLlmProviderBridge {
             )
             .await
             .map_err(map_engine_error)?;
+        self.guard_truncation(&result, max_tokens)?;
+
         Ok(LlmResponse {
             text: result.response_text,
             input_tokens: convert_tokens(result.input_tokens),
@@ -511,5 +557,115 @@ mod tests {
             result.output_tokens.unwrap_or(0) > 0,
             "Output tokens missing"
         );
+    }
+}
+
+#[cfg(test)]
+mod truncation_gate_tests {
+    //! The truncation gate, driven through the real bridge.
+    //!
+    //! `pipeline::truncation`'s own tests assert the decision; these assert the
+    //! WIRING — that `invoke` and `invoke_with_system` actually consult it, that
+    //! a truncated call becomes an `Err` naming the cause, and that a normal call
+    //! is passed through byte-for-byte. A stub engine stands in for the API, so
+    //! the whole proof runs offline.
+
+    use super::*;
+    use crate::pipeline::extraction_engine::LlmCallResult;
+    use std::time::Duration;
+
+    /// An engine that returns whatever `stop_reason` the test asks for.
+    struct StubEngine {
+        stop_reason: Option<String>,
+        output_tokens: Option<u64>,
+    }
+
+    #[async_trait]
+    impl ExtractionEngine for StubEngine {
+        async fn extract(
+            &self,
+            _system_prompt: Option<&str>,
+            _user_prompt: &str,
+            _model: &str,
+            _max_tokens: u32,
+            _temperature: Option<f64>,
+        ) -> Result<LlmCallResult, ExtractionEngineError> {
+            Ok(LlmCallResult {
+                // Deliberately the SHAPE of a truncated pass-2 body: an array
+                // cut off mid-object, which `repair_json` would happily close.
+                response_text: "{\"relationships\": [{\"relationship_type\": \"ABO".to_string(),
+                input_tokens: Some(426_840),
+                output_tokens: self.output_tokens,
+                stop_reason: self.stop_reason.clone(),
+                request_id: Some("req_test".to_string()),
+                duration: Duration::from_millis(1),
+            })
+        }
+
+        // `extract_batch` has a default impl on the trait; the stub does not
+        // override it because the bridge never calls it.
+    }
+
+    fn bridge(stop_reason: Option<&str>, output_tokens: Option<u64>) -> RigLlmProviderBridge {
+        RigLlmProviderBridge::new(
+            Arc::new(StubEngine {
+                stop_reason: stop_reason.map(str::to_string),
+                output_tokens,
+            }),
+            "claude-opus-5".to_string(),
+            None,
+            None,
+            Some(0.0),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_truncated_response_fails_invoke_before_anything_parses_it() {
+        // Run 171's exact shape: 32,000 out of 32,000.
+        let err = bridge(Some("max_tokens"), Some(32_000))
+            .invoke("prompt", 32_000)
+            .await
+            .expect_err("a truncated response must not be returned as success");
+        let PipelineError::LlmProvider(message) = err else {
+            panic!("expected LlmProvider, got a different variant");
+        };
+        assert!(message.contains("TRUNCATED"), "{message}");
+        assert!(message.contains("claude-opus-5"), "{message}");
+        assert!(message.contains("32000"), "names cap and count: {message}");
+        assert!(message.contains("profile"), "names the remedy: {message}");
+    }
+
+    #[tokio::test]
+    async fn a_truncated_response_fails_invoke_with_system_too() {
+        // Pass 2 uses the system-prompt entry point; a gate on only one of the
+        // two would leave half the pipeline unprotected.
+        let err = bridge(Some("max_tokens"), Some(64_000))
+            .invoke_with_system("system", "prompt", 64_000)
+            .await
+            .expect_err("the system-prompt path must be gated as well");
+        assert!(matches!(err, PipelineError::LlmProvider(_)));
+    }
+
+    #[tokio::test]
+    async fn a_normal_response_passes_through_unchanged() {
+        // The other direction. The gate must be invisible to every call that was
+        // not cut off — including one that used its entire budget and finished.
+        let response = bridge(Some("end_turn"), Some(32_000))
+            .invoke_with_system("system", "prompt", 32_000)
+            .await
+            .expect("end_turn is not truncation, whatever the token count");
+        assert_eq!(response.output_tokens, Some(32_000));
+        assert!(response.text.starts_with("{\"relationships\""));
+    }
+
+    #[tokio::test]
+    async fn an_unreported_stop_reason_still_passes() {
+        // A provider that reports nothing degrades to the pre-2026-08-25
+        // behaviour rather than failing every extraction.
+        let response = bridge(None, Some(2_048))
+            .invoke("prompt", 2_048)
+            .await
+            .expect("no stop_reason reported is not an affirmative truncation");
+        assert_eq!(response.output_tokens, Some(2_048));
     }
 }
