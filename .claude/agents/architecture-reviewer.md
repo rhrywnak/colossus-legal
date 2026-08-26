@@ -67,8 +67,11 @@ Every configurable value must trace back to either:
 - Database table (per-document overrides)
 
 Values that come from compiled constants (`const`, `static`, literal
-in code) are violations unless documented with `// CONST:` comment
-explaining why the value cannot be configurable.
+in code) are violations unless documented with a `// STRUCTURAL:` comment
+explaining why the value cannot legitimately vary by deployment — API wire
+vocabulary, protocol constants, and values encoding a standing ruling.
+`// CONST:` is NOT an exemption: it names a constant of this codebase's own
+choosing, which is the kind of value that should come from configuration.
 
 ```
 FINDING: {file}:{line} — configurable value from compiled constant
