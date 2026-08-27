@@ -14,6 +14,11 @@
 
 use super::*;
 
+// The truncation fixtures below build the gate's real message rather than a
+// hand-written lookalike — a hand-written one could drift from what the gate
+// actually emits and the test would keep passing against a message nobody sends.
+use crate::pipeline::truncation;
+
 /// Returns `true` when `e` is the Terminal branch of HandlerError.
 fn display_message(e: &HandlerError) -> String {
     let inner: &dyn Error = e.as_ref();
@@ -299,6 +304,79 @@ fn classify_cancelled_at_pass2_entry_records_zero_chunks() {
         msg.contains("llm_extract_pass2"),
         "step_name must propagate: {msg}"
     );
+}
+
+#[test]
+fn classify_response_truncated_is_terminal() {
+    // The whole point of the 2026-08-27 change. A truncation is deterministic:
+    // the retry sends the same prompt to the same model under the same cap and
+    // is cut off in the same place, so Restate must not retry it.
+    let source = colossus_extract::PipelineError::LlmProvider(truncation::truncation_message(
+        &truncation::CallShape {
+            stop_reason: Some(truncation::STOP_REASON_MAX_TOKENS),
+            output_tokens: Some(32_000),
+            configured_max_tokens: 32_000,
+            model: "claude-opus-4-6",
+        },
+    ));
+    let err = LlmExtractError::ResponseTruncated { source };
+    let c = classify_llm_extract_error("doc-motion", "llm_extract_pass1", &err);
+    assert!(is_terminal(&c), "ResponseTruncated must be terminal: {c:?}");
+
+    let msg = display_message(&c);
+    // The operator keeps the message that tells them what to do...
+    assert!(
+        msg.contains("claude-opus-4-6") && msg.contains("32000"),
+        "the gate's message must survive classification whole: {msg}"
+    );
+    assert!(
+        msg.contains("max_tokens") && msg.contains("profile"),
+        "the remedy must still be stated: {msg}"
+    );
+    assert!(msg.contains("doc-motion"), "msg must name doc_id: {msg}");
+    // ...minus the promise of a retry that will not happen.
+    assert!(
+        !msg.contains("Will retry"),
+        "a terminal failure must not tell the operator it will retry: {msg}"
+    );
+}
+
+#[test]
+fn a_truncated_provider_error_becomes_the_truncated_variant_not_a_call_failure() {
+    // The constructor is what stands between the gate and the classifier. This
+    // asserts the routing end to end at the type level: gate message in, TERMINAL
+    // classification out — with no string matching anywhere but inside
+    // `truncation::is_truncation_failure`.
+    let truncated = colossus_extract::PipelineError::LlmProvider(truncation::truncation_message(
+        &truncation::CallShape {
+            stop_reason: Some(truncation::STOP_REASON_MAX_TOKENS),
+            output_tokens: Some(64_000),
+            configured_max_tokens: 64_000,
+            model: "claude-opus-4-6",
+        },
+    ));
+    let err = LlmExtractError::from_provider_failure(truncated);
+    assert!(
+        matches!(err, LlmExtractError::ResponseTruncated { .. }),
+        "a gate failure must be typed as a truncation"
+    );
+    assert!(is_terminal(&classify_llm_extract_error(
+        "doc-motion",
+        "llm_extract_pass1",
+        &err
+    )));
+
+    // And the converse: an ordinary provider failure keeps its retryable path.
+    let transient =
+        colossus_extract::PipelineError::LlmProvider("connection reset by peer".to_string());
+    let err = LlmExtractError::from_provider_failure(transient);
+    assert!(
+        matches!(err, LlmExtractError::LlmCallFailed { .. }),
+        "a transient provider failure must NOT be typed as a truncation"
+    );
+    let c = classify_llm_extract_error("doc-motion", "llm_extract_pass1", &err);
+    assert!(!is_terminal(&c), "transient failures must stay retryable");
+    assert!(display_message(&c).contains("Will retry"));
 }
 
 // ── Retryable variants ──────────────────────────────────────

@@ -91,6 +91,55 @@ fn unreported_output_tokens_read_as_not_reported_never_as_zero() {
     );
 }
 
+// ── The recogniser (terminal-vs-retryable, 2026-08-27) ───────────────────────
+
+#[test]
+fn the_message_a_truncation_produces_is_recognised_as_one() {
+    // THE round trip, and the reason the message may be reworded safely: the
+    // gate builds the string, the classifier reads it back, and both go through
+    // `TRUNCATION_SIGNATURE`. If a future edit reworded the message by hand and
+    // left the recogniser behind, truncation would silently become retryable
+    // again — which is exactly the defect this test exists to prevent.
+    let msg = truncation_message(&shape(Some(STOP_REASON_MAX_TOKENS), Some(32_000), 32_000));
+    let err = PipelineError::LlmProvider(msg);
+    assert!(
+        is_truncation_failure(&err),
+        "the gate's own message must be recognised by the classifier: {err}"
+    );
+}
+
+#[test]
+fn an_ordinary_provider_failure_is_not_a_truncation() {
+    // The load-bearing negative on this side: a dropped connection, a 500, an
+    // auth failure. These are genuinely transient and MUST stay retryable —
+    // misclassifying them as terminal would turn a blip into a failed run.
+    let err = PipelineError::LlmProvider("model claude-opus-4-6: connection reset".to_string());
+    assert!(!is_truncation_failure(&err));
+}
+
+#[test]
+fn a_rate_limit_is_never_a_truncation() {
+    // 429 has its own typed variant and its own retry loop in `llm_retry`.
+    // Narrowing on the variant before looking at any text is what guarantees
+    // the two policies cannot cross.
+    let err = PipelineError::RateLimited {
+        retry_after_secs: 45,
+    };
+    assert!(!is_truncation_failure(&err));
+}
+
+#[test]
+fn the_signature_is_not_matched_outside_the_provider_variant() {
+    // A document's own text can say anything, including this sentence. Only an
+    // error raised BY the gate — an `LlmProvider` error — may be classified as
+    // a truncation; the same words arriving in an extraction error are data.
+    let borrowed = truncation_message(&shape(Some(STOP_REASON_MAX_TOKENS), Some(8), 8));
+    assert!(
+        !is_truncation_failure(&PipelineError::Extraction(borrowed)),
+        "the variant must be part of the match, not just the text"
+    );
+}
+
 // ── The wiring, asserted against the source ──────────────────────────────────
 
 #[test]
@@ -121,4 +170,30 @@ fn the_bridge_checks_before_it_builds_a_response_on_both_entry_points() {
         provider.contains("stop_reason"),
         "rig_provider must carry stop_reason out of the API response"
     );
+}
+
+#[test]
+fn both_passes_classify_the_failure_through_the_shared_constructor() {
+    // Pass 1 and pass 2 wrap a failed provider call in their own file. If either
+    // one names `LlmCallFailed` directly again, ITS truncations go back to being
+    // retryable while the other pass's do not — a split-brain no unit test of
+    // the classifier would catch, because the classifier would still be right.
+    // The constructor is the single decision point; this asserts both call sites
+    // still go through it.
+    for (name, src) in [
+        ("llm_extract", include_str!("steps/llm_extract.rs")),
+        (
+            "llm_extract_pass2",
+            include_str!("steps/llm_extract_pass2.rs"),
+        ),
+    ] {
+        assert!(
+            src.contains("LlmExtractError::from_provider_failure(e)"),
+            "{name} must wrap provider failures via the shared constructor"
+        );
+        assert!(
+            !src.contains("LlmExtractError::LlmCallFailed { source: e }"),
+            "{name} must not re-introduce the unclassified wrap"
+        );
+    }
 }

@@ -28,6 +28,34 @@
 //!
 //! **No retry.** Failing loudly is the whole fix (ruled 2026-08-25). The
 //! operator raises `max_tokens` in the profile and reruns.
+//!
+//! ## Why the failure must be TERMINAL, not retryable (2026-08-27)
+//!
+//! As first shipped, the gate raised `PipelineError::LlmProvider`, which the
+//! step classifier folded into `LlmExtractError::LlmCallFailed` — a *retryable*
+//! failure. So Restate re-ran a truncated extraction with byte-identical
+//! parameters: same document, same prompt, same `max_tokens`. A truncation is
+//! DETERMINISTIC. The ceiling that cut the response off is still the ceiling on
+//! the retry, so every attempt is cut off at the same place and the backoff only
+//! spends money and wall-clock before failing anyway.
+//!
+//! The remedy is a profile edit by a human. Nothing the runtime can do between
+//! attempts changes the outcome, which is the definition of terminal.
+//!
+//! ## Rust Learning: recognising a foreign error you cannot add a variant to
+//!
+//! [`PipelineError`] lives in the `colossus-extract` git dependency, so this
+//! repo cannot give truncation its own variant there — the gate has to travel
+//! home inside `LlmProvider(String)`. Its own doc comment argues (correctly)
+//! that matching on error *message* strings is fragile. So the string match
+//! happens EXACTLY ONCE, here, in [`is_truncation_failure`], against a shared
+//! constant that [`truncation_message`] is built from — and the caller converts
+//! immediately to a typed `LlmExtractError::ResponseTruncated`. Nothing
+//! downstream of that conversion ever inspects a message again, and
+//! `the_message_a_truncation_produces_is_recognised_as_one` pins the round trip
+//! so the two halves cannot drift apart silently.
+
+use colossus_extract::PipelineError;
 
 /// The Anthropic `stop_reason` meaning "I hit the `max_tokens` ceiling".
 ///
@@ -36,6 +64,19 @@
 // ever renames the value, that is a code change following an API change, which
 // is exactly what a compiled constant should track.
 pub const STOP_REASON_MAX_TOKENS: &str = "max_tokens";
+
+/// The load-bearing phrase inside [`truncation_message`].
+///
+/// This is simultaneously operator-facing prose (it is the clause that tells a
+/// human reading `pipeline_jobs.error` what happened) and the machine-readable
+/// signature [`is_truncation_failure`] matches on. Both uses read the same
+/// constant, so the message cannot be reworded without the recognizer following
+/// it — the alternative, two hand-kept copies of a sentence fragment, is the
+/// fragility `PipelineError`'s own doc comment warns about.
+///
+// STRUCTURAL: not configuration. A deployment cannot be allowed to reword this
+// and thereby turn a terminal failure back into an infinite retry loop.
+const TRUNCATION_SIGNATURE: &str = "the response was TRUNCATED, not completed";
 
 /// What a completed LLM call looked like, for the purposes of this check.
 ///
@@ -89,16 +130,42 @@ pub fn truncation_message(shape: &CallShape<'_>) -> String {
         None => "not reported".to_string(),
     };
     format!(
-        "model {model} stopped at the max_tokens ceiling: the response was TRUNCATED, \
-         not completed. Produced {produced} output tokens against a configured cap of \
+        "model {model} stopped at the max_tokens ceiling: {signature}. \
+         Produced {produced} output tokens against a configured cap of \
          {cap}. The extraction is discarded rather than parsed, because a truncated \
          response repairs into plausible JSON and would otherwise be stored as a \
          complete result. Raise max_tokens for this document type in its profile YAML \
          and re-run.",
         model = shape.model,
+        signature = TRUNCATION_SIGNATURE,
         produced = produced,
         cap = shape.configured_max_tokens,
     )
+}
+
+/// Is this provider error the truncation gate's own failure coming back?
+///
+/// ## What this is for
+///
+/// The gate in `rig_llm_bridge` can only report through
+/// `PipelineError::LlmProvider(String)` (see the module doc). Every caller that
+/// needs to treat truncation differently from a generic call failure — today,
+/// the pass-1 and pass-2 orchestrators, which must raise a TERMINAL step failure
+/// rather than a retryable one — asks here instead of matching prose itself.
+///
+/// ## Rust Learning: `matches!` with a guard
+///
+/// `matches!(expr, Pattern if condition)` is the compact form of a `match` whose
+/// only interesting arm returns `true`. The `if` guard runs after the pattern
+/// binds, so `msg` is the `String` inside the variant and the whole expression
+/// is one boolean — no `_ => false` arm to write and no `return` needed.
+///
+/// Only `LlmProvider` can carry it: `RateLimited` is a genuinely transient state
+/// that must keep retrying, and the remaining variants never pass through the
+/// gate. Narrowing on the variant first means a document whose *text* happens to
+/// quote this sentence cannot be mistaken for a truncated call.
+pub fn is_truncation_failure(err: &PipelineError) -> bool {
+    matches!(err, PipelineError::LlmProvider(msg) if msg.contains(TRUNCATION_SIGNATURE))
 }
 
 #[cfg(test)]

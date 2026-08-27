@@ -562,6 +562,32 @@ fn classify_llm_extract_error(
             .into()
         }
 
+        // ── Terminal: the response was cut off at the ceiling ────
+        //
+        // A truncation is DETERMINISTIC, which is what makes it terminal
+        // rather than retryable. The retry would send the same prompt to the
+        // same model under the same `max_tokens` and be cut off in the same
+        // place; Restate's backoff would spend real money and wall-clock
+        // arriving at the identical failure. Only a human raising the cap in
+        // the profile YAML changes the outcome.
+        //
+        // The gate's own message already names the model, the cap, what was
+        // produced against it, and the remedy, so it is passed through whole —
+        // `{e}` here is `ResponseTruncated`'s Display, which wraps it. What is
+        // deliberately absent is the "Will retry." sentence the retryable arm
+        // below ends with: this step will not retry, and telling an operator
+        // otherwise while the run sits FAILED is the failure mode Standing
+        // Rule 1 exists to prevent.
+        // The doc id leads rather than trails: the gate's message is a
+        // multi-sentence paragraph ending in its own remedy ("…and re-run."),
+        // so appending "for 'doc-x'" after it would read as a fragment.
+        E::ResponseTruncated { .. } => TerminalError::new(format!(
+            "step_{step_name}: document '{doc_id}': {e} No retry — a truncated \
+             response is deterministic, and re-running against the same cap \
+             produces the same truncation."
+        ))
+        .into(),
+
         // ── Terminal: operator-initiated cancellation ────────────
         //
         // Mirrors the Restate SDK's own

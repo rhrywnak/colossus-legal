@@ -34,6 +34,7 @@ use crate::pipeline::steps::llm_extract_helpers::{
 use crate::pipeline::steps::llm_extract_pass2::LlmExtractPass2;
 use crate::pipeline::steps::verify::Verify;
 use crate::pipeline::task::DocProcessing;
+use crate::pipeline::truncation;
 use crate::repositories::pipeline_repository::{self, documents, extraction, models};
 
 // ── Constants ───────────────────────────────────────────────────
@@ -78,6 +79,24 @@ pub enum LlmExtractError {
 
     #[error("LLM call failed: {source}")]
     LlmCallFailed {
+        #[source]
+        source: colossus_extract::PipelineError,
+    },
+
+    /// The provider cut the response off at the `max_tokens` ceiling.
+    ///
+    /// Split out of [`LlmExtractError::LlmCallFailed`] on 2026-08-27 for one
+    /// reason: the classifier must be able to tell these apart. A dropped
+    /// connection is worth retrying; a truncation is not, because the retry runs
+    /// against the same ceiling and is cut off in the same place. See
+    /// `pipeline::truncation` for the full argument.
+    ///
+    /// The `source` is the gate's own `PipelineError::LlmProvider`, whose text
+    /// already names the model, the cap, the token count, and the remedy — so
+    /// this variant's Display adds only the classification and lets that
+    /// message through unchanged.
+    #[error("LLM response truncated: {source}")]
+    ResponseTruncated {
         #[source]
         source: colossus_extract::PipelineError,
     },
@@ -172,6 +191,34 @@ pub enum LlmExtractError {
         chunks_completed: i32,
         chunks_total: i32,
     },
+}
+
+impl LlmExtractError {
+    /// Wrap a failed provider call in the variant that describes WHY it failed.
+    ///
+    /// This is the single place where the truncation gate's report — which had
+    /// to travel home as an untyped `PipelineError::LlmProvider` string, because
+    /// that enum lives in another repo — becomes a typed variant again. Both
+    /// passes call this instead of naming `LlmCallFailed` directly, so the two
+    /// orchestrators cannot drift into disagreeing about which failures are
+    /// worth retrying.
+    ///
+    /// ## Rust Learning: an associated function as a smart constructor
+    ///
+    /// `Self::Variant { .. }` is always available to any code that can see the
+    /// enum, so a constructor like this cannot *forbid* a caller from building
+    /// `LlmCallFailed` by hand. What it buys is a single obvious right way to do
+    /// it: the decision lives in one function with one doc comment, rather than
+    /// being re-derived at each call site. `fn(...) -> Self` in an `impl` block
+    /// with no `self` parameter is the idiomatic shape — called as
+    /// `LlmExtractError::from_provider_failure(e)`, never on an instance.
+    pub(crate) fn from_provider_failure(source: colossus_extract::PipelineError) -> Self {
+        if truncation::is_truncation_failure(&source) {
+            Self::ResponseTruncated { source }
+        } else {
+            Self::LlmCallFailed { source }
+        }
+    }
 }
 
 // ── Step struct ─────────────────────────────────────────────────
@@ -821,7 +868,7 @@ async fn run_full_document_extraction(
     {
         Ok(r) => r,
         Err(e) => {
-            let failure = LlmExtractError::LlmCallFailed { source: e };
+            let failure = LlmExtractError::from_provider_failure(e);
             // The stored string names the pass. `extraction_runs.pass_number`
             // already does too, but a truncation failure reads identically for
             // both passes of the same document at the same cap — which is

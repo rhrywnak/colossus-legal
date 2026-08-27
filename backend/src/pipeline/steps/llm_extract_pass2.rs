@@ -675,7 +675,7 @@ pub async fn run_pass2_extraction(
     {
         Ok(r) => r,
         Err(e) => {
-            let failure = LlmExtractError::LlmCallFailed { source: e };
+            let failure = LlmExtractError::from_provider_failure(e);
             // The stored string names the pass. `extraction_runs.pass_number`
             // already does too, but a truncation failure reads identically for
             // both passes of the same document at the same cap — which is
