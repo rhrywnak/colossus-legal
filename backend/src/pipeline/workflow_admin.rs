@@ -198,6 +198,12 @@ pub async fn cancel_restate_workflow(
 /// information; waiting longer would only delay the operator's
 /// diagnosis. Matches the cancel helper's latency budget so both admin
 /// calls fail-fast on the same envelope.
+///
+/// Also governs [`kill_restate_invocation`] (2026-08-27). A kill and the purge
+/// that follows it are two halves of ONE operation — freeing a workflow key —
+/// so they take one budget rather than two. A second constant here would have
+/// been a knob that must always be turned in lockstep with this one, which is
+/// not a knob at all.
 // CONST: latency budget for a fast admin call; not env-var configurable
 // because deployments do not need to tune purge latency independently
 // from the rest of the HTTP stack.
@@ -252,12 +258,38 @@ const RESTATE_PURGE_TIMEOUT: Duration = Duration::from_secs(10);
 /// pattern-matched into `Some(id)`) or as a freshly-returned
 /// `InvokeOutcome::Accepted { invocation_id }`. Borrowing avoids an
 /// unnecessary clone at the call boundary.
+/// What Restate said when asked to purge an invocation journal.
+///
+/// ## Why a typed result rather than `Result<bool, _>`
+///
+/// The previous signature collapsed three distinct answers into two:
+/// `Ok(true)` purged, `Ok(false)` not found, and *everything else* — including
+/// the one answer the caller most needs to act on, "not yet completed" — into an
+/// opaque `Err(String)`. That is how the 2026-08-27 orphan was born: the delete
+/// handler could not tell "Restate is down" from "this invocation is still
+/// running", so it logged both identically and proceeded, leaving the journal
+/// behind and the workflow key permanently blocked.
+///
+/// `NotTerminal` is the variant that earns this enum. It is not an error — it is
+/// a normal, expected state (the operator deleted a document mid-run) with a
+/// specific remedy the caller can execute: kill the invocation, then purge.
+#[derive(Debug, PartialEq, Eq)]
+pub enum PurgeResult {
+    /// 200/202 — the journal was found in a terminal state and purged.
+    Purged,
+    /// 404 — no invocation for this id. Already purged, or never created.
+    NotFound,
+    /// 409 — the invocation is still running, so it cannot be purged yet.
+    /// Restate requires a completed, failed, killed, or cancelled invocation.
+    NotTerminal,
+}
+
 #[tracing::instrument(skip(http_client), fields(invocation_id = %invocation_id))]
 pub async fn purge_restate_workflow(
     http_client: &reqwest::Client,
     restate_admin_url: &str,
     invocation_id: &str,
-) -> Result<bool, anyhow::Error> {
+) -> Result<PurgeResult, anyhow::Error> {
     // Trim trailing `/` so we don't build URLs like
     // `http://host//invocations/...`. Restate is lenient about doubled
     // slashes but proxies between us and it may not be — matches the
@@ -291,7 +323,7 @@ pub async fn purge_restate_workflow(
                 invocation_id = %invocation_id,
                 "Restate purge: journal purged (status {status})"
             );
-            Ok(true)
+            Ok(PurgeResult::Purged)
         }
         StatusCode::NOT_FOUND => {
             tracing::info!(
@@ -299,7 +331,19 @@ pub async fn purge_restate_workflow(
                 "Restate purge: no invocation found for id (404) — \
                  either already purged or never created"
             );
-            Ok(false)
+            Ok(PurgeResult::NotFound)
+        }
+        // 409 is not a failure — it is Restate telling us the invocation is
+        // still running. The caller's remedy is to kill it and purge again;
+        // see `attempt_restate_purge`. Folding this into the error branch is
+        // precisely the bug that orphaned inv_14eUEIupiTWm… on 2026-08-27.
+        StatusCode::CONFLICT => {
+            tracing::info!(
+                invocation_id = %invocation_id,
+                "Restate purge: invocation is not yet completed (409) — \
+                 it must be killed or cancelled before its journal can be purged"
+            );
+            Ok(PurgeResult::NotTerminal)
         }
         other => {
             // Drain the body for the error message so the operator sees
@@ -316,6 +360,94 @@ pub async fn purge_restate_workflow(
             };
             Err(anyhow::anyhow!(
                 "Restate purge returned unexpected status {other} for invocation \
+                 '{invocation_id}' (URL: {url}). Body: {truncated}"
+            ))
+        }
+    }
+}
+
+// ── Kill: hard-stop an in-flight invocation ─────────────────────
+
+/// Hard-stop a Restate invocation so its journal becomes purgeable.
+///
+/// Calls `PATCH {restate_admin_url}/invocations/{invocation_id}/kill`.
+///
+/// ## Rust Learning: why kill and not cancel here
+///
+/// Restate 1.6 offers both. **Cancel** is graceful: it asks the workflow to
+/// unwind, which our pipeline honours cooperatively — the chunk loop polls
+/// `documents.is_cancelled` between LLM calls, so a cancel issued during a
+/// multi-minute Opus call is not observed until that call returns. **Kill** is a
+/// hard stop that terminates the invocation immediately.
+///
+/// At delete time the document is being destroyed, so there is nothing left to
+/// unwind gracefully *for* — and the graceful path is exactly what made the
+/// bounded wait unbounded in practice. Kill is therefore the correct primitive
+/// here, while `cancel_restate_workflow` remains correct for the Cancel button,
+/// where the operator wants the run stopped but the document kept intact.
+///
+/// Returns `Ok(true)` when Restate accepted the kill (200/202), `Ok(false)` on
+/// 404 (nothing to kill — already gone), and `Err` for anything else.
+///
+// STRUCTURAL (placement): this is a domain-free Restate admin wrapper that
+// colossus-ai could use unchanged, so by the reusability checkpoint it belongs
+// in colossus-rs — as do its three siblings `cancel_restate_workflow`,
+// `purge_restate_workflow`, and `invoke_restate_workflow`, which have always
+// lived here. It is deliberately placed WITH them rather than alone across the
+// repo boundary: moving one of four leaves the Restate client split across two
+// repos, which is worse than the debt it pays down, and a cross-repo move
+// cannot ride in a colossus-legal instruction (CLAUDE.md §4.3). The whole group
+// moves together when that relocation is scheduled.
+#[tracing::instrument(skip(http_client), fields(invocation_id = %invocation_id))]
+pub async fn kill_restate_invocation(
+    http_client: &reqwest::Client,
+    restate_admin_url: &str,
+    invocation_id: &str,
+) -> Result<bool, anyhow::Error> {
+    let base = restate_admin_url.trim_end_matches('/');
+    let url = format!("{base}/invocations/{invocation_id}/kill");
+
+    let response = http_client
+        .patch(&url)
+        .timeout(RESTATE_PURGE_TIMEOUT)
+        .send()
+        .await
+        .with_context(|| {
+            format!(
+                "Restate kill PATCH to '{url}' failed before a response was received \
+                 (network, DNS, or timeout). Check RESTATE_ADMIN_URL and that the \
+                 Restate admin endpoint is reachable."
+            )
+        })?;
+
+    let status = response.status();
+    match status {
+        StatusCode::OK | StatusCode::ACCEPTED => {
+            tracing::info!(
+                invocation_id = %invocation_id,
+                "Restate kill: invocation terminated (status {status})"
+            );
+            Ok(true)
+        }
+        StatusCode::NOT_FOUND => {
+            tracing::info!(
+                invocation_id = %invocation_id,
+                "Restate kill: no invocation found for id (404)"
+            );
+            Ok(false)
+        }
+        other => {
+            let body = response
+                .text()
+                .await
+                .unwrap_or_else(|e| format!("<failed to read body: {e}>"));
+            let truncated = if body.len() > 512 {
+                format!("{}…<truncated>", &body[..512])
+            } else {
+                body
+            };
+            Err(anyhow::anyhow!(
+                "Restate kill returned unexpected status {other} for invocation \
                  '{invocation_id}' (URL: {url}). Body: {truncated}"
             ))
         }

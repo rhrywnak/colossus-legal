@@ -1,3 +1,4 @@
+use crate::api::pipeline::RestatePurgePolicy;
 use crate::domain::quote_gap::GapPolicy;
 use std::path::PathBuf;
 
@@ -105,6 +106,18 @@ pub struct AppConfig {
     /// infrastructure addresses live in configuration, never in code
     /// (Standing Rule 2).
     pub restate_ingress_url: Option<String>,
+
+    /// How hard DELETE chases a killed Restate invocation before reporting the
+    /// manual remedy.
+    ///
+    /// `RESTATE_PURGE_RETRY_ATTEMPTS` (default 4) ·
+    /// `RESTATE_PURGE_RETRY_DELAY_MS` (default 250).
+    ///
+    /// Configuration rather than constants because the window they cover — how
+    /// long Restate takes to apply an asynchronously-accepted kill — is a
+    /// property of the deployment, not of the protocol. See
+    /// [`crate::api::pipeline::RestatePurgePolicy`].
+    pub restate_purge_policy: RestatePurgePolicy,
 
     /// Optional case-specific subject name to pre-select in the Bias Explorer's
     /// "About" filter on first page render.
@@ -392,6 +405,22 @@ impl AppConfig {
         // best-effort: env-var-unset → None is the documented intermediate path here
         let restate_ingress_url = std::env::var("RESTATE_INGRESS_URL").ok();
 
+        // Restate purge/kill retry policy. Like the verifier thresholds above, a
+        // PRESENT but unparseable value is a startup error rather than a silent
+        // fall back to the default (Standing Rule 1) — an operator who typed
+        // `RESTATE_PURGE_RETRY_ATTEMPTS=four` must be told.
+        let purge_defaults = RestatePurgePolicy::default();
+        let restate_purge_policy = RestatePurgePolicy {
+            retry_attempts: parse_env_or(
+                "RESTATE_PURGE_RETRY_ATTEMPTS",
+                purge_defaults.retry_attempts,
+            )?,
+            retry_delay: std::time::Duration::from_millis(parse_env_or(
+                "RESTATE_PURGE_RETRY_DELAY_MS",
+                purge_defaults.retry_delay.as_millis() as u64,
+            )?),
+        };
+
         // CASE_DEFAULT_SUBJECT_NAME — optional. We use `.ok()` rather than
         // `unwrap_or` because we need to distinguish "unset" (no default
         // applied, frontend stays at All subjects) from "set to empty
@@ -451,6 +480,7 @@ impl AppConfig {
             restate_admin_url,
             verify_gap_policy,
             restate_ingress_url,
+            restate_purge_policy,
             case_default_subject_name,
             case_slug,
             theme_scan_model,

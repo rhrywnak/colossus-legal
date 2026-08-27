@@ -59,6 +59,9 @@ mod workload;
 
 pub use completeness::completeness_handler;
 pub use delete::delete_document;
+// Re-exported for `config::AppConfig`, which owns the env-var read for this
+// policy while the purge logic it governs lives beside its module.
+pub use delete_restate_purge::RestatePurgePolicy;
 pub use extract_text::extract_text;
 pub use history::history_handler;
 pub use index::index_handler;

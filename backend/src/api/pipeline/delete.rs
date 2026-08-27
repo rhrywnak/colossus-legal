@@ -89,6 +89,7 @@ pub async fn delete_document(
         state.config.restate_admin_url.as_deref(),
         &document_id,
         invocation_id.as_deref(),
+        &state.config.restate_purge_policy,
     )
     .await;
     inject_restate_purge_into_snapshot(&mut snapshot, invocation_id.as_deref(), &purge_outcome);

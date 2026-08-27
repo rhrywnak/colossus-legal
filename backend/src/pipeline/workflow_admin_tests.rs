@@ -335,7 +335,10 @@ async fn purge_returns_true_on_202() {
     let (addr, counter) = spawn_responder("202 Accepted").await;
     let url = format!("http://{addr}");
     let res = purge_restate_workflow(&test_client(), &url, "inv_abc").await;
-    assert!(matches!(res, Ok(true)), "202 must yield Ok(true): {res:?}");
+    assert!(
+        matches!(res, Ok(PurgeResult::Purged)),
+        "202 must yield Purged: {res:?}"
+    );
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
@@ -351,7 +354,10 @@ async fn purge_returns_true_on_200() {
     let (addr, _counter) = spawn_responder("200 OK").await;
     let url = format!("http://{addr}");
     let res = purge_restate_workflow(&test_client(), &url, "inv_abc").await;
-    assert!(matches!(res, Ok(true)), "200 must yield Ok(true): {res:?}");
+    assert!(
+        matches!(res, Ok(PurgeResult::Purged)),
+        "200 must yield Purged: {res:?}"
+    );
 }
 
 #[tokio::test]
@@ -364,8 +370,8 @@ async fn purge_returns_false_on_404() {
     let url = format!("http://{addr}");
     let res = purge_restate_workflow(&test_client(), &url, "inv_missing").await;
     assert!(
-        matches!(res, Ok(false)),
-        "404 must yield Ok(false): {res:?}"
+        matches!(res, Ok(PurgeResult::NotFound)),
+        "404 must yield NotFound: {res:?}"
     );
 }
 
@@ -391,20 +397,91 @@ async fn purge_returns_err_on_500() {
 }
 
 #[tokio::test]
-async fn purge_returns_err_on_409_non_terminal() {
-    // The most likely non-2xx non-404 cause in practice is 409 — the
-    // invocation is still running and cannot be purged. Restate
-    // requires the invocation to be in a terminal state. The error
-    // path must surface this so an operator knows to cancel first.
+async fn purge_returns_not_terminal_on_409() {
+    // CONTRACT REVERSED 2026-08-27. A 409 used to be an `Err`, which is how
+    // `inv_14eUEIupiTWm1TXTZ2FOm0OZ7SPmlq7HUV` was orphaned: the delete handler
+    // could not distinguish "this invocation is still running" (recoverable —
+    // kill it and purge again) from "Restate is broken" (not recoverable), so
+    // it logged both the same way and abandoned the journal, permanently
+    // blocking that document's workflow key.
+    //
+    // 409 is now a first-class NON-ERROR outcome. The caller acts on it.
     let (addr, _counter) = spawn_responder("409 Conflict").await;
     let url = format!("http://{addr}");
     let res = purge_restate_workflow(&test_client(), &url, "inv_running").await;
-    let err = res.expect_err("409 must yield Err");
-    let msg = format!("{err}");
-    assert!(msg.contains("409"), "err must include status code: {msg}");
     assert!(
-        msg.contains("inv_running"),
-        "err must include invocation_id: {msg}"
+        matches!(res, Ok(PurgeResult::NotTerminal)),
+        "409 must yield NotTerminal, not Err: {res:?}"
+    );
+}
+
+// ── kill_restate_invocation tests ─────────────────────────────
+
+#[tokio::test]
+async fn kill_returns_true_on_200_and_202() {
+    // Restate documents 200 (killed) and 202 (kill accepted, applied
+    // asynchronously). Both mean "the kill was taken" — the caller then
+    // re-attempts the purge, which is what actually confirms terminality.
+    for status in ["200 OK", "202 Accepted"] {
+        let (addr, counter) = spawn_responder(status).await;
+        let url = format!("http://{addr}");
+        let res = kill_restate_invocation(&test_client(), &url, "inv_abc").await;
+        assert!(
+            matches!(res, Ok(true)),
+            "{status} must yield Ok(true): {res:?}"
+        );
+        assert_eq!(
+            counter.load(Ordering::SeqCst),
+            1,
+            "kill must perform exactly one HTTP PATCH per call"
+        );
+    }
+}
+
+#[tokio::test]
+async fn kill_returns_false_on_404() {
+    // Nothing to kill. Not an error: the journal is already gone, which is the
+    // state the caller wanted anyway.
+    let (addr, _counter) = spawn_responder("404 Not Found").await;
+    let url = format!("http://{addr}");
+    let res = kill_restate_invocation(&test_client(), &url, "inv_missing").await;
+    assert!(
+        matches!(res, Ok(false)),
+        "404 must yield Ok(false): {res:?}"
+    );
+}
+
+#[tokio::test]
+async fn kill_returns_err_on_500_with_operator_context() {
+    let (addr, _counter) = spawn_responder("500 Internal Server Error").await;
+    let url = format!("http://{addr}");
+    let res = kill_restate_invocation(&test_client(), &url, "inv_xyz").await;
+    let err = res.expect_err("500 must yield Err");
+    let msg = format!("{err}");
+    assert!(msg.contains("500"), "err must name the status: {msg}");
+    assert!(
+        msg.contains("inv_xyz"),
+        "err must name the invocation: {msg}"
+    );
+    assert!(
+        msg.contains("test body"),
+        "err must carry the response body: {msg}"
+    );
+}
+
+#[tokio::test]
+async fn kill_returns_err_on_unreachable_host() {
+    let res =
+        kill_restate_invocation(&test_client(), "http://127.0.0.1:1", "inv_unreachable").await;
+    let err = res.expect_err("unreachable host must yield Err");
+    let msg = format!("{err}");
+    assert!(
+        msg.contains("Restate kill PATCH"),
+        "err must surface the operation: {msg}"
+    );
+    assert!(
+        msg.contains("RESTATE_ADMIN_URL"),
+        "err must point operators at the env var: {msg}"
     );
 }
 
@@ -435,7 +512,7 @@ async fn purge_trims_trailing_slash_on_admin_url() {
     let url_with_slash = format!("http://{addr}/");
     let res = purge_restate_workflow(&test_client(), &url_with_slash, "inv_abc").await;
     assert!(
-        matches!(res, Ok(true)),
+        matches!(res, Ok(PurgeResult::Purged)),
         "trailing slash must still yield 202: {res:?}"
     );
     assert_eq!(counter.load(Ordering::SeqCst), 1);

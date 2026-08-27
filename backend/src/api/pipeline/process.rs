@@ -276,6 +276,7 @@ pub async fn process_handler(
             state.config.restate_admin_url.as_deref(),
             &doc_id,
             document.restate_invocation_id.as_deref(),
+            &state.config.restate_purge_policy,
         )
         .await;
         tracing::info!(
@@ -321,12 +322,47 @@ pub async fn process_handler(
         InvokeOutcome::Accepted { invocation_id } => (invocation_id, "Accepted"),
         InvokeOutcome::PreviouslyAccepted { invocation_id } => {
             // 409 Conflict. The keyed Restate invocation for this
-            // doc_id already exists — operator must delete the
-            // document and re-upload, or purge the existing Restate
-            // invocation via the admin UI, before retrying. Revert
-            // the STATUS_PROCESSING write since we are NOT taking
-            // ownership of the document for a fresh run.
+            // doc_id already exists. Revert the STATUS_PROCESSING
+            // write since we are NOT taking ownership of the document
+            // for a fresh run.
             revert_status_best_effort(&state, &doc_id, &previous_status).await;
+
+            // Persist the id Restate just handed us (2026-08-27).
+            //
+            // Restate answers `PreviouslyAccepted` WITH the id of the
+            // invocation that is blocking the key — the single piece of
+            // information the delete handler needs to purge it. Throwing it
+            // away is how a document ends up permanently unprocessable: the
+            // row carries no `restate_invocation_id`, so DELETE reports
+            // `skipped_no_id` and cannot free the key, and the next
+            // upload-and-process 409s in exactly the same way. That is the
+            // 19:41 audit row for `doc-phillips-motion-summary-disposition-
+            // 07-10-2014`, which recorded `{"invocation_id": null,
+            // "purge_outcome": "skipped_no_id"}` while the orphan it needed to
+            // purge was named in this very response.
+            //
+            // Best-effort: this arm is already returning a 409 that names the
+            // invocation id in its own message, so a failure to persist costs
+            // the operator nothing they cannot see — but it is logged at error
+            // level because it turns a self-healing delete back into a manual
+            // curl.
+            if let Err(e) = pipeline_repository::documents::set_restate_invocation_id(
+                &state.pipeline_pool,
+                &doc_id,
+                &invocation_id,
+            )
+            .await
+            {
+                tracing::error!(
+                    doc_id = %doc_id,
+                    invocation_id = %invocation_id,
+                    error = %e,
+                    "Restate reported PreviouslyAccepted but persisting the blocking \
+                     invocation_id failed. A later DELETE of this document will report \
+                     skipped_no_id and will NOT free the workflow key — the operator \
+                     must purge this invocation manually."
+                );
+            }
 
             // Audit the rejected attempt to the DB (not just logs) so
             // an operator querying `admin_audit_log` can see that a
@@ -350,8 +386,10 @@ pub async fn process_handler(
             return Err(AppError::Conflict {
                 message: format!(
                     "Document '{doc_id}' already has a Restate workflow invocation \
-                     ('{invocation_id}'). Delete the document and re-upload, or \
-                     purge the existing Restate invocation, before re-processing."
+                     ('{invocation_id}') holding its workflow key. Delete the document \
+                     and re-upload it — the delete now kills and purges the invocation, \
+                     which frees the key. Re-processing before that will keep failing \
+                     the same way."
                 ),
                 details: serde_json::json!({
                     "invocation_id": invocation_id,

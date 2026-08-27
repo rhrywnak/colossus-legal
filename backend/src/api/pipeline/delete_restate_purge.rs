@@ -13,7 +13,53 @@
 //! snapshot injector) to warrant its own file rather than crowding
 //! `delete.rs` past the 300-line module budget.
 
-use crate::pipeline::workflow_admin::purge_restate_workflow;
+use std::time::Duration;
+
+use crate::pipeline::workflow_admin::{
+    kill_restate_invocation, purge_restate_workflow, PurgeResult,
+};
+
+/// How hard to chase a killed invocation until its journal is purgeable.
+///
+/// ## Why this is configuration and not a constant
+///
+/// Kill is a hard stop, so the invocation reaches a terminal state almost
+/// immediately — but "almost" is not "synchronously". Restate may answer the
+/// kill with 202 (accepted, applied asynchronously), so the terminal state can
+/// land just after the call returns, and how long "just after" takes depends on
+/// the deployment: a loaded Restate, an admin endpoint behind a proxy, or a
+/// future Restate version with a longer propagation window all move it.
+///
+/// That makes these deployment values, not protocol values — Standing Rule 2's
+/// test applies ("to change a default, can Roman edit env vars and restart,
+/// with no code change and no rebuild?") and the answer has to be yes. They are
+/// read once at startup by [`crate::config::AppConfig`]; a PRESENT but
+/// unparseable value is a startup error, never a silent fall back to the
+/// default.
+#[derive(Debug, Clone, Copy)]
+pub struct RestatePurgePolicy {
+    /// Purge attempts after the kill, before giving up and reporting the
+    /// manual remedy.
+    pub retry_attempts: u32,
+    /// Wait between those attempts.
+    pub retry_delay: Duration,
+}
+
+impl Default for RestatePurgePolicy {
+    /// The shipped values — the ONE place they are written down.
+    ///
+    /// Four attempts 250ms apart bounds the added wait at ~1s, which is well
+    /// inside the delete handler's own envelope while covering the async-kill
+    /// window measured against Restate 1.6.2 on DEV.
+    fn default() -> Self {
+        Self {
+            // DEFAULT: 4 attempts — override: RESTATE_PURGE_RETRY_ATTEMPTS
+            retry_attempts: 4,
+            // DEFAULT: 250 ms — override: RESTATE_PURGE_RETRY_DELAY_MS
+            retry_delay: Duration::from_millis(250),
+        }
+    }
+}
 
 /// Outcome of the Restate purge attempt at delete time.
 ///
@@ -34,6 +80,14 @@ pub(super) enum PurgeOutcome {
     /// for delete-handler purposes; the audit log records the
     /// distinction.
     NotFound,
+    /// The invocation was still running, so it was killed and then purged.
+    ///
+    /// Distinct from [`PurgeOutcome::Success`] on purpose: an operator reading
+    /// the audit row should be able to tell "the workflow had already finished"
+    /// from "we hard-stopped a run in progress to delete this document". Those
+    /// are different events, and collapsing them would hide the fact that work
+    /// was terminated mid-flight (Standing Rule 1).
+    PurgedAfterKill,
     /// `documents.restate_invocation_id` was NULL on the row, so no
     /// purge call was attempted. Normal for documents that have never
     /// had Process clicked, and for pre-migration rows whose
@@ -59,6 +113,7 @@ impl PurgeOutcome {
         match self {
             PurgeOutcome::Success => "success".to_string(),
             PurgeOutcome::NotFound => "not_found".to_string(),
+            PurgeOutcome::PurgedAfterKill => "purged_after_kill".to_string(),
             PurgeOutcome::SkippedNoId => "skipped_no_id".to_string(),
             PurgeOutcome::SkippedNoAdminUrl => "skipped_no_admin_url".to_string(),
             PurgeOutcome::Error(msg) => format!("error: {msg}"),
@@ -71,7 +126,10 @@ impl PurgeOutcome {
     pub(super) fn was_attempted(&self) -> bool {
         matches!(
             self,
-            PurgeOutcome::Success | PurgeOutcome::NotFound | PurgeOutcome::Error(_)
+            PurgeOutcome::Success
+                | PurgeOutcome::NotFound
+                | PurgeOutcome::PurgedAfterKill
+                | PurgeOutcome::Error(_)
         )
     }
 }
@@ -83,9 +141,25 @@ impl PurgeOutcome {
 /// - `restate_admin_url` is `None` → `SkippedNoAdminUrl` (config gate).
 /// - `invocation_id` is `None` → `SkippedNoId` (no workflow ever ran
 ///   for this document, or pre-migration row).
-/// - Both present → call [`purge_restate_workflow`] and map its
-///   `Ok(true)` / `Ok(false)` / `Err` into `Success` / `NotFound` /
-///   `Error(msg)`.
+/// - Both present → purge, and if Restate says the invocation is still
+///   running, KILL it and purge again (see below).
+///
+/// ## The kill escalation (2026-08-27)
+///
+/// Purge only works on a terminal invocation. A document deleted mid-run
+/// therefore got a 409 from Restate, which the old code folded into a generic
+/// error and logged before proceeding — leaving the journal alive and, because
+/// Restate workflow keys are single-use, permanently blocking that `doc_id`.
+/// The operator then could not re-upload and process the same document: the
+/// invoke came back `PreviouslyAccepted` → 409, and deleting again re-ran the
+/// same failing purge. Measured on `doc-phillips-motion-summary-disposition-
+/// 07-10-2014`, whose audit rows show `success` at 19:11, then `error: … not
+/// yet completed` at 19:26, then `skipped_no_id` at 19:41.
+///
+/// So a `NotTerminal` answer now escalates: kill the invocation (a hard stop —
+/// the document is being destroyed, so there is nothing to unwind gracefully
+/// for), then re-attempt the purge a bounded number of times. Deleting a
+/// document now frees its workflow key whatever state the run was in.
 ///
 /// All branches log at info level for the skip cases and at error
 /// level for the failure case, with `document_id` as a structured field
@@ -109,6 +183,7 @@ pub(super) async fn attempt_restate_purge(
     restate_admin_url: Option<&str>,
     document_id: &str,
     invocation_id: Option<&str>,
+    policy: &RestatePurgePolicy,
 ) -> PurgeOutcome {
     let Some(admin_url) = restate_admin_url else {
         tracing::info!(
@@ -127,8 +202,12 @@ pub(super) async fn attempt_restate_purge(
     };
 
     match purge_restate_workflow(http_client, admin_url, inv_id).await {
-        Ok(true) => PurgeOutcome::Success,
-        Ok(false) => PurgeOutcome::NotFound,
+        Ok(PurgeResult::Purged) => PurgeOutcome::Success,
+        Ok(PurgeResult::NotFound) => PurgeOutcome::NotFound,
+        // The invocation is still running. Kill it, then purge again.
+        Ok(PurgeResult::NotTerminal) => {
+            purge_after_kill(http_client, admin_url, document_id, inv_id, policy).await
+        }
         Err(e) => {
             tracing::error!(
                 document_id = %document_id,
@@ -140,6 +219,128 @@ pub(super) async fn attempt_restate_purge(
             PurgeOutcome::Error(format!("{e}"))
         }
     }
+}
+
+/// Kill an in-flight invocation, then purge its journal.
+///
+/// Only reached when Restate answered `NotTerminal`. Returns
+/// [`PurgeOutcome::PurgedAfterKill`] on success — a distinct observable from a
+/// plain `Success`, because an operator should be able to see that a run was
+/// hard-stopped mid-flight rather than having finished on its own.
+///
+/// ## Rust Learning: a bounded retry loop over an async call
+///
+/// The loop re-issues the purge rather than sleeping once for a guessed
+/// duration. Restate may answer the kill with 202 (accepted, applied
+/// asynchronously), so the terminal state arrives shortly *after* the kill
+/// returns. Polling the operation we actually care about — can we purge yet? —
+/// is more honest than sleeping long enough to "probably" be safe, and it
+/// returns as soon as the answer is yes rather than always paying the worst
+/// case.
+///
+/// Every exit path is an observable outcome: killed-and-purged, killed-and-gone
+/// (404), or killed-but-still-not-terminal after the budget, which records the
+/// exact invocation id so an operator can finish the job by hand.
+async fn purge_after_kill(
+    http_client: &reqwest::Client,
+    admin_url: &str,
+    document_id: &str,
+    inv_id: &str,
+    policy: &RestatePurgePolicy,
+) -> PurgeOutcome {
+    tracing::warn!(
+        document_id = %document_id,
+        invocation_id = %inv_id,
+        "Restate purge: invocation still running at delete time — killing it so \
+         the workflow key is freed for a future re-upload of this document"
+    );
+
+    if let Err(e) = kill_restate_invocation(http_client, admin_url, inv_id).await {
+        tracing::error!(
+            document_id = %document_id,
+            invocation_id = %inv_id,
+            error = %e,
+            "Restate kill failed — the workflow journal will remain and this document \
+             id cannot be processed again until it is cleared by hand. Manual remedy: \
+             PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/kill, then \
+             PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/purge",
+        );
+        // The stored string carries the remedy too: an operator reading
+        // `document_audit_log` months later may have no access to these logs.
+        return PurgeOutcome::Error(format!(
+            "kill failed: {e}. The workflow key for this document is still held. Clear it \
+             manually: PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/kill, then \
+             PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/purge"
+        ));
+    }
+
+    for attempt in 1..=policy.retry_attempts {
+        match purge_restate_workflow(http_client, admin_url, inv_id).await {
+            Ok(PurgeResult::Purged) => {
+                tracing::info!(
+                    document_id = %document_id,
+                    invocation_id = %inv_id,
+                    attempt,
+                    "Restate purge: journal purged after kill"
+                );
+                return PurgeOutcome::PurgedAfterKill;
+            }
+            // The kill removed it outright; nothing left to purge. Same net
+            // effect as a purge — the key is free. Logged like every other
+            // exit from this function: an operator who has just read the
+            // "killing it" warning must not then read nothing.
+            Ok(PurgeResult::NotFound) => {
+                tracing::info!(
+                    document_id = %document_id,
+                    invocation_id = %inv_id,
+                    attempt,
+                    "Restate purge: the kill removed the invocation outright (404) — \
+                     the workflow key is free"
+                );
+                return PurgeOutcome::PurgedAfterKill;
+            }
+            Ok(PurgeResult::NotTerminal) => {
+                // Not terminal *yet*. Wait and ask again, unless this was the
+                // last attempt — no point sleeping on the way out.
+                if attempt < policy.retry_attempts {
+                    tokio::time::sleep(policy.retry_delay).await;
+                }
+            }
+            Err(e) => {
+                tracing::error!(
+                    document_id = %document_id,
+                    invocation_id = %inv_id,
+                    attempt,
+                    error = %e,
+                    "Restate purge after kill failed with an unexpected error"
+                );
+                // Same contract as the kill-failure arm above: this string is
+                // what an operator reads in `document_audit_log`, possibly
+                // long after the logs have rotated, so it has to carry WHERE
+                // (the invocation) and WHAT TO DO, not just what failed.
+                return PurgeOutcome::Error(format!(
+                    "purge after kill failed (attempt {attempt} of {total}): {e}. The \
+                     workflow key for invocation '{inv_id}' may still be held. Purge it \
+                     manually: PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/purge",
+                    total = policy.retry_attempts,
+                ));
+            }
+        }
+    }
+
+    tracing::error!(
+        document_id = %document_id,
+        invocation_id = %inv_id,
+        attempts = policy.retry_attempts,
+        "Restate invocation was killed but is still not terminal — the journal \
+         remains and this document id will 409 on re-process until it is purged"
+    );
+    PurgeOutcome::Error(format!(
+        "invocation '{inv_id}' was killed but had not reached a terminal state after \
+         {attempts} purge attempts; the workflow key is still held. Purge it \
+         manually: PATCH {{RESTATE_ADMIN_URL}}/invocations/{inv_id}/purge",
+        attempts = policy.retry_attempts,
+    ))
 }
 
 /// Splice the Restate purge outcome into the audit snapshot under a
@@ -180,113 +381,6 @@ pub(super) fn inject_restate_purge_into_snapshot(
     }
 }
 
-// ── Tests ───────────────────────────────────────────────────────
-
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn purge_outcome_as_str_matches_documented_wire_shape() {
-        // These string values are recorded in
-        // `document_audit_log.snapshot->'restate'->>'purge_outcome'`
-        // and would be queried by an operator dashboard or by an
-        // audit script. The migration's doc comment and any future
-        // consumer rely on these exact strings — pin them in a test
-        // so a careless rename of a variant doesn't silently break
-        // the wire shape.
-        assert_eq!(PurgeOutcome::Success.as_str(), "success");
-        assert_eq!(PurgeOutcome::NotFound.as_str(), "not_found");
-        assert_eq!(PurgeOutcome::SkippedNoId.as_str(), "skipped_no_id");
-        assert_eq!(
-            PurgeOutcome::SkippedNoAdminUrl.as_str(),
-            "skipped_no_admin_url"
-        );
-        assert_eq!(
-            PurgeOutcome::Error("connection refused".to_string()).as_str(),
-            "error: connection refused"
-        );
-    }
-
-    #[test]
-    fn purge_outcome_was_attempted_only_for_real_calls() {
-        // `was_attempted` powers the snapshot's `purge_attempted`
-        // boolean. Skipped variants must report false so a downstream
-        // reader can distinguish "we never called Restate" from "we
-        // called Restate and it didn't find the journal."
-        assert!(PurgeOutcome::Success.was_attempted());
-        assert!(PurgeOutcome::NotFound.was_attempted());
-        assert!(PurgeOutcome::Error("x".to_string()).was_attempted());
-        assert!(!PurgeOutcome::SkippedNoId.was_attempted());
-        assert!(!PurgeOutcome::SkippedNoAdminUrl.was_attempted());
-    }
-
-    #[test]
-    fn inject_restate_purge_into_snapshot_adds_restate_key() {
-        // The injector mutates an existing JSON object; the resulting
-        // `restate` key must carry all three documented sub-fields so
-        // the audit row is a complete record of what happened.
-        let mut snapshot = serde_json::json!({
-            "document": { "id": "doc-1" },
-            "counts": { "extraction_items": 0 },
-        });
-        let outcome = PurgeOutcome::Success;
-        inject_restate_purge_into_snapshot(&mut snapshot, Some("inv_abc"), &outcome);
-
-        let restate = snapshot
-            .get("restate")
-            .expect("restate key must be present");
-        assert_eq!(restate.get("invocation_id").unwrap(), "inv_abc");
-        assert_eq!(restate.get("purge_attempted").unwrap(), true);
-        assert_eq!(restate.get("purge_outcome").unwrap(), "success");
-
-        // Sibling keys must be preserved — the injector is additive,
-        // not destructive.
-        assert!(snapshot.get("document").is_some());
-        assert!(snapshot.get("counts").is_some());
-    }
-
-    #[tokio::test]
-    async fn attempt_purge_skips_when_no_admin_url() {
-        // `RESTATE_ADMIN_URL` not configured — the function must short-
-        // circuit BEFORE attempting the HTTP call. We pass a real
-        // client and a real (but unreachable) invocation id; if the
-        // skip guard fails, the test would either hang on a network
-        // attempt or surface a connection error rather than the
-        // expected outcome.
-        let client = reqwest::Client::new();
-        let outcome =
-            attempt_restate_purge(&client, None, "doc-skip-no-url", Some("inv_anything")).await;
-        assert_eq!(outcome, PurgeOutcome::SkippedNoAdminUrl);
-    }
-
-    #[tokio::test]
-    async fn attempt_purge_skips_when_no_invocation_id() {
-        // Admin URL configured but the document has no recorded
-        // invocation id — second short-circuit branch. We pass an
-        // unreachable admin URL on purpose: the skip guard must fire
-        // before the HTTP layer is touched, so the unreachable host
-        // should never be contacted. A failure of the guard would
-        // surface as PurgeOutcome::Error from a connection refused,
-        // distinguishable from the expected SkippedNoId.
-        let client = reqwest::Client::new();
-        let outcome =
-            attempt_restate_purge(&client, Some("http://127.0.0.1:1"), "doc-skip-no-id", None)
-                .await;
-        assert_eq!(outcome, PurgeOutcome::SkippedNoId);
-    }
-
-    #[test]
-    fn inject_restate_purge_records_null_invocation_id_for_skipped_no_id() {
-        // When no id was recorded, the snapshot's `invocation_id`
-        // must be JSON null (not absent, not the empty string) so a
-        // reader can distinguish "no id" from "id was empty string".
-        let mut snapshot = serde_json::json!({});
-        inject_restate_purge_into_snapshot(&mut snapshot, None, &PurgeOutcome::SkippedNoId);
-
-        let restate = snapshot.get("restate").unwrap();
-        assert!(restate.get("invocation_id").unwrap().is_null());
-        assert_eq!(restate.get("purge_attempted").unwrap(), false);
-        assert_eq!(restate.get("purge_outcome").unwrap(), "skipped_no_id");
-    }
-}
+#[path = "delete_restate_purge_tests.rs"]
+mod tests;

@@ -434,7 +434,17 @@ const ProcessingPanel: React.FC<ProcessingPanelProps> = ({
 
       {actionError && <div style={errorBox}>{actionError}</div>}
 
-      {statusGroup === "new" && (
+      {/* The configuration form shows for NEW and for FAILED (2026-08-27).
+          A failed run's error text names the setting that has to change —
+          "Raise max_tokens for this document type in its profile YAML" is the
+          truncation case — but the Failed state used to render only the error
+          and a Re-process button, so the operator was told what to fix and
+          given no way to fix it. The panel is already built for a non-NEW
+          document (its own `previewDisabled` gate turns preview ON once text
+          has been extracted); only this parent was hiding it. Saving here and
+          pressing Process sends "new_settings", which clears the previous
+          extraction so the changed settings actually take effect. */}
+      {(statusGroup === "new" || statusGroup === "failed") && (
         <ConfigurationPanel
           documentId={doc.id}
           documentType={doc.document_type}
