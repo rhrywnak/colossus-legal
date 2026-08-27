@@ -86,7 +86,7 @@ description: >
 
 schema_file: motion_schema_v5_3.yaml
 
-template_file: motion_pass1_v5_3.md
+template_file: motion_pass1_v5_4.md
 global_rules_file: global_rules_v4.md
 pass2_template_file: motion_pass2_v5_4.md
 system_prompt_file: legal_extraction_system.md
