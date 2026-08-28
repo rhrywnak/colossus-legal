@@ -44,44 +44,91 @@ const cardStyle: React.CSSProperties = {
   ...sectionPanelStyle,
   position: "relative",
   marginTop: "20px",
-  padding: "20px 24px 16px",
+  // Bottom padding rose with the section gaps: at 16px the Bears-on chips sat
+  // closer to the card's edge than the sections sit to each other, which reads as
+  // the card running out rather than ending.
+  padding: "20px 24px 20px",
   // The identity block's own content sets the radius clip; `overflow: hidden` from
   // the shared panel would clip the absolutely-positioned pencil.
   overflow: "visible",
 };
 
-// Mockup `.id-grid`: two equal columns, 16px/32px gaps. `auto-fit` keeps it from
-// squeezing two columns into a narrow window.
+// The card's vertical rhythm, named once because the whole point of it is the
+// RATIO between the two (Roman, 2026-08-28, from live use: "the card reads
+// cramped" and the sections "run together").
+//
+// Space above a label is now roughly four times the space below it, so each
+// label sits with the text it introduces rather than floating equidistant
+// between its own section and the one before. That asymmetry is what makes a
+// section look like it owns its content; before this, `SECTION_GAP` was 14.4px
+// against a 3px label gap in the same card, which is close enough to even that
+// four labelled blocks read as one undifferentiated column.
+//
+// CONST: a visual rhythm, not a setting. There is no frontend config surface and
+// these are not per-deployment values; naming them keeps the ratio in one place
+// instead of five literals that drift apart at the next adjustment.
+const SECTION_GAP = "22px";
+const LABEL_GAP = "6px";
+
+// Mockup `.id-grid`: two equal columns, 32px column gap. `auto-fit` keeps it from
+// squeezing two columns into a narrow window. The ROW gap is `SECTION_GAP`: it
+// only applies when the two columns wrap to one, and when they do these are two
+// stacked sections like any other and must be separated like them.
 const gridStyle: React.CSSProperties = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))",
-  gap: "16px 32px",
+  gap: `${SECTION_GAP} 32px`,
 };
 
-// Mockup `.lbl`: 11px, .08em, uppercase, --text-3, 3px bottom.
+// Was the mockup's `.lbl`: 11px, .08em, uppercase, --text-3, 3px bottom.
 //
-// ## The weight is 700, not the mockup's 600 (Roman, 2026-08-25, from live S-9)
+// ## Bolded 2026-08-25, then made legible 2026-08-28 (Roman, both from live use)
 //
 // The four names this style renders — the attack, our theme, their motivation,
-// and what the scenario bears on — are the card's only wayfinding. At 11px in
-// --text-muted they read as chrome, and a person scanning the card for "what do
-// THEY say" was finding it by position rather than by the label. Weight is the
-// only change: size, tracking, casing and colour are the mockup's and stay.
+// and what the scenario bears on — are the card's only wayfinding. The first
+// pass bolted weight onto them and deliberately changed nothing else, on the
+// reasoning that size, tracking, casing and colour were the mockup's. Three days
+// of real use said that was not enough: at 11px in --text-muted they still read
+// as "small light-gray letterspaced caps" and were hard to discern at all.
 //
-// ## Nothing else is bolded by this
+// So the two properties that were held back have moved, and only those two:
+//
+//   colour  --text-muted (#667085, 4.97:1) → --text-primary (#1a202c, 16.32:1)
+//   size    11px → 12px
+//
+// Colour is the change that does the work. --text-primary is the app's darkest
+// text token and is deliberately not pure black — a near-black with a blue cast,
+// so it pairs with the accent — which is what was asked for. Size moves ONE step
+// on this card's own scale (11 / 11.5 / 12 / 12.5 / 13); a bigger jump would
+// start competing with the 0.9rem body text these labels introduce.
+//
+// The uppercase and the .08em tracking STAY, and that is what keeps them reading
+// as labels rather than as headings: at the same colour as the body text below,
+// casing and tracking are now the whole of the distinction, so removing either
+// would leave a label indistinguishable from the sentence under it.
+//
+// ## Nothing else changes appearance because of this
 //
 // This object is PRIVATE to this file and is applied in exactly four places (the
-// three `Field`s and the Bears-on heading below), so no derived style is needed
-// to keep the change to the four Roman named. The header's `SCENARIO` eyebrow is
-// its own object in `ScenarioHeaderTiers.tsx` and the identity MODAL's field
-// labels are their own in `ScenarioIdentityModal.tsx`; both are untouched.
+// three `Field`s and the Bears-on heading below). There is no shared label style
+// on this page to change instead, so the card moves alone:
+//
+//   `ScenarioHeaderTiers.tsx`  — the SCENARIO eyebrow, its own object, and the
+//                                one thing in the same visual family (11px,
+//                                uppercase, tracked, muted). Untouched.
+//   `ScenarioIdentityModal.tsx` — the identity editor's field labels, its own.
+//   `SentenceEditor.tsx`        — what renders the accusation card's "In plain
+//                                 words". NOT the same family at all: 12px,
+//                                 muted, sentence case, no tracking, no bold.
+//                                 It was never going to inherit this and does
+//                                 not.
 const labelStyle: React.CSSProperties = {
-  fontSize: "11px",
+  fontSize: "12px",
   fontWeight: 700,
   letterSpacing: "0.08em",
   textTransform: "uppercase",
-  color: "var(--text-muted)",
-  marginBottom: "3px",
+  color: "var(--text-primary)",
+  marginBottom: LABEL_GAP,
 };
 
 const textStyle: React.CSSProperties = {
@@ -174,7 +221,7 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
 
     {/* The attack is full width and first: it is the thing being answered, and
         everything else on this page is a response to it. */}
-    <div style={{ marginBottom: "0.9rem", paddingRight: "1.5rem" }}>
+    <div style={{ marginBottom: SECTION_GAP, paddingRight: "1.5rem" }}>
       <Field
         label={wording.attack_label}
         value={attackText}
@@ -195,7 +242,7 @@ const ScenarioIdentityBlock: React.FC<Props> = ({
       />
     </div>
 
-    <div style={{ marginTop: "0.9rem" }}>
+    <div style={{ marginTop: SECTION_GAP }}>
       <div style={labelStyle}>{wording.bears_on_label}</div>
       {anchorAllegationIds.length === 0 ? (
         <p style={absentStyle}>{wording.bears_on_absent}</p>

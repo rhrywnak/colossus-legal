@@ -943,19 +943,61 @@ describe("the scenario header stacks, and the four card labels are bold", () => 
     expect(actions).not.toContain("paddingTop");
   });
 
-  it("bolds the four identity labels, and changes nothing else about them", () => {
+  it("makes the four identity labels legible, and keeps them reading as labels", () => {
+    // SUPERSEDES the 2026-08-25 version of this fence, which pinned `11px` and
+    // `--text-muted` on the reasoning that weight was the only thing in scope.
+    // Three days of live use said otherwise (Roman, 2026-08-28): still "small
+    // light-gray letterspaced caps", still hard to discern. The two properties
+    // that were held back have now moved, and the fence moves with them rather
+    // than being deleted — what it guards is unchanged in kind.
     const block = read("components", "ScenarioIdentityBlock.tsx");
     const label = block.slice(
       block.indexOf("const labelStyle"),
       block.indexOf("const textStyle"),
     );
     expect(label, "Roman asked for BOLD").toContain("fontWeight: 700");
-    // Weight ONLY. The size, tracking, casing and colour are the mockup's `.lbl`
-    // and a change to any of them would be this task exceeding its scope.
-    expect(label).toContain('fontSize: "11px"');
+    expect(label, "one size step up from 11px on this card's scale").toContain(
+      'fontSize: "12px"',
+    );
+    // The app's DARKEST text token, which is a near-black with a blue cast and
+    // deliberately not pure #000. A revert to a muted or secondary token is the
+    // regression this line exists to catch — colour is what did the work here,
+    // not size.
+    expect(label).toContain('color: "var(--text-primary)"');
+    expect(label).not.toContain("--text-muted");
+    // Casing and tracking STAY, and now carry the whole distinction: at the same
+    // colour as the body text beneath them, dropping either would leave a label
+    // indistinguishable from the sentence it introduces.
     expect(label).toContain('letterSpacing: "0.08em"');
     expect(label).toContain('textTransform: "uppercase"');
-    expect(label).toContain('color: "var(--text-muted)"');
+  });
+
+  it("gives each label meaningfully more room above it than below it", () => {
+    // The other half of the same report — "the card reads cramped", sections
+    // "run together". Even spacing above and below a label makes it float
+    // between two sections instead of belonging to the one it introduces, and
+    // four of those read as one undifferentiated column.
+    const block = read("components", "ScenarioIdentityBlock.tsx");
+
+    const px = (name: string): number => {
+      const m = block.match(new RegExp(`const ${name} = "(\\d+(?:\\.\\d+)?)px"`));
+      if (!m) throw new Error(`${name} must be a named px constant in ScenarioIdentityBlock`);
+      return Number(m[1]);
+    };
+    const above = px("SECTION_GAP");
+    const below = px("LABEL_GAP");
+
+    expect(above, "the gap above a label must be clearly the larger").toBeGreaterThan(below * 2);
+    expect(below, "and the label still needs a touch of air under it").toBeGreaterThan(3);
+
+    // Both are used, and the literals they replaced are gone — five hand-written
+    // spacings in one card is how a rhythm drifts apart at the next adjustment.
+    expect(block).toContain("marginBottom: SECTION_GAP");
+    expect(block).toContain("marginTop: SECTION_GAP");
+    expect(block).toContain("marginBottom: LABEL_GAP");
+    expect(block, "the old 0.9rem section spacings are replaced, not doubled up").not.toContain(
+      'marginBottom: "0.9rem"',
+    );
   });
 
   it("does not bold the SCENARIO eyebrow as a side effect", () => {
