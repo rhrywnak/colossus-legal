@@ -56,17 +56,17 @@ restate-sdk = "0.6"
 # `derive` feature enables the procedural macros used by rig's tool/agent traits.
 rig-core = { version = "0.36", features = ["derive"] }
 
-# Renamed direct dep on reqwest 0.13 — required to satisfy
-# `rig::http_client::HttpClientExt`, which Rig 0.36 implements ONLY for the
-# 0.13 reqwest Client type. The backend's primary HTTP client stays on
-# reqwest 0.12 (see the `reqwest` entry below); this `reqwest_13` alias
-# exists exclusively so `backend/src/pipeline/rig_provider.rs` can build a
-# custom `.http1_only()` client and hand it to Rig via
-# `ClientBuilder::http_client(...)`. Without this, Rig defaults to its own
-# HTTP/2-capable client and api.anthropic.com hangs inside Podman containers.
-# Features are intentionally minimal — TLS, charset, system-proxy, and http2
-# are already enabled on the same reqwest 0.13 instance via rig-core's
-# default features (cargo unifies features across all consumers).
+# Renamed direct dep on reqwest 0.13. It was pulled in because Rig 0.36
+# implements `rig::http_client::HttpClientExt` ONLY for the 0.13 Client type; as
+# of 2026-08-28 `backend/src/pipeline/anthropic_engine.rs` builds and drives this
+# client DIRECTLY (streaming SSE against the Messages API), so the alias is now
+# load-bearing in its own right rather than only as a hand-off to Rig. The
+# backend's primary HTTP client stays on reqwest 0.12 (see the `reqwest` entry
+# below) because it has many other consumers. The `.http1_only()` build in that
+# module is still mandatory: without it api.anthropic.com hangs inside Podman
+# containers. Features are intentionally minimal — TLS, charset, and
+# system-proxy are already enabled on the same reqwest 0.13 instance via
+# rig-core's default features (cargo unifies features across all consumers).
 reqwest_13 = { version = "0.13", package = "reqwest" }
 reqwest = { version = "0.12", features = ["json", "native-tls", "multipart"] }
 uuid = { version = "1", features = ["v4"] }
@@ -88,6 +88,12 @@ sqlx = { version = "0.8", features = [
 ] }
 
 [dev-dependencies]
+# `test-util` is NOT part of tokio's `full`. It enables the VIRTUAL clock
+# (`tokio::time::pause` / `#[tokio::test(start_paused = true)]`), which is what
+# lets `pipeline::anthropic_transport` assert its real 120-second idle timeout
+# and a 600-second inter-event gap in microseconds of wall clock. Without it
+# those tests would either take twenty minutes or have to assert fake numbers.
+tokio = { version = "1", features = ["full", "test-util"] }
 # Used by chunking_strategies tests to validate that strategy-emitted
 # boundary_pattern strings are valid regular expressions and match the
 # expected document structures (e.g. ORDER / FINDINGS OF FACT / OPINION

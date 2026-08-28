@@ -14,7 +14,7 @@
 //! internally delegates every operation to an `Arc<dyn ExtractionEngine>`.
 //! Every existing call site keeps calling `LlmProvider::invoke()`
 //! exactly as before, but the actual HTTP traffic now goes through
-//! Rig 0.36 — with HTTP/1.1 enforcement (via `RigExtractionEngine`'s
+//! `AnthropicStreamingEngine` — with HTTP/1.1 enforcement (via its
 //! reqwest 0.13 client) instead of `colossus-extract`'s legacy
 //! reqwest 0.12 client.
 //!
@@ -70,7 +70,7 @@ const DEFAULT_RATE_LIMIT_RETRY_SECS: u64 = 60;
 /// Deliberately `"rig-anthropic"` (NOT `"anthropic"`) so log
 /// aggregators and cost reports can tell pre-migration (legacy
 /// `colossus_extract::AnthropicProvider`, recorded as `"anthropic"`)
-/// from post-migration (this bridge → `RigExtractionEngine`, recorded
+/// from post-migration (this bridge → `AnthropicStreamingEngine`, recorded
 /// as `"rig-anthropic"`) traffic. Not configurable: the value is
 /// part of the observability contract.
 const PROVIDER_NAME: &str = "rig-anthropic";
@@ -81,7 +81,7 @@ const PROVIDER_NAME: &str = "rig-anthropic";
 /// ## Rust Learning: `Arc<dyn Trait>` for shared dependency injection
 ///
 /// The bridge holds an `Arc<dyn ExtractionEngine>`, not an owned
-/// `RigExtractionEngine`. This means a single engine — built once at
+/// `AnthropicStreamingEngine`. This means a single engine — built once at
 /// startup in `AppContext` — is shared by every bridge instance:
 /// one per `provider_for_model(...)` call (per document, for
 /// extraction), one in `AppContext.llm_provider` (for RAG), and the
@@ -297,7 +297,7 @@ impl LlmProvider for RigLlmProviderBridge {
 
     fn supports_structured_output(&self) -> bool {
         // CONST: always true for the Anthropic-backed
-        // RigExtractionEngine — the only backend wired in P1-8. Will
+        // AnthropicStreamingEngine — the only backend wired today. Will
         // become a per-engine capability flag if/when Rig grows
         // vLLM or other completion models (Phase 3+). Anthropic
         // Messages API supports tool-use JSON output natively, so
@@ -492,15 +492,14 @@ mod tests {
 
     // ── Live integration test ────────────────────────────────────
     //
-    // Companion to `pipeline::rig_provider::tests::test_rig_engine_live`
-    // but exercises the full bridge path: a real `RigExtractionEngine`
+    // Exercises the full bridge path: a real `AnthropicStreamingEngine`
     // built from env, wrapped in `RigLlmProviderBridge`, called via
     // the legacy `LlmProvider::invoke_with_system` surface. Validates
     // the end-to-end production call sequence:
     //
     //     LlmProvider::invoke_with_system(bridge, system, prompt, max)
     //       → bridge.engine.extract(...)
-    //         → RigExtractionEngine → reqwest 0.13 HTTP/1.1
+    //         → AnthropicStreamingEngine → reqwest 0.13 HTTP/1.1 (SSE)
     //           → api.anthropic.com
     //         ← LlmCallResult
     //       ← map_engine_error / convert_tokens
@@ -518,7 +517,7 @@ mod tests {
         };
 
         let engine = Arc::new(
-            crate::pipeline::rig_provider::RigExtractionEngine::from_env()
+            crate::pipeline::anthropic_engine::AnthropicStreamingEngine::from_env()
                 .expect("engine construction"),
         );
         let bridge = RigLlmProviderBridge::new(

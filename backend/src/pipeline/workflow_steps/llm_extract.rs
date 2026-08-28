@@ -36,19 +36,17 @@
 //! - **Pass-2**: [`crate::pipeline::steps::llm_extract_pass2::Pass2ExtractionResult::skipped_already_complete`]
 //!   → summary `skipped_pass2_already_complete`.
 
-use std::error::Error;
 use std::sync::Arc;
 
 use restate_sdk::errors::{HandlerError, TerminalError};
 use sqlx::PgPool;
 
+use super::llm_extract_classify::classify_dyn_llm_error;
 use super::{record_step_lifecycle, StepOutcome, STEP_LLM_EXTRACT_PASS1, STEP_LLM_EXTRACT_PASS2};
 use crate::models::document_status::STATUS_EXTRACTED;
 use crate::pipeline::config::{resolve_config, ProcessingProfile};
 use crate::pipeline::context::AppContext;
-use crate::pipeline::steps::llm_extract::{
-    default_profile_name_from_schema, run_pass1_extraction, LlmExtractError,
-};
+use crate::pipeline::steps::llm_extract::{default_profile_name_from_schema, run_pass1_extraction};
 use crate::pipeline::steps::llm_extract_pass2::run_pass2_extraction;
 use crate::repositories::pipeline_repository;
 
@@ -109,7 +107,7 @@ async fn step_llm_extract_pass1_body(
     // function with its own cancel check + progress.set_step_result.
     let result = run_pass1_extraction(doc_id, &app.pipeline_pool, app.as_ref())
         .await
-        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass1", e))?;
+        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass1", e, app.llm_retry_max))?;
 
     // Postgres status write — mirrors the Restate state write the
     // workflow performs after this step. Decision #3 in P2-2b: pass-1
@@ -291,7 +289,7 @@ async fn step_llm_extract_pass2_body(
     //     carries the already-complete signal directly.
     let result = run_pass2_extraction(doc_id, &app.pipeline_pool, app.as_ref())
         .await
-        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e))?;
+        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e, app.llm_retry_max))?;
 
     let summary = if result.skipped_already_complete {
         tracing::info!(
@@ -433,188 +431,6 @@ async fn resolve_run_pass2(
 
     let resolved = resolve_config(&profile, &overrides);
     Ok(resolved.run_pass2)
-}
-
-// ── Error classification ────────────────────────────────────────
-
-/// Downcast a `Box<dyn Error>` from the legacy orchestrators into
-/// `LlmExtractError` and route through [`classify_llm_extract_error`].
-///
-/// The orchestrators (`run_llm_extract`, `run_pass2_extraction`)
-/// return `Result<_, Box<dyn Error + Send + Sync>>` — the underlying
-/// type is `LlmExtractError` in the typed-error paths but may be a
-/// `sqlx::Error` or other concrete type in a few transitional spots.
-/// We downcast for typed classification, and fall back to retryable
-/// for anything we can't downcast — Restate will retry transient
-/// failures of any shape.
-fn classify_dyn_llm_error(
-    doc_id: &str,
-    step_name: &'static str,
-    e: Box<dyn Error + Send + Sync>,
-) -> HandlerError {
-    match e.downcast::<LlmExtractError>() {
-        Ok(typed) => classify_llm_extract_error(doc_id, step_name, &typed),
-        Err(boxed) => HandlerError::from(format!(
-            "step_{step_name}: unclassified failure for '{doc_id}': {boxed}. \
-             Will retry."
-        )),
-    }
-}
-
-/// Classify an [`LlmExtractError`] as terminal or retryable for
-/// Restate.
-///
-/// Mirrors the P2-2a `classify_extract_error` pattern. Decision
-/// rules:
-///
-/// - Permanent configuration / state issues → terminal. The retry
-///   will see the same state and fail the same way.
-/// - Transient infrastructure (LLM timeout, DB timeout, semaphore
-///   closed) → retryable. Restate's exponential backoff likely
-///   resolves these.
-/// - LLM output bugs (non-JSON response after retries, serialization
-///   failures) → terminal. These indicate template/prompt drift or
-///   a programming bug that needs operator intervention.
-///
-/// ## Rust Learning: pattern-match on enum reference
-///
-/// `match e { Variant => ... }` where `e: &LlmExtractError` lets us
-/// classify without consuming the error — useful because the caller
-/// already owns `*typed: LlmExtractError` and we want to keep the
-/// Display impl available for the message body via the `{e}` inside
-/// each format!.
-fn classify_llm_extract_error(
-    doc_id: &str,
-    step_name: &'static str,
-    e: &LlmExtractError,
-) -> HandlerError {
-    use LlmExtractError as E;
-    match e {
-        // ── Terminal: configuration / state issues ─────────────
-        E::DocumentNotFound { .. } => TerminalError::new(format!(
-            "step_{step_name}: document '{doc_id}' not found in database. \
-             Confirm the upload completed before invoking the workflow."
-        ))
-        .into(),
-        E::NoPipelineConfig { .. } => TerminalError::new(format!(
-            "step_{step_name}: no pipeline_config row for document '{doc_id}'. \
-             Confirm the config-creation step ran after upload."
-        ))
-        .into(),
-        E::SchemaLoadFailed { schema_file, .. } => TerminalError::new(format!(
-            "step_{step_name}: failed to load schema '{schema_file}' for \
-             '{doc_id}'. {e}. Fix the schema file and redeploy."
-        ))
-        .into(),
-        E::ProfileLoadFailed { .. } => TerminalError::new(format!(
-            "step_{step_name}: profile load failed for '{doc_id}'. {e}. \
-             Fix the profile YAML and redeploy."
-        ))
-        .into(),
-        E::ModelNotFound { model_id } => TerminalError::new(format!(
-            "step_{step_name}: model '{model_id}' not found or inactive for \
-             '{doc_id}'. Activate the model in the llm_models table or pick \
-             another model in the profile."
-        ))
-        .into(),
-        E::ProviderConstructionFailed { .. } => TerminalError::new(format!(
-            "step_{step_name}: LLM provider construction failed for '{doc_id}'. \
-             {e}. Check ANTHROPIC_API_KEY / LLM_PROVIDER env vars and redeploy."
-        ))
-        .into(),
-        E::NoPass2Template { profile_name } => TerminalError::new(format!(
-            "step_{step_name}: profile '{profile_name}' has run_pass2=true but \
-             no pass2_template_file for '{doc_id}'. Either set run_pass2=false \
-             in the profile or add a pass2_template_file entry."
-        ))
-        .into(),
-        E::NoCompletedPass1 { .. } => TerminalError::new(format!(
-            "step_{step_name}: no COMPLETED pass-1 extraction_run for \
-             '{doc_id}'. Pass-1 must succeed before pass-2 can run."
-        ))
-        .into(),
-        E::NoTextPages { .. } => TerminalError::new(format!(
-            "step_{step_name}: document '{doc_id}' has no text pages. \
-             Re-run extract_text or confirm the document has extractable \
-             content."
-        ))
-        .into(),
-        E::PromptBuildFailed { .. } => TerminalError::new(format!(
-            "step_{step_name}: prompt assembly failed for '{doc_id}'. {e}. \
-             Fix the template and redeploy."
-        ))
-        .into(),
-
-        // ── Terminal: LLM output bugs ────────────────────────────
-        E::ResponseNotJson { preview, .. } => TerminalError::new(format!(
-            "step_{step_name}: LLM returned non-JSON response for '{doc_id}'. \
-             {e}. Preview: {preview}. Check extraction_runs.raw_output and \
-             investigate template prompt or model output drift."
-        ))
-        .into(),
-        E::EntitySerializationFailed { .. } | E::RelationshipSerializationFailed { .. } => {
-            TerminalError::new(format!(
-                "step_{step_name}: re-serialization of merged extraction \
-                 output failed for '{doc_id}'. {e}. This indicates a \
-                 programming bug — investigate the merged entity/relationship \
-                 shape (likely a NaN float or non-serializable type)."
-            ))
-            .into()
-        }
-
-        // ── Terminal: the response was cut off at the ceiling ────
-        //
-        // A truncation is DETERMINISTIC, which is what makes it terminal
-        // rather than retryable. The retry would send the same prompt to the
-        // same model under the same `max_tokens` and be cut off in the same
-        // place; Restate's backoff would spend real money and wall-clock
-        // arriving at the identical failure. Only a human raising the cap in
-        // the profile YAML changes the outcome.
-        //
-        // The gate's own message already names the model, the cap, what was
-        // produced against it, and the remedy, so it is passed through whole —
-        // `{e}` here is `ResponseTruncated`'s Display, which wraps it. What is
-        // deliberately absent is the "Will retry." sentence the retryable arm
-        // below ends with: this step will not retry, and telling an operator
-        // otherwise while the run sits FAILED is the failure mode Standing
-        // Rule 1 exists to prevent.
-        // The doc id leads rather than trails: the gate's message is a
-        // multi-sentence paragraph ending in its own remedy ("…and re-run."),
-        // so appending "for 'doc-x'" after it would read as a fragment.
-        E::ResponseTruncated { .. } => TerminalError::new(format!(
-            "step_{step_name}: document '{doc_id}': {e} No retry — a truncated \
-             response is deterministic, and re-running against the same cap \
-             produces the same truncation."
-        ))
-        .into(),
-
-        // ── Terminal: operator-initiated cancellation ────────────
-        //
-        // Mirrors the Restate SDK's own
-        // `CancelSignalReceived → TerminalError(409, "cancelled")`
-        // mapping at `restate-sdk-0.6.0/src/endpoint/context.rs:884`.
-        // MUST be terminal — a Retryable classification here would
-        // bounce the cancelled invocation through Restate's retry
-        // loop and undo the whole point of polling
-        // `documents.is_cancelled` in the chunk loop.
-        E::Cancelled { .. } => TerminalError::new(format!(
-            "step_{step_name}: {e}. The cooperative-cancellation \
-             poller observed `documents.is_cancelled = true` and \
-             short-circuited before the next Anthropic API call. No \
-             retry — the operator explicitly asked to stop."
-        ))
-        .into(),
-
-        // ── Retryable: transient infrastructure ──────────────────
-        E::LlmCallFailed { .. }
-        | E::SemaphoreClosed
-        | E::InsertRunFailed { .. }
-        | E::CompleteRunFailed { .. }
-        | E::StoreFailed { .. } => HandlerError::from(format!(
-            "step_{step_name}: transient failure for '{doc_id}'. {e}. \
-             Will retry."
-        )),
-    }
 }
 
 // ─────────────────────────────────────────────────────────────────

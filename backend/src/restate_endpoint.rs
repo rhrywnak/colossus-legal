@@ -15,7 +15,7 @@
 //!
 //! ## HTTP/2 and the Podman compatibility note
 //!
-//! The legacy `AnthropicProvider` (and our new [`RigExtractionEngine`](crate::pipeline::rig_provider::RigExtractionEngine))
+//! The legacy `AnthropicProvider` (and our [`AnthropicStreamingEngine`](crate::pipeline::anthropic_engine::AnthropicStreamingEngine))
 //! force HTTP/1.1 because `api.anthropic.com` hangs over HTTP/2 + TLS
 //! when called from inside a Podman container. That constraint does
 //! NOT apply here: this is the *server* side, accepting traffic from
@@ -303,7 +303,7 @@ mod tests {
     //! exercises the live endpoint.
     //!
     //! The env-mutating test mirrors the pattern established in
-    //! `pipeline::rig_provider::tests` — single test function, both
+    //! `pipeline::anthropic_engine::tests` — single test function, both
     //! cases sequentially, snapshot-and-restore to keep other tests
     //! in the binary from seeing our scratch values.
     use super::*;

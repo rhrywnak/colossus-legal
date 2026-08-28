@@ -260,6 +260,11 @@ async fn run_scan_job(
         prepared.groups,
         state.pipeline_pool.clone(),
         run_id,
+        // The automatic-retry cap, read once at startup (ruled 2026-08-28). The
+        // scan judges hundreds of candidates concurrently, so a permissive cap
+        // multiplies across every one of them — which is precisely why the
+        // default is zero and why the value is not decided here.
+        state.config.llm_retry_max,
     )
     .await;
     // millis fit i64 for any real scan; the impossible overflow caps (Standing Rule 1).

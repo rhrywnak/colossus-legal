@@ -71,6 +71,10 @@ pub mod extract_text;
 pub mod index;
 pub mod ingest;
 pub mod llm_extract;
+/// Terminal-vs-retryable classification for the LLM extraction steps — where
+/// `LLM_RETRY_MAX` decides whether the engine may spend money re-running a
+/// failed call.
+pub mod llm_extract_classify;
 pub mod verify;
 
 // ── Step name constants ─────────────────────────────────────────

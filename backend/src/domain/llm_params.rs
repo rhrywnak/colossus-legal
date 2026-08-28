@@ -57,8 +57,12 @@ use crate::repositories::pipeline_repository::models::LlmModelRecord;
 /// Standing Rule 2 (no hardcoded values) exempts a value that is genuinely
 /// code-level and cannot vary per deployment — the resolver's LAST-RESORT floor
 /// is such a value: it exists so the resolver can never produce an absent timeout.
-/// Its numeric magnitude mirrors `rig_provider::DEFAULT_TIMEOUT_SECS` (600s) so a
-/// silent all-layers-unset path behaves like the existing provider default.
+/// Its numeric magnitude was chosen to mirror the provider's own 600s
+/// whole-request default. That default is GONE as of 2026-08-28: the extraction
+/// transport streams, and a whole-request cap is what cut off a healthy
+/// 64000-token response at exactly 600.0s. The floor stays at this magnitude
+/// only because it is a resolver invariant (a timeout must never resolve to
+/// absent) and no caller of `ResolvedLlmParams` puts it on the wire today.
 ///
 /// Future reconciliation: Chunk B owns the provider-side timeout plumbing; when
 /// it lands, this floor and the provider default should be sourced from ONE place.

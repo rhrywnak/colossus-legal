@@ -22,10 +22,10 @@ use reqwest::Client;
 use sqlx::PgPool;
 use tokio::sync::Semaphore;
 
+use crate::pipeline::anthropic_engine::AnthropicStreamingEngine;
 use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::registry::PipelineRegistry;
 use crate::pipeline::rig_llm_bridge::RigLlmProviderBridge;
-use crate::pipeline::rig_provider::RigExtractionEngine;
 
 /// Default number of concurrent LLM calls the pipeline worker will make.
 ///
@@ -134,6 +134,17 @@ pub struct AppContext {
     /// for what each threshold means and why it has the value it has.
     pub verify_gap_policy: GapPolicy,
 
+    /// Maximum AUTOMATIC retries of a failed LLM call, from `LLM_RETRY_MAX`.
+    ///
+    /// Read once at startup through the SAME reader `AppConfig` uses
+    /// ([`crate::config::llm_retry_max_from_env`]) so the pipeline path and the
+    /// service paths cannot drift apart — the identical argument that put
+    /// [`verify_gap_policy`](Self::verify_gap_policy) on this struct. Threaded
+    /// into every `crate::llm_retry` call and into the Restate
+    /// terminal-vs-retryable classification, so raising the cap is one config
+    /// change that reaches both.
+    pub llm_retry_max: u32,
+
     /// LLM provider (Anthropic or vLLM).
     /// Constructed from `LLM_PROVIDER` env var at startup.
     /// Consumed by the `LlmExtract` step and by the RAG synthesizer/decomposer.
@@ -146,12 +157,14 @@ pub struct AppContext {
     /// steps continue to use [`llm_provider`](Self::llm_provider)
     /// until Phase 3 removes them.
     ///
-    /// Constructed by [`RigExtractionEngine::from_env`], which reads
+    /// Constructed by [`AnthropicStreamingEngine::from_env`], which reads
     /// the same `ANTHROPIC_API_KEY` that the legacy `llm_provider`
-    /// path consumes, plus the optional
-    /// `EXTRACTION_ENGINE_TIMEOUT_SECS` and
-    /// `EXTRACTION_ENGINE_TCP_KEEPALIVE_SECS` tuning knobs introduced
-    /// in P1-3.
+    /// path consumes, plus the optional `LLM_STREAM_IDLE_TIMEOUT_SECS`,
+    /// `EXTRACTION_ENGINE_CONNECT_TIMEOUT_SECS`, and
+    /// `EXTRACTION_ENGINE_TCP_KEEPALIVE_SECS` tuning knobs.
+    /// `EXTRACTION_ENGINE_TIMEOUT_SECS` is RETIRED as of 2026-08-28 — it was
+    /// the whole-request cap, and a whole-request cap is what cut off a healthy
+    /// 64000-token generation at 600.0s.
     pub extraction_engine: Arc<dyn ExtractionEngine>,
 
     /// Embedding provider (fastembed or vLLM).
@@ -182,7 +195,7 @@ impl AppContext {
     ///
     /// Returns a descriptive error string if:
     /// - `ANTHROPIC_API_KEY` is unset — required by
-    ///   [`RigExtractionEngine`] that backs
+    ///   [`AnthropicStreamingEngine`] that backs
     ///   [`extraction_engine`](Self::extraction_engine) regardless of
     ///   which `LLM_PROVIDER` is selected, AND required for the
     ///   anthropic [`llm_provider`](Self::llm_provider) path.
@@ -203,13 +216,18 @@ impl AppContext {
         // default tuned in `GapPolicy::default` reaches both paths at once.
         let verify_gap_policy = crate::config::verify_gap_policy_from_env()?;
 
-        // Construct the Rig-backed extraction engine FIRST so the
+        // Same reader `AppConfig` uses; a malformed `LLM_RETRY_MAX` fails
+        // startup here exactly as it does there, and the pipeline and the
+        // services therefore run the same policy.
+        let llm_retry_max = crate::config::llm_retry_max_from_env()?;
+
+        // Construct the streaming extraction engine FIRST so the
         // anthropic-bridge `llm_provider` below can share it (one
         // HTTP/1.1 reqwest 0.13 client refcount-shared across the
         // bridge, the per-document `provider_for_model` bridges,
         // and any future Restate workflow handlers).
         let extraction_engine: Arc<dyn ExtractionEngine> = Arc::new(
-            RigExtractionEngine::from_env()
+            AnthropicStreamingEngine::from_env()
                 .map_err(|e| format!("Failed to build extraction engine: {e}"))?,
         );
 
@@ -268,6 +286,7 @@ impl AppContext {
 
         Ok(Self {
             verify_gap_policy,
+            llm_retry_max,
             pipeline_pool: deps.pipeline_pool,
             graph: deps.graph,
             qdrant_url: deps.qdrant_url,

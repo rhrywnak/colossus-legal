@@ -13,6 +13,27 @@
 //! `retry_after`, propagate every other error immediately). Duplicating it per
 //! caller would let the copies drift — one could grow a bug the other lacks.
 //! One definition, two callers (no tech debt / no duplication).
+//!
+//! ## The cap is ZERO by default, and that is the point (ruled 2026-08-28)
+//!
+//! Automatic retries of LLM calls cost real money and, twice in the week of
+//! 2026-08-24, bought nothing: a deterministic failure re-run is a deterministic
+//! failure. The truncation gate settled that argument for one failure class
+//! (census R-3); the 600s whole-request timeout that killed a healthy
+//! 64000-token generation settled it for another — Restate reran the step and
+//! spent the same money reaching the same wall.
+//!
+//! So the cap now defaults to `0`: an LLM-call failure marks the step failed
+//! immediately and waits for a human to click Re-process. The number is
+//! [`DEFAULT_MAX_RETRIES`], read from `LLM_RETRY_MAX` at startup by
+//! [`crate::config::llm_retry_max_from_env`], and it is a PARAMETER of every
+//! call here rather than a constant — raising it is a config change, and it must
+//! reach both this loop and the Restate terminal-vs-retryable classification in
+//! `pipeline::workflow_steps::llm_extract` from the same read.
+//!
+//! Note what the cap does NOT govern: truncation stays TERMINAL at any value
+//! (see [`crate::pipeline::truncation`]), because no number of retries against
+//! the same `max_tokens` ceiling changes the outcome.
 
 use tokio::time::Duration;
 
@@ -21,14 +42,28 @@ use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 use crate::domain::llm_params::ResolvedLlmParams;
 use crate::domain::llm_provider_ext::LlmProviderExt;
 
-/// Maximum retry attempts per LLM call on rate-limit (429) errors.
-pub(crate) const MAX_RETRIES_PER_CHUNK: u32 = 3;
+/// Default maximum automatic retry attempts per LLM call on rate-limit (429)
+/// errors, when `LLM_RETRY_MAX` is unset.
+///
+/// ZERO by ruling (2026-08-28) — see the module doc. This is deliberately the
+/// safe direction: an operator who has not thought about the key gets no
+/// automatic spend, and the failure waits for a human.
+///
+// CONST: the DEFAULT for an env-var-configured policy, which is exactly what
+// Standing Rule 2 asks a default to be — the live value is
+// `LLM_RETRY_MAX`, read once at startup. Raising the cap is a config change and
+// a restart, with no code change and no rebuild.
+pub(crate) const DEFAULT_MAX_RETRIES: u32 = 0;
 
 /// Call the LLM provider with rate-limit-aware retry.
 ///
 /// On `PipelineError::RateLimited`, sleeps exactly `retry_after_secs` and
-/// retries. Max [`MAX_RETRIES_PER_CHUNK`] attempts. Any other error returns
-/// immediately.
+/// retries, up to `max_retries` times. Any other error returns immediately.
+///
+/// `max_retries` comes from `LLM_RETRY_MAX` via the caller's `AppContext` /
+/// `AppConfig` — it is threaded rather than read here so the pipeline path and
+/// the service paths cannot disagree about the policy, and so no call site can
+/// quietly opt out of it.
 ///
 /// The `chunk_idx` / `chunk_total` pair is used only for logging.
 ///
@@ -52,8 +87,9 @@ pub(crate) async fn call_with_rate_limit_retry(
     max_tokens: u32,
     chunk_idx: usize,
     chunk_total: usize,
+    max_retries: u32,
 ) -> Result<LlmResponse, PipelineError> {
-    retry_rate_limited(chunk_idx, chunk_total, || async {
+    retry_rate_limited(chunk_idx, chunk_total, max_retries, || async {
         match system {
             Some(s) => provider.invoke_with_system(s, prompt, max_tokens).await,
             None => provider.invoke(prompt, max_tokens).await,
@@ -77,8 +113,9 @@ pub(crate) async fn call_with_rate_limit_retry_params(
     params: &ResolvedLlmParams,
     chunk_idx: usize,
     chunk_total: usize,
+    max_retries: u32,
 ) -> Result<LlmResponse, PipelineError> {
-    retry_rate_limited(chunk_idx, chunk_total, || async {
+    retry_rate_limited(chunk_idx, chunk_total, max_retries, || async {
         match system {
             Some(s) => {
                 provider
@@ -105,6 +142,7 @@ pub(crate) async fn call_with_rate_limit_retry_params(
 async fn retry_rate_limited<F, Fut>(
     chunk_idx: usize,
     chunk_total: usize,
+    max_retries: u32,
     mut call: F,
 ) -> Result<LlmResponse, PipelineError>
 where
@@ -117,12 +155,32 @@ where
             Ok(response) => return Ok(response),
             Err(PipelineError::RateLimited { retry_after_secs }) => {
                 attempt += 1;
-                if attempt > MAX_RETRIES_PER_CHUNK {
+                if attempt > max_retries {
+                    // Two distinct states, two distinct messages (Standing Rule
+                    // 1). "The policy forbade retrying" and "the policy allowed
+                    // N retries and all N failed" cost very different amounts of
+                    // money, and an operator reading `pipeline_jobs.error` must
+                    // be able to tell which one they are looking at without
+                    // going to find out what LLM_RETRY_MAX was set to.
+                    let reason = if max_retries == 0 {
+                        "rate limited, and LLM_RETRY_MAX is 0 — NO automatic retry was \
+                         attempted. The step fails now and waits for a human to click \
+                         Re-process. Raise LLM_RETRY_MAX if automatic retries are wanted"
+                            .to_string()
+                    } else {
+                        format!("exhausted {max_retries} rate-limit retries (LLM_RETRY_MAX)")
+                    };
+                    tracing::error!(
+                        chunk = chunk_idx,
+                        chunk_total,
+                        max_retries,
+                        retry_after_secs,
+                        "LLM call abandoned: {reason}"
+                    );
                     return Err(PipelineError::LlmProvider(format!(
-                        "chunk {}/{}: exhausted {} rate-limit retries",
+                        "chunk {}/{}: {reason}",
                         chunk_idx + 1,
                         chunk_total,
-                        MAX_RETRIES_PER_CHUNK
                     )));
                 }
 
@@ -214,12 +272,115 @@ mod tests {
         }
     }
 
+    /// Always rate-limited, and counts how many times it was asked.
+    ///
+    /// `retry_after_secs: 0` so a test that DOES permit retries does not sleep.
+    #[derive(Default)]
+    struct AlwaysRateLimited {
+        calls: Mutex<u32>,
+    }
+
+    #[async_trait]
+    impl LlmProvider for AlwaysRateLimited {
+        async fn invoke(&self, _prompt: &str, _max: u32) -> Result<LlmResponse, PipelineError> {
+            *self.calls.lock().expect("test mutex") += 1;
+            Err(PipelineError::RateLimited {
+                retry_after_secs: 0,
+            })
+        }
+        async fn invoke_with_system(
+            &self,
+            _system: &str,
+            _prompt: &str,
+            _max: u32,
+        ) -> Result<LlmResponse, PipelineError> {
+            self.invoke(_prompt, _max).await
+        }
+        fn provider_name(&self) -> &str {
+            "always-rate-limited"
+        }
+        fn model_name(&self) -> &str {
+            "always-rate-limited-model"
+        }
+        fn cost_per_input_token(&self) -> Option<f64> {
+            None
+        }
+        fn cost_per_output_token(&self) -> Option<f64> {
+            None
+        }
+        fn supports_structured_output(&self) -> bool {
+            false
+        }
+    }
+
+    #[tokio::test]
+    async fn a_cap_of_zero_calls_the_model_exactly_once() {
+        // The shipped default, and the whole point of the 2026-08-28 ruling: the
+        // provider is asked ONCE, and the second paid call never happens.
+        let p = AlwaysRateLimited::default();
+        let err = call_with_rate_limit_retry(&p, None, "user", 512, 0, 1, 0)
+            .await
+            .expect_err("a rate-limited call with no retries must fail");
+        assert_eq!(
+            *p.calls.lock().expect("test mutex"),
+            1,
+            "a cap of zero must not produce a second paid call"
+        );
+        let text = err.to_string();
+        assert!(
+            text.contains("LLM_RETRY_MAX is 0"),
+            "the failure must say the POLICY stopped it, not that retries ran out: {text}"
+        );
+        assert!(
+            text.contains("Re-process"),
+            "the failure must name the human action that resumes the run: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_raised_cap_takes_effect_without_a_code_change() {
+        // The other half of "configurable": the cap is a parameter, so a
+        // deployment that sets LLM_RETRY_MAX=2 gets the initial call plus two
+        // retries — three paid calls — and a message that says so.
+        let p = AlwaysRateLimited::default();
+        let err = call_with_rate_limit_retry(&p, None, "user", 512, 0, 1, 2)
+            .await
+            .expect_err("still rate limited after the retries");
+        assert_eq!(
+            *p.calls.lock().expect("test mutex"),
+            3,
+            "one initial call plus two retries"
+        );
+        let text = err.to_string();
+        assert!(
+            text.contains("exhausted 2"),
+            "an exhausted cap reads differently from a zero cap: {text}"
+        );
+    }
+
+    #[test]
+    fn the_shipped_default_is_zero() {
+        // Pinned rather than assumed. If this constant is ever raised, the
+        // change should have to argue with a failing test first: the two
+        // incidents in the week of 2026-08-24 were both paid for by automatic
+        // re-invocation of a deterministic failure.
+        assert_eq!(DEFAULT_MAX_RETRIES, 0);
+    }
+
     #[tokio::test]
     async fn params_wrapper_with_system_routes_through_the_system_seam() {
         let p = RecordingProvider::default();
-        call_with_rate_limit_retry_params(&p, Some("SYS"), "user", &params(), 0, 1)
-            .await
-            .expect("stub never errors");
+        call_with_rate_limit_retry_params(
+            &p,
+            Some("SYS"),
+            "user",
+            &params(),
+            0,
+            1,
+            DEFAULT_MAX_RETRIES,
+        )
+        .await
+        .expect("stub never errors");
         let (system, max_tokens) = p.last.lock().unwrap().clone().expect("a call recorded");
         assert_eq!(system.as_deref(), Some("SYS"), "system prompt must survive");
         assert_eq!(max_tokens, 512, "params.max_tokens must be threaded");
@@ -228,7 +389,7 @@ mod tests {
     #[tokio::test]
     async fn params_wrapper_without_system_routes_through_the_plain_seam() {
         let p = RecordingProvider::default();
-        call_with_rate_limit_retry_params(&p, None, "user", &params(), 0, 1)
+        call_with_rate_limit_retry_params(&p, None, "user", &params(), 0, 1, DEFAULT_MAX_RETRIES)
             .await
             .expect("stub never errors");
         let (system, max_tokens) = p.last.lock().unwrap().clone().expect("a call recorded");

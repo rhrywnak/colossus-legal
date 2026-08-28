@@ -18,8 +18,8 @@ use colossus_extract::{EmbeddingProvider, LlmProvider};
 use colossus_legal_backend::{
     config::AppConfig,
     neo4j::create_neo4j_graph,
+    pipeline::anthropic_engine::AnthropicStreamingEngine,
     pipeline::extraction_engine::ExtractionEngine,
-    pipeline::rig_provider::RigExtractionEngine,
     pipeline::steps::cleanup::{
         cleanup_all, cleanup_neo4j, cleanup_postgres, cleanup_qdrant, CleanupError,
     },
@@ -124,9 +124,17 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
         http_client,
         document_storage_path: config.document_storage_path.clone(),
         registry,
+        // Both of these are startup-read policy values on `AppContext`. The
+        // fixture takes them from the same `AppConfig` the binary does, so a
+        // test can never accidentally run under a policy production does not
+        // have. (`verify_gap_policy` predates this file's last update; both are
+        // named here so the fixture matches the struct.)
+        verify_gap_policy: config.verify_gap_policy,
+        llm_retry_max: config.llm_retry_max,
         llm_provider: Arc::new(PanicLlm) as Arc<dyn LlmProvider>,
-        extraction_engine: Arc::new(RigExtractionEngine::from_env().expect("extraction engine"))
-            as Arc<dyn ExtractionEngine>,
+        extraction_engine: Arc::new(
+            AnthropicStreamingEngine::from_env().expect("extraction engine"),
+        ) as Arc<dyn ExtractionEngine>,
         embedding_provider: Arc::new(PanicEmbedding) as Arc<dyn EmbeddingProvider>,
         llm_semaphore: Arc::new(Semaphore::new(1)),
         case_slug: config.case_slug.clone(),

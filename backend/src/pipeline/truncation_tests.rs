@@ -165,10 +165,20 @@ fn the_bridge_checks_before_it_builds_a_response_on_both_entry_points() {
 
     // And the provider must actually capture the field, or the detector only
     // ever sees None and can never fire.
-    let provider = include_str!("rig_provider.rs");
+    // And the adapter must actually capture the field, or the detector only ever
+    // sees None and can never fire. Since 2026-08-28 the transport streams, and
+    // `stop_reason` arrives in the `message_delta` event rather than in a
+    // response body — so BOTH halves are pinned: the accumulator must read it
+    // out of the stream, and the adapter must carry it onto the call result.
+    let accumulator = include_str!("anthropic_stream.rs");
     assert!(
-        provider.contains("stop_reason"),
-        "rig_provider must carry stop_reason out of the API response"
+        accumulator.contains("stop_reason"),
+        "anthropic_stream must read stop_reason out of the message_delta event"
+    );
+    let adapter = include_str!("anthropic_engine.rs");
+    assert!(
+        adapter.contains("stop_reason: Some(message.stop_reason)"),
+        "anthropic_engine must carry stop_reason onto the LlmCallResult"
     );
 }
 

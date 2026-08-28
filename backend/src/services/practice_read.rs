@@ -101,6 +101,11 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
             &setup.params,
             0,
             1,
+            // The retry policy, read once at startup (ruled 2026-08-28). Note
+            // this is the RATE-LIMIT retry cap, not the `MAX_ATTEMPTS`
+            // re-request loop this line sits inside: that one exists because a
+            // reply can be badly FORMATTED, which asking again does fix.
+            state.config.llm_retry_max,
         )
         .await;
         let ms = elapsed_ms(started);
