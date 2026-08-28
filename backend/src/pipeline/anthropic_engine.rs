@@ -46,7 +46,12 @@
 //! and the bridge substituted a 60s default. We hold the response ourselves now,
 //! so the provider's actual `retry-after` is preserved and
 //! [`ExtractionEngineError::RateLimited`] carries a real number when Anthropic
-//! sends one.
+//! sends one — and, when it does not, that absence survives too rather than
+//! being papered over with a guess (see [`crate::llm_retry_policy`]).
+//!
+//! HTTP 529 (`overloaded_error`) joins 429 on that path. Both are refusals
+//! before generation starts, which is what makes them the one class of failure
+//! this repo retries without asking a human: nothing was billed.
 //!
 //! ## Environment variables
 //!
@@ -334,17 +339,37 @@ async fn transport_error_from_response(response: reqwest_13::Response) -> Transp
 
 /// Map a [`TransportError`] into the engine's error taxonomy.
 ///
-/// Only 429 gets its own variant: the orchestrator's rate-limit wrapper is the
-/// one caller that acts differently on a specific failure kind. Everything else
-/// — stalls, non-2xx, malformed or incomplete streams — is `LlmCallFailed`, and
-/// the step classifier above decides terminal-vs-retryable from the retry
-/// policy rather than from the failure's shape.
+/// Only a PRE-GENERATION rejection (HTTP 429 / 529) gets its own variant, and it
+/// is the one failure the retry loop in [`crate::llm_retry`] acts on by itself —
+/// because it is the only one that costs nothing to retry. Everything else —
+/// stalls, other non-2xx, malformed or incomplete streams, and any error event
+/// arriving mid-stream — is `LlmCallFailed`, and the step classifier decides
+/// terminal-vs-retryable from `LLM_RETRY_MAX` rather than from the failure's
+/// shape.
+///
+/// The warning here is where the two rejection kinds stay distinguishable: the
+/// variant they map onto has no room for the kind, so the log is what tells an
+/// operator whether they hit their own quota (429) or Anthropic's capacity
+/// (529). Both are worth seeing at the moment they happen, since the retry that
+/// follows may well succeed and leave no other trace.
 fn map_transport_error(err: TransportError, model: &str) -> ExtractionEngineError {
     match err {
-        TransportError::RateLimited { retry_after_secs } => ExtractionEngineError::RateLimited {
-            model: model.to_string(),
+        TransportError::Rejected {
+            kind,
             retry_after_secs,
-        },
+        } => {
+            tracing::warn!(
+                model,
+                rejection = %kind,
+                retry_after_secs = ?retry_after_secs,
+                "Anthropic REJECTED the request before generation — no tokens billed; \
+                 the rate-limit retry budget (LLM_RATE_LIMIT_RETRY_MAX) applies"
+            );
+            ExtractionEngineError::RateLimited {
+                model: model.to_string(),
+                retry_after_secs,
+            }
+        }
         other => ExtractionEngineError::LlmCallFailed {
             model: model.to_string(),
             source: Box::new(other),

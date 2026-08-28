@@ -14,6 +14,7 @@
 //! the P2-8 CC instruction (struct-of-args instead of 7 positional args).
 
 use crate::domain::quote_gap::GapPolicy;
+use crate::llm_retry_policy::LlmRetryPolicy;
 use std::sync::Arc;
 
 use colossus_extract::{EmbeddingProvider, LlmProvider};
@@ -134,16 +135,17 @@ pub struct AppContext {
     /// for what each threshold means and why it has the value it has.
     pub verify_gap_policy: GapPolicy,
 
-    /// Maximum AUTOMATIC retries of a failed LLM call, from `LLM_RETRY_MAX`.
+    /// The two automatic-retry caps, from `LLM_RETRY_MAX` and
+    /// `LLM_RATE_LIMIT_RETRY_MAX`.
     ///
     /// Read once at startup through the SAME reader `AppConfig` uses
-    /// ([`crate::config::llm_retry_max_from_env`]) so the pipeline path and the
-    /// service paths cannot drift apart — the identical argument that put
+    /// ([`crate::config::llm_retry_policy_from_env`]) so the pipeline path and
+    /// the service paths cannot drift apart — the identical argument that put
     /// [`verify_gap_policy`](Self::verify_gap_policy) on this struct. Threaded
     /// into every `crate::llm_retry` call and into the Restate
-    /// terminal-vs-retryable classification, so raising the cap is one config
+    /// terminal-vs-retryable classification, so raising a cap is one config
     /// change that reaches both.
-    pub llm_retry_max: u32,
+    pub llm_retry_policy: LlmRetryPolicy,
 
     /// LLM provider (Anthropic or vLLM).
     /// Constructed from `LLM_PROVIDER` env var at startup.
@@ -216,10 +218,10 @@ impl AppContext {
         // default tuned in `GapPolicy::default` reaches both paths at once.
         let verify_gap_policy = crate::config::verify_gap_policy_from_env()?;
 
-        // Same reader `AppConfig` uses; a malformed `LLM_RETRY_MAX` fails
-        // startup here exactly as it does there, and the pipeline and the
-        // services therefore run the same policy.
-        let llm_retry_max = crate::config::llm_retry_max_from_env()?;
+        // Same reader `AppConfig` uses; a malformed `LLM_RETRY_MAX` or
+        // `LLM_RATE_LIMIT_RETRY_MAX` fails startup here exactly as it does
+        // there, and the pipeline and the services therefore run one policy.
+        let llm_retry_policy = crate::config::llm_retry_policy_from_env()?;
 
         // Construct the streaming extraction engine FIRST so the
         // anthropic-bridge `llm_provider` below can share it (one
@@ -286,7 +288,7 @@ impl AppContext {
 
         Ok(Self {
             verify_gap_policy,
-            llm_retry_max,
+            llm_retry_policy,
             pipeline_pool: deps.pipeline_pool,
             graph: deps.graph,
             qdrant_url: deps.qdrant_url,

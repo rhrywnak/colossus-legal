@@ -107,7 +107,14 @@ async fn step_llm_extract_pass1_body(
     // function with its own cancel check + progress.set_step_result.
     let result = run_pass1_extraction(doc_id, &app.pipeline_pool, app.as_ref())
         .await
-        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass1", e, app.llm_retry_max))?;
+        .map_err(|e| {
+            classify_dyn_llm_error(
+                doc_id,
+                "llm_extract_pass1",
+                e,
+                app.llm_retry_policy.max_retries,
+            )
+        })?;
 
     // Postgres status write — mirrors the Restate state write the
     // workflow performs after this step. Decision #3 in P2-2b: pass-1
@@ -289,7 +296,14 @@ async fn step_llm_extract_pass2_body(
     //     carries the already-complete signal directly.
     let result = run_pass2_extraction(doc_id, &app.pipeline_pool, app.as_ref())
         .await
-        .map_err(|e| classify_dyn_llm_error(doc_id, "llm_extract_pass2", e, app.llm_retry_max))?;
+        .map_err(|e| {
+            classify_dyn_llm_error(
+                doc_id,
+                "llm_extract_pass2",
+                e,
+                app.llm_retry_policy.max_retries,
+            )
+        })?;
 
     let summary = if result.skipped_already_complete {
         tracing::info!(

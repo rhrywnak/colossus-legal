@@ -22,7 +22,7 @@ use crate::pipeline::truncation;
 /// Bound to the real shipped default rather than a literal `0`, so if
 /// `LLM_RETRY_MAX`'s default is ever changed the tests move with it instead of
 /// silently continuing to assert a policy the product no longer has.
-const SHIPPED_RETRY_MAX: u32 = crate::llm_retry::DEFAULT_MAX_RETRIES;
+const SHIPPED_RETRY_MAX: u32 = crate::llm_retry_policy::DEFAULT_MAX_RETRIES;
 
 /// A cap an operator might set after deciding automatic retries are worth the
 /// money — the "raising it needs no code change" half of the ruling.

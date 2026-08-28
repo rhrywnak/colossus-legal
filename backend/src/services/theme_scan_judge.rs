@@ -27,6 +27,7 @@ use uuid::Uuid;
 use crate::bias::dto::BiasInstance;
 use crate::domain::llm_params::ResolvedLlmParams;
 use crate::llm_retry::call_with_rate_limit_retry_params;
+use crate::llm_retry_policy::LlmRetryPolicy;
 use crate::repositories::pipeline_repository::{bump_scan_run_progress, ProgressBucket};
 use crate::services::theme_scan_parse::{parse_verdict, Verdict};
 use crate::services::theme_scan_prefilter::CandidateGroup;
@@ -77,10 +78,11 @@ pub(crate) async fn judge_all(
     groups: Vec<CandidateGroup>,
     pool: PgPool,
     run_id: Uuid,
-    // Maximum automatic retries per judged candidate, from `LLM_RETRY_MAX`.
-    // Zero by default — see `crate::llm_retry`. `u32` is `Copy`, so every
-    // concurrent task gets its own copy alongside `params`.
-    max_retries: u32,
+    // The automatic-retry caps, from `LLM_RETRY_MAX` /
+    // `LLM_RATE_LIMIT_RETRY_MAX` — see `crate::llm_retry_policy`.
+    // `LlmRetryPolicy` is `Copy`, so every concurrent task gets its own copy
+    // alongside `params`.
+    policy: LlmRetryPolicy,
 ) -> Vec<(CandidateGroup, JudgeOutcome)> {
     let total = groups.len();
     stream::iter(groups.into_iter().enumerate())
@@ -105,7 +107,7 @@ pub(crate) async fn judge_all(
                     &group.representative,
                     idx,
                     total,
-                    max_retries,
+                    policy,
                 )
                 .await;
                 report_progress(&pool, run_id, &outcome).await;
@@ -149,7 +151,7 @@ async fn judge_one(
     candidate: &BiasInstance,
     idx: usize,
     total: usize,
-    max_retries: u32,
+    policy: LlmRetryPolicy,
 ) -> JudgeOutcome {
     // Acquire a permit from the dedicated cap for the duration of the call. A
     // closed semaphore (only at shutdown) is a per-item failure, not a panic.
@@ -176,7 +178,7 @@ async fn judge_one(
         params,
         idx,
         total,
-        max_retries,
+        policy,
     )
     .await;
     outcome_from_result(result)

@@ -37,10 +37,17 @@ use crate::pipeline::anthropic_stream::{
     MessageAccumulator, Progress, SseDecoder, StreamError, StreamedMessage,
 };
 
-/// HTTP status meaning "rate limited".
+/// HTTP status meaning "rate limited" (`rate_limit_error`).
 ///
 /// CONST: an HTTP status code — protocol vocabulary, not a setting.
 const STATUS_TOO_MANY_REQUESTS: u16 = 429;
+
+/// HTTP status Anthropic returns for `overloaded_error`.
+///
+/// CONST: Anthropic's documented overload status. Grouped with 429 because both
+/// mean the SAME operational thing — the request was refused at the front door
+/// and no generation began. See [`RejectionKind`].
+const STATUS_OVERLOADED: u16 = 529;
 
 /// Response header carrying the provider's requested backoff, in seconds.
 const RETRY_AFTER_HEADER: &str = "retry-after";
@@ -51,6 +58,36 @@ const RETRY_AFTER_HEADER: &str = "retry-after";
 /// objects; the cap exists so an HTML error page from an intercepting proxy
 /// cannot flood `pipeline_jobs.error`.
 const ERROR_BODY_PREVIEW_CHARS: usize = 500;
+
+/// Which pre-generation refusal the provider returned.
+///
+/// The two are handled identically by the retry policy; the distinction is kept
+/// so the log and the failure message say which one happened. "Rate limited" and
+/// "the provider is overloaded" call for different operator responses — the
+/// first is usually our own concurrency, the second is never anything we did —
+/// and collapsing them would hide that (Standing Rule 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RejectionKind {
+    /// HTTP 429 — `rate_limit_error`. Our quota, usually our own concurrency.
+    RateLimited,
+    /// HTTP 529 — `overloaded_error`. Anthropic's capacity, not ours.
+    Overloaded,
+}
+
+/// ## Rust Learning: `Display` vs the derived `Debug` on a small enum
+///
+/// `Debug` prints the Rust identifier — `RateLimited`. This impl is what an
+/// operator reads in `pipeline_jobs.error`, so it spells out the status code and
+/// Anthropic's own error-type name: the two things worth pasting into a support
+/// conversation.
+impl std::fmt::Display for RejectionKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::RateLimited => write!(f, "HTTP 429 rate_limit_error"),
+            Self::Overloaded => write!(f, "HTTP 529 overloaded_error"),
+        }
+    }
+}
 
 /// Everything the transport can fail with.
 ///
@@ -77,13 +114,30 @@ pub enum TransportError {
         body: String,
     },
 
-    /// HTTP 429. Carries the provider's own `retry-after` when it sent one —
-    /// which, unlike the previous Rig-based transport, we can now read, because
-    /// we hold the response headers ourselves.
+    /// HTTP 429 or 529 — the request was REJECTED before generation began.
+    ///
+    /// ## Domain note: why these two are the only free retries
+    ///
+    /// Both statuses are refusals at the front door: the model never started, so
+    /// nothing was billed and retrying costs only wall-clock. That is the entire
+    /// justification for exempting them from the zero-retry ruling of
+    /// 2026-08-28 — see [`crate::llm_retry_policy`].
+    ///
+    /// The exemption is earned by WHERE the failure was detected, not by what it
+    /// is called: an `overloaded_error` arriving as an event inside an
+    /// already-open stream reaches [`TransportError::Stream`] instead, because
+    /// by then generation may have started and may have billed.
+    ///
+    /// Carries the provider's own `retry-after` when it sent one — which, unlike
+    /// the previous Rig-based transport, we can now read, because we hold the
+    /// response headers ourselves.
     #[error(
-        "the Anthropic Messages API rate-limited the request (retry-after: {retry_after_secs:?})"
+        "the Anthropic Messages API rejected the request before generation: \
+         {kind} (retry-after: {retry_after_secs:?})"
     )]
-    RateLimited {
+    Rejected {
+        /// Which refusal it was, for the operator-facing message.
+        kind: RejectionKind,
         /// Seconds the provider asked us to wait, if it said.
         retry_after_secs: Option<u64>,
     },
@@ -125,18 +179,30 @@ pub fn preview_body(body: &str) -> String {
 
 /// Classify a non-success HTTP status into a [`TransportError`].
 ///
-/// Split out from the request path so both branches are assertable without a
-/// socket: 429 becomes the typed rate-limit variant carrying whatever
-/// `retry-after` the provider sent, everything else becomes `Status`.
+/// Split out from the request path so every branch is assertable without a
+/// socket. 429 and 529 become the typed [`TransportError::Rejected`] variant
+/// carrying whatever `retry-after` the provider sent; everything else becomes
+/// `Status`.
+///
+/// This function is the ONLY place a pre-generation rejection is recognised, and
+/// it runs before a single body byte is read. That is what makes the retry
+/// exemption structural rather than a guess about error text — nothing produced
+/// later in the exchange can reach this variant.
 pub fn classify_status(status: u16, retry_after: Option<&str>, body: &str) -> TransportError {
-    if status == STATUS_TOO_MANY_REQUESTS {
-        return TransportError::RateLimited {
+    let kind = match status {
+        STATUS_TOO_MANY_REQUESTS => Some(RejectionKind::RateLimited),
+        STATUS_OVERLOADED => Some(RejectionKind::Overloaded),
+        _ => None,
+    };
+    match kind {
+        Some(kind) => TransportError::Rejected {
+            kind,
             retry_after_secs: parse_retry_after(retry_after),
-        };
-    }
-    TransportError::Status {
-        status,
-        body: preview_body(body),
+        },
+        None => TransportError::Status {
+            status,
+            body: preview_body(body),
+        },
     }
 }
 

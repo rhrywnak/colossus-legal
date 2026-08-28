@@ -105,7 +105,7 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
             // this is the RATE-LIMIT retry cap, not the `MAX_ATTEMPTS`
             // re-request loop this line sits inside: that one exists because a
             // reply can be badly FORMATTED, which asking again does fix.
-            state.config.llm_retry_max,
+            state.config.llm_retry_policy,
         )
         .await;
         let ms = elapsed_ms(started);

@@ -172,38 +172,116 @@ async fn a_body_that_ends_before_message_stop_is_incomplete() {
 }
 
 #[test]
-fn a_429_is_classified_with_the_providers_own_retry_after() {
+fn a_429_is_classified_as_a_rejection_with_the_providers_own_retry_after() {
     // The Rig transport discarded this header and the bridge substituted 60s for
     // every rate limit. Holding the response ourselves gets the real value back.
     match classify_status(429, Some("17"), "{\"type\":\"error\"}") {
-        TransportError::RateLimited { retry_after_secs } => {
+        TransportError::Rejected {
+            kind,
+            retry_after_secs,
+        } => {
+            assert_eq!(kind, RejectionKind::RateLimited);
             assert_eq!(retry_after_secs, Some(17));
         }
-        other => panic!("expected RateLimited, got {other:?}"),
+        other => panic!("expected Rejected, got {other:?}"),
     }
 }
 
 #[test]
-fn a_429_with_no_usable_retry_after_reports_none_not_zero() {
-    // `None` means "the provider did not say"; `Some(0)` would mean "retry
-    // immediately". Collapsing them would make the bridge's documented 60s
-    // default unreachable (Standing Rule 1).
-    for header in [None, Some("soon"), Some("")] {
-        match classify_status(429, header, "") {
-            TransportError::RateLimited { retry_after_secs } => {
-                assert_eq!(retry_after_secs, None, "header was {header:?}");
+fn a_529_is_classified_as_a_rejection_too() {
+    // The amendment: HTTP 529 `overloaded_error` is a refusal at the front door
+    // exactly like a 429, so it earns the same free-retry treatment. Anthropic
+    // usually sends no retry-after with it, which is what the backoff schedule
+    // in `llm_retry_policy` exists for.
+    match classify_status(529, None, "{\"type\":\"error\"}") {
+        TransportError::Rejected {
+            kind,
+            retry_after_secs,
+        } => {
+            assert_eq!(kind, RejectionKind::Overloaded);
+            assert_eq!(retry_after_secs, None);
+        }
+        other => panic!("expected Rejected, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_two_rejection_kinds_stay_distinguishable_in_what_an_operator_reads() {
+    // They are handled identically, but "I hit my own quota" and "Anthropic is
+    // out of capacity" call for different operator responses, so the message
+    // must not collapse them (Standing Rule 1).
+    assert!(RejectionKind::RateLimited.to_string().contains("429"));
+    assert!(RejectionKind::Overloaded.to_string().contains("529"));
+    assert_ne!(
+        RejectionKind::RateLimited.to_string(),
+        RejectionKind::Overloaded.to_string()
+    );
+}
+
+#[test]
+fn a_rejection_with_no_usable_retry_after_reports_none_not_zero() {
+    // `None` means "the provider did not say" and selects the backoff schedule;
+    // `Some(0)` would mean "retry immediately". Collapsing them would make the
+    // schedule unreachable for a header-less 429 (Standing Rule 1).
+    for status in [429u16, 529] {
+        for header in [None, Some("soon"), Some("")] {
+            match classify_status(status, header, "") {
+                TransportError::Rejected {
+                    retry_after_secs, ..
+                } => {
+                    assert_eq!(retry_after_secs, None, "status {status}, header {header:?}");
+                }
+                other => panic!("expected Rejected, got {other:?}"),
             }
-            other => panic!("expected RateLimited, got {other:?}"),
         }
     }
 }
 
 #[test]
-fn a_non_429_failure_keeps_its_status_and_a_bounded_body() {
+fn an_ordinary_server_error_is_not_a_rejection() {
+    // The exemption must stay narrow. A 500 or a 503 says nothing about whether
+    // generation began, so it does not get free retries.
+    for status in [400u16, 401, 500, 503, 502] {
+        match classify_status(status, None, "boom") {
+            TransportError::Status { status: got, .. } => assert_eq!(got, status),
+            other => panic!("status {status} must not be a rejection, got {other:?}"),
+        }
+    }
+}
+
+#[tokio::test]
+// The capital is the point: WHERE the error was detected is what decides
+// whether retrying it is free.
+#[allow(non_snake_case)]
+async fn an_overloaded_error_INSIDE_the_stream_is_never_a_rejection() {
+    // The boundary the whole amendment turns on. The same provider condition —
+    // "overloaded" — is free when it arrives as an HTTP status before the body,
+    // and potentially already-billed when it arrives as an event after the
+    // stream opened. Only `classify_status` can produce `Rejected`; the
+    // accumulator's path cannot reach it, and this pins that structurally.
+    let mid_stream = concat!(
+        r#"data: {"type":"message_start","message":{"id":"m","usage":{"input_tokens":9}}}"#,
+        "\n\n",
+        r#"data: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}"#,
+        "\n\n",
+    );
+    let mut source = CannedChunks::new(&[mid_stream]);
+    match drive(&mut source, Duration::from_secs(30)).await {
+        Err(TransportError::Stream(StreamError::ProviderEvent { kind, .. })) => {
+            assert_eq!(kind, "overloaded_error");
+        }
+        other => panic!("expected Stream(ProviderEvent), got {other:?}"),
+    }
+}
+
+#[test]
+fn a_non_rejection_failure_keeps_its_status_and_a_bounded_body() {
+    // 500 rather than 529: since the amendment, 529 is a rejection and takes the
+    // free-retry path, so it is no longer an example of "everything else".
     let huge = "x".repeat(10_000);
-    match classify_status(529, None, &huge) {
+    match classify_status(500, None, &huge) {
         TransportError::Status { status, body } => {
-            assert_eq!(status, 529);
+            assert_eq!(status, 500);
             assert_eq!(
                 body.chars().count(),
                 super::ERROR_BODY_PREVIEW_CHARS,

@@ -46,23 +46,9 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 
+use crate::llm_retry_policy;
 use crate::pipeline::extraction_engine::{ExtractionEngine, ExtractionEngineError, LlmCallResult};
 use crate::pipeline::truncation;
-
-/// Default `retry-after` value when the engine reports a rate limit
-/// with no header value.
-///
-/// CONST: matches the fallback stated in `PipelineError::RateLimited`'s
-/// own doc (colossus-extract/src/error.rs:71 — "If the header was
-/// absent (rare), defaults to 60"). Rig 0.36 discards the
-/// `retry-after` header, so this value will be returned for *every*
-/// 429 the bridge sees until Rig surfaces the header. The legacy
-/// `AnthropicProvider` preserved the precise header value — the
-/// migration to Rig sacrifices precision for that header in
-/// exchange for the broader Rig integration. The orchestrator's
-/// retry policy must therefore tolerate `60s` as a worst case for
-/// every rate-limit response.
-const DEFAULT_RATE_LIMIT_RETRY_SECS: u64 = 60;
 
 /// Provider name returned by [`LlmProvider::provider_name`].
 ///
@@ -167,11 +153,11 @@ fn convert_tokens(value: Option<u64>) -> Option<u32> {
 /// variant has documented behavior:
 ///
 /// - `RateLimited { retry_after_secs, .. }` → preserves the typed
-///   shape. The bridge supplies `60` as the default when the engine
-///   reports `None` (Rig 0.36 always reports None — see
-///   [`DEFAULT_RATE_LIMIT_RETRY_SECS`]). The legacy variant's `u64`
-///   type forces a value; we cannot pass through the
-///   None/Some distinction the modern variant carries.
+///   shape. The legacy variant's `u64` forces a value, so the
+///   `None` case travels as
+///   [`llm_retry_policy::NO_RETRY_ADVICE`] rather than as a
+///   substituted default — the retry loop needs to know the
+///   difference between an advised wait and no advice at all.
 /// - `LlmCallFailed { model, source }` → `LlmProvider(String)` —
 ///   prefixes the model id so the legacy variant's flat string
 ///   still names which model failed.
@@ -184,7 +170,16 @@ fn map_engine_error(err: ExtractionEngineError) -> PipelineError {
             model: _,
             retry_after_secs,
         } => PipelineError::RateLimited {
-            retry_after_secs: retry_after_secs.unwrap_or(DEFAULT_RATE_LIMIT_RETRY_SECS),
+            // The ONE writer of the `no advice` sentinel. Until 2026-08-28 this
+            // line substituted a flat 60s for a missing header, because Rig
+            // discarded the header and every rate limit looked identical
+            // anyway. Now that the transport reads it, "the provider said 17s"
+            // and "the provider said nothing" are different states, and the
+            // retry loop waits differently for them — so the absence has to
+            // survive a foreign enum that has no room for it. See
+            // `crate::llm_retry_policy::NO_RETRY_ADVICE` for why a sentinel and
+            // not a default.
+            retry_after_secs: llm_retry_policy::advice_from_header(retry_after_secs),
         },
         ExtractionEngineError::LlmCallFailed { model, source } => {
             PipelineError::LlmProvider(format!("model {model}: {source}"))
@@ -380,17 +375,47 @@ mod tests {
     }
 
     #[test]
-    fn error_map_rate_limited_with_none_secs_falls_back_to_default() {
+    fn error_map_rate_limited_with_none_secs_carries_the_absence_through() {
+        // Before 2026-08-28 this substituted a flat 60s, which was harmless only
+        // because Rig discarded the header and the value was always a guess.
+        // Now that the transport reads the real header, a substituted default
+        // would make "the provider said nothing" indistinguishable from "the
+        // provider said sixty" — and the retry loop would sit out a full minute
+        // on a 529 that carried no advice at all.
         let err = ExtractionEngineError::RateLimited {
             model: "claude-sonnet-4-6".to_string(),
             retry_after_secs: None,
         };
         match map_engine_error(err) {
             PipelineError::RateLimited { retry_after_secs } => {
-                assert_eq!(retry_after_secs, DEFAULT_RATE_LIMIT_RETRY_SECS);
-                assert_eq!(retry_after_secs, 60); // Spec lock-down.
+                assert_eq!(
+                    llm_retry_policy::advice_to_header(retry_after_secs),
+                    None,
+                    "an absent header must decode back to absent"
+                );
             }
             other => panic!("expected RateLimited, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn error_map_rate_limited_round_trips_a_real_header_value() {
+        // The other half of the round trip the sentinel has to keep total: a
+        // provider-supplied wait must come back out unchanged, including zero.
+        for secs in [0u64, 17, 120] {
+            let err = ExtractionEngineError::RateLimited {
+                model: "claude-sonnet-4-6".to_string(),
+                retry_after_secs: Some(secs),
+            };
+            match map_engine_error(err) {
+                PipelineError::RateLimited { retry_after_secs } => {
+                    assert_eq!(
+                        llm_retry_policy::advice_to_header(retry_after_secs),
+                        Some(secs)
+                    );
+                }
+                other => panic!("expected RateLimited, got {other:?}"),
+            }
         }
     }
 

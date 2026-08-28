@@ -1,5 +1,6 @@
 use crate::api::pipeline::RestatePurgePolicy;
 use crate::domain::quote_gap::GapPolicy;
+use crate::llm_retry_policy::LlmRetryPolicy;
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -65,16 +66,18 @@ pub struct AppConfig {
     /// infrastructure addresses live in configuration, never in code
     /// (Standing Rule 2).
     pub restate_admin_url: Option<String>,
-    /// Maximum AUTOMATIC retries of a failed LLM call, from `LLM_RETRY_MAX`.
+    /// The two automatic-retry caps, from `LLM_RETRY_MAX` and
+    /// `LLM_RATE_LIMIT_RETRY_MAX`.
     ///
-    /// Zero by default (ruled 2026-08-28) — an LLM-call failure marks the step
-    /// failed immediately and waits for a human to click Re-process. Carried on
-    /// the config rather than read at each call site so the extraction pipeline,
-    /// the Theme Scan, and the practice reader cannot come to disagree about the
-    /// policy, and so the Restate terminal-vs-retryable classification reads the
-    /// same number the retry loop does. See [`crate::llm_retry`] for why the
-    /// default is what it is.
-    pub llm_retry_max: u32,
+    /// Zero and five by ruling (2026-08-28): a failed LLM call marks the step
+    /// failed and waits for a human, EXCEPT a pre-generation rejection (HTTP
+    /// 429 / 529), which billed nothing and is retried on its own budget.
+    /// Carried on the config rather than read at each call site so the
+    /// extraction pipeline, the Theme Scan, and the practice reader cannot come
+    /// to disagree about the policy, and so the Restate terminal-vs-retryable
+    /// classification reads the same numbers the retry loop does. See
+    /// [`crate::llm_retry_policy`] for why the defaults are what they are.
+    pub llm_retry_policy: LlmRetryPolicy,
 
     /// Thresholds for the verifier's second-chance (one-gap) match.
     ///
@@ -227,18 +230,22 @@ pub(crate) fn verify_gap_policy_from_env() -> Result<GapPolicy, String> {
     })
 }
 
-/// The automatic-LLM-retry cap, from the environment, defaulting to
-/// [`crate::llm_retry::DEFAULT_MAX_RETRIES`].
+/// The automatic-LLM-retry caps, from the environment, defaulting to
+/// [`LlmRetryPolicy::default`].
 ///
 /// The ONE reader. Both startup paths call it — `AppConfig::from_env` for the
 /// service paths and `AppContext::from_deps_and_env` for the pipeline steps — so
-/// the two can neither disagree about the value nor disagree about what counts
+/// the two can neither disagree about the values nor disagree about what counts
 /// as a malformed one. A malformed value is a STARTUP error naming the key, not
 /// a silent fallback: an operator who typed `LLM_RETRY_MAX=three` believing they
 /// had raised the cap must not be quietly left at zero, and one who typed it
 /// believing they had lowered it must not be quietly left spending money.
-pub(crate) fn llm_retry_max_from_env() -> Result<u32, String> {
-    parse_env_or("LLM_RETRY_MAX", crate::llm_retry::DEFAULT_MAX_RETRIES)
+pub(crate) fn llm_retry_policy_from_env() -> Result<LlmRetryPolicy, String> {
+    let d = LlmRetryPolicy::default();
+    Ok(LlmRetryPolicy {
+        max_retries: parse_env_or("LLM_RETRY_MAX", d.max_retries)?,
+        rate_limit_max_retries: parse_env_or("LLM_RATE_LIMIT_RETRY_MAX", d.rate_limit_max_retries)?,
+    })
 }
 
 pub(crate) fn parse_env_or<T>(key: &str, default: T) -> Result<T, String>
@@ -421,9 +428,9 @@ impl AppConfig {
         // must be told, not quietly given 240.
         let verify_gap_policy = verify_gap_policy_from_env()?;
 
-        // The automatic-LLM-retry cap. Same treatment and the same reasoning as
+        // The automatic-LLM-retry caps. Same treatment and the same reasoning as
         // the thresholds above: a present-but-unparseable value fails startup.
-        let llm_retry_max = llm_retry_max_from_env()?;
+        let llm_retry_policy = llm_retry_policy_from_env()?;
 
         // RESTATE_INGRESS_URL is read here as Option<String>; the handler
         // layer (process::process_handler) enforces presence at use time
@@ -507,7 +514,7 @@ impl AppConfig {
             prompts_dir,
             environment,
             restate_admin_url,
-            llm_retry_max,
+            llm_retry_policy,
             verify_gap_policy,
             restate_ingress_url,
             restate_purge_policy,

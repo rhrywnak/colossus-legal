@@ -11,6 +11,10 @@ pub mod domain;
 pub mod dto;
 pub mod error;
 pub(crate) mod llm_retry;
+/// The two automatic-retry caps and the rate-limit backoff schedule. Separate
+/// from `llm_retry` because the provider bridge writes into this vocabulary
+/// while only the retry loop reads it.
+pub mod llm_retry_policy;
 pub mod models;
 pub mod neo4j;
 pub mod oneshot;

@@ -183,23 +183,52 @@ fn an_absent_temperature_omits_the_key_entirely() {
 // ── Error mapping ───────────────────────────────────────────────
 
 #[test]
-fn a_rate_limit_keeps_its_typed_shape_and_its_retry_after() {
+fn both_rejection_kinds_keep_the_typed_shape_and_the_retry_after() {
+    use crate::pipeline::anthropic_transport::RejectionKind;
+
+    // 429 and 529 map onto the one variant the retry loop acts on, because they
+    // mean the same thing operationally: refused before generation, nothing
+    // billed, free to ask again.
+    for kind in [RejectionKind::RateLimited, RejectionKind::Overloaded] {
+        let mapped = map_transport_error(
+            TransportError::Rejected {
+                kind,
+                retry_after_secs: Some(30),
+            },
+            "claude-opus-5",
+        );
+        match mapped {
+            ExtractionEngineError::RateLimited {
+                model,
+                retry_after_secs,
+            } => {
+                assert_eq!(model, "claude-opus-5");
+                assert_eq!(retry_after_secs, Some(30));
+            }
+            other => panic!("expected RateLimited for {kind:?}, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn a_mid_stream_error_event_is_a_call_failure_and_never_a_rejection() {
+    // The exemption must not leak. An `overloaded_error` that arrived inside an
+    // open stream reaches the engine as a `Stream` error, and it must map to
+    // `LlmCallFailed` — the retry loop keys on the OTHER variant, so mapping it
+    // here would silently buy free retries for a call that may have billed.
     let mapped = map_transport_error(
-        TransportError::RateLimited {
-            retry_after_secs: Some(30),
-        },
+        TransportError::Stream(
+            crate::pipeline::anthropic_stream::StreamError::ProviderEvent {
+                kind: "overloaded_error".to_string(),
+                message: "Overloaded".to_string(),
+            },
+        ),
         "claude-opus-5",
     );
-    match mapped {
-        ExtractionEngineError::RateLimited {
-            model,
-            retry_after_secs,
-        } => {
-            assert_eq!(model, "claude-opus-5");
-            assert_eq!(retry_after_secs, Some(30));
-        }
-        other => panic!("expected RateLimited, got {other:?}"),
-    }
+    assert!(
+        matches!(mapped, ExtractionEngineError::LlmCallFailed { .. }),
+        "a mid-stream error must not become a rate-limit rejection: {mapped:?}"
+    );
 }
 
 #[test]

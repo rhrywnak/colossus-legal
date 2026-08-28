@@ -672,7 +672,7 @@ pub async fn run_pass2_extraction(
         1,
         // Same policy as pass 1, from the same startup read — the two passes
         // must not disagree about whether a failed call is retried.
-        context.llm_retry_max,
+        context.llm_retry_policy,
     )
     .await
     {

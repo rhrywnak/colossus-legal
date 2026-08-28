@@ -863,9 +863,10 @@ async fn run_full_document_extraction(
         args.max_tokens,
         0,
         1,
-        // The retry policy, read once at startup. Zero by default: a failed LLM
-        // call fails this run and waits for a human (ruled 2026-08-28).
-        args.app_context.llm_retry_max,
+        // The retry policy, read once at startup. A failed LLM call fails this
+        // run and waits for a human — except a pre-generation 429/529, which
+        // billed nothing and is retried on its own budget (ruled 2026-08-28).
+        args.app_context.llm_retry_policy,
     )
     .await
     {
@@ -1147,7 +1148,7 @@ async fn extract_chunks_loop(
             args.max_tokens,
             i,
             chunks.len(),
-            args.app_context.llm_retry_max,
+            args.app_context.llm_retry_policy,
         )
         .await;
 
