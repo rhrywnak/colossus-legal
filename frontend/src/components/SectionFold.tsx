@@ -19,16 +19,22 @@
 // list can still see how many facts are in it, so a collapsed section can never
 // be mistaken for an empty one.
 //
-// ## Why the state is NOT remembered between visits
+// ## The state IS remembered, as of 2026-08-28
 //
-// Ruling R7 declined to persist the queue's collapsed state, for a reason that
-// applies here without change: a section that remembers "closed" greets the next
-// arrival with its work hidden and nothing on screen explaining why. This holds
-// the state for as long as the page is open and no longer, so a reload is always
-// the honest full view.
+// This block used to say the opposite, citing ruling R7: "a section that
+// remembers 'closed' greets the next arrival with its work hidden and nothing on
+// screen explaining why." The second half of that sentence is what changed. A
+// folded section keeps its heading AND its count line — see "What a folded
+// section still says" above — so the next arrival is greeted by "21 included · 4
+// added by hand", not by silence. With the work still declared on screen, the
+// objection no longer bites, and the cost it was weighed against (two clicks on
+// every visit to a two-section page) stayed.
 //
-// The caller owns the state rather than this component, because the caller is
-// what decides which of its children the fold governs.
+// The persistence itself is NOT here. The caller owns the state — because the
+// caller is what decides which of its children the fold governs, and which
+// scenario the preference belongs to — and both callers get it from
+// `sectionCollapse::useSectionOpen`, which is where the key format and the
+// absent-means-collapsed default live.
 
 import React from "react";
 

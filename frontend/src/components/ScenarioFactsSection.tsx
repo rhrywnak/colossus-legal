@@ -25,6 +25,7 @@ import React, { useState } from "react";
 
 import AddHumanFactForm from "./AddHumanFactForm";
 import SectionFold from "./SectionFold";
+import { useSectionOpen } from "./sectionCollapse";
 import WorkingView from "./WorkingView";
 import {
   sectionHeaderStyle,
@@ -116,11 +117,16 @@ const ScenarioFactsSection: React.FC<Props> = ({
   /**
    * Whether the facts list itself is shown (task R4, P1b).
    *
-   * Open on arrival, always: the section is the scenario's evidence and the page
-   * exists to show it. See `SectionFold` for why this is not remembered between
-   * visits — the same reason ruling R7 gave for the queue.
+   * COLLAPSED on arrival, and remembered per scenario (ruled 2026-08-28). It was
+   * open on arrival on the reasoning that "the section is the scenario's
+   * evidence and the page exists to show it" — true, and still true, but the
+   * page shows two long sections stacked and opening both put the human several
+   * screens from the top on every single visit. See `sectionCollapse` for what
+   * this supersedes and why a folded section is not a hidden one: the count line
+   * in the header below stays on screen, so a closed list still says how many
+   * facts are in it.
    */
-  const [open, setOpen] = useState(true);
+  const [open, toggleOpen] = useSectionOpen(scenarioId, "facts");
   /** Whether the Reset-order confirmation is open. */
   const [confirmingReset, setConfirmingReset] = useState(false);
   /** What the last reset did, or `null`. Every action acknowledges itself. */
@@ -388,11 +394,7 @@ const ScenarioFactsSection: React.FC<Props> = ({
 
           {/* P1b. The count line above stays visible when this closes, so a
               folded section still says how many facts are in it. */}
-          <SectionFold
-            open={open}
-            onToggle={() => setOpen(!open)}
-            names="the scenario facts"
-          />
+          <SectionFold open={open} onToggle={toggleOpen} names="the scenario facts" />
         </span>
       </div>
 

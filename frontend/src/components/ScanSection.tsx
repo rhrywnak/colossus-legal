@@ -34,6 +34,7 @@ import { fillCount, fillSlots, type AllegationOptions } from "../services/eviden
 import ThemeScanPanel from "./ThemeScanPanel";
 import type { ProposalSource, ScenarioCard } from "../services/scenarioCards";
 import { anyScanScored, progressFromCards, proposedCount, queueRegion } from "./queueRegion";
+import { useSectionOpen } from "./sectionCollapse";
 
 import {
   sectionHeaderStyle,
@@ -235,29 +236,22 @@ const ScanSection: React.FC<Props> = ({
       ? fillCount(linkOptions.wording.queue_raw_pool_toggle_template, cards.length)
       : null;
 
-  // Mirrors the descriptor's computed default, then follows the human's clicks.
-  // Keyed on the default so a queue that drains to zero collapses on its own —
-  // and re-opens if a merge puts unruled candidates back. NOT persisted
-  // (ruling R7): a queue that remembers "collapsed" over 145 unruled candidates is
-  // a silent failure wearing a preference's clothes.
-  const [openOverride, setOpenOverride] = useState<boolean | null>(null);
-  const [lastDefault, setLastDefault] = useState(region.open);
-  if (lastDefault !== region.open) {
-    // Adjusting state during render, deliberately: this is React's documented
-    // derive-from-changed-input pattern, and it is guarded by the inequality so it
-    // runs once per change rather than every render.
-    setLastDefault(region.open);
-    setOpenOverride(null);
-  }
-  // The descriptor already returns `open: true` while the counts are unknown, so
-  // this no longer special-cases `null` — one place decides, not two.
+  // The queue arrives COLLAPSED and remembers what the human last chose for THIS
+  // scenario (ruled 2026-08-28) — see `sectionCollapse` for what that supersedes
+  // and why R7's objection no longer holds.
   //
-  // A never-scanned scenario starts CLOSED regardless of what the descriptor
-  // computed: the descriptor opens on unruled candidates, and on this scenario
-  // every row is unruled precisely because nothing has judged any of them. The
-  // human's own click still wins (`openOverride`) — this changes what leads the
-  // page, not what is reachable.
-  const open = openOverride ?? (neverScanned ? false : region.open);
+  // This replaced a session-only override seeded from `region.open`, which
+  // opened the queue whenever anything was unruled and re-seeded itself every
+  // time that default flipped. Two things made it wrong under the new ruling:
+  // the default is now "collapsed" whatever the counts say, and a stored
+  // preference that a drain-to-zero could silently wipe is not remembered at
+  // all. `region.open` is consequently no longer read here — see its own doc.
+  //
+  // The head row below, with its heading, its count and its `{ruled} of {total}`,
+  // sits OUTSIDE the fold and always has. That is what makes collapsing-by-
+  // default honest rather than a hiding place: a closed queue still says how
+  // many candidates are in it and how far through them you are.
+  const [open, toggleOpen] = useSectionOpen(scenarioId, "candidates");
 
   return (
     <section>
@@ -329,7 +323,7 @@ const ScanSection: React.FC<Props> = ({
                 <button
                   type="button"
                   style={rawPoolToggleStyle}
-                  onClick={() => setOpenOverride(!open)}
+                  onClick={toggleOpen}
                   aria-expanded={open}
                 >
                   {open ? "▾" : "▸"} {rawPoolLabel}
@@ -384,7 +378,7 @@ const ScanSection: React.FC<Props> = ({
               <button
                 type="button"
                 style={chevronStyle}
-                onClick={() => setOpenOverride(!open)}
+                onClick={toggleOpen}
                 aria-expanded={open}
                 aria-label={region.chevronLabel}
                 title={region.chevronLabel}

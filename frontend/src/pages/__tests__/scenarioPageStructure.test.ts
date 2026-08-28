@@ -263,6 +263,66 @@ describe("the 1.7B panels are gone, not just unmounted (task 1.7C)", () => {
   });
 });
 
+describe("both long sections fold, collapsed by default, remembered (2026-08-28)", () => {
+  // The helper is easy to write and easy to leave unwired — a fold preference
+  // that nothing reads looks identical to one that works, because the sections
+  // still collapse for the session. These fences are what say it actually
+  // reached both call sites.
+
+  it("the candidates queue and the scenario facts BOTH read the stored answer", () => {
+    for (const file of ["ScanSection.tsx", "ScenarioFactsSection.tsx"]) {
+      const source = read("components", file);
+      expect(source, `${file} must take its fold state from the shared helper`).toContain(
+        "useSectionOpen",
+      );
+    }
+  });
+
+  it("each names its OWN section, so one key cannot govern both folds", () => {
+    // The failure this catches is a copy-paste: two sections asking for
+    // `"candidates"` share one key, and collapsing the facts list silently
+    // collapses the queue too.
+    expect(read("components", "ScanSection.tsx")).toContain('useSectionOpen(scenarioId, "candidates")');
+    expect(read("components", "ScenarioFactsSection.tsx")).toContain(
+      'useSectionOpen(scenarioId, "facts")',
+    );
+  });
+
+  it("neither keeps a second, un-remembered source of fold state", () => {
+    // `ScanSection` used to seed its fold from `region.open` through a session
+    // override that reset whenever the computed default flipped. Left in place
+    // beside the stored answer, that override would wipe the human's choice the
+    // moment the queue drained — a preference that forgets under exactly the
+    // condition it was set for.
+    const section = read("components", "ScanSection.tsx");
+    expect(section, "the session-only override is gone").not.toContain("openOverride");
+    expect(section, "and so is the default it was keyed on").not.toContain("lastDefault");
+  });
+
+  it("the key is built in ONE place", () => {
+    // A hand-composed key in a component is how the format drifts from the
+    // helper's and the section quietly stops finding its own stored answer.
+    for (const file of ["ScanSection.tsx", "ScenarioFactsSection.tsx"]) {
+      expect(read("components", file), `${file} must not compose a key itself`).not.toContain(
+        ":collapsed",
+      );
+    }
+  });
+
+  it("the counts stay OUTSIDE the fold, so a closed section still declares itself", () => {
+    // The whole reason collapsing-by-default is honest rather than a hiding
+    // place, and the exact objection ruling R7 raised. In `ScanSection` the head
+    // row carrying the heading and `{ruled} of {total}` must precede the
+    // `{open && ...}` body; in the facts section the `sectionMetaStyle` count
+    // line must precede its own.
+    const section = read("components", "ScanSection.tsx");
+    expect(section.indexOf("queueHeadStyle")).toBeLessThan(section.indexOf("{open && ("));
+
+    const facts = read("components", "ScenarioFactsSection.tsx");
+    expect(facts.indexOf("sectionMetaStyle")).toBeLessThan(facts.indexOf("{open && ("));
+  });
+});
+
 describe("the v3 visual language (task 1.7D)", () => {
   it("the queue title row is NOT a toggle — only the chevron collapses", () => {
     // Item 4, from Roman's first real session: 1.7C used `<details>/<summary>`,

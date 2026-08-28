@@ -86,6 +86,14 @@ const ELAPSED_TICK_MS = 1000;
 //
 // So the dormant preference was not waiting for a feature, it was contradicting a
 // ruling. `expandOverride` is the live mechanism and it is per-session by design.
+//
+// AMENDED 2026-08-28: R7 was reversed for the two SECTIONS on this page — the
+// candidates queue and the scenario facts — which now arrive collapsed and
+// remember the human's answer per scenario (`sectionCollapse`). It was not
+// reversed for THIS card. The scan control is a few rows tall, it is not what
+// makes the page long, and the sentence above still holds for it: a scan card
+// that remembers "folded" through a run the human then cannot find is a silent
+// failure wearing a preference's clothes. Nothing here changed.
 
 interface Props {
   slug: string;

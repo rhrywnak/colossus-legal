@@ -28,7 +28,23 @@ import type { ScenarioCard } from "../services/scenarioCards";
 
 /** What the collapsible region shows, as data. */
 export type QueueRegionDescriptor = {
-  /** Whether the region starts open. Computed, never restored from storage. */
+  /**
+   * Whether the region starts open, computed from the counts.
+   *
+   * ## NOT READ by `ScanSection` since 2026-08-28 — flagged, not retired
+   *
+   * The queue's fold now arrives collapsed and is restored from the human's own
+   * stored answer (`sectionCollapse`), so no computed default reaches the
+   * component any more. This field is deliberately still here and still tested,
+   * rather than deleted in a UI-only change: it encodes a real decision — "open
+   * while anything is unruled, closed once the pile is drained" — that the
+   * 2026-08-28 ruling overrode rather than disproved, and it is the thing to
+   * reinstate if that ruling is ever revisited.
+   *
+   * It is called out here because an unread field that looks live is how a
+   * reader ends up editing a default that governs nothing. Every OTHER field on
+   * this descriptor is still consumed.
+   */
   open: boolean;
   /**
    * The head line's headline, or `null` when the FRAME's own heading speaks.
