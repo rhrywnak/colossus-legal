@@ -181,11 +181,17 @@ pub(crate) async fn resolve_scan_provider(
     // Build via the unified seam. `provider_for_model` returns a `Box`; the scan
     // shares its provider across the concurrent fan-out, so it becomes an `Arc`.
     let provider: Arc<dyn LlmProvider> = Arc::from(
-        provider_for_model(&state.extraction_engine, &record).map_err(|detail| {
-            ThemeScanError::ProviderBuildFailed {
-                model_id: model_id.clone(),
-                detail,
-            }
+        // The SCAN effort — `None` unless `LLM_SCAN_EFFORT` is set. The scan
+        // JUDGES candidates, which is the kind of work thinking helps, so it is
+        // deliberately not defaulted down with extraction (2026-08-28 ruling).
+        provider_for_model(
+            &state.extraction_engine,
+            &record,
+            state.config.llm_effort_policy.scan,
+        )
+        .map_err(|detail| ThemeScanError::ProviderBuildFailed {
+            model_id: model_id.clone(),
+            detail,
         })?,
     );
 

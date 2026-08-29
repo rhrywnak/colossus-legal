@@ -149,7 +149,7 @@ fn every_request_asks_for_a_stream() {
     // key would silently reinstate the ~10-minute wall that failed the
     // 36-page transcript on 2026-08-28, and nothing else in the suite would
     // notice.
-    let body = build_request_body(None, "prompt", "claude-opus-5", 64_000, None);
+    let body = build_request_body(None, "prompt", "claude-opus-5", 64_000, None, None);
     assert_eq!(body["stream"], serde_json::json!(true));
     assert_eq!(body["model"], serde_json::json!("claude-opus-5"));
     assert_eq!(body["max_tokens"], serde_json::json!(64_000));
@@ -161,7 +161,7 @@ fn every_request_asks_for_a_stream() {
 fn a_system_prompt_uses_the_native_top_level_field() {
     // Pass 2 and the Theme Scan depend on this: concatenating the system prompt
     // into the user turn instead would change what the model is being asked.
-    let body = build_request_body(Some("you are a paralegal"), "prompt", "m", 100, None);
+    let body = build_request_body(Some("you are a paralegal"), "prompt", "m", 100, None, None);
     assert_eq!(body["system"], serde_json::json!("you are a paralegal"));
 }
 
@@ -170,14 +170,90 @@ fn an_absent_temperature_omits_the_key_entirely() {
     // Domain note: Claude Opus 4.7 and later REJECT a temperature key rather
     // than ignoring it, so "no temperature" must mean an absent field — not
     // `null`, and not a substituted default.
-    let body = build_request_body(None, "prompt", "m", 100, None);
+    let body = build_request_body(None, "prompt", "m", 100, None, None);
     assert!(
         body.get("temperature").is_none(),
         "temperature must be absent, got: {body}"
     );
 
-    let body = build_request_body(None, "prompt", "m", 100, Some(0.0));
+    let body = build_request_body(None, "prompt", "m", 100, Some(0.0), None);
     assert_eq!(body["temperature"], serde_json::json!(0.0));
+}
+
+// ── The effort dial ─────────────────────────────────────────────
+
+#[test]
+fn an_extraction_request_carries_output_config_effort() {
+    // The 2026-08-28 fix on the wire. `effort` nests inside `output_config`; a
+    // top-level `effort` is not a recognised parameter and would be IGNORED,
+    // which would look identical in the code and bring the 727-second thinking
+    // pass straight back.
+    use crate::domain::llm_effort::Effort;
+
+    let body = build_request_body(
+        None,
+        "prompt",
+        "claude-opus-5",
+        64_000,
+        None,
+        Some(Effort::Low),
+    );
+    assert_eq!(body["output_config"]["effort"], serde_json::json!("low"));
+    assert!(
+        body.get("effort").is_none(),
+        "effort must NOT be top-level — it would be silently ignored: {body}"
+    );
+}
+
+#[test]
+fn a_scan_request_carries_no_output_config_at_all() {
+    // The other half of the ruling: absent is a real state. Sending `"high"`
+    // explicitly would look identical today and would quietly PIN the scans if
+    // Anthropic ever moved the default, which is a quality change nobody asked
+    // for made silently on the way past.
+    let body = build_request_body(None, "prompt", "claude-opus-5", 8_000, None, None);
+    assert!(
+        body.get("output_config").is_none(),
+        "no effort means no output_config key: {body}"
+    );
+}
+
+#[test]
+fn every_effort_level_reaches_the_wire_as_its_documented_string() {
+    // The API rejects anything outside these five, and a rejection arrives as an
+    // HTTP 400 in the middle of a paid run.
+    use crate::domain::llm_effort::Effort;
+
+    for level in Effort::ALL {
+        let body = build_request_body(None, "p", "claude-opus-5", 100, None, Some(level));
+        assert_eq!(
+            body["output_config"]["effort"],
+            serde_json::json!(level.as_wire()),
+            "level {level} must reach the wire verbatim"
+        );
+    }
+}
+
+#[test]
+fn effort_does_not_disturb_the_rest_of_the_body() {
+    // Standing guard on the streaming fix: `output_config` is an addition, and a
+    // regression that dropped `stream` while adding it would reinstate the
+    // ~10-minute wall from the 2026-08-28 morning incident while fixing the
+    // afternoon one.
+    use crate::domain::llm_effort::Effort;
+
+    let body = build_request_body(
+        Some("sys"),
+        "prompt",
+        "claude-opus-5",
+        64_000,
+        Some(0.0),
+        Some(Effort::Low),
+    );
+    assert_eq!(body["stream"], serde_json::json!(true));
+    assert_eq!(body["system"], serde_json::json!("sys"));
+    assert_eq!(body["temperature"], serde_json::json!(0.0));
+    assert_eq!(body["max_tokens"], serde_json::json!(64_000));
 }
 
 // ── Error mapping ───────────────────────────────────────────────

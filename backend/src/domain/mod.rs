@@ -33,6 +33,9 @@ pub mod fact_status;
 pub mod fact_tier;
 pub mod human_authored;
 pub mod link_cut;
+/// The Messages API `effort` dial and which call families turn it down —
+/// the 2026-08-28 all-reasoning-blocks incident's fix.
+pub mod llm_effort;
 pub mod llm_params;
 pub mod llm_provider_ext;
 pub mod practice_params;

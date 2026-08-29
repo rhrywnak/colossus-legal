@@ -93,6 +93,15 @@ pub struct CallShape<'a> {
     pub configured_max_tokens: u32,
     /// The model id, for the failure message.
     pub model: &'a str,
+    /// One line saying what the response actually contained — see
+    /// [`crate::pipeline::response_anatomy`].
+    ///
+    /// A truncation and an all-reasoning-blocks response are neighbours: both
+    /// are the token budget going somewhere other than the answer. Carrying the
+    /// same line on both failures means an operator comparing two incidents is
+    /// reading the same sentence about each, instead of inferring the shape of
+    /// one from the absence of the other (2026-08-28).
+    pub anatomy: &'a str,
 }
 
 /// Was this response cut off at the token ceiling?
@@ -119,9 +128,13 @@ pub fn is_truncated(shape: &CallShape<'_>) -> bool {
 /// surface — so it is written in code like its neighbours in
 /// `rig_llm_bridge::map_engine_error` rather than declared and seeded.
 ///
-/// It names all four things the operator needs to act: which model, that the
-/// ceiling was the cause, what the ceiling was, and what was produced against
-/// it. The remedy is stated because the fix is a profile edit, not a code change.
+/// It names everything the operator needs to act: which model, that the ceiling
+/// was the cause, what the ceiling was, what was produced against it, and — as
+/// of 2026-08-28 — what the response actually consisted of. The remedy is stated
+/// because the fix is a config or profile edit, not a code change, and WHICH of
+/// the two it is depends on the anatomy: a response full of `thinking` blocks
+/// hit the ceiling before it began answering, and raising the cap on that buys a
+/// longer, equally empty run.
 pub fn truncation_message(shape: &CallShape<'_>) -> String {
     let produced = match shape.output_tokens {
         Some(n) => n.to_string(),
@@ -132,14 +145,17 @@ pub fn truncation_message(shape: &CallShape<'_>) -> String {
     format!(
         "model {model} stopped at the max_tokens ceiling: {signature}. \
          Produced {produced} output tokens against a configured cap of \
-         {cap}. The extraction is discarded rather than parsed, because a truncated \
-         response repairs into plausible JSON and would otherwise be stored as a \
-         complete result. Raise max_tokens for this document type in its profile YAML \
-         and re-run.",
+         {cap}. {anatomy}. The extraction is discarded rather than parsed, because a \
+         truncated response repairs into plausible JSON and would otherwise be stored as \
+         a complete result. Raise max_tokens for this document type in its profile YAML \
+         and re-run — and if the blocks above are mostly `thinking`, lower \
+         LLM_EXTRACTION_EFFORT instead, because the ceiling was reached before the \
+         answer was started.",
         model = shape.model,
         signature = TRUNCATION_SIGNATURE,
         produced = produced,
         cap = shape.configured_max_tokens,
+        anatomy = shape.anatomy,
     )
 }
 

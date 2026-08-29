@@ -1,4 +1,5 @@
 use crate::api::pipeline::RestatePurgePolicy;
+use crate::domain::llm_effort::{LlmEffortPolicy, DEFAULT_EXTRACTION_EFFORT};
 use crate::domain::quote_gap::GapPolicy;
 use crate::llm_retry_policy::LlmRetryPolicy;
 use std::path::PathBuf;
@@ -66,6 +67,17 @@ pub struct AppConfig {
     /// infrastructure addresses live in configuration, never in code
     /// (Standing Rule 2).
     pub restate_admin_url: Option<String>,
+    /// Which `output_config.effort` each LLM call family sends, from
+    /// `LLM_EXTRACTION_EFFORT` and `LLM_SCAN_EFFORT`.
+    ///
+    /// Extraction is turned down to `low` by default; scans send no field at all
+    /// unless asked to. See [`crate::domain::llm_effort`] for the 727-second
+    /// all-reasoning-blocks incident this answers, and for why the two families
+    /// get different treatment. Carried on the config for the same reason
+    /// `llm_retry_policy` is: one startup read, so the services and the pipeline
+    /// cannot come to disagree.
+    pub llm_effort_policy: LlmEffortPolicy,
+
     /// The two automatic-retry caps, from `LLM_RETRY_MAX` and
     /// `LLM_RATE_LIMIT_RETRY_MAX`.
     ///
@@ -248,6 +260,70 @@ pub(crate) fn llm_retry_policy_from_env() -> Result<LlmRetryPolicy, String> {
     })
 }
 
+/// Which effort each LLM call family sends, from the environment.
+///
+/// The ONE reader. Both startup paths call it — `AppConfig::from_env` for the
+/// service paths and `AppContext::from_deps_and_env` for the pipeline steps.
+///
+/// A malformed value is a STARTUP error naming the key, not a silent fallback.
+/// That matters more here than for most tunables: an unrecognised effort string
+/// is rejected by the API as an HTTP 400, so the alternative to failing the boot
+/// is failing every extraction, one paid request at a time.
+pub(crate) fn llm_effort_policy_from_env() -> Result<LlmEffortPolicy, String> {
+    let d = LlmEffortPolicy::default();
+    Ok(LlmEffortPolicy {
+        // Always sent. The default is `low`; an operator can raise it.
+        extraction: Some(parse_env_or(
+            "LLM_EXTRACTION_EFFORT",
+            // `Default` already carries the shipped level; reaching through it
+            // rather than naming the constant again keeps ONE place to change.
+            d.extraction.unwrap_or(DEFAULT_EXTRACTION_EFFORT),
+        )?),
+        // Sent ONLY if asked for. Unset means the key is absent from the request
+        // body, which is not the same as sending the provider's current default
+        // — see the module doc.
+        scan: optional_env("LLM_SCAN_EFFORT")?,
+    })
+}
+
+/// Read an optional env var, failing loudly on a malformed value.
+///
+/// The sibling of [`parse_env_or`] for a key whose ABSENCE is meaningful rather
+/// than a stand-in for a default. Three states, three outcomes, all distinct
+/// (Standing Rule 1): unset → `Ok(None)`; set and valid → `Ok(Some(v))`; set and
+/// invalid → a startup error naming the key and the offending text.
+///
+/// ## Rust Learning: why this cannot just be `parse_env_or::<Option<T>>`
+///
+/// `Option<T>` does not implement `FromStr` — there is no string that parses to
+/// `None`, because absence is not a value. The distinction has to live in the
+/// reader's control flow, which is what this function is.
+pub(crate) fn optional_env<T>(key: &str) -> Result<Option<T>, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    // best-effort: env-var-unset → None is the documented "send nothing" path
+    // here; a PRESENT value still goes through `parse_present`, so a typo is an
+    // error rather than being quietly treated as absence.
+    optional_or(std::env::var(key).ok().as_deref(), key)
+}
+
+/// The decision [`optional_env`] makes, without touching the environment.
+///
+/// Split out for the same reason [`parse_or`] is: a test that called `set_var`
+/// would race every other test in the binary.
+fn optional_or<T>(raw: Option<&str>, key: &str) -> Result<Option<T>, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    match raw {
+        None => Ok(None),
+        Some(raw) => parse_present(raw, key).map(Some),
+    }
+}
+
 pub(crate) fn parse_env_or<T>(key: &str, default: T) -> Result<T, String>
 where
     T: std::str::FromStr,
@@ -272,16 +348,29 @@ where
 {
     match raw {
         None => Ok(default),
-        Some(raw) => raw
-            .trim()
-            .parse::<T>()
-            .map_err(|e| format!("Invalid env var {key}=\"{raw}\": {e}")),
+        Some(raw) => parse_present(raw, key),
     }
+}
+
+/// Parse a value that IS present, or say why it could not be.
+///
+/// The ONE owner of the malformed-env-var wording, shared by the
+/// default-bearing [`parse_or`] and the absence-preserving [`optional_or`]. Two
+/// hand-kept copies of this sentence is how the two readers come to report the
+/// same mistake differently.
+fn parse_present<T>(raw: &str, key: &str) -> Result<T, String>
+where
+    T: std::str::FromStr,
+    T::Err: std::fmt::Display,
+{
+    raw.trim()
+        .parse::<T>()
+        .map_err(|e| format!("Invalid env var {key}=\"{raw}\": {e}"))
 }
 
 #[cfg(test)]
 mod parse_or_tests {
-    use super::parse_or;
+    use super::{optional_or, parse_or};
 
     #[test]
     fn an_unset_var_takes_the_documented_default() {
@@ -317,6 +406,28 @@ mod parse_or_tests {
             .expect_err("a malformed value must not fall back to the default");
         assert!(err.contains("VERIFY_MAX_GAP_CHARS"), "message was: {err}");
         assert!(err.contains("24O"), "message was: {err}");
+    }
+
+    #[test]
+    fn an_optional_var_keeps_absence_distinct_from_a_value() {
+        use crate::domain::llm_effort::Effort;
+
+        // The three states `LLM_SCAN_EFFORT` has to hold apart. Unset means "send
+        // no effort field at all", which is NOT the same as sending the
+        // provider's current default — see `domain::llm_effort`.
+        assert_eq!(optional_or::<Effort>(None, "LLM_SCAN_EFFORT"), Ok(None));
+        assert_eq!(
+            optional_or::<Effort>(Some("max"), "LLM_SCAN_EFFORT"),
+            Ok(Some(Effort::Max))
+        );
+
+        // And a typo is a startup error, not a fall-through to absence: an
+        // unrecognised effort string reaches the API as an HTTP 400, so failing
+        // the boot is the cheap version of failing every paid request.
+        let err = optional_or::<Effort>(Some("maxx"), "LLM_SCAN_EFFORT")
+            .expect_err("a malformed optional value must not degrade to absent");
+        assert!(err.contains("LLM_SCAN_EFFORT"), "message was: {err}");
+        assert!(err.contains("maxx"), "message was: {err}");
     }
 
     #[test]
@@ -432,6 +543,11 @@ impl AppConfig {
         // the thresholds above: a present-but-unparseable value fails startup.
         let llm_retry_policy = llm_retry_policy_from_env()?;
 
+        // Which effort each call family sends. Same treatment and the same
+        // reasoning as the caps above: a present-but-unparseable value fails
+        // startup rather than reaching the API as a 400.
+        let llm_effort_policy = llm_effort_policy_from_env()?;
+
         // RESTATE_INGRESS_URL is read here as Option<String>; the handler
         // layer (process::process_handler) enforces presence at use time
         // and returns HTTP 503 when None. The read here is intentionally
@@ -515,6 +631,7 @@ impl AppConfig {
             environment,
             restate_admin_url,
             llm_retry_policy,
+            llm_effort_policy,
             verify_gap_policy,
             restate_ingress_url,
             restate_purge_policy,

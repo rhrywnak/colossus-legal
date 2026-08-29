@@ -13,6 +13,7 @@
 //! Per v5_2 Part 7, with a construction-signature deviation documented in
 //! the P2-8 CC instruction (struct-of-args instead of 7 positional args).
 
+use crate::domain::llm_effort::LlmEffortPolicy;
 use crate::domain::quote_gap::GapPolicy;
 use crate::llm_retry_policy::LlmRetryPolicy;
 use std::sync::Arc;
@@ -135,6 +136,16 @@ pub struct AppContext {
     /// for what each threshold means and why it has the value it has.
     pub verify_gap_policy: GapPolicy,
 
+    /// Which `output_config.effort` each call family sends.
+    ///
+    /// Read once at startup through the SAME reader `AppConfig` uses
+    /// ([`crate::config::llm_effort_policy_from_env`]), so the pipeline steps
+    /// and the services cannot drift apart — the identical argument that put
+    /// [`verify_gap_policy`](Self::verify_gap_policy) and
+    /// [`llm_retry_policy`](Self::llm_retry_policy) on this struct. The pipeline
+    /// reads `.extraction`; the services read `.scan`.
+    pub llm_effort_policy: LlmEffortPolicy,
+
     /// The two automatic-retry caps, from `LLM_RETRY_MAX` and
     /// `LLM_RATE_LIMIT_RETRY_MAX`.
     ///
@@ -223,6 +234,11 @@ impl AppContext {
         // there, and the pipeline and the services therefore run one policy.
         let llm_retry_policy = crate::config::llm_retry_policy_from_env()?;
 
+        // Same reader `AppConfig` uses; a malformed `LLM_EXTRACTION_EFFORT` or
+        // `LLM_SCAN_EFFORT` fails startup here exactly as it does there, rather
+        // than reaching the API as an HTTP 400 on a paid request.
+        let llm_effort_policy = crate::config::llm_effort_policy_from_env()?;
+
         // Construct the streaming extraction engine FIRST so the
         // anthropic-bridge `llm_provider` below can share it (one
         // HTTP/1.1 reqwest 0.13 client refcount-shared across the
@@ -267,6 +283,12 @@ impl AppContext {
                     None,
                     None,
                     temperature,
+                    // No effort field. This bridge backs the RAG synthesizer and
+                    // the decomposer, which are neither of the two families the
+                    // 2026-08-28 ruling covers — so they keep exactly today's
+                    // behaviour rather than inheriting a setting chosen for
+                    // extraction (see `crate::domain::llm_effort`).
+                    None,
                 ))
             }
             "vllm" => colossus_extract::providers::llm_provider_from_env()
@@ -289,6 +311,7 @@ impl AppContext {
         Ok(Self {
             verify_gap_policy,
             llm_retry_policy,
+            llm_effort_policy,
             pipeline_pool: deps.pipeline_pool,
             graph: deps.graph,
             qdrant_url: deps.qdrant_url,

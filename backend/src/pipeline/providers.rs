@@ -22,6 +22,7 @@ use std::sync::Arc;
 
 use colossus_extract::{LlmProvider, VllmProvider};
 
+use crate::domain::llm_effort::Effort;
 use crate::domain::llm_params::construction_temperature;
 use crate::pipeline::extraction_engine::ExtractionEngine;
 use crate::pipeline::rig_llm_bridge::RigLlmProviderBridge;
@@ -58,11 +59,22 @@ const FALLBACK_MAX_TOKENS: u32 = 8000;
 /// at startup in `AppContext` — see P1-5 for the wiring. The same
 /// engine instance is used across every per-document bridge.
 ///
+/// `effort` is the CALLER'S call family, not the model's: extraction passes
+/// `policy.extraction` (turned down to `low` by default) and the Theme Scan and
+/// practice reader pass `policy.scan` (absent unless asked for). It is a
+/// parameter rather than something derived here because this function cannot
+/// see which family is asking, and guessing from the model id would be exactly
+/// the kind of inference that makes a scan quietly inherit an extraction
+/// setting. See [`crate::domain::llm_effort`] for the ruling. `None` sends no
+/// `output_config.effort` field at all — the vLLM branch ignores it entirely,
+/// since the parameter is Anthropic's.
+///
 /// Returns `Err` with a descriptive message if the provider string is
 /// unknown or a required `api_endpoint` is missing for a vLLM row.
 pub fn provider_for_model(
     engine: &Arc<dyn ExtractionEngine>,
     model: &LlmModelRecord,
+    effort: Option<Effort>,
 ) -> Result<Box<dyn LlmProvider>, String> {
     match model.provider.as_str() {
         "anthropic" => {
@@ -83,6 +95,7 @@ pub fn provider_for_model(
                 model.cost_per_input_token,
                 model.cost_per_output_token,
                 temperature,
+                effort,
             );
             Ok(Box::new(bridge))
         }
@@ -132,6 +145,82 @@ pub fn provider_for_model(
 }
 
 #[cfg(test)]
+mod wiring_tests {
+    //! Which call family passes which effort — asserted against the source.
+    //!
+    //! The dial is easy to add and easy to leave unwired: a `provider_for_model`
+    //! call that passes `None` compiles, runs, and looks exactly like one that
+    //! passes the policy, right up until a 727-second thinking pass returns no
+    //! text again. These fences are what say it actually reached both families,
+    //! and that neither took the other's setting.
+
+    use std::fs;
+    use std::path::Path;
+
+    fn read(relative: &str) -> String {
+        fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src")
+                .join(relative),
+        )
+        .unwrap_or_else(|e| panic!("{relative} must be readable: {e}"))
+    }
+
+    #[test]
+    fn both_extraction_passes_send_the_extraction_effort() {
+        for file in [
+            "pipeline/steps/llm_extract.rs",
+            "pipeline/steps/llm_extract_pass2.rs",
+        ] {
+            let source = read(file);
+            assert!(
+                source.contains("llm_effort_policy.extraction"),
+                "{file} must pass the EXTRACTION effort — this is the call family the \
+                 2026-08-28 incident happened on"
+            );
+            assert!(
+                !source.contains("llm_effort_policy.scan"),
+                "{file} must not reach for the scan setting"
+            );
+        }
+    }
+
+    #[test]
+    fn the_scan_and_the_practice_reader_send_the_scan_effort() {
+        // Absent unless `LLM_SCAN_EFFORT` is set. If either of these ever read
+        // `.extraction`, a judgement-shaped call would silently inherit `low`
+        // and get shallower — a quality change nobody asked for.
+        for file in [
+            "services/theme_scan_provider.rs",
+            "services/practice_read_setup.rs",
+        ] {
+            let source = read(file);
+            assert!(
+                source.contains("llm_effort_policy.scan"),
+                "{file} must pass the SCAN effort"
+            );
+            assert!(
+                !source.contains("llm_effort_policy.extraction"),
+                "{file} must not inherit extraction's turned-down setting"
+            );
+        }
+    }
+
+    #[test]
+    fn the_rag_bridge_is_left_alone() {
+        // `AppContext.llm_provider` backs the synthesizer and the decomposer,
+        // which are neither family. The ruling covered two call families; a
+        // third quietly joining one of them is the drift this catches.
+        let context = read("pipeline/context.rs");
+        assert!(
+            !context.contains("llm_effort_policy.extraction")
+                && !context.contains("llm_effort_policy.scan"),
+            "the RAG bridge must keep today's behaviour — no effort field"
+        );
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use async_trait::async_trait;
@@ -156,6 +245,7 @@ mod tests {
             _model: &str,
             _max_tokens: u32,
             _temperature: Option<f64>,
+            _effort: Option<crate::domain::llm_effort::Effort>,
         ) -> Result<LlmCallResult, ExtractionEngineError> {
             unreachable!("provider_for_model tests must not call extract");
         }
@@ -203,7 +293,7 @@ mod tests {
     fn anthropic_returns_bridge_named_rig_anthropic() {
         let engine = engine();
         let model = make_model("claude-sonnet-4-6", "anthropic", None);
-        let provider = provider_for_model(&engine, &model)
+        let provider = provider_for_model(&engine, &model, None)
             .expect("anthropic provider should construct from a shared engine");
         // Sanity-check the bridge's accessors so a future refactor that
         // accidentally routes anthropic through the legacy path
@@ -220,7 +310,7 @@ mod tests {
         let engine = engine();
         let mut model = make_model("claude-opus-4-7", "anthropic", None);
         model.temperature_mode = Some("bad-token".to_string());
-        let result = provider_for_model(&engine, &model);
+        let result = provider_for_model(&engine, &model, None);
         assert!(result.is_err());
         let msg = result.err().unwrap();
         assert!(
@@ -237,7 +327,7 @@ mod tests {
     fn unknown_provider_returns_error() {
         let engine = engine();
         let model = make_model("foo", "openai", None);
-        let result = provider_for_model(&engine, &model);
+        let result = provider_for_model(&engine, &model, None);
         assert!(result.is_err());
         let err = result.err().unwrap();
         assert!(err.contains("Unknown provider 'openai'"));
@@ -248,7 +338,7 @@ mod tests {
     fn vllm_without_endpoint_returns_error() {
         let engine = engine();
         let model = make_model("llama-3-8b", "vllm", None);
-        let result = provider_for_model(&engine, &model);
+        let result = provider_for_model(&engine, &model, None);
         assert!(result.is_err());
         assert!(result.err().unwrap().contains("has no api_endpoint"));
     }

@@ -59,6 +59,8 @@
 
 use serde::Deserialize;
 
+use crate::pipeline::response_anatomy::BlockCounts;
+
 /// The SSE field prefix carrying an event's JSON payload.
 ///
 /// CONST: the Server-Sent Events wire format (W3C `text/event-stream`), not a
@@ -112,6 +114,22 @@ pub struct StreamedMessage {
     /// which [`MessageAccumulator::finish`] does not otherwise police — the id
     /// is for trace correlation, not for correctness.
     pub message_id: Option<String>,
+
+    /// How many content blocks of each type arrived.
+    ///
+    /// ## Why a response that produced NOTHING still has to describe itself
+    ///
+    /// On 2026-08-28 a pass-1 call generated for 727 seconds and returned only
+    /// reasoning blocks — zero text. The error said the response had no text
+    /// content, which was true and useless: it did not say what it DID have, and
+    /// the container logs had nothing either. Diagnosing it took a reading of
+    /// Anthropic's thinking documentation rather than a reading of our own
+    /// output, which is the definition of an unobservable failure.
+    ///
+    /// These counts are what makes the next one diagnose itself. They are
+    /// collected on EVERY call, not only failing ones, because a count that is
+    /// only gathered when something goes wrong is a count nobody trusts.
+    pub block_counts: BlockCounts,
 }
 
 /// Everything that can go wrong turning a byte stream into a message.
@@ -420,6 +438,11 @@ pub struct MessageAccumulator {
     stop_reason: Option<String>,
     saw_message_stop: bool,
     events_seen: usize,
+    /// Every content block the provider opened, by type — including the ones
+    /// whose deltas we drop. This is the ONLY record of a `thinking` block ever
+    /// existing, and on 2026-08-28 its absence is what made a 727-second
+    /// zero-text response undiagnosable.
+    block_counts: BlockCounts,
 }
 
 impl MessageAccumulator {
@@ -523,6 +546,7 @@ impl MessageAccumulator {
             output_tokens: self.delta_output_tokens.or(self.start_output_tokens),
             stop_reason,
             message_id: self.message_id,
+            block_counts: self.block_counts,
         })
     }
 
@@ -532,6 +556,9 @@ impl MessageAccumulator {
     /// block indices stay aligned and the join later skips it — exactly what the
     /// non-streaming path did when it collected only text blocks.
     fn open_block(&mut self, index: usize, kind: &str) {
+        // Counted BEFORE the text/not-text decision, so a block type we do not
+        // keep is still a block type we can report.
+        self.block_counts.record(kind);
         let slot = if kind == BLOCK_TYPE_TEXT {
             Some(String::new())
         } else {

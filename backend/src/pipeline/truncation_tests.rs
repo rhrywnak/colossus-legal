@@ -12,6 +12,11 @@ fn shape<'a>(stop: Option<&'a str>, out: Option<u64>, cap: u32) -> CallShape<'a>
         output_tokens: out,
         configured_max_tokens: cap,
         model: "claude-opus-5",
+        // A representative healthy-shaped anatomy. The detector does not read
+        // it — it only reaches the MESSAGE — so the fixture keeps one value and
+        // the tests that care assert on it directly.
+        anatomy: "response anatomy: 1 content blocks (text ×1); \
+                  output_tokens=32000; stop_reason=max_tokens",
     }
 }
 
@@ -92,6 +97,29 @@ fn unreported_output_tokens_read_as_not_reported_never_as_zero() {
 }
 
 // ── The recogniser (terminal-vs-retryable, 2026-08-27) ───────────────────────
+
+#[test]
+fn the_message_says_what_the_response_consisted_of() {
+    // Added 2026-08-28. A truncation and an all-reasoning-blocks response are
+    // neighbours — both are the token budget going somewhere other than the
+    // answer — and which one happened decides the REMEDY. Raising max_tokens on
+    // a response that spent its ceiling thinking buys a longer, equally empty
+    // run; the anatomy is what tells the two apart at a glance.
+    let msg = truncation_message(&shape(Some(STOP_REASON_MAX_TOKENS), Some(32_000), 32_000));
+    assert!(
+        msg.contains("response anatomy:"),
+        "the failure must say what arrived, not only that it stopped: {msg}"
+    );
+    assert!(
+        msg.contains("LLM_EXTRACTION_EFFORT"),
+        "and must name the OTHER remedy when the blocks point at thinking: {msg}"
+    );
+    // The original remedy survives — this is an addition, not a replacement.
+    assert!(
+        msg.contains("max_tokens") && msg.contains("profile"),
+        "{msg}"
+    );
+}
 
 #[test]
 fn the_message_a_truncation_produces_is_recognised_as_one() {

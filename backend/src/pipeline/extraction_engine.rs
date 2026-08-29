@@ -30,6 +30,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
+use crate::domain::llm_effort::Effort;
+use crate::pipeline::response_anatomy::BlockCounts;
+
 /// Single LLM call result returned by [`ExtractionEngine::extract`].
 ///
 /// Wider than `colossus_extract::LlmResponse` — adds `request_id`
@@ -89,6 +92,14 @@ pub struct LlmCallResult {
     /// (between sending the request and parsing the response). Recorded
     /// for latency observability.
     pub duration: Duration,
+
+    /// How many content blocks of each type the response carried.
+    ///
+    /// Added 2026-08-28. A call that returns only reasoning blocks is a complete,
+    /// well-formed, entirely useless response, and before this field the only
+    /// thing the pipeline could say about one was that it had no text. See
+    /// [`crate::pipeline::response_anatomy`].
+    pub block_counts: BlockCounts,
 }
 
 /// One item in a batch passed to [`ExtractionEngine::extract_batch`].
@@ -124,6 +135,13 @@ pub struct BatchExtractionItem {
     /// `Some(0.0)` gives deterministic output for extraction.
     /// `Some(t > 0)` for synthesis or natural-variation chat workloads.
     pub temperature: Option<f64>,
+
+    /// `output_config.effort` for this item, or `None` to send no field.
+    ///
+    /// Per-item for the same reason `model` is: one batch can mix a turned-down
+    /// extraction call with a scan call that keeps the provider default. See
+    /// [`crate::domain::llm_effort`].
+    pub effort: Option<Effort>,
 }
 
 /// Typed error from any [`ExtractionEngine`] method.
@@ -235,7 +253,10 @@ pub trait ExtractionEngine: Send + Sync + 'static {
     /// system-vs-user distinction at the API layer.
     ///
     /// `temperature` follows the omit-when-`None` convention documented
-    /// on [`BatchExtractionItem::temperature`].
+    /// on [`BatchExtractionItem::temperature`], and `effort` follows it too —
+    /// `None` means the request carries no `output_config.effort` at all, which
+    /// is a deliberate state and not a missing value (see
+    /// [`crate::domain::llm_effort`]).
     ///
     /// # Errors
     ///
@@ -253,6 +274,7 @@ pub trait ExtractionEngine: Send + Sync + 'static {
         model: &str,
         max_tokens: u32,
         temperature: Option<f64>,
+        effort: Option<Effort>,
     ) -> Result<LlmCallResult, ExtractionEngineError>;
 
     /// Fan out multiple extractions with bounded concurrency.
@@ -302,6 +324,7 @@ pub trait ExtractionEngine: Send + Sync + 'static {
                     &item.model,
                     item.max_tokens,
                     item.temperature,
+                    item.effort,
                 )
                 .await,
             );

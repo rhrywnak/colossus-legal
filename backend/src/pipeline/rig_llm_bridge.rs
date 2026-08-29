@@ -46,8 +46,10 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use colossus_extract::{LlmProvider, LlmResponse, PipelineError};
 
+use crate::domain::llm_effort::Effort;
 use crate::llm_retry_policy;
 use crate::pipeline::extraction_engine::{ExtractionEngine, ExtractionEngineError, LlmCallResult};
+use crate::pipeline::response_anatomy::anatomy_line;
 use crate::pipeline::truncation;
 
 /// Provider name returned by [`LlmProvider::provider_name`].
@@ -96,6 +98,17 @@ pub struct RigLlmProviderBridge {
     /// per-instance so different consumers can hold different
     /// temperatures against the same engine.
     temperature: Option<f64>,
+
+    /// `output_config.effort` for every call this bridge makes, or `None` to
+    /// send no field.
+    ///
+    /// Constructor-time rather than per-call because it is a property of the
+    /// CALL FAMILY, not of one prompt: `provider_for_model` is handed the
+    /// extraction policy on the pipeline paths and the scan policy on the
+    /// service paths, and the resulting bridge cannot be used for the other one
+    /// by accident. See [`crate::domain::llm_effort`] for why the two families
+    /// differ.
+    effort: Option<Effort>,
 }
 
 impl RigLlmProviderBridge {
@@ -110,6 +123,7 @@ impl RigLlmProviderBridge {
         cost_input: Option<f64>,
         cost_output: Option<f64>,
         temperature: Option<f64>,
+        effort: Option<Effort>,
     ) -> Self {
         Self {
             engine,
@@ -117,6 +131,7 @@ impl RigLlmProviderBridge {
             cost_input,
             cost_output,
             temperature,
+            effort,
         }
     }
 }
@@ -210,11 +225,20 @@ impl RigLlmProviderBridge {
         result: &LlmCallResult,
         max_tokens: u32,
     ) -> Result<(), PipelineError> {
+        // Built here rather than inside the gate: `truncation` is kept pure and
+        // free of the provider DTO, so its two directions stay assertable
+        // without constructing a response.
+        let anatomy = anatomy_line(
+            &result.block_counts,
+            result.output_tokens,
+            result.stop_reason.as_deref(),
+        );
         let shape = truncation::CallShape {
             stop_reason: result.stop_reason.as_deref(),
             output_tokens: result.output_tokens,
             configured_max_tokens: max_tokens,
             model: &self.model,
+            anatomy: &anatomy,
         };
         if !truncation::is_truncated(&shape) {
             return Ok(());
@@ -223,6 +247,7 @@ impl RigLlmProviderBridge {
             model = %self.model,
             output_tokens = ?result.output_tokens,
             max_tokens,
+            %anatomy,
             "LLM response TRUNCATED at the token ceiling — extraction discarded"
         );
         Err(PipelineError::LlmProvider(truncation::truncation_message(
@@ -236,7 +261,14 @@ impl LlmProvider for RigLlmProviderBridge {
     async fn invoke(&self, prompt: &str, max_tokens: u32) -> Result<LlmResponse, PipelineError> {
         let result = self
             .engine
-            .extract(None, prompt, &self.model, max_tokens, self.temperature)
+            .extract(
+                None,
+                prompt,
+                &self.model,
+                max_tokens,
+                self.temperature,
+                self.effort,
+            )
             .await
             .map_err(map_engine_error)?;
         self.guard_truncation(&result, max_tokens)?;
@@ -262,6 +294,7 @@ impl LlmProvider for RigLlmProviderBridge {
                 &self.model,
                 max_tokens,
                 self.temperature,
+                self.effort,
             )
             .await
             .map_err(map_engine_error)?;
@@ -333,6 +366,7 @@ mod tests {
             _model: &str,
             _max_tokens: u32,
             _temperature: Option<f64>,
+            _effort: Option<crate::domain::llm_effort::Effort>,
         ) -> Result<LlmCallResult, ExtractionEngineError> {
             unreachable!(
                 "UnreachableEngine.extract called — test should not exercise the call path"
@@ -355,6 +389,7 @@ mod tests {
             Some(0.000_003),
             Some(0.000_015),
             temperature,
+            None,
         )
     }
 
@@ -551,6 +586,9 @@ mod tests {
             None,
             None,
             Some(0.0),
+            // The live probe deliberately sends NO effort field: it exercises
+            // the transport, not the 2026-08-28 policy.
+            None,
         );
 
         let result = bridge
@@ -613,6 +651,7 @@ mod truncation_gate_tests {
             _model: &str,
             _max_tokens: u32,
             _temperature: Option<f64>,
+            _effort: Option<crate::domain::llm_effort::Effort>,
         ) -> Result<LlmCallResult, ExtractionEngineError> {
             Ok(LlmCallResult {
                 // Deliberately the SHAPE of a truncated pass-2 body: an array
@@ -622,6 +661,7 @@ mod truncation_gate_tests {
                 output_tokens: self.output_tokens,
                 stop_reason: self.stop_reason.clone(),
                 request_id: Some("req_test".to_string()),
+                block_counts: Default::default(),
                 duration: Duration::from_millis(1),
             })
         }
@@ -640,6 +680,7 @@ mod truncation_gate_tests {
             None,
             None,
             Some(0.0),
+            None,
         )
     }
 

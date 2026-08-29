@@ -76,10 +76,12 @@ use async_trait::async_trait;
 use futures::stream::{self, StreamExt};
 use serde_json::{json, Value};
 
+use crate::domain::llm_effort::Effort;
 use crate::pipeline::anthropic_transport::{self, TransportError};
 use crate::pipeline::extraction_engine::{
     BatchExtractionItem, ExtractionEngine, ExtractionEngineError, LlmCallResult,
 };
+use crate::pipeline::response_anatomy::anatomy_line;
 
 // ── Config keys ─────────────────────────────────────────────────
 //
@@ -226,6 +228,43 @@ impl AnthropicStreamingEngine {
     }
 }
 
+impl AnthropicStreamingEngine {
+    /// POST the request and hand back a response whose status is already known
+    /// to be a success — so the caller's happy path is the stream and nothing
+    /// else.
+    ///
+    /// Split out of `extract` when the anatomy work pushed it past the 50-line
+    /// budget, and the seam is a real one rather than a convenient cut: this is
+    /// everything that happens BEFORE a single body byte is read, which is
+    /// exactly the boundary the pre-generation rejection rule turns on (see
+    /// [`crate::llm_retry_policy`]).
+    async fn open_stream(
+        &self,
+        body: &Value,
+        model: &str,
+    ) -> Result<reqwest_13::Response, ExtractionEngineError> {
+        let response = self
+            .http
+            .post(&self.messages_url)
+            .header("x-api-key", &self.api_key)
+            .header("anthropic-version", &self.api_version)
+            .header("content-type", "application/json")
+            .header("accept", "text/event-stream")
+            .json(body)
+            .send()
+            .await
+            .map_err(|source| map_transport_error(TransportError::Http { source }, model))?;
+
+        if !response.status().is_success() {
+            return Err(map_transport_error(
+                transport_error_from_response(response).await,
+                model,
+            ));
+        }
+        Ok(response)
+    }
+}
+
 /// Read a string env var, falling back to `default` when unset or empty.
 fn read_string_env(name: &str, default: &str) -> String {
     match std::env::var(name) {
@@ -270,12 +309,19 @@ fn read_secs_env(name: &str, default: u64) -> u64 {
 /// `temperature` is omitted entirely when `None`: Claude Opus 4.7 and later
 /// reject the key outright rather than ignoring it, which is why the resolved
 /// parameter is an `Option` all the way down from `domain::llm_params`.
+///
+/// `effort` follows the same omit-when-`None` rule, and its absence is a real
+/// choice rather than a gap — see [`crate::domain::llm_effort`]. It nests inside
+/// `output_config`, NOT at the top level; a top-level `effort` is not a
+/// recognised parameter and would be ignored, which is the quiet failure this
+/// note exists to prevent.
 pub fn build_request_body(
     system_prompt: Option<&str>,
     user_prompt: &str,
     model: &str,
     max_tokens: u32,
     temperature: Option<f64>,
+    effort: Option<Effort>,
 ) -> Value {
     let mut body = json!({
         "model": model,
@@ -311,9 +357,53 @@ pub fn build_request_body(
                 ),
             }
         }
+        if let Some(effort) = effort {
+            // `output_config` is an OBJECT, and effort lives inside it. This is
+            // the shape the API documents; a bare top-level `effort` would be
+            // silently ignored and the 727-second thinking pass would come back.
+            map.insert(
+                "output_config".to_string(),
+                json!({ "effort": effort.as_wire() }),
+            );
+        }
     }
 
     body
+}
+
+/// The failure for a response that carried no text at all.
+///
+/// ## Why this is not simply "empty response"
+///
+/// Returning `Ok` with an empty string would let downstream code produce zero
+/// entities and mark the document "complete with no extractions", which is
+/// indistinguishable from a successful empty page (Standing Rule 1). So it
+/// fails — and, since 2026-08-28, it fails while SAYING WHAT IT GOT.
+///
+/// On that day a pass-1 call generated for 727 seconds and returned fourteen
+/// reasoning blocks and nothing else. The error read "returned no text content",
+/// which was true and told nobody anything; the container logs had nothing
+/// either, and diagnosing it meant reading Anthropic's thinking documentation
+/// rather than our own output. The same failure now arrives carrying
+/// `thinking ×14; output_tokens=63997; stop_reason=end_turn`, which names the
+/// cause, and the remedy sentence names both dials — because which one applies
+/// depends on whether those blocks are reasoning or something else.
+fn no_text_failure(model: &str, anatomy: &str) -> ExtractionEngineError {
+    tracing::error!(
+        model,
+        %anatomy,
+        "LLM returned NO TEXT — the whole token budget went somewhere else"
+    );
+    ExtractionEngineError::LlmCallFailed {
+        model: model.to_string(),
+        source: format!(
+            "model {model} returned no text content. {anatomy}. If the blocks above are \
+             `thinking`, the model spent its whole max_tokens budget reasoning before writing \
+             anything — lower LLM_EXTRACTION_EFFORT, or raise max_tokens for this document \
+             type in its profile YAML, and re-run."
+        )
+        .into(),
+    }
 }
 
 /// Turn a non-success response into a [`TransportError`], consuming its body.
@@ -386,49 +476,32 @@ impl ExtractionEngine for AnthropicStreamingEngine {
         model: &str,
         max_tokens: u32,
         temperature: Option<f64>,
+        effort: Option<Effort>,
     ) -> Result<LlmCallResult, ExtractionEngineError> {
         let start = Instant::now();
-        let body = build_request_body(system_prompt, user_prompt, model, max_tokens, temperature);
+        let body = build_request_body(
+            system_prompt,
+            user_prompt,
+            model,
+            max_tokens,
+            temperature,
+            effort,
+        );
 
-        let response = self
-            .http
-            .post(&self.messages_url)
-            .header("x-api-key", &self.api_key)
-            .header("anthropic-version", &self.api_version)
-            .header("content-type", "application/json")
-            .header("accept", "text/event-stream")
-            .json(&body)
-            .send()
-            .await
-            .map_err(|source| map_transport_error(TransportError::Http { source }, model))?;
-
-        if !response.status().is_success() {
-            return Err(map_transport_error(
-                transport_error_from_response(response).await,
-                model,
-            ));
-        }
-
+        let response = self.open_stream(&body, model).await?;
         let mut chunks = anthropic_transport::ResponseChunks::new(response);
         let message = anthropic_transport::drive(&mut chunks, self.idle_timeout)
             .await
             .map_err(|e| map_transport_error(e, model))?;
 
+        let anatomy = anatomy_line(
+            &message.block_counts,
+            message.output_tokens,
+            Some(message.stop_reason.as_str()),
+        );
+
         if message.text.is_empty() {
-            // A response with no text blocks is a failed extraction — Rule 1
-            // says distinct states need distinct observables. Returning
-            // `Ok(LlmCallResult { response_text: "", … })` would let downstream
-            // code silently produce zero entities and mark the document
-            // "complete with no extractions", which is indistinguishable from a
-            // successful empty page.
-            let source_msg: String = format!(
-                "model {model} returned no text content \
-                 (response contained only tool_use / reasoning / image blocks)"
-            );
-            return Err(ExtractionEngineError::LlmCallFailed {
-                model: model.to_string(),
-                source: source_msg.into(),
-            });
+            return Err(no_text_failure(model, &anatomy));
         }
 
         Ok(LlmCallResult {
@@ -441,6 +514,10 @@ impl ExtractionEngine for AnthropicStreamingEngine {
             stop_reason: Some(message.stop_reason),
             request_id: message.message_id,
             duration: start.elapsed(),
+            // Carried on EVERY result, not just failures: the truncation gate
+            // above the bridge needs it, and a count that is only gathered when
+            // something goes wrong is a count nobody can baseline against.
+            block_counts: message.block_counts,
         })
     }
 
@@ -481,6 +558,7 @@ impl ExtractionEngine for AnthropicStreamingEngine {
                     &item.model,
                     item.max_tokens,
                     item.temperature,
+                    item.effort,
                 )
                 .await;
             (idx, result)

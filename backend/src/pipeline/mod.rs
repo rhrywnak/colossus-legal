@@ -23,6 +23,9 @@ pub mod edge_bar_report;
 pub mod extraction_engine;
 pub mod providers;
 pub mod registry;
+/// What a response actually contained, in one operator-facing line — the fix for
+/// the 2026-08-28 all-reasoning-blocks incident.
+pub mod response_anatomy;
 pub mod rig_llm_bridge;
 pub mod step_progress;
 pub mod step_recorder;

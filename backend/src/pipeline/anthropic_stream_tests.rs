@@ -148,6 +148,70 @@ fn a_thinking_block_is_skipped_and_separate_text_blocks_join_with_a_newline() {
 }
 
 #[test]
+fn an_all_reasoning_response_is_a_well_formed_stream_that_produced_nothing() {
+    // THE 2026-08-28 INCIDENT, as a transcript.
+    //
+    // Post-appeal transcript, pass 1, Opus 5, max_tokens 64000: the model
+    // generated for 727 seconds and returned only reasoning blocks. Nothing
+    // about the STREAM was wrong — it opened, it emitted, it stopped cleanly at
+    // `end_turn`. That is what made it undiagnosable: every failure the pipeline
+    // knew how to describe was a stream that broke, and this one did not.
+    //
+    // So the accumulator's job here is not to fail. It is to come back carrying
+    // enough for the layer above to say what happened.
+    let transcript = concat!(
+        r#"data: {"type":"message_start","message":{"id":"msg_incident","usage":{"input_tokens":41255,"output_tokens":1}}}"#,
+        "\n\n",
+        r#"data: {"type":"content_block_start","index":0,"content_block":{"type":"thinking","thinking":""}}"#,
+        "\n\n",
+        r#"data: {"type":"content_block_delta","index":0,"delta":{"type":"thinking_delta","thinking":"considering the transcript"}}"#,
+        "\n\n",
+        r#"data: {"type":"content_block_stop","index":0}"#,
+        "\n\n",
+        r#"data: {"type":"content_block_start","index":1,"content_block":{"type":"thinking","thinking":""}}"#,
+        "\n\n",
+        r#"data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":63997}}"#,
+        "\n\n",
+        r#"data: {"type":"message_stop"}"#,
+        "\n\n",
+    );
+
+    let message = accumulate(transcript).expect("the stream itself was perfectly healthy");
+
+    // Zero text: the whole budget went to reasoning.
+    assert_eq!(message.text, "", "the incident produced no text at all");
+    // And the counts say WHERE it went, which is the entire point of collecting
+    // them. Before 2026-08-28 this information did not survive the accumulator
+    // and the error could only report an absence.
+    assert_eq!(message.block_counts.get("thinking"), 2);
+    assert_eq!(message.block_counts.get("text"), 0);
+    assert_eq!(message.output_tokens, Some(63_997));
+    assert_eq!(
+        message.stop_reason, "end_turn",
+        "it stopped HAPPILY — this is why no existing gate caught it"
+    );
+
+    // The line the operator gets, assembled from exactly this.
+    let line = crate::pipeline::response_anatomy::anatomy_line(
+        &message.block_counts,
+        message.output_tokens,
+        Some(message.stop_reason.as_str()),
+    );
+    assert!(line.contains("thinking ×2"), "{line}");
+    assert!(line.contains("output_tokens=63997"), "{line}");
+    assert!(line.contains("stop_reason=end_turn"), "{line}");
+}
+
+#[test]
+fn a_healthy_extraction_still_counts_its_one_text_block() {
+    // The baseline the incident is legible against. Counting is unconditional,
+    // so a normal response describes itself too.
+    let message = accumulate(HAPPY_TRANSCRIPT).expect("a well-formed transcript must accumulate");
+    assert_eq!(message.block_counts.get("text"), 1);
+    assert_eq!(message.block_counts.total(), 1);
+}
+
+#[test]
 fn an_error_event_mid_stream_fails_the_call() {
     let transcript = concat!(
         r#"data: {"type":"message_start","message":{"id":"msg_03","usage":{"input_tokens":10}}}"#,

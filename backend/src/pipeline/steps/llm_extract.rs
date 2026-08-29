@@ -472,8 +472,16 @@ pub async fn run_pass1_extraction(
         .ok_or_else(|| LlmExtractError::ModelNotFound {
             model_id: resolved.model.clone(),
         })?;
-    let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
-        .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
+    // The EXTRACTION effort (default `low`). Pass 1 is transcription-shaped —
+    // the template says what to find and the answer is a large JSON document —
+    // so a deep thinking pass spends the budget the ANSWER needs. On 2026-08-28
+    // one consumed all 64000 tokens and returned no text at all.
+    let llm_provider = provider_for_model(
+        &context.extraction_engine,
+        &model_record,
+        context.llm_effort_policy.extraction,
+    )
+    .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
     // 5. Load template and hash it.
     let template_path = context.registry.template_path(&resolved.template_file);

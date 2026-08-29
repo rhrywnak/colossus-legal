@@ -131,6 +131,7 @@ async fn live_context() -> TestResult<colossus_legal_backend::pipeline::context:
         // named here so the fixture matches the struct.)
         verify_gap_policy: config.verify_gap_policy,
         llm_retry_policy: config.llm_retry_policy,
+        llm_effort_policy: config.llm_effort_policy,
         llm_provider: Arc::new(PanicLlm) as Arc<dyn LlmProvider>,
         extraction_engine: Arc::new(
             AnthropicStreamingEngine::from_env().expect("extraction engine"),

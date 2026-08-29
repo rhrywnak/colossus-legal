@@ -66,8 +66,16 @@ async fn resolve_provider(
     .map_err(|e| format!("model {model_id} refused the read's parameters: {e}"))?;
 
     let provider: Arc<dyn LlmProvider> = Arc::from(
-        provider_for_model(&state.extraction_engine, &record)
-            .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
+        // The SCAN effort — `None` unless `LLM_SCAN_EFFORT` is set. A practice
+        // read is a judgement rather than a transcription and may genuinely
+        // benefit from thinking, so it keeps whatever the provider defaults to
+        // rather than inheriting extraction's turned-down setting.
+        provider_for_model(
+            &state.extraction_engine,
+            &record,
+            state.config.llm_effort_policy.scan,
+        )
+        .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
     );
     Ok((provider, params))
 }

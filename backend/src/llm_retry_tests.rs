@@ -303,6 +303,8 @@ async fn a_truncation_is_returned_on_the_first_call_and_never_enters_the_budget(
             output_tokens: Some(64_000),
             configured_max_tokens: 64_000,
             model: "claude-opus-5",
+            anatomy: "response anatomy: 1 content blocks (text ×1); \
+                      output_tokens=64000; stop_reason=max_tokens",
         }))
     });
     let err = call_with_rate_limit_retry(&p, None, "user", 512, 0, 1, policy(0, 5))

@@ -424,8 +424,14 @@ pub async fn run_pass2_extraction(
         .ok_or_else(|| LlmExtractError::ModelNotFound {
             model_id: pass2_model_id.clone(),
         })?;
-    let llm_provider = provider_for_model(&context.extraction_engine, &model_record)
-        .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
+    // Same family, same dial as pass 1, from the same startup read — the two
+    // passes must not disagree about how hard the model is asked to think.
+    let llm_provider = provider_for_model(
+        &context.extraction_engine,
+        &model_record,
+        context.llm_effort_policy.extraction,
+    )
+    .map_err(|message| LlmExtractError::ProviderConstructionFailed { message })?;
 
     // 8. Load pass-2 template + optional system prompt.
     let template_path = context.registry.template_path(&pass2_template_file);

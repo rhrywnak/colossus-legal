@@ -326,6 +326,8 @@ fn classify_response_truncated_is_terminal() {
             output_tokens: Some(32_000),
             configured_max_tokens: 32_000,
             model: "claude-opus-4-6",
+            anatomy: "response anatomy: 1 content blocks (text ×1); \
+                      output_tokens=32000; stop_reason=max_tokens",
         },
     ));
     let err = LlmExtractError::ResponseTruncated { source };
@@ -362,6 +364,8 @@ fn a_truncated_provider_error_becomes_the_truncated_variant_not_a_call_failure()
             output_tokens: Some(64_000),
             configured_max_tokens: 64_000,
             model: "claude-opus-4-6",
+            anatomy: "response anatomy: 1 content blocks (text ×1); \
+                      output_tokens=32000; stop_reason=max_tokens",
         },
     ));
     let err = LlmExtractError::from_provider_failure(truncated);
@@ -466,6 +470,8 @@ fn a_truncation_stays_terminal_no_matter_how_high_the_cap_is_raised() {
             output_tokens: Some(64_000),
             configured_max_tokens: 64_000,
             model: "claude-opus-5",
+            anatomy: "response anatomy: 1 content blocks (text ×1); \
+                      output_tokens=64000; stop_reason=max_tokens",
         },
     ));
     let err = LlmExtractError::ResponseTruncated { source };
@@ -517,12 +523,20 @@ fn a_streamed_response_cut_off_at_the_ceiling_still_classifies_terminal() {
     }
     let message = accumulator.finish().expect("the stream completed");
 
-    // The transport carried the field out of `message_delta`...
+    // The transport carried the field out of `message_delta`, and — since
+    // 2026-08-28 — the block counts out of `content_block_start`, so the gate's
+    // message can say what the response consisted of as well as that it stopped.
+    let anatomy = crate::pipeline::response_anatomy::anatomy_line(
+        &message.block_counts,
+        message.output_tokens,
+        Some(message.stop_reason.as_str()),
+    );
     let shape = truncation::CallShape {
         stop_reason: Some(message.stop_reason.as_str()),
         output_tokens: message.output_tokens,
         configured_max_tokens: 64_000,
         model: "claude-opus-5",
+        anatomy: &anatomy,
     };
     assert!(
         truncation::is_truncated(&shape),
