@@ -20,6 +20,7 @@ import {
   movePick,
   type Pick,
   pickedInPhase,
+  pillGapsLine,
   positionOf,
   removedIdsOf,
   setPickNote,
@@ -211,6 +212,7 @@ describe("the size line is a sentence, not a block", () => {
   const wording = {
     subsets_size_line_template: "A story a person can hold is 12–20 events — this one is {count}.",
     subsets_gap_count_template: "{count} gaps",
+    subsets_pill_gaps_template: "{count} are gaps",
   };
 
   it("says nothing at or below the comfortable maximum", () => {
@@ -228,6 +230,21 @@ describe("the size line is a sentence, not a block", () => {
 
   it("gapLine fills the stored gap template", () => {
     expect(gapLine(wording, 3)).toBe("3 gaps");
+  });
+
+  it("the pill's gap clause is OMITTED at zero, not rendered as '0 are gaps'", () => {
+    // A pill reading "15 picked · 0 are gaps" reports an absence as if it were
+    // news — which is why this is its own stored row and its own boundary.
+    expect(pillGapsLine(wording, 0)).toBeNull();
+  });
+
+  it("the pill's gap clause names the count from one upwards", () => {
+    expect(pillGapsLine(wording, 1)).toBe("1 are gaps");
+    expect(pillGapsLine(wording, 3)).toBe("3 are gaps");
+  });
+
+  it("the pill's gap clause throws by name when its row is missing", () => {
+    expect(() => pillGapsLine({}, 2)).toThrow(/subsets_pill_gaps_template/);
   });
 
   it("throws by name when the wording store is missing a key", () => {

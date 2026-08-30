@@ -44,10 +44,11 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { timelineEventPath } from "../utils/routePaths";
 
-import TimelineEventCard from "../components/timeline/TimelineEventCard";
 import TimelineEventForm from "../components/timeline/TimelineEventForm";
 import TimelineFilterBar from "../components/timeline/TimelineFilterBar";
+import TimelineOrphanEvents from "../components/timeline/TimelineOrphanEvents";
 import TimelinePhaseSection from "../components/timeline/TimelinePhaseSection";
+import TimelineSubsets from "../components/timeline/TimelineSubsets";
 import {
   applyFilters,
   groupByPhase,
@@ -348,35 +349,16 @@ const TimelinePage: React.FC = () => {
         <div style={s.state}>{cw(data.wording, "no_matches_label")}</div>
       ) : (
         <>
-          {orphans.length > 0 && (
-            <div>
-              {orphans.map((event) => (
-                <div key={event.id} style={s.unknownPhase}>
-                  {fill(cw(data.wording, "unknown_phase_template"), {
-                    id: event.id,
-                    phase: event.phase,
-                  })}
-                  {/* An unknown-phase event is EDITABLE, deliberately: this
-                      loud row exists so the event can be corrected, and a row
-                      you can see but not fix is only half the fix. */}
-                  <TimelineEventCard
-                    event={event}
-                    tags={data.tags}
-                    wording={data.wording}
-                    onOpen={openEvent}
-                    onEdit={(target) =>
-                      setFormState({
-                        kind: "editing",
-                        id: target.id,
-                        form: formFromEvent(target),
-                      })
-                    }
-                    onDelete={(target) => void deleteEvent(target)}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
+          <TimelineOrphanEvents
+            events={orphans}
+            tags={data.tags}
+            wording={data.wording}
+            onOpen={openEvent}
+            onEdit={(target) =>
+              setFormState({ kind: "editing", id: target.id, form: formFromEvent(target) })
+            }
+            onDelete={(target) => void deleteEvent(target)}
+          />
 
           {visiblePhases.map((group) => (
             <TimelinePhaseSection
@@ -401,6 +383,11 @@ const TimelinePage: React.FC = () => {
           ))}
         </>
       )}
+
+      {/* Mockup Screen 2: BELOW the phase sections, which do not change. The
+          feature owns its own state — the page's filters are not passed in and
+          cannot be disturbed by it (§T2.3). */}
+      <TimelineSubsets events={data.events} phases={data.phases} wording={data.wording} />
     </div>
   );
 };

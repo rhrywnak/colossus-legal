@@ -216,3 +216,19 @@ export function sizeLine(wording: ChronologyWording, picked: number): string | n
 export function gapLine(wording: ChronologyWording, gaps: number): string {
   return fill(cw(wording, "subsets_gap_count_template"), { count: gaps });
 }
+
+/**
+ * The picker pill's gap clause — "3 are gaps" — or nothing at all.
+ *
+ * `null` at zero, which is the whole reason this is its own stored row rather
+ * than half of the picked template: a pill reading "15 picked · 0 are gaps"
+ * reports an absence as if it were news. The caller drops the separator with it.
+ *
+ * Extracted for the same reason [`sizeLine`] is: it is a design ruling with a
+ * boundary, and a ruling decided inside a component is decided where no test can
+ * reach it.
+ */
+export function pillGapsLine(wording: ChronologyWording, gaps: number): string | null {
+  if (gaps === 0) return null;
+  return fill(cw(wording, "subsets_pill_gaps_template"), { count: gaps });
+}
