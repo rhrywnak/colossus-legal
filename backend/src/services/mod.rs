@@ -3,6 +3,10 @@
 pub mod audit_checks;
 pub mod chronology_guard;
 pub mod chronology_read;
+pub mod chronology_subset_guard;
+pub mod chronology_subset_read;
+pub mod chronology_subset_validate;
+pub mod chronology_subset_write;
 pub mod chronology_validate;
 pub mod chronology_write_response;
 pub mod claim_validator;

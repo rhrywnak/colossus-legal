@@ -138,7 +138,12 @@ pub fn phase_dto(row: &ChronologyPhaseRow) -> TimelinePhaseDto {
 }
 
 /// One event row on the wire, with the links and note count it was given.
-fn event_dto(
+///
+/// `pub(crate)` since T1.3: `chronology_subset_read` composes a subset's events
+/// through THIS function rather than building its own. That is design §4's
+/// "references, never copies" at the composition layer — a subset that knew how
+/// to render an event could render it differently from the timeline.
+pub(crate) fn event_dto(
     row: &ChronologyEventRow,
     links: Vec<TimelineLinkDto>,
     note_count: i64,
@@ -177,7 +182,9 @@ fn event_dto(
 }
 
 /// Turn one event's link rows into wire links.
-fn link_dtos(
+///
+/// `pub(crate)` for the same reason `event_dto` is — see above.
+pub(crate) fn link_dtos(
     rows: &[ChronologyLinkRow],
     resolved_documents: &HashSet<String>,
 ) -> Vec<TimelineLinkDto> {

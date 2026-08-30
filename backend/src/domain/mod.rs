@@ -54,6 +54,9 @@ pub mod wording_accusation;
 pub mod wording_authoring;
 pub mod wording_card_grammar;
 pub mod wording_chronology;
+// The stored KEYS the block above reads. Split out for Rule 17 when T1.2
+// declared the subsets words — see that module's header.
+pub mod wording_chronology_keys;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;

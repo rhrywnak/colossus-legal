@@ -7,6 +7,7 @@ pub mod case_health;
 pub mod case_summary;
 pub mod causes_of_action;
 pub mod chronology;
+pub mod chronology_subset;
 pub mod chronology_wording;
 pub mod chronology_write;
 pub mod claim;

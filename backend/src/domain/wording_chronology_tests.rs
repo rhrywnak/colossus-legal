@@ -19,6 +19,9 @@ const SEED_MIGRATIONS: &[&str] = &[
     // list going stale is exactly the drift the test exists to catch, and a key
     // declared with no migration here makes the backend refuse to start.
     "pipeline_migrations/20260826104928_chronology_write_wording.sql",
+    // T1.2: the sixteen words the Subsets surfaces will speak. In this list on
+    // the day they were written, for the reason the line above gives.
+    "pipeline_migrations/20260830122249_timeline_subsets.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -98,6 +101,23 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_HISTORY_UNKNOWN_TEMPLATE, "{action}"),
     (KEY_WRITE_FAILED_TEMPLATE, "That change was not saved — {reason}"),
     (KEY_PICKER_CAPPED_TEMPLATE, "Showing {shown} of {total} matches — narrow the search to see the rest."),
+    // Timeline subsets (T1.2), seeded by the third migration named above.
+    (KEY_SUBSETS_SECTION_TITLE, "Subsets"),
+    (KEY_SUBSETS_SECTION_SUBTITLE, "stories told in dates — references to the events above, never copies"),
+    (KEY_SUBSETS_ADD_BUTTON, "+ Add subset"),
+    (KEY_SUBSETS_CARRIED_BY_PREFIX, "Carried by"),
+    (KEY_SUBSETS_GAP_COUNT_TEMPLATE, "{count} gaps"),
+    (KEY_SUBSETS_REMOVED_EVENT_LINE, "removed from the chronology — Undo lives on the timeline"),
+    (KEY_SUBSETS_SIZE_LINE_TEMPLATE, "A story a person can hold is 12–20 events — this one is {count}."),
+    (KEY_SUBSETS_PICKER_HINT, "Tick an event to add it. Order defaults to date; drag the number to change the story order. The note is optional — one line on why this event is in the story."),
+    (KEY_SUBSETS_PICKER_GAP_HINT, "Gaps are not on the chronology — add them with \"+ Add event\" on the timeline first; the picker only lists what exists."),
+    (KEY_SCENARIO_VIEW_TIMELINE_BUTTON, "View Timeline"),
+    (KEY_SCENARIO_TIMELINE_ROW_LABEL, "Timeline:"),
+    (KEY_SCENARIO_ATTACH_LINK, "Attach…"),
+    (KEY_SUBSETS_WINDOW_OPEN_TIMELINE, "Open on the timeline"),
+    (KEY_SUBSETS_WINDOW_EDIT, "Edit subset"),
+    (KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE, "{on_chronology} on the chronology · {gaps} gaps"),
+    (KEY_SUBSETS_EMPTY_STATE, "No subsets yet. A subset is a story told in dates — pick events from the phases above."),
 ];
 
 impl ChronologyWording {

@@ -213,6 +213,26 @@ fn a_deleted_snapshot_and_a_live_one_differ_in_their_content() {
 
 // ── 3 · the one write path, proved by scanning the crate ────────────────────
 
+/// The files allowed to call `.commit()` on a chronology transaction.
+///
+/// ## Why there are two, and why that is not a loosening
+///
+/// Each is a SEAL: the only committer for one family of writes, and the only
+/// caller of that family's history insert. `chronology_guard` seals an event's
+/// writes; `chronology_subset_guard`, added by T1.3, seals a subset's — and it
+/// exists as a second module rather than a widened first one because the two
+/// snapshot different things (an event's fields; a subset's fields AND its
+/// ordered event list) and because their `action` vocabularies are different
+/// closed sets behind two different SQL CHECKs.
+///
+/// A third entry here would need the same justification: a family of writes with
+/// its own history table, its own action words, and exactly one committer. What
+/// this list must never hold is a HANDLER or a repository — those are the
+/// modules the scan exists to catch.
+// STRUCTURAL: file names of the two seals, which are join keys between this
+// scan and the modules it exempts. Not deployment configuration.
+const THE_SEALS: &[&str] = &["chronology_guard.rs", "chronology_subset_guard.rs"];
+
 #[test]
 fn the_seal_is_the_only_place_a_chronology_transaction_commits() {
     // ⚑ THE STRUCTURAL HALF OF "one history row per write". `seal_and_commit`
@@ -232,7 +252,7 @@ fn the_seal_is_the_only_place_a_chronology_transaction_commits() {
         let Ok(raw) = std::fs::read_to_string(&path) else {
             continue;
         };
-        if without_comments(&raw).contains(".commit()") && name != "chronology_guard.rs" {
+        if without_comments(&raw).contains(".commit()") && !THE_SEALS.contains(&name) {
             offenders.push(name.to_string());
         }
     }

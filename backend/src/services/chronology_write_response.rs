@@ -39,7 +39,7 @@ use crate::services::chronology_read::{build_event_detail, Composed};
 /// a read row, when the difference between them — `deleted_at` — is the whole
 /// reason both exist. A named function that a caller has to reach for keeps the
 /// lossy step visible at the one place it happens.
-fn as_read_row(row: &ChronologyEventStateRow) -> ChronologyEventRow {
+pub(crate) fn as_read_row(row: &ChronologyEventStateRow) -> ChronologyEventRow {
     ChronologyEventRow {
         id: row.id,
         case_slug: row.case_slug.clone(),

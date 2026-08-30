@@ -218,146 +218,63 @@ pub struct ChronologyWording {
     /// they wanted knows to narrow the search rather than concluding it is not
     /// there.
     pub picker_capped_template: String,
+
+    // ─── Timeline subsets (T1.2): the words the Subsets surfaces will speak ──
+    //
+    // Seeded and declared one commit ahead of the screens that render them
+    // (tasks 2 and 3), so each is named in the reach test's
+    // `DECLARED_AHEAD_OF_THEIR_SCREEN` list until its screen lands. That list is
+    // the promise with a name on it; an undeclared row would be the silence.
+    //
+    // The three `scenario_*` fields are spoken on the scenario pages rather than
+    // the timeline, and they are still this block's words: what they say is
+    // "there is a timeline behind this button".
+    /// The heading over the Subsets section on the timeline home page (design §5A).
+    pub subsets_section_title: String,
+    /// The muted line under that heading. It states the design's first ruling on the one screen where a reader could get it wrong.
+    pub subsets_section_subtitle: String,
+    /// The control that opens the new-subset form. The `+` is in the stored string, like `add_event_label`'s.
+    pub subsets_add_button: String,
+    /// Introduces the scenario codes carrying a subset — "Carried by S-11, S-12". Stored WITHOUT a trailing space: the store trims, so the renderer supplies the joining one.
+    pub subsets_carried_by_prefix: String,
+    /// How many of a subset's events have been removed from the chronology. `{count}`.
+    pub subsets_gap_count_template: String,
+    /// What a subset shows in place of a soft-deleted event (design R1). The row is MARKED, never dropped, and the line says where the Undo is — because it is not here.
+    pub subsets_removed_event_line: String,
+    /// The size line on the picker and on an over-long subset. `{count}`. Design §5D: the page SAYS the limit rather than enforcing it.
+    pub subsets_size_line_template: String,
+    /// The instruction line at the top of the event picker — ruling 2026-08-30 (1), stated at the moment the author is deciding.
+    pub subsets_picker_hint: String,
+    /// Shown when the author looks for an event that is not on the chronology. R1 from the other side: the picker cannot offer what does not exist.
+    pub subsets_picker_gap_hint: String,
+    /// Opens a scenario's attached subset in the floating window. R2 as made explicit 2026-08-30: EVERY scenario view carries it when a subset is attached.
+    pub scenario_view_timeline_button: String,
+    /// Labels the attached-subsets row in the scenario header. The colon is part of the stored words.
+    pub scenario_timeline_row_label: String,
+    /// Opens the list of subsets this scenario could carry. The ellipsis promises a chooser, not an action.
+    pub scenario_attach_link: String,
+    /// The floating window's footer link to the full page filtered to this subset. It opens the page; it never navigates the page under the window.
+    pub subsets_window_open_timeline: String,
+    /// Opens the subset's name, description and picker from inside the floating window.
+    pub subsets_window_edit: String,
+    /// The window's footer count. `{on_chronology}` live events, `{gaps}` removed ones. TWO numbers, because one total over a list of struck lines is the sentence that makes a reader distrust the count.
+    pub subsets_window_footer_template: String,
+    /// Shown in the Subsets section when the case holds none. It teaches rather than reporting: this is where a reader meets the idea.
+    pub subsets_empty_state: String,
 }
 
-pub(crate) const KEY_PAGE_TITLE: &str = "chronology_page_title";
-pub(crate) const KEY_COUNT_TEMPLATE: &str = "chronology_count_template";
-pub(crate) const KEY_FILTERED_COUNT_TEMPLATE: &str = "chronology_filtered_count_template";
-pub(crate) const KEY_SEARCH_PLACEHOLDER: &str = "chronology_search_placeholder";
-pub(crate) const KEY_ALL_TAGS_LABEL: &str = "chronology_all_tags_label";
-pub(crate) const KEY_DATES_LABEL: &str = "chronology_dates_label";
-pub(crate) const KEY_DATE_FROM_LABEL: &str = "chronology_date_from_label";
-pub(crate) const KEY_DATE_TO_LABEL: &str = "chronology_date_to_label";
-pub(crate) const KEY_EXPAND_LABEL: &str = "chronology_expand_label";
-pub(crate) const KEY_SHOW_ALL_PHASES_LABEL: &str = "chronology_show_all_phases_label";
-pub(crate) const KEY_SCROLL_HINT_TEMPLATE: &str = "chronology_scroll_hint_template";
-pub(crate) const KEY_PHASE_COUNT_TEMPLATE: &str = "chronology_phase_count_template";
-pub(crate) const KEY_NO_DOCUMENT_LABEL: &str = "chronology_no_document_label";
-pub(crate) const KEY_LINK_UNCHECKED_LABEL: &str = "chronology_link_unchecked_label";
-pub(crate) const KEY_NOTE_COUNT_TEMPLATE: &str = "chronology_note_count_template";
-pub(crate) const KEY_NOTE_COUNT_ONE: &str = "chronology_note_count_one";
-pub(crate) const KEY_NO_PINPOINT_LABEL: &str = "chronology_no_pinpoint_label";
-pub(crate) const KEY_EMPTY_LABEL: &str = "chronology_empty_label";
-pub(crate) const KEY_NO_MATCHES_LABEL: &str = "chronology_no_matches_label";
-pub(crate) const KEY_UNKNOWN_PHASE_TEMPLATE: &str = "chronology_unknown_phase_template";
-pub(crate) const KEY_BACK_LABEL: &str = "chronology_back_label";
-pub(crate) const KEY_DOCUMENTS_HEADING: &str = "chronology_documents_heading";
-pub(crate) const KEY_NOTES_HEADING: &str = "chronology_notes_heading";
-pub(crate) const KEY_HISTORY_HEADING: &str = "chronology_history_heading";
-pub(crate) const KEY_NO_HISTORY_LABEL: &str = "chronology_no_history_label";
-pub(crate) const KEY_NO_NOTES_LABEL: &str = "chronology_no_notes_label";
-pub(crate) const KEY_BAND_MISMATCH_TEMPLATE: &str = "chronology_band_mismatch_template";
-pub(crate) const KEY_ADD_EVENT_LABEL: &str = "chronology_add_event_label";
-pub(crate) const KEY_EDIT_LABEL: &str = "chronology_edit_label";
-pub(crate) const KEY_DELETE_LABEL: &str = "chronology_delete_label";
-pub(crate) const KEY_DELETED_LINE_LABEL: &str = "chronology_deleted_line_label";
-pub(crate) const KEY_UNDO_LABEL: &str = "chronology_undo_label";
-pub(crate) const KEY_FORM_ADD_TITLE: &str = "chronology_form_add_title";
-pub(crate) const KEY_FORM_EDIT_TITLE: &str = "chronology_form_edit_title";
-pub(crate) const KEY_FORM_DATE_LABEL: &str = "chronology_form_date_label";
-pub(crate) const KEY_FORM_PRECISION_LABEL: &str = "chronology_form_precision_label";
-pub(crate) const KEY_PRECISION_DAY_LABEL: &str = "chronology_precision_day_label";
-pub(crate) const KEY_PRECISION_MONTH_LABEL: &str = "chronology_precision_month_label";
-pub(crate) const KEY_PRECISION_YEAR_LABEL: &str = "chronology_precision_year_label";
-pub(crate) const KEY_FORM_APPROXIMATE_LABEL: &str = "chronology_form_approximate_label";
-pub(crate) const KEY_FORM_TITLE_LABEL: &str = "chronology_form_title_label";
-pub(crate) const KEY_FORM_TITLE_PLACEHOLDER: &str = "chronology_form_title_placeholder";
-pub(crate) const KEY_FORM_FACT_LABEL: &str = "chronology_form_fact_label";
-pub(crate) const KEY_FORM_FACT_PLACEHOLDER: &str = "chronology_form_fact_placeholder";
-pub(crate) const KEY_FORM_TAGS_LABEL: &str = "chronology_form_tags_label";
-pub(crate) const KEY_FORM_PHASE_LABEL: &str = "chronology_form_phase_label";
-pub(crate) const KEY_FORM_DOCUMENTS_LABEL: &str = "chronology_form_documents_label";
-pub(crate) const KEY_DOCUMENT_SEARCH_PLACEHOLDER: &str = "chronology_document_search_placeholder";
-pub(crate) const KEY_DOCUMENT_SEARCH_EMPTY_LABEL: &str = "chronology_document_search_empty_label";
-pub(crate) const KEY_PINPOINT_PLACEHOLDER: &str = "chronology_pinpoint_placeholder";
-pub(crate) const KEY_SAVE_LABEL: &str = "chronology_save_label";
-pub(crate) const KEY_CANCEL_LABEL: &str = "chronology_cancel_label";
-pub(crate) const KEY_SAVING_LABEL: &str = "chronology_saving_label";
-pub(crate) const KEY_ADD_NOTE_PLACEHOLDER: &str = "chronology_add_note_placeholder";
-pub(crate) const KEY_ADD_NOTE_BUTTON_LABEL: &str = "chronology_add_note_button_label";
-pub(crate) const KEY_LINK_DOCUMENT_LABEL: &str = "chronology_link_document_label";
-pub(crate) const KEY_REMOVE_LINK_LABEL: &str = "chronology_remove_link_label";
-pub(crate) const KEY_DELETE_NOTE_LABEL: &str = "chronology_delete_note_label";
-pub(crate) const KEY_HISTORY_LINE_TEMPLATE: &str = "chronology_history_line_template";
-pub(crate) const KEY_HISTORY_CREATED_LABEL: &str = "chronology_history_created_label";
-pub(crate) const KEY_HISTORY_UPDATED_LABEL: &str = "chronology_history_updated_label";
-pub(crate) const KEY_HISTORY_DELETED_LABEL: &str = "chronology_history_deleted_label";
-pub(crate) const KEY_HISTORY_RESTORED_LABEL: &str = "chronology_history_restored_label";
-pub(crate) const KEY_HISTORY_UNKNOWN_TEMPLATE: &str = "chronology_history_unknown_template";
-pub(crate) const KEY_WRITE_FAILED_TEMPLATE: &str = "chronology_write_failed_template";
-pub(crate) const KEY_PICKER_CAPPED_TEMPLATE: &str = "chronology_picker_capped_template";
-
-/// Declared to the boot loader. A key here with no row in any migration makes
-/// the backend REFUSE TO START — which is what the sibling test file exists to
-/// catch before a deploy does.
-pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
-    KEY_PAGE_TITLE,
-    KEY_COUNT_TEMPLATE,
-    KEY_FILTERED_COUNT_TEMPLATE,
-    KEY_SEARCH_PLACEHOLDER,
-    KEY_ALL_TAGS_LABEL,
-    KEY_DATES_LABEL,
-    KEY_DATE_FROM_LABEL,
-    KEY_DATE_TO_LABEL,
-    KEY_EXPAND_LABEL,
-    KEY_SHOW_ALL_PHASES_LABEL,
-    KEY_SCROLL_HINT_TEMPLATE,
-    KEY_PHASE_COUNT_TEMPLATE,
-    KEY_NO_DOCUMENT_LABEL,
-    KEY_LINK_UNCHECKED_LABEL,
-    KEY_NOTE_COUNT_TEMPLATE,
-    KEY_NOTE_COUNT_ONE,
-    KEY_NO_PINPOINT_LABEL,
-    KEY_EMPTY_LABEL,
-    KEY_NO_MATCHES_LABEL,
-    KEY_UNKNOWN_PHASE_TEMPLATE,
-    KEY_BACK_LABEL,
-    KEY_DOCUMENTS_HEADING,
-    KEY_NOTES_HEADING,
-    KEY_HISTORY_HEADING,
-    KEY_NO_HISTORY_LABEL,
-    KEY_NO_NOTES_LABEL,
-    KEY_BAND_MISMATCH_TEMPLATE,
-    KEY_ADD_EVENT_LABEL,
-    KEY_EDIT_LABEL,
-    KEY_DELETE_LABEL,
-    KEY_DELETED_LINE_LABEL,
-    KEY_UNDO_LABEL,
-    KEY_FORM_ADD_TITLE,
-    KEY_FORM_EDIT_TITLE,
-    KEY_FORM_DATE_LABEL,
-    KEY_FORM_PRECISION_LABEL,
-    KEY_PRECISION_DAY_LABEL,
-    KEY_PRECISION_MONTH_LABEL,
-    KEY_PRECISION_YEAR_LABEL,
-    KEY_FORM_APPROXIMATE_LABEL,
-    KEY_FORM_TITLE_LABEL,
-    KEY_FORM_TITLE_PLACEHOLDER,
-    KEY_FORM_FACT_LABEL,
-    KEY_FORM_FACT_PLACEHOLDER,
-    KEY_FORM_TAGS_LABEL,
-    KEY_FORM_PHASE_LABEL,
-    KEY_FORM_DOCUMENTS_LABEL,
-    KEY_DOCUMENT_SEARCH_PLACEHOLDER,
-    KEY_DOCUMENT_SEARCH_EMPTY_LABEL,
-    KEY_PINPOINT_PLACEHOLDER,
-    KEY_SAVE_LABEL,
-    KEY_CANCEL_LABEL,
-    KEY_SAVING_LABEL,
-    KEY_ADD_NOTE_PLACEHOLDER,
-    KEY_ADD_NOTE_BUTTON_LABEL,
-    KEY_LINK_DOCUMENT_LABEL,
-    KEY_REMOVE_LINK_LABEL,
-    KEY_DELETE_NOTE_LABEL,
-    KEY_HISTORY_LINE_TEMPLATE,
-    KEY_HISTORY_CREATED_LABEL,
-    KEY_HISTORY_UPDATED_LABEL,
-    KEY_HISTORY_DELETED_LABEL,
-    KEY_HISTORY_RESTORED_LABEL,
-    KEY_HISTORY_UNKNOWN_TEMPLATE,
-    KEY_WRITE_FAILED_TEMPLATE,
-    KEY_PICKER_CAPPED_TEMPLATE,
-];
+/// Every stored key, and the list the boot loader is handed.
+///
+/// ## Rust Learning: a glob re-export that keeps one public path
+///
+/// The constants moved to a sibling module for Rule 17 (see that file's header),
+/// and this line means nothing else had to move with them: `settings_boot`,
+/// `settings_store_tests` and this module's own tests all still say
+/// `domain::wording_chronology::CHRONOLOGY_WORDING_KEYS`. A `use` declaration
+/// marked `pub(crate)` re-exports what it imports, so the split is invisible
+/// to every caller — which is the point of splitting for a line limit rather
+/// than for a boundary that means something.
+pub(crate) use super::wording_chronology_keys::*;
 
 /// Build a [`ChronologyWording`] from the stored rows, or say which key is wrong.
 ///
@@ -441,6 +358,22 @@ pub fn build_chronology_wording<E>(
         history_unknown_template: read(KEY_HISTORY_UNKNOWN_TEMPLATE)?,
         write_failed_template: read(KEY_WRITE_FAILED_TEMPLATE)?,
         picker_capped_template: read(KEY_PICKER_CAPPED_TEMPLATE)?,
+        subsets_section_title: read(KEY_SUBSETS_SECTION_TITLE)?,
+        subsets_section_subtitle: read(KEY_SUBSETS_SECTION_SUBTITLE)?,
+        subsets_add_button: read(KEY_SUBSETS_ADD_BUTTON)?,
+        subsets_carried_by_prefix: read(KEY_SUBSETS_CARRIED_BY_PREFIX)?,
+        subsets_gap_count_template: read(KEY_SUBSETS_GAP_COUNT_TEMPLATE)?,
+        subsets_removed_event_line: read(KEY_SUBSETS_REMOVED_EVENT_LINE)?,
+        subsets_size_line_template: read(KEY_SUBSETS_SIZE_LINE_TEMPLATE)?,
+        subsets_picker_hint: read(KEY_SUBSETS_PICKER_HINT)?,
+        subsets_picker_gap_hint: read(KEY_SUBSETS_PICKER_GAP_HINT)?,
+        scenario_view_timeline_button: read(KEY_SCENARIO_VIEW_TIMELINE_BUTTON)?,
+        scenario_timeline_row_label: read(KEY_SCENARIO_TIMELINE_ROW_LABEL)?,
+        scenario_attach_link: read(KEY_SCENARIO_ATTACH_LINK)?,
+        subsets_window_open_timeline: read(KEY_SUBSETS_WINDOW_OPEN_TIMELINE)?,
+        subsets_window_edit: read(KEY_SUBSETS_WINDOW_EDIT)?,
+        subsets_window_footer_template: read(KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE)?,
+        subsets_empty_state: read(KEY_SUBSETS_EMPTY_STATE)?,
     })
 }
 

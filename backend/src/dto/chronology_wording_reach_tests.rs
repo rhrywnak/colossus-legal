@@ -237,7 +237,30 @@ fn the_scan_can_actually_see_the_surfaces_it_claims_to_check() {
 /// silence.
 // STRUCTURAL: a list of wording keys, which are join keys between code and rows
 // in the same category as a column name. Not deployment configuration.
-const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[];
+const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
+    // Timeline subsets, T1.2. Sixteen rows seeded and mirrored one commit
+    // ahead of the screens that speak them: the Subsets section and its
+    // picker are task 2, the scenario attach row and the floating window are
+    // task 3, and each is its own branch. Every line here retires as its
+    // screen lands, and this list is empty again when task 3 merges — a
+    // line left behind after that would be a row nothing says.
+    "subsets_section_title",
+    "subsets_section_subtitle",
+    "subsets_add_button",
+    "subsets_carried_by_prefix",
+    "subsets_gap_count_template",
+    "subsets_removed_event_line",
+    "subsets_size_line_template",
+    "subsets_picker_hint",
+    "subsets_picker_gap_hint",
+    "scenario_view_timeline_button",
+    "scenario_timeline_row_label",
+    "scenario_attach_link",
+    "subsets_window_open_timeline",
+    "subsets_window_edit",
+    "subsets_window_footer_template",
+    "subsets_empty_state",
+];
 
 #[test]
 fn no_declared_word_is_left_with_no_asker() {
