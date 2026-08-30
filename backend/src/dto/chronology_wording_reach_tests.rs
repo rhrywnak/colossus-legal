@@ -260,6 +260,19 @@ const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
     "subsets_window_edit",
     "subsets_window_footer_template",
     "subsets_empty_state",
+    // Task 2's seven, seeded by 20260830153346 in the commit that declares
+    // them and spoken by the very next one — the Subsets section and the
+    // picker. They are here for one commit, not one task: the migration is
+    // its own commit so the wording lands before the screen that reads it,
+    // which is the order that keeps a deploy from ever serving a screen whose
+    // words are missing.
+    "subsets_event_count_template",
+    "subsets_form_add_title",
+    "subsets_picked_count_template",
+    "subsets_pill_gaps_template",
+    "subsets_form_name_label",
+    "subsets_form_description_label",
+    "subsets_note_placeholder",
 ];
 
 #[test]

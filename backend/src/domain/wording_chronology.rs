@@ -261,6 +261,20 @@ pub struct ChronologyWording {
     pub subsets_window_footer_template: String,
     /// Shown in the Subsets section when the case holds none. It teaches rather than reporting: this is where a reader meets the idea.
     pub subsets_empty_state: String,
+    /// How many events one subset holds, on its row in the Subsets section. Counts every REFERENCE, gaps included — the amber gap line below it says how many of those are gaps.
+    pub subsets_event_count_template: String,
+    /// The subset modal's title when it is creating one. The EDIT variant reuses `subsets_window_edit`; this exists because `subsets_add_button` carries a glyph and a heading is not a button.
+    pub subsets_form_add_title: String,
+    /// How many events are ticked. ONE row for TWO places — the modal's pill and each phase header's suffix — because the mockup spells them identically.
+    pub subsets_picked_count_template: String,
+    /// The pill's second half. Its own row because it is OMITTED at zero: "15 picked · 0 are gaps" reports an absence as if it were news.
+    pub subsets_pill_gaps_template: String,
+    /// Labels the subset's name field. NOT `form_title_label` ("Title"), which labels an EVENT's title on a form one click away.
+    pub subsets_form_name_label: String,
+    /// Labels the subset's description field, and instructs while it labels. The instruction is the point: "Description" alone gets a restatement of the name.
+    pub subsets_form_description_label: String,
+    /// The placeholder in each picked row's one-line note field. Lowercase and bare: it sits in a dense list where a sentence would shout.
+    pub subsets_note_placeholder: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -374,6 +388,13 @@ pub fn build_chronology_wording<E>(
         subsets_window_edit: read(KEY_SUBSETS_WINDOW_EDIT)?,
         subsets_window_footer_template: read(KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE)?,
         subsets_empty_state: read(KEY_SUBSETS_EMPTY_STATE)?,
+        subsets_event_count_template: read(KEY_SUBSETS_EVENT_COUNT_TEMPLATE)?,
+        subsets_form_add_title: read(KEY_SUBSETS_FORM_ADD_TITLE)?,
+        subsets_picked_count_template: read(KEY_SUBSETS_PICKED_COUNT_TEMPLATE)?,
+        subsets_pill_gaps_template: read(KEY_SUBSETS_PILL_GAPS_TEMPLATE)?,
+        subsets_form_name_label: read(KEY_SUBSETS_FORM_NAME_LABEL)?,
+        subsets_form_description_label: read(KEY_SUBSETS_FORM_DESCRIPTION_LABEL)?,
+        subsets_note_placeholder: read(KEY_SUBSETS_NOTE_PLACEHOLDER)?,
     })
 }
 

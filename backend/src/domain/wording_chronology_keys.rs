@@ -111,6 +111,19 @@ pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE: &str =
     "chronology_subsets_window_footer_template";
 pub(crate) const KEY_SUBSETS_EMPTY_STATE: &str = "chronology_subsets_empty_state";
 
+// Timeline subsets, task 2 (2026-08-30): the seven Screens 2 and 3 needed and
+// T1.2 did not seed. See the migration header for why a declared-ahead block
+// came up short.
+pub(crate) const KEY_SUBSETS_EVENT_COUNT_TEMPLATE: &str = "chronology_subsets_event_count_template";
+pub(crate) const KEY_SUBSETS_FORM_ADD_TITLE: &str = "chronology_subsets_form_add_title";
+pub(crate) const KEY_SUBSETS_PICKED_COUNT_TEMPLATE: &str =
+    "chronology_subsets_picked_count_template";
+pub(crate) const KEY_SUBSETS_PILL_GAPS_TEMPLATE: &str = "chronology_subsets_pill_gaps_template";
+pub(crate) const KEY_SUBSETS_FORM_NAME_LABEL: &str = "chronology_subsets_form_name_label";
+pub(crate) const KEY_SUBSETS_FORM_DESCRIPTION_LABEL: &str =
+    "chronology_subsets_form_description_label";
+pub(crate) const KEY_SUBSETS_NOTE_PLACEHOLDER: &str = "chronology_subsets_note_placeholder";
+
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
 /// catch before a deploy does.
@@ -198,4 +211,12 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_WINDOW_EDIT,
     KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE,
     KEY_SUBSETS_EMPTY_STATE,
+    // Timeline subsets, task 2.
+    KEY_SUBSETS_EVENT_COUNT_TEMPLATE,
+    KEY_SUBSETS_FORM_ADD_TITLE,
+    KEY_SUBSETS_PICKED_COUNT_TEMPLATE,
+    KEY_SUBSETS_PILL_GAPS_TEMPLATE,
+    KEY_SUBSETS_FORM_NAME_LABEL,
+    KEY_SUBSETS_FORM_DESCRIPTION_LABEL,
+    KEY_SUBSETS_NOTE_PLACEHOLDER,
 ];
