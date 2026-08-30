@@ -94,6 +94,25 @@ pub struct ChronologyWordingDto {
     pub history_unknown_template: String,
     pub write_failed_template: String,
     pub picker_capped_template: String,
+    // Timeline subsets (T1.2). Declared ahead of tasks 2 and 3, which render
+    // them; each is named in the reach test's DECLARED_AHEAD_OF_THEIR_SCREEN
+    // list until its screen lands.
+    pub subsets_section_title: String,
+    pub subsets_section_subtitle: String,
+    pub subsets_add_button: String,
+    pub subsets_carried_by_prefix: String,
+    pub subsets_gap_count_template: String,
+    pub subsets_removed_event_line: String,
+    pub subsets_size_line_template: String,
+    pub subsets_picker_hint: String,
+    pub subsets_picker_gap_hint: String,
+    pub scenario_view_timeline_button: String,
+    pub scenario_timeline_row_label: String,
+    pub scenario_attach_link: String,
+    pub subsets_window_open_timeline: String,
+    pub subsets_window_edit: String,
+    pub subsets_window_footer_template: String,
+    pub subsets_empty_state: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -171,6 +190,22 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             history_unknown_template: w.history_unknown_template.clone(),
             write_failed_template: w.write_failed_template.clone(),
             picker_capped_template: w.picker_capped_template.clone(),
+            subsets_section_title: w.subsets_section_title.clone(),
+            subsets_section_subtitle: w.subsets_section_subtitle.clone(),
+            subsets_add_button: w.subsets_add_button.clone(),
+            subsets_carried_by_prefix: w.subsets_carried_by_prefix.clone(),
+            subsets_gap_count_template: w.subsets_gap_count_template.clone(),
+            subsets_removed_event_line: w.subsets_removed_event_line.clone(),
+            subsets_size_line_template: w.subsets_size_line_template.clone(),
+            subsets_picker_hint: w.subsets_picker_hint.clone(),
+            subsets_picker_gap_hint: w.subsets_picker_gap_hint.clone(),
+            scenario_view_timeline_button: w.scenario_view_timeline_button.clone(),
+            scenario_timeline_row_label: w.scenario_timeline_row_label.clone(),
+            scenario_attach_link: w.scenario_attach_link.clone(),
+            subsets_window_open_timeline: w.subsets_window_open_timeline.clone(),
+            subsets_window_edit: w.subsets_window_edit.clone(),
+            subsets_window_footer_template: w.subsets_window_footer_template.clone(),
+            subsets_empty_state: w.subsets_empty_state.clone(),
         }
     }
 }

@@ -41,3 +41,5 @@ pub mod interaction;
 pub mod query;
 pub mod scenario;
 pub mod session;
+// Timeline subsets (T1.3) — both path families, one group. See its header.
+pub mod subset;

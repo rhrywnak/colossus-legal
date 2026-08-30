@@ -73,6 +73,7 @@ pub mod schema;
 pub mod search;
 pub mod settings;
 pub mod timeline;
+pub mod timeline_subsets;
 pub mod timeline_write;
 pub mod trial_prep;
 
@@ -124,6 +125,7 @@ pub fn router() -> Router<AppState> {
         .merge(practice::routes())
         .merge(settings::routes())
         .merge(timeline::routes())
+        .merge(routes::subset::routes())
         .merge(routes::claim::routes())
         .merge(routes::document::routes())
         .merge(routes::entity::routes())

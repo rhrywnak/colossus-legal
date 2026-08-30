@@ -154,11 +154,15 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// How many `(method, path)` lines the router carries at this commit.
 ///
 /// Pinned deliberately. The T1.0 split promised that this number and every line
-/// behind it survive the move unchanged; a task that ADDS endpoints (T1.3 does)
-/// edits this number in the same commit that adds them, which is the point —
-/// a route appearing or vanishing becomes a line in a diff somebody signed.
+/// behind it survive the move unchanged; a task that ADDS endpoints edits this
+/// number in the same commit that adds them, which is the point — a route
+/// appearing or vanishing becomes a line in a diff somebody signed.
+///
+/// 288 at the T1.0 split. 301 since T1.3, which added thirteen lines: the nine
+/// timeline-subset routes, plus the `HEAD` axum pairs with each of the three
+/// `GET`s and the `PUT`/`DELETE`/`POST` that share their paths.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 288;
+const EXPECTED_ROUTE_LINES: usize = 301;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {
@@ -189,6 +193,11 @@ fn the_walk_can_actually_see_the_router_it_claims_to_read() {
         "PATCH /qa/:id/rate",
         "PUT /claims/:id",
         "GET /admin/pipeline/models",
+        // T1.3's own group, one sentinel per path family, so a subset route
+        // lost in a later refactor is named rather than counted.
+        "POST /timeline/subsets",
+        "PUT /timeline/subsets/:id/events",
+        "DELETE /cases/:slug/scenarios/:scenario_id/subsets/:subset_id",
     ] {
         assert!(
             table.iter().any(|line| line == sentinel),

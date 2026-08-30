@@ -55,6 +55,8 @@ pub mod authored_entities;
 pub mod chronology;
 pub mod chronology_links;
 pub mod chronology_note_write;
+pub mod chronology_subset_write;
+pub mod chronology_subsets;
 pub mod chronology_write;
 pub mod config;
 pub mod config_overrides;
