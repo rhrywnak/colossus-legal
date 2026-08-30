@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::dto::chronology::TimelineEventDto;
+use crate::dto::chronology_wording::ChronologyWordingDto;
 
 /// One subset as the home section's list renders it.
 ///
@@ -130,6 +131,39 @@ pub struct ScenarioSubsetDto {
     pub gap_count: i64,
     /// The order this scenario carries its subsets in — the window's selector.
     pub position: i32,
+}
+
+/// What `GET /cases/:slug/scenarios/:id/subsets` answers with.
+///
+/// ## ⚑ Why the WORDS ride this read
+///
+/// The dock that draws the View Timeline button and the floating window is
+/// mounted on five scenario surfaces that share no header component and no
+/// read between them — the T3 report carries what each of them actually calls.
+/// It is self-contained by design: it takes a case slug and a scenario id and
+/// nothing else, so no page has to learn about it and no page's own read
+/// changes.
+///
+/// That leaves one question — where its WORDS come from. They ride here, on the
+/// read the dock already has to make to know whether to draw anything at all.
+/// One field, carrying the SAME [`ChronologyWordingDto`] that
+/// `GET /api/timeline` serves: not a second shape and not a subset of one, so a
+/// row edited once is edited for both surfaces and the two cannot drift.
+///
+/// The cost, stated rather than hidden: a practice page now carries two wording
+/// vocabularies — its own, and this block inside the dock. Ruled acceptable on
+/// 2026-08-30 (two components, two blocks), and recorded in the T3 report.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ScenarioSubsetsDto {
+    /// The subsets this scenario carries, in attachment order.
+    ///
+    /// `[]` hides the button, and is deliberately NOT a 404 — that would mean
+    /// "there is no such scenario". A surface collapsing the two would draw a
+    /// working page for a scenario that does not exist.
+    pub subsets: Vec<ScenarioSubsetDto>,
+    /// Every word the dock speaks, as the timeline serves them.
+    pub wording: ChronologyWordingDto,
 }
 
 /// One event's place in a subset, as a request states it.

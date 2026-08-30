@@ -245,6 +245,49 @@ mod tests {
     use super::*;
     use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
 
+    /// ⚑ The DOCK is served the SAME block, not a second shape.
+    ///
+    /// The scenario dock's read carries the wording so five surfaces that share
+    /// no header and no read can still speak. The promise made in
+    /// `ScenarioSubsetsDto`'s header is that it is the same block — so a row
+    /// edited once is edited for both surfaces. This is that promise, checked:
+    /// the two payloads' wording objects must have identical key sets, not
+    /// merely compatible ones.
+    ///
+    /// A subset of the block would pass a "does it compile" reading and fail a
+    /// reader on the scenario page, whose control would render blank for a key
+    /// the timeline had and the dock did not.
+    #[test]
+    fn the_dock_is_served_the_same_wording_block_as_the_timeline() {
+        use crate::dto::chronology_subset::ScenarioSubsetsDto;
+
+        let wording = ChronologyWordingDto::from(&ChronologyWording::for_test());
+        let dock = ScenarioSubsetsDto {
+            subsets: vec![],
+            wording: wording.clone(),
+        };
+
+        let from_dock = serde_json::to_value(&dock).expect("the dock payload serializes");
+        let dock_keys: Vec<&String> = from_dock
+            .get("wording")
+            .and_then(|w| w.as_object())
+            .expect("the dock carries a wording object")
+            .keys()
+            .collect();
+        let direct = serde_json::to_value(&wording).expect("the mirror serializes");
+        let timeline_keys: Vec<&String> =
+            direct.as_object().expect("an object body").keys().collect();
+
+        assert_eq!(
+            dock_keys, timeline_keys,
+            "the dock and the timeline are serving different wording shapes; a \
+             control on a scenario page would render blank for any key only one \
+             of them carries",
+        );
+        // Anti-vacuity: two empty key sets would compare equal and prove nothing.
+        assert_eq!(dock_keys.len(), CHRONOLOGY_WORDING_KEYS.len());
+    }
+
     /// The mirror carries every declared key.
     ///
     /// Both sides are DERIVED — the serialized key set from the struct, the

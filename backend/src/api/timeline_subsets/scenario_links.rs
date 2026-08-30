@@ -26,7 +26,8 @@ use axum::{
 };
 
 use crate::auth::AuthUser;
-use crate::dto::chronology_subset::{AttachSubsetRequest, ScenarioSubsetDto};
+use crate::dto::chronology_subset::{AttachSubsetRequest, ScenarioSubsetDto, ScenarioSubsetsDto};
+use crate::dto::chronology_wording::ChronologyWordingDto;
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::chronology_subsets::{
     is_subset_attached, list_scenario_subsets, next_scenario_subset_position,
@@ -56,7 +57,7 @@ pub async fn get_scenario_subsets(
     user: Option<AuthUser>,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
-) -> Result<Json<Vec<ScenarioSubsetDto>>, AppError> {
+) -> Result<Json<ScenarioSubsetsDto>, AppError> {
     if let Some(ref u) = user {
         tracing::info!("{} GET scenario subsets", u.username);
     }
@@ -66,9 +67,14 @@ pub async fn get_scenario_subsets(
     let rows = list_scenario_subsets(&state.pipeline_pool, id)
         .await
         .map_err(|e| subset_failure(e, "the subsets attached to this scenario"))?;
-    let payload = build_scenario_subsets(&rows);
-    tracing::info!(attached = payload.len(), "scenario subsets read");
-    Ok(Json(payload))
+    let subsets = build_scenario_subsets(&rows);
+    // ONE snapshot read, the same discipline `/api/timeline` keeps: the words
+    // the dock draws with must describe the same configuration as each other.
+    // `From<&ChronologyWording>` is the timeline's own conversion, so this is
+    // the same block and not a copy of it.
+    let wording = ChronologyWordingDto::from(&state.settings.current().chronology_wording);
+    tracing::info!(attached = subsets.len(), "scenario subsets read");
+    Ok(Json(ScenarioSubsetsDto { subsets, wording }))
 }
 
 /// `POST /api/cases/:slug/scenarios/:scenario_id/subsets` — attach one subset.
