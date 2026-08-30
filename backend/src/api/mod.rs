@@ -1,17 +1,5 @@
-use axum::{
-    extract::{DefaultBodyLimit, State},
-    http::StatusCode,
-    // `delete` moved out with the fact-curation group (task 1.7C): the removal
-    // route was this file's only DELETE, and it now lives in
-    // `scenario_facts::routes()`.
-    routing::{get, patch, post, put},
-    Json,
-    Router,
-};
+use axum::{extract::State, http::StatusCode, Router};
 
-use crate::auth::{me_handler, AuthUser, MeResponse};
-use crate::bias::handlers as bias_handlers;
-use crate::repositories::pipeline_repository::users as known_users;
 use crate::state::AppState;
 
 pub mod admin_audit_health;
@@ -66,6 +54,8 @@ pub mod proof_review;
 pub mod qa;
 pub mod queries;
 pub mod rehearsal;
+// The route TABLE — one module per group, split out by T1.0 (R-3).
+pub mod routes;
 pub mod scenario_accusation;
 pub mod scenario_accusation_read;
 pub mod scenario_augmentation;
@@ -98,17 +88,27 @@ pub mod trial_prep;
 /// becomes `/api/documents` in the final app. This is similar to
 /// Express.js `app.use('/api', apiRouter)`.
 ///
-/// This top-level function is a table of contents: it `.merge()`s the
-/// route-group functions below. Each group is a small, focused unit (kept
-/// under the 50-line function limit); `.merge()` is order-independent here
-/// because every route path is distinct, so there is no overlap precedence
-/// to worry about.
+/// This top-level function is a table of contents and nothing else, which is
+/// what the T1.0 split (R-3, 2026-08-26) left it as: it `.merge()`s route-group
+/// functions that all live elsewhere. Two kinds appear below, and the
+/// difference is deliberate rather than historical:
+///
+/// * `routes::<group>::routes()` — the eleven groups from [`routes`], which
+///   never had one owning handler module. See that module's header.
+/// * `<handler>::routes()` — a module that owns a whole surface owns its own
+///   paths (`timeline`, `practice`, `settings`, `case_health`, …). Those were
+///   already split and were not touched by T1.0.
+///
+/// `.merge()` is order-independent here because every route path is distinct,
+/// so there is no overlap precedence to worry about — and
+/// `router_builds_without_route_conflicts` below is what keeps that true, since
+/// axum panics on a duplicate `(path, method)` at construction.
 pub fn router() -> Router<AppState> {
     Router::new()
-        .merge(session_routes())
-        .merge(case_routes())
+        .merge(routes::session::routes())
+        .merge(routes::case::routes())
         .merge(case_health::routes())
-        .merge(scenario_routes())
+        .merge(routes::scenario::routes())
         .merge(scenario_facts::routes())
         .merge(evidence_summary::routes())
         .merge(evidence_links::routes())
@@ -124,271 +124,14 @@ pub fn router() -> Router<AppState> {
         .merge(practice::routes())
         .merge(settings::routes())
         .merge(timeline::routes())
-        .merge(claim_routes())
-        .merge(document_routes())
-        .merge(entity_routes())
-        .merge(decomposition_routes())
-        .merge(query_routes())
-        .merge(admin_document_routes())
-        .merge(admin_ops_routes())
-        .merge(interaction_routes())
-}
-
-/// Session / identity routes: who-am-I, known users, logout.
-fn session_routes() -> Router<AppState> {
-    Router::new()
-        .route("/me", get(me_with_tracking))
-        .route("/users", get(pipeline::users::list_users_handler))
-        .route("/logout", get(logout::logout))
-}
-
-/// Case-level reads: the legacy case summary and the slug-scoped case header +
-/// causes-of-action endpoints.
-///
-/// `GET /analysis` was removed with the Evidence explorer (nav cleanup Part 2):
-/// its only callers were that page and its parts, both retired.
-fn case_routes() -> Router<AppState> {
-    Router::new()
-        .route("/case", get(case::get_case))
-        .route("/case-summary", get(case_summary::get_case_summary))
-        .route("/cases/:slug", get(case_header::get_case_by_slug))
-        .route(
-            "/cases/:slug/causes-of-action",
-            get(causes_of_action::get_causes_of_action),
-        )
-        .route(
-            "/cases/:slug/elements/:element_id/detail",
-            get(element_detail::get_element_detail),
-        )
-        .route(
-            "/cases/:slug/elements/:element_id/notes",
-            patch(element_detail::patch_element_notes),
-        )
-        .route(
-            "/cases/:slug/proof-matrix/rollup",
-            get(proof_matrix::get_proof_matrix_rollup),
-        )
-        .route(
-            "/cases/:slug/proof-review",
-            get(proof_review::get_proof_review),
-        )
-        .route(
-            "/cases/:slug/trial-prep/dashboard",
-            get(trial_prep::get_trial_prep_dashboard),
-        )
-        .route(
-            "/cases/:slug/trial-prep/scenarios/:scenario_id",
-            get(trial_prep::get_trial_prep_scenario_detail),
-        )
-}
-
-/// Scenario authoring + curation routes (the `/cases/:slug/scenarios/...`
-/// cluster). Split out of `case_routes` as its own group so each route-group
-/// function stays under the function-size limit and the scenario surface reads
-/// as one unit. Merged independently in `router()`; paths are distinct from the
-/// other groups', so merge order does not matter.
-fn scenario_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/cases/:slug/scenarios",
-            get(scenarios::list_scenarios).post(scenarios::create_scenario),
-        )
-        .route(
-            "/cases/:slug/scenarios/:scenario_id",
-            get(scenarios::get_scenario_by_id)
-                .put(scenarios::update_scenario)
-                .delete(scenarios::delete_scenario),
-        )
-        // Theme Scan (D2b): LLM-judge every candidate quote about the scenario's
-        // subject and persist the relevant verdicts as confirmed=false
-        // suggestions. Edit-gated inside the handler (writes + real LLM spend).
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/theme-scan",
-            post(scenario_theme_scan::run_scenario_theme_scan),
-        )
-        // Poll one background scan run: live progress while running, full summary
-        // when completed. DELETE removes the run (and its verdicts, which cascade).
-        // Both edit-gated + case-fenced inside the handler.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id",
-            get(scenario_theme_scan::get_scenario_scan_run)
-                .delete(scenario_theme_scan::delete_scenario_scan_run_handler),
-        )
-        // There is no merge route (2026-08-08). A completed run's admitted
-        // verdicts reach the queue as a READ-TIME PROJECTION served by
-        // `…/facts/cards`, and the human's ruling is the only write — so the
-        // second selection this route used to require does not exist to make.
-        // List a scenario's scan-run HISTORY (headers only, newest first) so the
-        // panel hydrates from the DB and survives navigation. Retrieval-only,
-        // edit-gated + case-fenced inside the handler.
-        .route(
-            "/cases/:slug/scenarios/:scenario_id/scan-runs",
-            get(scenario_theme_scan::list_scenario_scan_runs_handler),
-        )
-}
-
-/// Claim CRUD plus the motion-claims read.
-fn claim_routes() -> Router<AppState> {
-    Router::new()
-        .route("/claims", get(claims::list_claims))
-        .route("/claims/:id", get(claims::get_claim))
-        .route("/claims", post(claims::create_claim))
-        .route("/claims/:id", put(claims::update_claim))
-        .route("/motion-claims", get(claims::list_motion_claims))
-}
-
-/// Document CRUD + file download, import validation, and the schema read.
-fn document_routes() -> Router<AppState> {
-    Router::new()
-        .route("/documents", get(documents::list_documents))
-        .route("/documents", post(documents::create_document))
-        .route("/documents/:id", get(documents::get_document))
-        .route("/documents/:id", put(documents::update_document))
-        .route("/documents/:id/file", get(documents::get_document_file))
-        .route("/import/validate", post(import::validate_import))
-        .route("/schema", get(schema::get_schema))
-}
-
-/// Graph-entity reads: persons, allegations, evidence, harms, contradictions,
-/// and the legal-proof graph.
-fn entity_routes() -> Router<AppState> {
-    Router::new()
-        .route("/persons", get(persons::list_persons))
-        .route("/persons/:id/detail", get(persons::get_person_detail))
-        .route("/allegations", get(allegations::list_allegations))
-        .route(
-            "/allegations/:id/evidence-chain",
-            get(evidence_chain::get_evidence_chain),
-        )
-        .route("/evidence", get(evidence::list_evidence))
-        .route("/harms", get(harms::list_harms))
-        .route("/contradictions", get(contradictions::list_contradictions))
-        .route("/graph/legal-proof", get(graph::get_legal_proof_graph))
-}
-
-/// Decomposition intelligence: characterizations, per-allegation detail,
-/// and rebuttals.
-fn decomposition_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/allegations/:id/detail",
-            get(decomposition::get_allegation_detail),
-        )
-        .route("/rebuttals", get(decomposition::list_rebuttals))
-}
-
-/// Saved-query list and run.
-fn query_routes() -> Router<AppState> {
-    Router::new()
-        .route("/queries", get(queries::list_queries))
-        .route("/queries/:id/run", get(queries::run_query))
-}
-
-/// Admin document-lifecycle routes: embedding, registration, reindex, upload,
-/// and per-document evidence/extract/verify/flag/ground-pages operations.
-fn admin_document_routes() -> Router<AppState> {
-    Router::new()
-        .route("/admin/embed-all", post(embed::run_embed_all))
-        .route(
-            "/admin/documents",
-            get(admin_documents::list_documents).post(admin_documents::register_document),
-        )
-        .route("/admin/reindex", post(admin_reindex::trigger_reindex))
-        // Raise axum's 2 MB default body limit so PDF uploads up to
-        // the handler's MAX_FILE_SIZE ceiling reach the handler. Scoped
-        // to this route only — other admin endpoints keep the tighter
-        // default as a safety net against runaway bodies.
-        .route(
-            "/admin/upload",
-            post(admin_upload::upload_file).layer(DefaultBodyLimit::max(pipeline::MAX_FILE_SIZE)),
-        )
-        .route(
-            "/admin/documents/:id/evidence",
-            get(admin_document_evidence::get_document_evidence),
-        )
-        .route(
-            "/admin/documents/:id/extracts",
-            get(admin_document_extracts::get_document_extracts),
-        )
-        .route(
-            "/admin/documents/:id/evidence/:eid/verify",
-            post(admin_verify::verify_evidence),
-        )
-        .route(
-            "/admin/documents/:id/evidence/:eid/flag",
-            post(admin_flag::flag_evidence),
-        )
-        .route(
-            "/admin/documents/:id/ground-pages",
-            post(admin_page_ground::ground_pages),
-        )
-}
-
-/// Admin operational routes: evidence import, QA-entry admin, audit health,
-/// status, and the nested pipeline admin router.
-fn admin_ops_routes() -> Router<AppState> {
-    Router::new()
-        .route("/admin/evidence", post(admin_evidence::import_evidence))
-        .route(
-            "/admin/qa-entries",
-            get(admin_qa::list_all_entries).delete(admin_qa::bulk_delete_entries),
-        )
-        .route("/admin/audit/health", get(admin_audit_health::audit_health))
-        .route("/admin/status", get(admin_status::get_status))
-        .nest("/admin/pipeline", pipeline::router())
-}
-
-/// Interactive / RAG routes: Bias Explorer reads, semantic search, ask,
-/// chat models, and Q&A history + rating.
-///
-/// The bias module keeps its FILTER half and loses its query half (nav cleanup
-/// Part 2). `POST /bias/query` served the Bias Explorer page and nothing else,
-/// and the page is removed. `GET /bias/available-filters` STAYS: it is read by
-/// `ScenarioCreateForm` and `ScenarioIdentityModal` so the people they offer
-/// match the filter's — a live scenario surface, not an explorer remnant.
-fn interaction_routes() -> Router<AppState> {
-    Router::new()
-        .route(
-            "/bias/available-filters",
-            get(bias_handlers::get_available_filters),
-        )
-        .route("/search", post(search::semantic_search))
-        .route("/ask", post(ask::ask_the_case))
-        .route("/chat/models", get(chat_models::list_chat_models))
-        // Scan/benchmark model picker — active AND scan_eligible only, so retired
-        // (but extraction-active) models stay out of the picker (ruling A).
-        .route("/scan/models", get(chat_models::list_scan_models))
-        .route("/qa-history", get(qa::get_qa_history))
-        .route("/qa/:id", get(qa::get_qa_entry).delete(qa::delete_qa_entry))
-        .route("/qa/:id/rate", patch(qa::rate_qa_entry))
-}
-
-/// Wrapper around `me_handler` that also records the user in `known_users`.
-///
-/// The upsert is fire-and-forget: it runs in a background task so it never
-/// slows down or fails the `/api/me` response. This is the simplest way to
-/// passively track users without adding middleware complexity.
-///
-/// ## Rust Learning: tokio::spawn for fire-and-forget
-///
-/// `tokio::spawn` launches a new async task on the runtime. The spawned
-/// future runs independently — we don't `.await` the JoinHandle, so the
-/// response returns immediately.
-async fn me_with_tracking(user: AuthUser, State(state): State<AppState>) -> Json<MeResponse> {
-    // Clone the values the background task needs before we move `user`.
-    let pool = state.pipeline_pool.clone();
-    let username = user.username.clone();
-    let display_name = user.display_name.clone();
-    let email = user.email.clone();
-
-    tokio::spawn(async move {
-        known_users::upsert_known_user(&pool, &username, &display_name, &email)
-            .await
-            // best-effort: passive user-tracking upsert in a detached task; a DB failure must never fail or delay the /api/me response.
-            .ok();
-    });
-
-    me_handler(user).await
+        .merge(routes::claim::routes())
+        .merge(routes::document::routes())
+        .merge(routes::entity::routes())
+        .merge(routes::decomposition::routes())
+        .merge(routes::query::routes())
+        .merge(routes::admin_document::routes())
+        .merge(routes::admin_ops::routes())
+        .merge(routes::interaction::routes())
 }
 
 /// Health check endpoint — served at `/health` (root level, no `/api/` prefix).
@@ -413,3 +156,8 @@ mod tests {
         let _ = router();
     }
 }
+
+/// The route-table walk: the identity proof behind the T1.0 split.
+#[cfg(test)]
+#[path = "route_table_tests.rs"]
+mod route_table_tests;
