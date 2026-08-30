@@ -296,6 +296,13 @@ fn the_templates_carry_the_placeholders_their_callers_fill() {
             &w.subsets_picked_count_template,
         ),
         ("subsets_pill_gaps_template", &w.subsets_pill_gaps_template),
+        // Task 3's one. Named here as well as caught by the derived suffix walk
+        // below, because this list is the one that says WHICH placeholder each
+        // template owes — the walk only says that a template owes one.
+        (
+            "subsets_window_events_count_template",
+            &w.subsets_window_events_count_template,
+        ),
     ] {
         assert!(
             value.contains("{count}"),

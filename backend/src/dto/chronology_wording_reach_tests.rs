@@ -47,6 +47,13 @@ const SURFACE_DIRS: &[&str] = &[
     "../frontend/src/components/timeline",
     "../frontend/src/pages",
     "../frontend/src/components",
+    // Task 3's dock — the View Timeline button and the floating window, mounted
+    // on all five scenario surfaces. Its own directory because it is one
+    // self-contained component and not a page's furniture, and named here in
+    // the same commit that puts the first `cw` call inside it: a surface the
+    // scan cannot see is a surface whose words go unguarded, which is the whole
+    // failure this file exists to prevent.
+    "../frontend/src/components/scenario-timeline",
 ];
 
 /// The two accessors these surfaces name a key through.
@@ -212,6 +219,15 @@ fn the_scan_can_actually_see_the_surfaces_it_claims_to_check() {
         "undo_label",
         "picker_capped_template",
         "history_updated_label",
+        // ⚑ Task 3's dock, and the reason this line exists: adding
+        // `components/scenario-timeline` to SURFACE_DIRS without a sentinel from
+        // inside it would leave THIS test green if the directory were ever
+        // dropped again — every other sentinel lives elsewhere and would still
+        // be found. The dock's six keys would quietly go unasked, and only
+        // `no_declared_word_is_left_with_no_asker` would notice, which is the
+        // test this one exists to protect. These two are spoken NOWHERE else.
+        "subsets_window_minimize_label",
+        "subsets_gap_badge_label",
     ] {
         assert!(
             asked.contains(sentinel),
@@ -238,30 +254,18 @@ fn the_scan_can_actually_see_the_surfaces_it_claims_to_check() {
 // STRUCTURAL: a list of wording keys, which are join keys between code and rows
 // in the same category as a column name. Not deployment configuration.
 const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
-    // Timeline subsets. T1.2 declared sixteen rows ahead of their screens and
-    // task 2's migration added seven more; NINETEEN of those retired here, when
-    // the Subsets section and the picker landed and began asking for them.
+    // ⚑ EMPTY, and it should stay that way.
     //
-    // These four are task 3's and nothing speaks them yet: three live on the
-    // SCENARIO pages (the attach row and the View Timeline button) and one in
-    // the floating window's footer. The list is empty when task 3 merges — a
-    // line left behind after that is a row nothing says.
-    "scenario_view_timeline_button",
-    "scenario_timeline_row_label",
-    "scenario_attach_link",
-    "subsets_window_footer_template",
-    // Task 3's four window words, seeded by 20260830162405. They wait on the
-    // same screen the four above wait on — the floating window and the scenario
-    // header that opens it — which task 3 could NOT build: there is no header
-    // component the five scenario views share and no read they have in common,
-    // so there is nowhere to deliver this block to yet. The T3 report carries
-    // what each of the five actually calls. The two aria rows from the same
-    // migration are NOT here: they are spoken by the picker, on the timeline
-    // page, and they retired the moment this migration landed.
-    "subsets_window_minimize_label",
-    "subsets_window_close_label",
-    "subsets_window_events_count_template",
-    "subsets_gap_badge_label",
+    // T1.2 declared sixteen rows one commit ahead of their screens; task 2's
+    // migration added seven more and task 3's another six. All twenty-nine are
+    // now spoken by a surface this scan can see — the Subsets section and its
+    // picker on the timeline page, and the dock's button and floating window on
+    // the five scenario surfaces.
+    //
+    // A line added back here is a promise that a screen is coming. If one sits
+    // in this list after the feature it belongs to has shipped, it is a row
+    // nothing says, and the honest move is to retire the row rather than to
+    // keep excusing it.
 ];
 
 #[test]

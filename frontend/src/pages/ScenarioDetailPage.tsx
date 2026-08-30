@@ -49,6 +49,7 @@ import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
 import ScenarioIdentityBlock from "../components/ScenarioIdentityBlock";
@@ -435,6 +436,12 @@ const ScenarioDetailPage: React.FC = () => {
       <Breadcrumb
         items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: scenario.attack }]}
       />
+
+      {/* Mockup Screen 1: the View Timeline button, and the floating window it
+          opens. Self-contained by ruling — it takes a slug and a scenario id
+          and fetches everything else itself, so this page's own reads are
+          untouched and it hides itself when the scenario carries no subset. */}
+      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId ?? ""} />
 
       {/* 1 — §2.1 */}
       <ScenarioHeaderTiers

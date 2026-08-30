@@ -64,6 +64,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import RehearsalPageHeader from "../components/RehearsalPageHeader";
 import RehearsalPicker from "../components/RehearsalPicker";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import RehearsalScenarioBlocks from "../components/RehearsalScenarioBlocks";
 import { fillCode } from "./rehearsalSections";
 
@@ -254,6 +255,16 @@ const RehearsalPage: React.FC = () => {
         atFirst={index === 0}
         atLast={index >= total - 1}
       />
+
+      {/* Mockup Screen 1's button, and the window it opens. Gated on
+          `rehearsing` for exactly the reason the header above is: in the other
+          two modes there is no scenario on screen, and a View Timeline button
+          opening one the reader never chose is the .389 round trip again.
+          Self-contained otherwise — it fetches its own data and hides itself
+          when this scenario carries no subset. */}
+      {mode === "rehearsing" && scenario !== undefined && (
+        <ScenarioTimelineDock slug={slug ?? ""} scenarioId={scenario.scenario_id} />
+      )}
 
       {mode === "refusing" && (
         <p role="status" style={{ marginTop: "18px" }}>

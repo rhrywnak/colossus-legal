@@ -18,6 +18,7 @@ import {
   MARGIN_OPEN_MIN_WIDTH,
   MIN_HEIGHT,
   MIN_WIDTH,
+  minimizedPosition,
   openStateFor,
   selectorOrder,
   type WindowState,
@@ -104,6 +105,27 @@ describe("the clamp — a remembered position must never strand the window", () 
     const out = clampToViewport({ ...STATE, minimized: true }, 1440, 900);
     expect(out.minimized).toBe(true);
     expect(out.subsetId).toBe("s-1");
+  });
+});
+
+describe("the minimized bar is pinned bottom-right (§5C)", () => {
+  it("sits in the bottom-right corner of the viewport", () => {
+    const at = minimizedPosition(1600, 900);
+    expect(at.x).toBe(1600 - 420 - 26);
+    expect(at.y).toBe(900 - MIN_HEIGHT - 16);
+  });
+
+  it("never goes negative on a viewport smaller than the bar", () => {
+    const at = minimizedPosition(200, 100);
+    expect(at.x).toBe(0);
+    expect(at.y).toBe(0);
+  });
+
+  it("does NOT come from the stored position — restoring must not lose it", () => {
+    // The whole reason this is computed: collapsing the window to read the page
+    // underneath must not overwrite the corner the reader chose for it.
+    const at = minimizedPosition(1600, 900);
+    expect(at).not.toEqual({ x: STATE.x, y: STATE.y });
   });
 });
 

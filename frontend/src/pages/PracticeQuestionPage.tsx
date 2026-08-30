@@ -44,6 +44,7 @@ import {
   type QuestionAnswers,
 } from "../services/practiceAnswers";
 import { practicePath } from "../utils/routePaths";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 
 /**
@@ -169,6 +170,11 @@ const PracticeQuestionPage: React.FC = () => {
     <div style={s.page} data-surface="practice">
       <style>{c.CRITIQUE_CSS}</style>
       {crumb}
+
+      {/* Mockup Screen 1's button, and the window it opens. Self-contained:
+          it fetches its own data and hides itself when this scenario carries
+          no subset, so this page's own reads are untouched. */}
+      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
 
       <section style={s.card}>
         <p style={q.question}>{question.text}</p>

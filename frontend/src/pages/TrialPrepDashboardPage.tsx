@@ -19,12 +19,14 @@ import {
   EmptyState,
   MetricsBand,
 } from "../components/TrialPrepViews";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import ScenarioCard from "../components/ScenarioCard";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { deleteScenario } from "../services/scenarioCrud";
+import { listSubsets } from "../services/caseTimelineSubsets";
 import { getTrialPrepDashboard } from "../services/trialPrep";
 import type { ScenarioSummary, TrialPrepDashboard } from "./trialPrepData";
 
@@ -147,6 +149,31 @@ const TrialPrepDashboardPage: React.FC = () => {
 
   const { dashboard, loading, error } = useTrialPrepDashboard(slug, refreshKey);
 
+  // ⚑ ONE read for the whole grid, not one per card. `carried_by` holds
+  // scenario CODES — the join key the subsets read already publishes — and the
+  // dashboard's own scenarios carry both a code and an id, so the mapping is
+  // honest rather than a guess. A card whose code is in this set gets the dock;
+  // the dock then fetches its own data and hides itself if it disagrees.
+  const [carrying, setCarrying] = useState<Set<string>>(new Set());
+  const [carryingError, setCarryingError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listSubsets()
+      .then((subsets) => {
+        if (!cancelled) setCarrying(new Set(subsets.flatMap((sub) => sub.carried_by)));
+      })
+      .catch((err: unknown) => {
+        // NOT best-effort: that carve-out is for cosmetic browser storage and
+        // explicitly not for a fetch. A failure here means no View Timeline
+        // button renders anywhere on this page, which is a control silently
+        // absent — so it says so instead.
+        if (!cancelled) setCarryingError(err instanceof Error ? err.message : "unknown error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
   const confirmDelete = () => {
     if (!pendingDelete) return;
     // Captured before the async call so the failure handler cannot read a
@@ -229,17 +256,22 @@ const TrialPrepDashboardPage: React.FC = () => {
 
       {dashboard.alerts.length > 0 && <AlertsStrip alerts={dashboard.alerts} />}
 
+      {carryingError !== null && <div style={errorStyle}>{carryingError}</div>}
+
       {dashboard.scenarios.length === 0 ? (
         <EmptyState message="No scenarios generated yet." />
       ) : (
         <div style={gridStyle}>
           {dashboard.scenarios.map((s) => (
-            <ScenarioCard
-              key={s.id}
-              scenario={s}
-              slug={slug}
-              onRequestDelete={setPendingDelete}
-            />
+            // The dock sits BESIDE the card rather than inside it: `ScenarioCard`
+            // is rendered from eleven places and none of the other ten wants a
+            // timeline button. Wrapping keeps its contract untouched.
+            <div key={s.id}>
+              <ScenarioCard scenario={s} slug={slug} onRequestDelete={setPendingDelete} />
+              {carrying.has(s.code) && (
+                <ScenarioTimelineDock slug={slug} scenarioId={s.id} />
+              )}
+            </div>
           ))}
           {/* On-demand entry point — visual affordance only in Stage 1. */}
         </div>

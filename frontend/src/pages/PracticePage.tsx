@@ -43,6 +43,7 @@ import {
   practiceQuestionPath,
   practiceWalkPath,
 } from "../utils/routePaths";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 import { usePracticeEditor } from "./usePracticeEditor";
@@ -196,6 +197,14 @@ const PracticePage: React.FC = () => {
           cannot carry a pseudo-class. See `LINK_CSS`. */}
       <style>{f.LINK_CSS}</style>
       {crumb}
+
+      {/* Mockup Screen 1's button, and the window it opens. Self-contained: it
+          fetches its own data and hides itself when this scenario carries no
+          subset, so this page's own reads are untouched. The window must never
+          steal focus from an answer being typed underneath — it does not
+          autofocus, by construction. */}
+      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
+
       <PracticeStart
         code={deck.code}
         title={deck.title}

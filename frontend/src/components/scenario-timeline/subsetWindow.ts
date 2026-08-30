@@ -135,6 +135,29 @@ export function clampToViewport(
 }
 
 /**
+ * Where the minimized bar sits: pinned bottom-right (design §5C).
+ *
+ * ## ⚑ Why this is COMPUTED and not stored
+ *
+ * Minimizing must not overwrite the position the reader chose for the open
+ * window. §5C says the bar is pinned bottom-right and §5D says the reader gets
+ * to put the window where they want it — so `x`/`y` keep meaning "where the
+ * OPEN window goes", the bar is placed here regardless, and restoring returns
+ * the window to the place it was rather than to wherever its bar happened to
+ * sit. Storing the bar's corner would silently discard a deliberate placement
+ * every time somebody collapsed the window to read the page underneath.
+ */
+export function minimizedPosition(
+  viewportWidth: number,
+  viewportHeight: number,
+): { x: number; y: number } {
+  return {
+    x: Math.max(0, viewportWidth - DEFAULT_WIDTH - 26),
+    y: Math.max(0, viewportHeight - MIN_HEIGHT - 16),
+  };
+}
+
+/**
  * Read one window state out of an untrusted string.
  *
  * `null` for absent, unparseable, or wrong-shaped input — the caller falls back
