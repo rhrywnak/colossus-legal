@@ -124,6 +124,17 @@ pub(crate) const KEY_SUBSETS_FORM_DESCRIPTION_LABEL: &str =
     "chronology_subsets_form_description_label";
 pub(crate) const KEY_SUBSETS_NOTE_PLACEHOLDER: &str = "chronology_subsets_note_placeholder";
 
+// Timeline subsets, task 3 (2026-08-30): the two aria rows task 2 left as a
+// recorded gap, and the four the floating window speaks.
+pub(crate) const KEY_SUBSETS_MOVE_EARLIER_LABEL: &str = "chronology_subsets_move_earlier_label";
+pub(crate) const KEY_SUBSETS_MOVE_LATER_LABEL: &str = "chronology_subsets_move_later_label";
+pub(crate) const KEY_SUBSETS_WINDOW_MINIMIZE_LABEL: &str =
+    "chronology_subsets_window_minimize_label";
+pub(crate) const KEY_SUBSETS_WINDOW_CLOSE_LABEL: &str = "chronology_subsets_window_close_label";
+pub(crate) const KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE: &str =
+    "chronology_subsets_window_events_count_template";
+pub(crate) const KEY_SUBSETS_GAP_BADGE_LABEL: &str = "chronology_subsets_gap_badge_label";
+
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
 /// catch before a deploy does.
@@ -219,4 +230,11 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_FORM_NAME_LABEL,
     KEY_SUBSETS_FORM_DESCRIPTION_LABEL,
     KEY_SUBSETS_NOTE_PLACEHOLDER,
+    // Timeline subsets, task 3.
+    KEY_SUBSETS_MOVE_EARLIER_LABEL,
+    KEY_SUBSETS_MOVE_LATER_LABEL,
+    KEY_SUBSETS_WINDOW_MINIMIZE_LABEL,
+    KEY_SUBSETS_WINDOW_CLOSE_LABEL,
+    KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE,
+    KEY_SUBSETS_GAP_BADGE_LABEL,
 ];

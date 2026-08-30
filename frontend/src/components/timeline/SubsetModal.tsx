@@ -126,22 +126,31 @@ const SubsetModal: React.FC<Props> = ({
               CC's call, stated in the report: a drag with no keyboard path is a
               control Marie cannot use on a trackpad mid-question, and the
               design's ruling is "manual reorder allowed", not "by dragging". */}
-          {/* ⚑ NO aria-label, and that is a KNOWN GAP, not an oversight.
-              An aria-label is a user-visible string — a screen reader reads it
-              aloud — so "move earlier" written here would be exactly the
-              hardcoded English the standing rule forbids, and no stored row
-              says it: the seven seeded for these screens were transcribed from
-              a mockup that draws a DRAG HANDLE, which has no accessible name at
-              all. So the glyph is the accessible name for now, which is no
-              worse than the approved drawing and is honest about it. Two rows
-              (`chronology_subsets_move_earlier_label` /
-              `..._move_later_label`) would close it properly; recorded in the
-              T2 report as NEEDS A RULING rather than invented here. */}
+          {/* ⚑ THE ARIA-LABEL IS A WORDING ROW, and this is where task 2's
+              recorded gap closes. These buttons shipped with a hardcoded
+              `— earlier` / `— later` in an aria-label; the rules gate caught it,
+              the English came out, and the glyph stood alone as the accessible
+              name until a row could say it. A screen reader now reads the
+              stored sentence instead of the bare glyph.
+
+              The general rule, since this is the second time it has bitten:
+              every aria-label, title, alt and placeholder is a user-visible
+              string. The reach scanner looks for the wording accessor by name
+              and not for string literals, so it cannot catch a hardcoded one —
+              only a reader can.
+
+              ⚑ And do not write the accessor's own name followed by an open
+              parenthesis in a comment like this one. The scanner reads JSX
+              block comments, so it would treat the prose as a request and go
+              looking for the next string literal after it — which is an
+              attribute on the markup below, not a wording key. That is exactly
+              how this comment failed the reach test on its first draft. */}
           {on && (
             <>
               <button
                 type="button"
                 style={m.orderButton}
+                aria-label={cw(wording, "subsets_move_earlier_label")}
                 onClick={() => setPicks(movePick(picks, event.id, -1))}
               >
                 ▲
@@ -149,6 +158,7 @@ const SubsetModal: React.FC<Props> = ({
               <button
                 type="button"
                 style={m.orderButton}
+                aria-label={cw(wording, "subsets_move_later_label")}
                 onClick={() => setPicks(movePick(picks, event.id, 1))}
               >
                 ▼

@@ -250,6 +250,18 @@ const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
     "scenario_timeline_row_label",
     "scenario_attach_link",
     "subsets_window_footer_template",
+    // Task 3's four window words, seeded by 20260830162405. They wait on the
+    // same screen the four above wait on — the floating window and the scenario
+    // header that opens it — which task 3 could NOT build: there is no header
+    // component the five scenario views share and no read they have in common,
+    // so there is nowhere to deliver this block to yet. The T3 report carries
+    // what each of the five actually calls. The two aria rows from the same
+    // migration are NOT here: they are spoken by the picker, on the timeline
+    // page, and they retired the moment this migration landed.
+    "subsets_window_minimize_label",
+    "subsets_window_close_label",
+    "subsets_window_events_count_template",
+    "subsets_gap_badge_label",
 ];
 
 #[test]

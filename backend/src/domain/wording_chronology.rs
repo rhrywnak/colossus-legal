@@ -275,6 +275,18 @@ pub struct ChronologyWording {
     pub subsets_form_description_label: String,
     /// The placeholder in each picked row's one-line note field. Lowercase and bare: it sits in a dense list where a sentence would shout.
     pub subsets_note_placeholder: String,
+    /// The accessible name of the picker's ▲ control. It exists because an aria-label is a user-visible string and the rule admits no exception for the ones only a screen reader speaks.
+    pub subsets_move_earlier_label: String,
+    /// The mirror of [`Self::subsets_move_earlier_label`]. Edit the two together.
+    pub subsets_move_later_label: String,
+    /// The floating window's – control. The glyph says nothing to a screen reader, which is why this row exists.
+    pub subsets_window_minimize_label: String,
+    /// The floating window's × control. Close HIDES; the View Timeline button reopens. Never reads like a delete.
+    pub subsets_window_close_label: String,
+    /// The count in the window's title bar. Same VALUE as `subsets_event_count_template`, a different surface — see the migration's meaning column.
+    pub subsets_window_events_count_template: String,
+    /// The amber badge on a window row whose event is gone. The SHORT form; `subsets_removed_event_line` is the sentence.
+    pub subsets_gap_badge_label: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -395,6 +407,12 @@ pub fn build_chronology_wording<E>(
         subsets_form_name_label: read(KEY_SUBSETS_FORM_NAME_LABEL)?,
         subsets_form_description_label: read(KEY_SUBSETS_FORM_DESCRIPTION_LABEL)?,
         subsets_note_placeholder: read(KEY_SUBSETS_NOTE_PLACEHOLDER)?,
+        subsets_move_earlier_label: read(KEY_SUBSETS_MOVE_EARLIER_LABEL)?,
+        subsets_move_later_label: read(KEY_SUBSETS_MOVE_LATER_LABEL)?,
+        subsets_window_minimize_label: read(KEY_SUBSETS_WINDOW_MINIMIZE_LABEL)?,
+        subsets_window_close_label: read(KEY_SUBSETS_WINDOW_CLOSE_LABEL)?,
+        subsets_window_events_count_template: read(KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE)?,
+        subsets_gap_badge_label: read(KEY_SUBSETS_GAP_BADGE_LABEL)?,
     })
 }
 

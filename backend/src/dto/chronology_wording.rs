@@ -122,6 +122,14 @@ pub struct ChronologyWordingDto {
     pub subsets_form_name_label: String,
     pub subsets_form_description_label: String,
     pub subsets_note_placeholder: String,
+
+    // Timeline subsets, task 3: the two aria rows and the window's four.
+    pub subsets_move_earlier_label: String,
+    pub subsets_move_later_label: String,
+    pub subsets_window_minimize_label: String,
+    pub subsets_window_close_label: String,
+    pub subsets_window_events_count_template: String,
+    pub subsets_gap_badge_label: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -222,6 +230,12 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_form_name_label: w.subsets_form_name_label.clone(),
             subsets_form_description_label: w.subsets_form_description_label.clone(),
             subsets_note_placeholder: w.subsets_note_placeholder.clone(),
+            subsets_move_earlier_label: w.subsets_move_earlier_label.clone(),
+            subsets_move_later_label: w.subsets_move_later_label.clone(),
+            subsets_window_minimize_label: w.subsets_window_minimize_label.clone(),
+            subsets_window_close_label: w.subsets_window_close_label.clone(),
+            subsets_window_events_count_template: w.subsets_window_events_count_template.clone(),
+            subsets_gap_badge_label: w.subsets_gap_badge_label.clone(),
         }
     }
 }
