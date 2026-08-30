@@ -113,6 +113,15 @@ pub struct ChronologyWordingDto {
     pub subsets_window_edit: String,
     pub subsets_window_footer_template: String,
     pub subsets_empty_state: String,
+
+    // Timeline subsets, task 2: the seven Screens 2 and 3 needed.
+    pub subsets_event_count_template: String,
+    pub subsets_form_add_title: String,
+    pub subsets_picked_count_template: String,
+    pub subsets_pill_gaps_template: String,
+    pub subsets_form_name_label: String,
+    pub subsets_form_description_label: String,
+    pub subsets_note_placeholder: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -206,6 +215,13 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_window_edit: w.subsets_window_edit.clone(),
             subsets_window_footer_template: w.subsets_window_footer_template.clone(),
             subsets_empty_state: w.subsets_empty_state.clone(),
+            subsets_event_count_template: w.subsets_event_count_template.clone(),
+            subsets_form_add_title: w.subsets_form_add_title.clone(),
+            subsets_picked_count_template: w.subsets_picked_count_template.clone(),
+            subsets_pill_gaps_template: w.subsets_pill_gaps_template.clone(),
+            subsets_form_name_label: w.subsets_form_name_label.clone(),
+            subsets_form_description_label: w.subsets_form_description_label.clone(),
+            subsets_note_placeholder: w.subsets_note_placeholder.clone(),
         }
     }
 }

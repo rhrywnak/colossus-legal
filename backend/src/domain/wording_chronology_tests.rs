@@ -22,6 +22,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     // T1.2: the sixteen words the Subsets surfaces will speak. In this list on
     // the day they were written, for the reason the line above gives.
     "pipeline_migrations/20260830122249_timeline_subsets.sql",
+    // Task 2 (2026-08-30): the seven words Screens 2 and 3 speak.
+    "pipeline_migrations/20260830153346_timeline_subsets_screen_wording.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -118,6 +120,14 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SUBSETS_WINDOW_EDIT, "Edit subset"),
     (KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE, "{on_chronology} on the chronology · {gaps} gaps"),
     (KEY_SUBSETS_EMPTY_STATE, "No subsets yet. A subset is a story told in dates — pick events from the phases above."),
+    // Timeline subsets, task 2, seeded by the fourth migration named above.
+    (KEY_SUBSETS_EVENT_COUNT_TEMPLATE, "{count} events"),
+    (KEY_SUBSETS_FORM_ADD_TITLE, "Add subset"),
+    (KEY_SUBSETS_PICKED_COUNT_TEMPLATE, "{count} picked"),
+    (KEY_SUBSETS_PILL_GAPS_TEMPLATE, "{count} are gaps"),
+    (KEY_SUBSETS_FORM_NAME_LABEL, "Name"),
+    (KEY_SUBSETS_FORM_DESCRIPTION_LABEL, "Description — what this story proves, one or two sentences"),
+    (KEY_SUBSETS_NOTE_PLACEHOLDER, "note"),
 ];
 
 impl ChronologyWording {
@@ -261,6 +271,26 @@ fn the_templates_carry_the_placeholders_their_callers_fill() {
             w.picker_capped_template.contains(token),
             "the picker's cap line lost {token}, so a truncated list would say \
              it was capped without saying by how much"
+        );
+    }
+
+    // Task 2's three. Each is a count and nothing else, so losing the
+    // placeholder leaves the one word that was never the point — "picked" with
+    // no number on a pill whose only job is the number.
+    for (name, value) in [
+        (
+            "subsets_event_count_template",
+            &w.subsets_event_count_template,
+        ),
+        (
+            "subsets_picked_count_template",
+            &w.subsets_picked_count_template,
+        ),
+        ("subsets_pill_gaps_template", &w.subsets_pill_gaps_template),
+    ] {
+        assert!(
+            value.contains("{count}"),
+            "{name} lost {{count}}, so it would render a label with no number in it"
         );
     }
 }
