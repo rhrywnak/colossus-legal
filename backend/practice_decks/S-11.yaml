@@ -1,0 +1,171 @@
+# =============================================================================
+# practice_decks/S-11.yaml — the practice deck for scenario S-11, "The $50,000"
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5, 2026-08-30) — for Chuck's review in the practice
+# session; his redlines flow back through `--update`.
+#
+# Built from S-11's ruled record on DEV as of 2026-08-30: 10 Included facts
+# (Opus 5 scan of 2026-08-29, 44 proposed, cut to 10 by the architect's read
+# and Roman's ruling), BEARS ON A-16–A-20, A-24, A-27–A-29. S-11 has 0 talking
+# points, so this deck is points-less (same as S-9/S-10 v1); Marie's points
+# attach after the Tuesday 09-01 meeting via `--update`.
+#
+# ONE DEPARTURE FROM THE S-9/S-10 RULE, DISCLOSED: seven Phillips admissions
+# about the check (Admissions Response pp. 1, 5, 6 — items 9242–9248, approved,
+# in the graph) are cited below by DOCUMENT AND PAGE, with no C-number. They
+# are in no scenario's pool because they are filed as "about CFS" and no
+# scenario has CFS as its subject (the gather defect; GATHER_CASCADE_DESIGN_v1
+# §0.7). They are verbatim from the approved extraction. When Stage 0 ships
+# or S-11's subject is widened, they get C-numbers and these receipts get
+# them via --update.
+#
+# The scenario's spine, from the record:
+#   THEIR frame — the court ordered the $50,000 back into the estate and the
+#   sisters agreed (Tighe, C-98/C-116); the money paid the administration
+#   Marie's objections caused (C-109); the $50K was addressed in the
+#   guardianship and is settled.
+#   OUR material — Phillips under oath: the check was Emil's asset at death;
+#   it could have been deposited in Emil's own account before he died; it
+#   never was; it was handed to CFS BEFORE CFS was appointed; CFS was not
+#   appointed until WEEKS after receiving it (Admissions p. 1, five times
+#   "Admitted."); and the one denial — that CFS lacked authority to hold it
+#   (p. 6, #26, "Denied as untrue"). Phillips was at work in late April /
+#   May 2009, before any appointment (C-68), billing 22 hours and ~$3,000
+#   before CFS was appointed (C-215), having been recommended by Milster,
+#   Nadia's attorney (C-226). Marie was never asked to agree to the
+#   "agreement" (C-193). Marie told the PR her sisters had removed the
+#   $50,000 without her father's permission (C-233).
+#   ⚑ TUESDAY: the Milster→CFS handoff DATE ("the day before Emil died" is
+#   Roman's recollection, not yet a record cite) — never spoken until pinned.
+#
+# Standing rulings hold: no `stronger` fields; every watch_for POINTS, never
+# scripts; all questions `source_kind: manual`. Schema follows S-10.yaml.
+
+scenario_code: S-11
+
+questions:
+
+  # ---------- The defense asks (cross) ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "C-98 (Tighe: 'the Court ordered, and the two sisters agreed') · C-116 (Tighe: 'already ordered … returned to the estate')"
+    tactic: 6            # authority borrow — Judge Tighe's own order
+    source_kind: manual
+    text: "Ms. Awad, the $50,000 you keep calling 'stolen' — Judge Tighe ordered it returned to the estate, your two sisters agreed, and it was. That's in the judge's own opinion. The court handled it. What exactly is your complaint?"
+    receipt: "True as far as it goes, and it stops in October 2009. The question is what happened BEFORE the order: the check was handed to CFS before CFS was appointed, and CFS was not appointed until weeks later — Phillips's own admissions, Admissions Response p. 1 ('Admitted.', five requests). The judge ordered returned what CFS had no authority to be holding."
+    pair_said: "\"Instead, the Court ordered, and the two sisters agreed, to replace this bank account into the estate. This made the $50,000 available to pay administrative expenses\" — Judge Tighe, Opinion and Order 04-12-2012, p. 1 (C-98)"
+    pair_admitted: "\"Admit that the $50,000 personal check was turned over to Catholic Family Service before Catholic Family Service was appointed as the personal representative\" — \"Admitted.\" · \"…not appointed … until weeks after receipt of the $50,000.00 personal check\" — \"Admitted.\" — George Phillips, Admissions Response p. 1"
+    watch_for: "WATCH FOR — the borrowed robe. Never argue with the order; agree with it, then move the clock back. The order is October 2009; the handoff is before the appointment. His admissions, page 1. Then stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "C-109 (Tighe: 'a relatively modest estate, with only $50,000 in assets … chaotic … disputes between these sisters') · C-98"
+    tactic: 4            # false premise — 'your fighting spent it'
+    source_kind: manual
+    text: "And that $50,000 — the whole estate, really — went to pay for the administration your objections and your lawyers made necessary. You spent your father's money fighting, didn't you?"
+    receipt: "The premise is backwards. Phillips admits the check was Emil's asset at death and could have been deposited into Emil's own account before he died (Admissions p. 1, 'Admitted.' twice). An estate whose cash sits in its own account has a few bills to pay and closes. The fees came AFTER the diversion; they are the consequence of it, not the cause. (Tighe's own numbers: $50,000 estate — C-109.)"
+    pair_said: "\"While this is a relatively modest estate, with only $50,000 in assets, the fact is that the chaotic nature of the disputes between these sisters required…\" — Judge Tighe, Opinion and Order 04-12-2012, p. 5 (C-109)"
+    pair_admitted: "\"Admit that the $50,000 personal check could have been deposited into a bank account in Mr. Emil Awad's name before his death.\" — \"Admitted.\" — George Phillips, Admissions Response p. 1"
+    watch_for: "WATCH FOR — cause and effect reversed. One idea: the money left before the fighting started; it could have gone into Dad's account, he admits it. Do not defend the objections here — that is S-10's fight, not this one."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Admissions Response p. 6 #26 ('Denied as untrue') · C-193 (the 'agreement')"
+    tactic: 2            # half-truth — 'everyone agreed'
+    source_kind: manual
+    text: "There was an agreement about that check — the family, the court, everyone. CFS held it as the responsible party while the estate was sorted out. You were part of that arrangement, weren't you?"
+    receipt: "Marie was never asked to agree — Motion for Default p. 13 (C-193: 'The Plaintiff was never asked to agree to such an arrangement'). Tighe's own words say who agreed: 'the two sisters' (C-98). And the one thing Phillips would NOT admit is that CFS lacked authority to hold the check — 'Denied as untrue' (Admissions p. 6, #26) — after admitting every fact that makes it so."
+    pair_said: "\"Defendant Phillips' attempt to include Plaintiff as part of an 'agreement' is a lie. The Plaintiff was never asked to agree to such an arrangement.\" — Motion for Default, p. 13 (C-193)"
+    pair_admitted: "\"Admit that Catholic Family Service did not have any legal authority to serve as custodian of the $50,000 personal check at that time that it agreed to accept the $50,000 personal check.\" — \"Denied as untrue.\" — George Phillips, Admissions Response p. 6, request 26"
+    watch_for: "WATCH FOR — 'everyone' means two sisters. Say who the judge said agreed, say you were never asked, stop. The #26 denial is Chuck's to use on redirect, not Marie's to argue."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "The attack narrative — A-27/A-28/A-29 · C-51 (Higgs contact admitted) · C-15/C-16-type 'fanciful conspiracy theories' (S-7 record)"
+    tactic: 5            # compound — theft + fraud + Medicaid + Higgs braided into 'conspiracy'
+    source_kind: manual
+    text: "Theft. Estate fraud. Extortion of half a million dollars. Medicaid fraud. A lawyer named Higgs at the center of it all. That's what you wrote to the personal representative. You believe there was a conspiracy against you, don't you, Ms. Awad?"
+    receipt: "Separate the pile. On THIS scenario the record is narrow and admitted: the check was Emil's, it went to CFS before CFS had any appointment, weeks passed (Admissions p. 1). Marie told the PR her sisters had removed the $50,000 without her father's permission (Penzien COA Brief p. 15, C-233) — that is a report, not a theory. Phillips admits he was in contact with Higgs about Mr. Awad before the hearing (Admissions p. 3, C-51). Everything else in the question belongs to other scenarios or to Tuesday."
+    pair_said: "Marie's written concerns to the PR recast as a 'conspiracy' — the defense's braid (A-27–A-29 framing)"
+    pair_admitted: "\"As outlined in the Statement of Facts section, Marie Awad informed the Personal Representative that her sisters had removed this $50,000.00 without Mr. Awad's permission\" — Penzien COA Brief 03-14-2011, p. 15 (C-233); \"Admit that George Phillips had been in contact with Milton Higgs regarding Mr. Awad prior to the hearing\" — \"Admitted. See response number 10.\" — Admissions Response p. 3 (C-51)"
+    watch_for: "WATCH FOR — five accusations in one breath, wanting one answer. Take ONLY the check. Do not say 'conspiracy'; do not repeat their list. One fact, one page, stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "C-68 (Phillips: contacted late April 2009, preliminary matters May 2009) · C-226 (recommended by Milster)"
+    tactic: 4            # false premise — 'we came in after, clean'
+    source_kind: manual
+    text: "Mr. Phillips and CFS came into this estate by court appointment in July 2009, after your father's death, to clean up a mess the family made. Nothing they did before that appointment concerns you, does it?"
+    receipt: "Phillips's own discovery answer: 'initially contacted in late April 2009 and continued to discuss preliminary matters with interested parties in May of 2009' (Response to Discovery p. 5, C-68) — before the death, before any appointment. He came in 'as recommended by Attorney Richard Milster' — Nadia's attorney (Penzien COA Brief p. 9, C-226). And he billed 22 hours and nearly $3,000 BEFORE CFS's appointment (Motion for Default p. 24, C-215)."
+    pair_said: "CFS and Phillips arrived by appointment in July 2009, after the fact — the defense's clean-hands timeline"
+    pair_admitted: "\"I was initially contacted in late April 2009 and continued to discuss preliminary matters with interested parties in May of 2009.\" — George Phillips, Response to Discovery p. 5 (C-68); \"Shortly after the appointment of Catholic Family Service, Attorney George Phillips, as recommended by Attorney Richard Milster, substituted in…\" — Penzien COA Brief p. 9 (C-226)"
+    watch_for: "WATCH FOR — the calendar. April, May, then July. His words, his page. Do NOT say 'the day before Dad died' until the Milster date is pinned (⚑ Tuesday). Say what is on page 5 and stop."
+
+  # ---------- Our side asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, whose money was the $50,000 check, and could it have gone into your father's own bank account while he was alive?"
+    receipt: "Both admitted by Phillips: the check 'was an asset belonging to Mr. Awad at the time of his death' and 'could have been deposited into a bank account in Mr. Emil Awad's name before his death' — Admissions Response p. 1, 'Admitted.' and 'Admitted.'"
+    watch_for: "WATCH FOR — two questions, two one-word answers on his page. Dad's money; yes, it could have. Let the 'Admitted.' do the work."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Was it ever deposited into your father's account — and where did the check actually go?"
+    receipt: "Never deposited, before or after his death (Admissions p. 1, 'Admitted.'). It 'was turned over to Catholic Family Service before Catholic Family Service was appointed as the personal representative' (Admissions p. 1, 'Admitted.')."
+    watch_for: "WATCH FOR — the handoff, in his words: to CFS, before appointment. The WHO handed it (Milster) and the WHEN are ⚑ Tuesday — Marie says only what page 1 says."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "How long after CFS received that check was CFS actually appointed to anything?"
+    receipt: "'Weeks' — Phillips's own admission: 'not appointed as the personal representative … until weeks after receipt of the $50,000.00 personal check' (Admissions p. 1, 'Admitted.'). The complaint says two and a half months (A-20/A-24); the admission says weeks; either way, an unappointed entity held a dying man's money."
+    watch_for: "WATCH FOR — 'weeks' is his word; use his. Do not say 'two and a half months' on the stand unless Chuck has put the complaint paragraph in front of the witness first."
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "When you learned what had happened to the check, what did you do — and what did the personal representative do with what you told them?"
+    receipt: "Marie informed the PR that her sisters had removed the $50,000 without her father's permission (Penzien COA Brief p. 15, C-233). The PR's own petition said it wanted to do nothing beyond assembling claims, selling the property and accounting — and told Tighe it would prefer not to get involved (Penzien Brief pp. 14, C-231/C-232 in S-11's pool, undecided — Chuck's call whether to use)."
+    watch_for: "WATCH FOR — mechanics, not grievance. She told them, in writing; they declined to look. The abandonment is S-11's tail and S-14's head — say the fact and let Chuck carry it."
+
+  - key: c5
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Was Mr. Phillips working on your father's affairs before CFS was appointed — and who brought him in?"
+    receipt: "By his own answers: contacted late April 2009, preliminary matters May 2009 (Response to Discovery p. 5, C-68); 22 hours and nearly $3,000 billed before CFS's appointment (Motion for Default p. 24, C-215); brought in 'as recommended by Attorney Richard Milster' (Penzien Brief p. 9, C-226)."
+    watch_for: "WATCH FOR — three pages, three facts, no adjectives. April/May; 22 hours; Milster. Marie names the pages, Chuck draws the picture."
+
+  # ---------- Redirects ----------
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    source_kind: manual
+    text: "Counsel told you the judge ordered the money returned. Before that order, who was holding your father's $50,000, and had a court given them any authority to hold it?"
+    receipt: "CFS was holding it, before appointment, for weeks — all admitted (Admissions p. 1). Asked to admit CFS had no legal authority to serve as custodian, Phillips answered 'Denied as untrue' (p. 6, #26): the one conclusion he would not concede after conceding every fact under it."
+    watch_for: "WATCH FOR — symmetry: they brought the judge's order; we bring the defendant's admissions. Page 1, then page 6. The word 'illegally' (A-21) is the complaint's, not Marie's — leave it to Chuck."
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g3
+    source_kind: manual
+    text: "Counsel described an 'agreement.' In the judge's own words, who agreed — and were you ever asked?"
+    receipt: "'The two sisters agreed' — Tighe, Opinion and Order p. 1 (C-98). Marie 'was never asked to agree to such an arrangement' — Motion for Default p. 13 (C-193)."
+    watch_for: "WATCH FOR — two sisters, not three; never asked. Two sentences, one from the judge, one from our filing. Then silence."

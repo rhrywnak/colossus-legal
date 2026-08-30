@@ -1,0 +1,163 @@
+# =============================================================================
+# practice_decks/S-10.yaml — the practice deck for scenario S-10, "Marie was
+# sanctioned because she deserved it" (Defensive)
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5, 2026-08-28) — for Chuck's review in the practice
+# session; his redlines flow back through `--update`.
+#
+# Built from S-10's ruled record on DEV: 46 Included facts, weights set,
+# BEARS ON A-54 / A-65 / A-66 / A-67 / A-77 / A-78 / A-79. S-10 has 0
+# talking points, so this deck is points-less (same as S-9 v1.1); Marie's
+# talking points attach later via `--update` after the meeting.
+#
+# The defense's spine and our answer, from the ruled cards:
+#   THEIR material — the probate sanctions finding as recited by the COA
+#   (C-214, COA RULLING p. 5), the affirmance with costs (C-244), and the
+#   COA's other findings (C-227/C-228/C-230/C-234/C-235/C-242/C-243).
+#   OUR material — the Admissions spine: sanctions sought ONLY against
+#   Marie, only her assets ("Admitted." — C-39/C-40/C-47/C-50/C-51/C-55/
+#   C-59, Phillips Admissions Response p. 1); "never a specific finding of
+#   a violation" (C-74, Phillips Admissions Response p. 18); the remand "on
+#   that single issue" (C-82, p. 23); the actual MCR 2.114 sanction was the
+#   $2,345 elimination (C-215, COA RULLING p. 5); they ARGUED Marie was
+#   100% responsible (C-12 CFS Interrogatory p. 9 "Yes"; same answer in
+#   Phillips Discovery p. 16 "Yes."); and the engine underneath —
+#   $6,324.50 billed for responding to her objections (C-207, Penzien
+#   Brief p. 22).
+#
+# Quote provenance: C-214 and C-215 are the probate court's on-the-record
+# findings as quoted in COURT OF APPEALS RULLING 01-12-2012 at p. 5; C-244
+# is that ruling's disposition at p. 14. All three verified against the
+# cards 2026-08-28 (screenshots on file). OCR word-splits in the card text
+# (e.g. "Cour t", "sa nctions") are repaired here; ellipses are the
+# ruling's own.
+#
+# RECEIPT CORRECTION 2026-08-30 (architect): C-74 and C-82 are the Phillips
+# ADMISSIONS RESPONSE (pp. 18, 23), not the appellate brief — mis-named in the
+# 08-28 draft. C-75/C-76/C-102/C-103 were excluded from S-10's pool on 08-29
+# as duplicates of C-74/C-12 and are no longer cited. Question texts unchanged.
+#
+# Schema follows practice_decks/S-9.yaml exactly. Standing rulings hold: no
+# `stronger` fields; every watch_for POINTS, never scripts; all questions
+# `source_kind: manual`.
+
+scenario_code: S-10
+
+questions:
+
+  # ---------- The defense asks (cross) ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "C-214 (the probate sanctions finding, as the COA recites it) · COA RULLING, p. 5"
+    tactic: 6            # authority borrow — the sanctioning judge herself
+    source_kind: manual
+    text: "Ms. Awad, the probate judge said it on the record — not Mr. Phillips, the JUDGE: you ran up the attorney bill with your numerous objections; you asked the court to consider some of them secretly, which she called 'ridiculous and something I've never encountered before'; you went through 'three or four attorneys'; and 'many' of your objections 'were frivolous in the Court's mind.' Sanctions were 'in order' — her words. Was the judge wrong about all of that?"
+    receipt: "Built from the defense's best card, quoted in full (C-214, COA RULLING 01-12-2012 p. 5). Answered from the defendant's OWN brief: no court ever made a specific finding of what rule was violated (C-74, Phillips Admissions Response p. 18), and the sanction that actually landed was the $2,345 elimination (C-215, same ruling, p. 5)."
+    pair_said: "\"her running up the attorney bill with the numerous objections that she filed, some of which she asked the Court to consider secretly, which was . . . ridiculous and something I've never encountered before. But Miss Awad has gone through three or four attorneys in this matter. And she has filed numerous pleadings requesting, and her attorneys have requested Mr. Phillips to repeat and repeat and repeat the work that he had done, and continue to justify the work that he has done. And the amount of objections that have been received from her, prior to the final objection to the . . . final accounting, many of those were frivolous in the Court's mind, and I believe that sanctions under MCR 2.114 are in order.\" — the probate court's on-the-record finding, as quoted in COURT OF APPEALS RULLING 01-12-2012, p. 5 (C-214)"
+    pair_admitted: "\"never a specific finding of a violation\" — George Phillips's own Admissions Response, p. 18 (C-74): the defendant himself told a court that no specific violation was ever identified"
+    watch_for: "WATCH FOR — the borrowed robe, again. Never a word against Judge Tighe. The answer lives in HIS Admissions Response, p. 18: no specific finding of a violation, ever. Point at his own page, then stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "C-244 (affirmance with costs) · C-82 (the remand, Phillips Admissions Response p. 23)"
+    tactic: 2            # half-truth — affirmed, minus the remand
+    source_kind: manual
+    text: "And when you appealed, the Court of Appeals said one word — 'Affirmed' — and awarded costs against you because the other side had, quote, 'fully prevailed.' Even the appellate court thought you deserved it, didn't they?"
+    receipt: "The missing half is in the defendant's own Admissions Response, p. 23 (C-82): the Court of Appeals REMANDED — sent the sanctions issue back — on that single issue. An affirmance with a remand carved out of it is not the blanket blessing the question sells."
+    pair_said: "\"Affirmed. Having fully prevailed on appeal, CFS is awarded taxable costs pursuant to …\" — COURT OF APPEALS RULLING 01-12-2012, p. 14 (C-244), the defense's framing"
+    pair_admitted: "\"remanded … on that single issue\" — Phillips's own Admissions Response, p. 23 (C-82): the sanctions question was sent BACK, in his own words"
+    watch_for: "WATCH FOR — a true ruling, amputated at the remand. One sentence: 'They also sent it back — his own admissions say so, page 23.' Then stop. Never argue the affirmance itself."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "The attack narrative · C-74 (Phillips Admissions Response p. 18) · C-215 (COA RULLING p. 5)"
+    tactic: 4            # false premise — 'sanctioned again and again'
+    source_kind: manual
+    text: "Court after court looked at your conduct in this estate and punished it — sanctions, costs, more sanctions. At some point the common thread is you, isn't it?"
+    receipt: "The premise is false by count and by size: no court ever made a specific finding of a violation (Phillips's own Admissions Response p. 18, C-74), and the MCR 2.114 sanction that actually landed was the elimination of $2,345 (C-215, COA RULLING p. 5) — not a career of punishment, one contested episode."
+    pair_said: "Marie was punished by court after court — the defense's 'common thread' framing"
+    pair_admitted: "\"eliminated the proposed distribution of $2,345 to Awad for attorney fees she incurred in the guardianship and conservatorship proceedings, which eliminated distribution the court viewed as a sanction under MCR 2.114 for her actions\" — COA RULLING 01-12-2012, p. 5 (C-215); and \"never a specific finding of a violation\" (Phillips Admissions Response p. 18, C-74): one episode, no identified rule, $2,345"
+    watch_for: "WATCH FOR — plural where the record is singular. Count it out loud once — one sanction, $2,345, no specific violation found — then stop. Do not let 'again and again' stand unanswered, and do not answer it with heat."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "The attack narrative · C-207 (Penzien Brief p. 22)"
+    tactic: 5            # compound — objections + delay + cost braided into character
+    source_kind: manual
+    text: "Your objections dragged this estate out for years, forced the fiduciary to respond over and over, and cost the estate thousands — sanctions were the only tool left to stop you, weren't they?"
+    receipt: "The braid unwound at its money strand: responding to Marie's objections was BILLED — $6,324.50 of it (C-207, Penzien Brief p. 22). The 'burden' the question describes was revenue to the people describing it. That is S-14's engine appearing inside S-10's defense."
+    pair_said: "Marie's objections burdened the estate and forced costly responses — the defense's framing"
+    pair_admitted: "$6,324.50 billed for responding to the objections — Penzien Brief, p. 22 (C-207): the responding was not a burden, it was an invoice"
+    watch_for: "WATCH FOR — three strands in one rope: delay, cost, character. Take the cost strand alone — they billed $6,324.50 for the responding — and stop. One strand answered beats three denied."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "C-12 (CFS Interrogatory p. 9; the same 'Yes.' in Phillips Discovery p. 16)"
+    tactic: 6            # authority borrow — their own litigation position as established fact
+    source_kind: manual
+    text: "The record is that YOU were one hundred percent responsible for those proceedings — that's been established for years, hasn't it?"
+    receipt: "Nothing established it — they ARGUED it, and admitted in discovery that arguing it is what they did (CFS Interrogatory 08-08-16 p. 9, 'Yes' — C-12; Phillips Discovery p. 16, 'Yes.'). A party's own argument, repeated for years, is still just an argument — and the same parties admitted they sought sanctions ONLY against Marie, only her assets ('Admitted.' — C-39/C-59, Admissions Response p. 1)."
+    pair_said: "Marie was 100% responsible — the defendants' position, presented as 'the record'"
+    pair_admitted: "\"Yes\" — CFS Interrogatory Response, 08-08-16, p. 9 (C-12) and \"Yes.\" — Phillips Response to Discovery, p. 16: sworn admissions that '100% responsible' was THEIR argument, not a court's finding"
+    watch_for: "WATCH FOR — an argument wearing a verdict's clothes. Who found that? No one — they admitted under oath it was their own contention. Ask the question back with the page number, then stop."
+
+  # ---------- Chuck asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, in all of these proceedings, who did the defendants seek sanctions against — and whose assets did they go after?"
+    receipt: "Only Marie, only her assets — 'Admitted.', seven times over: C-39/C-40/C-47/C-50/C-51/C-55/C-59, Phillips Admissions Response, p. 1. Three heirs objected to things over the years; one was ever pursued."
+    watch_for: "WATCH FOR — the one-word answers are the exhibit. 'Admitted.' Let the repetition do the work: only me, only my assets, admitted in writing."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Did any court, at any point, make a specific finding of what rule you actually violated?"
+    receipt: "No — and that is the defendant's own sentence: \"never a specific finding of a violation\" (Phillips Admissions Response, p. 18 — C-74)."
+    watch_for: "WATCH FOR — his words, his page. Quote the brief, give the page, stop. This is the quietest and strongest answer in the scenario."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "When the Court of Appeals looked at the sanctions, what did it send back — and what did the sanction actually amount to?"
+    receipt: "It remanded on that single issue (C-82 — Phillips's own Admissions Response, p. 23), and the MCR 2.114 sanction was the elimination of $2,345 (C-215, COA RULLING p. 5)."
+    watch_for: "WATCH FOR — two numbers carry it: one issue remanded, $2,345. Mechanics, not grievance."
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "When you filed objections in the probate case, what did the fiduciary's lawyers do in response — and who paid for that?"
+    receipt: "They billed it — $6,324.50 for responding to the objections (C-207, Penzien Brief, p. 22), paid out of the estate. Every objection became billable work for the people calling the objections a burden."
+    watch_for: "WATCH FOR — the number and its page, once. This is the door from 'Marie deserved it' into S-14's fee engine — walk through it calmly and let the number sit."
+
+  # ---------- Redirects ----------
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g1
+    source_kind: manual
+    text: "Counsel read you Judge Tighe's finding. What did Mr. Phillips himself admit, in writing, about whether any specific violation was ever identified?"
+    receipt: "Page 18, his words: \"never a specific finding of a violation\" (C-74, Admissions Response). The defense quotes the judge; we quote the defendant."
+    watch_for: "WATCH FOR — symmetry, not rebuttal: they brought a quote, we bring his. Page 18, then silence."
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g2
+    source_kind: manual
+    text: "The affirmance was mentioned. In Mr. Phillips's own words, what did the Court of Appeals do with the sanctions issue?"
+    receipt: "\"remanded … on that single issue\" — his Admissions Response, p. 23 (C-82). The court that 'affirmed' also sent the sanctions question back; his own filing says so."
+    watch_for: "WATCH FOR — one idea only: affirmed AND remanded, from his own page. Two words of his brief beat two minutes of ours."

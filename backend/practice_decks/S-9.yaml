@@ -1,0 +1,139 @@
+# =============================================================================
+# practice_decks/S-9.yaml — the practice deck for scenario S-9, "Marie refused
+# to pay for the funeral"
+# =============================================================================
+#
+# ARCHITECT DRAFT v1.1 (Fable 5, 2026-08-28) — points block REMOVED until Marie authors her talking points (1:30 meeting); re-add via --update — for Chuck's review in the practice
+# session; his redlines flow back through `--update`.
+#
+# Built from S-9's ruled record on DEV as of this morning: the 08-28 Opus 5
+# scan (6 proposed, all addressed: C-75/C-408/C-442/C-516 Included, C-85/C-101
+# Deferred-unlinked), the two standing included facts (C-181, C-183), and the
+# ruled header card. Two receipts carry ⚑ PINPOINT TBD — Roman/Marie supply the
+# exact source before Ready: (1) the May 6, 2009 joint-funds payment (bank
+# records), (2) the page of Phillips's appellate response saying a bank-
+# distribution dispute "does not involve the estate."
+#
+# Schema follows practice_decks/S-7.yaml exactly. Standing rulings hold: no
+# `stronger` fields; every watch_for POINTS, never scripts; all questions
+# `source_kind: manual`.
+
+scenario_code: S-9
+
+questions:
+
+  # ---------- The defense asks (cross) ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Attack text (the probate court's finding) · Judge Tighe Opinion and Order, 12 Apr 2012, p. 1"
+    tactic: 6            # authority borrow — the judge's own finding
+    source_kind: manual
+    text: "Ms. Awad, the probate judge herself found that you did not participate in paying for your own father's funeral — and that you objected to your sisters being reimbursed. You're not saying the judge got that wrong, are you?"
+    receipt: "Built from the attack's judicial finding, answered from the SAME court's own order: Tighe Opinion, 12 Apr 2012, p. 1."
+    pair_said: "Marie Awad did not participate in paying for the funeral, but she objected to her sisters being reimbursed. — the probate court's finding, as the defense frames it"
+    pair_admitted: "\"Instead, the Court ordered, and the two sisters agreed, to replace this bank account into the estate. This made the $50,000 available to pay administrative expenses, the funeral bill, and creditors.\" — the SAME judge's Opinion and Order, 12 Apr 2012, p. 1: where the funeral money actually sat"
+    watch_for: "WATCH FOR — the borrowed robe. Never a word against the judge. The same order's first page says what money was available for the funeral bill and whose it was. Point at that page, then stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "A-49 (the sisters' representation) · the May 6, 2009 payment (⚑ pinpoint TBD)"
+    tactic: 4            # false premise with a moral edge
+    source_kind: manual
+    text: "Your own father's burial — and you didn't contribute one penny. That's the truth, isn't it?"
+    receipt: "The premise is false by the payment mechanics: May 6, 2009 — $15,000 of joint money, belonging to all three sisters, paid the funeral. Every sister paid a third, automatically."
+    pair_said: "The sisters represented that Marie had not paid any portion of the funeral expense. — A-49"
+    pair_admitted: "The funeral was paid May 6, 2009 with $15,000 of joint funds — money belonging to all three sisters equally. A third of it was Marie's. (⚑ bank-records pinpoint TBD)"
+    watch_for: "WATCH FOR — the smuggled premise inside the moral edge. The money that buried him belonged to all three of you. One sentence of mechanics — whose account, what date — then stop. No emotion contest."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Attack text · A-59 · Phillips SD Motion p. 4"
+    tactic: 2            # half-truth — 'asked only to be reimbursed'
+    source_kind: manual
+    text: "Your sisters paid out of their own pockets and asked only to be paid back — and you fought even that. Who fights their sisters over a funeral bill?"
+    receipt: "The missing half: the reimbursement was paid FROM the estate — $5,672 apiece plus $1,022 each — on a claim entered 14 Oct 2010 without any testimony or presentation of evidence (A-59; SD Motion p. 4)."
+    pair_said: "The sisters paid for the funeral themselves and asked only to be reimbursed. — the defense's framing"
+    pair_admitted: "The funeral was paid from joint funds belonging to all three; the 'reimbursement' paid the sisters AGAIN, from the estate, without testimony or proof. — the May 6 payment (⚑ TBD) · A-59 · SD Motion p. 4"
+    watch_for: "WATCH FOR — a true award, amputated from its basis. The objection was never to a funeral bill — it was to paying one twice. Supply the missing half, then stop."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "COA Reconsideration Ruling, 25 Apr 2013, p. 2 · Motion for Default p. 18"
+    tactic: 6            # authority borrow — the allowance order
+    source_kind: manual
+    text: "The court ALLOWED those distributions — five thousand six hundred seventy-two dollars to each of your sisters. The court looked at their claim and agreed they were owed it. Was that court wrong too?"
+    receipt: "Built from the COA's recitation of the 14 Oct 2010 allowances (Recon Ruling p. 2), answered by what that allowance rested on: no testimony, no evidence (A-59), and no proof ever offered for the underlying representation (Motion for Default p. 18)."
+    pair_said: "\"…allowed distributions of $5,672 apiece regarding Nadia and Hanley's claims for funeral expenses, and awarded Nadia and Hanley each an additional $1,022.\" — COA Reconsideration Ruling, 25 Apr 2013, p. 2"
+    pair_admitted: "\"The sisters offered no proof that the bank gave more of the inheritance to the Plaintiff or that the Plaintiff refused to pay for the funeral. It was merely a hearsay accusation.\" — Motion for Default p. 18; the order itself was entered without testimony or evidence (A-59)"
+    watch_for: "WATCH FOR — an order is not proof of the claim beneath it. What the allowance rested on is the answer: no testimony, no evidence, no proof. Dates and the record, then stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "Penzien COA Brief, p. 11 · Motion for Default pp. 18–19"
+    tactic: 5            # compound — objections braided into character
+    source_kind: manual
+    text: "You objected to the fees, you objected to the claims, you objected to your own sisters' funeral money — objecting is just what you do, isn't it?"
+    receipt: "The braid unwound by their own description of the objections: 'fairly detailed and took issue with a number of the claims that had been filed and the billings that had been submitted' (Penzien COA Brief p. 11) — specific, itemized, and aimed at accountability for removed funds."
+    pair_said: "Marie objected to the claims, the billings, and her sisters' distributions. — the record, braided into a character trait"
+    pair_admitted: "\"…the objections were fairly detailed and took issue with a number of the claims that had been filed and the billings that had been submitted…\" — Penzien COA Brief, p. 11: detailed and specific, not reflexive"
+    watch_for: "WATCH FOR — three strands in one rope. Which objection? Take one strand — the funeral claim — and answer it alone: no proof, paid twice, from the estate. One strand, then stop."
+
+  # ---------- Chuck asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, how was your father's funeral actually paid — when, and with whose money?"
+    receipt: "The foundation: May 6, 2009 — $15,000 of joint money belonging to all three sisters. Every sister paid a third, automatically. (⚑ bank-records pinpoint TBD)"
+    watch_for: "WATCH FOR — mechanics only: the date, the account, whose money. The jury hears the payment before it ever hears the accusation."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "What did Judge Tighe's own order say the returned $50,000 was available to pay?"
+    receipt: "Tighe Opinion and Order, 12 Apr 2012, p. 1: the returned account 'made the $50,000 available to pay administrative expenses, the funeral bill, and creditors.'"
+    watch_for: "WATCH FOR — the court's words, verbatim, and stop. This is the same judge the defense will borrow."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "When your sisters claimed you had paid nothing, what proof did they ever offer?"
+    receipt: "None — 'merely a hearsay accusation'; no proof despite demands, and the allegation was repeated without evidence (Motion for Default pp. 18–19)."
+    watch_for: "WATCH FOR — the empty record is the point. What was asked for, what was produced: nothing. No adjectives."
+
+  - key: c4
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "What did Mr. Phillips's own appellate brief say about disputes over the bank accounts — did they involve the estate?"
+    receipt: "His own brief: a bank-distribution dispute 'does not involve the estate' (⚑ pinpoint TBD) — and yet the sisters' funeral claim was paid FROM the estate."
+    watch_for: "WATCH FOR — their words against their conduct. Quote, then the payment, then silence."
+
+  # ---------- Redirects ----------
+
+  - key: r1
+    side: chuck
+    kind: redirect
+    follows: g3
+    source_kind: manual
+    text: "Counsel suggested you fought a simple payback. What, exactly, were you objecting to?"
+    receipt: "The double payment: joint money — a third of it hers — had already paid the funeral on May 6, 2009; the estate then paid the sisters again, $5,672 apiece plus $1,022, without testimony or proof (A-59; SD Motion p. 4; Recon Ruling p. 2)."
+    watch_for: "WATCH FOR — one idea only: paid once with everyone's money, paid twice from the estate. Two sentences, then stop."
+
+  - key: r2
+    side: chuck
+    kind: redirect
+    follows: g1
+    source_kind: manual
+    text: "The judge's finding was mentioned. What had the sisters told the court, and what proof came with it?"
+    receipt: "The finding rested on the sisters' representation that Marie paid nothing (A-49) — a representation supported by no proof, ever (Motion for Default p. 18). The court repeated what it was told."
+    watch_for: "WATCH FOR — the chain: who said it first, what supported it, what the court then repeated. Never the judge — always the source. Then stop."
