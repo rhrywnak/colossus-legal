@@ -297,6 +297,14 @@ pub struct ChronologyWording {
     pub subsets_precision_year_label: String,
     /// The window's divider where a story crosses a phase boundary — "2009 · probate". A bare year when the phase does not change.
     pub subsets_year_phase_divider_template: String,
+
+    // ── The Edit-subset modal (T6) ─────────────────────────────────────────
+    /// The GREEN half of the split banner: what saved when the events did not.
+    pub subsets_saved_name_only_banner: String,
+    /// The RED half. `{status}` and `{reason}` — the server's own sentence.
+    pub subsets_events_not_saved_banner_template: String,
+    /// The accessible name of the ⠿ grip. The glyph says nothing aloud.
+    pub subsets_modal_drag_label: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -428,6 +436,11 @@ pub fn build_chronology_wording<E>(
         subsets_precision_month_label: read(KEY_SUBSETS_PRECISION_MONTH_LABEL)?,
         subsets_precision_year_label: read(KEY_SUBSETS_PRECISION_YEAR_LABEL)?,
         subsets_year_phase_divider_template: read(KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE)?,
+        subsets_saved_name_only_banner: read(KEY_SUBSETS_SAVED_NAME_ONLY_BANNER)?,
+        subsets_events_not_saved_banner_template: read(
+            KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
+        )?,
+        subsets_modal_drag_label: read(KEY_SUBSETS_MODAL_DRAG_LABEL)?,
     })
 }
 

@@ -147,6 +147,15 @@ pub(crate) const KEY_SUBSETS_PRECISION_YEAR_LABEL: &str = "chronology_subsets_pr
 pub(crate) const KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE: &str =
     "chronology_subsets_year_phase_divider_template";
 
+// Timeline subsets, task 6 (2026-08-31): the Edit modal's honest banner and its
+// drag handle. The two banner halves exist because the old one said "That change
+// was not saved" when half of it had been.
+pub(crate) const KEY_SUBSETS_SAVED_NAME_ONLY_BANNER: &str =
+    "chronology_subsets_saved_name_only_banner";
+pub(crate) const KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE: &str =
+    "chronology_subsets_events_not_saved_banner_template";
+pub(crate) const KEY_SUBSETS_MODAL_DRAG_LABEL: &str = "chronology_subsets_modal_drag_label";
+
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
 /// catch before a deploy does.
@@ -255,4 +264,8 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_PRECISION_MONTH_LABEL,
     KEY_SUBSETS_PRECISION_YEAR_LABEL,
     KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE,
+    // Timeline subsets, task 6.
+    KEY_SUBSETS_SAVED_NAME_ONLY_BANNER,
+    KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
+    KEY_SUBSETS_MODAL_DRAG_LABEL,
 ];

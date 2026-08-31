@@ -137,6 +137,11 @@ pub struct ChronologyWordingDto {
     pub subsets_precision_month_label: String,
     pub subsets_precision_year_label: String,
     pub subsets_year_phase_divider_template: String,
+
+    // Timeline subsets, task 6: the Edit modal.
+    pub subsets_saved_name_only_banner: String,
+    pub subsets_events_not_saved_banner_template: String,
+    pub subsets_modal_drag_label: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -248,6 +253,11 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_precision_month_label: w.subsets_precision_month_label.clone(),
             subsets_precision_year_label: w.subsets_precision_year_label.clone(),
             subsets_year_phase_divider_template: w.subsets_year_phase_divider_template.clone(),
+            subsets_saved_name_only_banner: w.subsets_saved_name_only_banner.clone(),
+            subsets_events_not_saved_banner_template: w
+                .subsets_events_not_saved_banner_template
+                .clone(),
+            subsets_modal_drag_label: w.subsets_modal_drag_label.clone(),
         }
     }
 }
