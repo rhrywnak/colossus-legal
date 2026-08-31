@@ -113,6 +113,21 @@ export type ScenarioIdentityWording = {
   /** Why the header's "Rehearsal view" control is inert on a scenario that is
    *  not Ready. Carries `{status}`, filled from the status already on screen. */
   rehearsal_link_blocked_reason: string;
+  /** The SHORT tooltip on the strip's disabled Rehearsal control (T5). */
+  rehearsal_disabled_tooltip: string;
+  edit_subsets_section_title: string;
+  edit_subsets_section_hint: string;
+  edit_subsets_attached_state: string;
+  edit_subsets_not_attached_state: string;
+  edit_subsets_attach_button: string;
+  edit_subsets_detach_button: string;
+  edit_subsets_preview_link: string;
+  edit_subsets_create_link: string;
+  edit_subsets_create_hint: string;
+  /** The strip's three button labels (T5 round two). The ✎ is in code. */
+  header_edit_label: string;
+  header_rehearsal_view_label: string;
+  header_delete_label: string;
   /**
    * The label on the control that opens Marie's practice drill (PRACTICE v0).
    *
@@ -140,6 +155,16 @@ export type ScenarioIdentityDto = {
   code: string;
   name: string;
   direction: string;
+  /**
+   * `"draft"` / `"ready"` — what the Draft/Ready control both SHOWS and WRITES.
+   *
+   * Added for the header strip (T5). It is here rather than passed in because
+   * only two of the four surfaces the strip renders on carry a status at all:
+   * `PracticeDeck` and `RehearsalScenario` have none. A strip taking status as a
+   * prop would have needed three payloads widened and four pages taught about
+   * it — the shape `ScenarioTimelineDock` already rejected for the same reason.
+   */
+  status: string;
   /** Our one-sentence answer. `null` until framed. */
   theme_statement: string | null;
   /** What they want the jury to believe. `null` until written. */

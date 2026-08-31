@@ -38,8 +38,15 @@ import * as ws from "./windowStyles";
 
 type Props = {
   win: WindowState;
-  /** The subset the bar names. */
-  current: AttachedSubset;
+  /**
+   * The subset the bar NAMES — id, name and count, and nothing more.
+   *
+   * Narrower than `AttachedSubset` on purpose: a PREVIEWED subset is not
+   * attached, so it has no `position` and its `gap_count` is a fact about the
+   * subset rather than about this scenario's link to it. The bar renders three
+   * fields; asking for five would have forced the preview path to invent two.
+   */
+  current: Pick<AttachedSubset, "id" | "name" | "event_count">;
   /** Every attached subset, in selector order — the selector draws on >1. */
   ordered: AttachedSubset[];
   /** The already-filled "{count} events" line. */

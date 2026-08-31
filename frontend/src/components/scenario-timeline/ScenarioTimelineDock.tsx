@@ -52,7 +52,6 @@ import {
   getScenarioSubsets,
   type ScenarioSubsets,
 } from "./scenarioTimeline";
-import ScenarioTimelineRow from "./ScenarioTimelineRow";
 import SubsetFloatingWindow from "./SubsetFloatingWindow";
 import SubsetPopout from "./SubsetPopout";
 import SubsetWindowBody from "./SubsetWindowBody";
@@ -61,7 +60,9 @@ import {
   decodeWindowState,
   encodeWindowState,
   initialSubsetId,
+  namedSubset,
   openStateFor,
+  previewWindowState,
   POPUP_CLOSED_POLL_MS,
   selectorOrder,
   type WindowState,
@@ -71,6 +72,16 @@ import {
 type Props = {
   slug: string;
   scenarioId: string;
+  /**
+   * Open the window on THIS subset, without it being attached (T5, Screen 4).
+   *
+   * The Timeline-subsets section's Preview: a reader deciding whether to carry a
+   * story should be able to read it first, and the alternative was attach, look,
+   * detach — two writes to answer a question. `null` is the ordinary mount.
+   */
+  previewSubsetId?: string | null;
+  /** Preview mode hides the button; the section owns opening and closing. */
+  onPreviewClosed?: () => void;
 };
 
 /** Read the remembered window, or null. Never throws — see the module header. */
@@ -99,7 +110,12 @@ function writeStored(scenarioId: string, state: WindowState): void {
   }
 }
 
-const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
+const ScenarioTimelineDock: React.FC<Props> = ({
+  slug,
+  scenarioId,
+  previewSubsetId = null,
+  onPreviewClosed,
+}) => {
   const [data, setData] = useState<ScenarioSubsets | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -229,6 +245,22 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
       cancelled = true;
     };
   }, [open, phases.length]);
+
+  /**
+   * PREVIEW (T5, Screen 4): open straight onto one subset, attached or not.
+   *
+   * A separate effect and not a branch inside `openWindow`, because the trigger
+   * is different in kind: the reader clicked Preview on a row in another
+   * component, so there is no click here to hang the open on. Where it opens is
+   * `previewWindowState`, which a test can reach.
+   */
+  useEffect(() => {
+    if (previewSubsetId === null) return;
+    const header = document.querySelector("header[data-app-chrome]");
+    const headerBottom = header === null ? 0 : header.getBoundingClientRect().bottom;
+    setWin(previewWindowState(previewSubsetId, window.innerWidth, window.innerHeight, headerBottom));
+    setOpen(true);
+  }, [previewSubsetId]);
 
   const persist = useCallback(
     (next: WindowState) => {
@@ -367,11 +399,25 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
     };
   }, [popupWindow]);
 
+  /**
+   * Close the window entirely — the × on either bar.
+   *
+   * `onPreviewClosed` fires with it so a PREVIEW's owner learns the reader
+   * dismissed the window. Without that the section would still be holding the
+   * previewed id, and clicking Preview on the same row again would change
+   * nothing — a button that works once, which is the failure class T4's
+   * follow-up spent a commit on.
+   */
+  const closeWindow = useCallback(() => {
+    setOpen(false);
+    onPreviewClosed?.();
+  }, [onPreviewClosed]);
+
   /** × on the popped-out bar: put the story away entirely. */
   const closeAll = useCallback(() => {
     popIn();
-    setOpen(false);
-  }, [popIn]);
+    closeWindow();
+  }, [popIn, closeWindow]);
 
   // The window is an OS resource this component owns. Leaving the surface —
   // a route change, a scenario change — must not leave it on the desktop with
@@ -387,7 +433,9 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
 
   const wording = data.wording;
   const ordered = selectorOrder(attached, win?.subsetId ?? null);
-  const current = attached.find((s) => s.id === win?.subsetId) ?? attached[0];
+  // Which subset the bar names — see `namedSubset`, which the preview path broke
+  // once already and which is now decided where a test can reach it.
+  const current = namedSubset(previewSubsetId, subset, attached, win?.subsetId ?? null);
   const countLine =
     current === undefined
       ? ""
@@ -426,24 +474,22 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
 
   return (
     <div ref={host}>
-      {/* ⚑ THE BUTTON hides on `[]`; THE ROW DOES NOT.
-          Hiding the whole dock when nothing is attached was the first reading
-          of "hidden on []", and it made the feature unreachable: the Attach
-          control lives on the row, so a scenario carrying no story could never
-          be given its first one. The button is what has nothing to open. */}
-      {attached.length > 0 && (
+      {/* ⚑ THE BUTTON IS ABSENT ON `[]`, NOT DISABLED — Screen 1's own words:
+          "when no subset is attached the button is simply absent — nothing else
+          shifts". A disabled button would offer something that does not exist.
+
+          ⚑ AND THE "Timeline: [chips] Attach…" ROW IS GONE.
+          It used to render below this button on all five surfaces, and it WAS
+          defect D6 — an attach control on every view page, which is editing
+          done from a reading surface. T5 moves attaching to its own section
+          (`ScenarioSubsetsSection`) and `ScenarioTimelineRow.tsx` is deleted;
+          the two wording rows it spoke are retired in T5's migration. The dock
+          now keeps only the button and the window. */}
+      {attached.length > 0 && previewSubsetId === null && (
         <button type="button" style={d.button} onClick={openWindow}>
           {cw(wording, "scenario_view_timeline_button")}
         </button>
       )}
-
-      <ScenarioTimelineRow
-        slug={slug}
-        scenarioId={scenarioId}
-        attached={attached}
-        wording={wording}
-        onChanged={(next) => setData({ subsets: next, wording })}
-      />
 
       {/* The in-page window. A module of its own: a draggable, resizable,
           minimizable shell is a different concern from the button that opens
@@ -452,13 +498,13 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
         <SubsetFloatingWindow
           win={win}
           current={current}
-          ordered={ordered}
+          ordered={previewSubsetId === null ? ordered : []}
           countLine={countLine}
           wording={wording}
           canPopOut={subset !== null}
           onPersist={persist}
           onPopOut={popOut}
-          onClose={() => setOpen(false)}
+          onClose={closeWindow}
         >
           {contents}
         </SubsetFloatingWindow>

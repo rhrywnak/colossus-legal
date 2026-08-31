@@ -64,7 +64,7 @@ import { useNavigate, useParams } from "react-router-dom";
 
 import RehearsalPageHeader from "../components/RehearsalPageHeader";
 import RehearsalPicker from "../components/RehearsalPicker";
-import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
+import ScenarioHeaderStrip from "../components/scenario/ScenarioHeaderStrip";
 import RehearsalScenarioBlocks from "../components/RehearsalScenarioBlocks";
 import { fillCode } from "./rehearsalSections";
 
@@ -256,14 +256,24 @@ const RehearsalPage: React.FC = () => {
         atLast={index >= total - 1}
       />
 
-      {/* Mockup Screen 1's button, and the window it opens. Gated on
-          `rehearsing` for exactly the reason the header above is: in the other
-          two modes there is no scenario on screen, and a View Timeline button
-          opening one the reader never chose is the .389 round trip again.
-          Self-contained otherwise — it fetches its own data and hides itself
-          when this scenario carries no subset. */}
+      {/* ⚑ THE STRIP (T5, Screen 1), gated on `rehearsing` for exactly the
+          reason the header above is: in the other two modes there is no
+          scenario on screen, and a strip naming one the reader never chose is
+          the .389 round trip again.
+
+          `hideRehearsal` — this IS the rehearsal view. `hideEdit` /
+          `hideDelete` — those dialogs belong to the detail page. `hideStatus` —
+          the rehearsal payload only ever contains READY scenarios, so a
+          Draft/Ready control here could only ever show one value, and one that
+          could be toggled into removing the scenario from the page the reader
+          is standing on. It renders the View Timeline button and Practice. */}
       {mode === "rehearsing" && scenario !== undefined && (
-        <ScenarioTimelineDock slug={slug ?? ""} scenarioId={scenario.scenario_id} />
+        <ScenarioHeaderStrip
+          slug={slug ?? ""}
+          scenarioId={scenario.scenario_id}
+          hideRehearsal
+          hideStatus
+        />
       )}
 
       {mode === "refusing" && (

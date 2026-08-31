@@ -36,17 +36,6 @@ import React, { useState } from "react";
 import { allegationChipStyle } from "./scenarioSectionStyles";
 import type { RehearsalScenario, RehearsalWording } from "../services/rehearsal";
 
-const identityRowStyle: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: "10px",
-  flexWrap: "wrap",
-  fontSize: "13px",
-  color: "var(--text-muted)",
-};
-
-const codeStyle: React.CSSProperties = { fontWeight: 600 };
-
 /** The theme: the page's first sentence, and the biggest thing on it. */
 const themeStyle: React.CSSProperties = {
   margin: "10px 0 0",
@@ -150,14 +139,12 @@ const PrepTopBlock: React.FC<Props> = ({ scenario, wording }) => {
 
   return (
     <div>
-      <div style={identityRowStyle}>
-        <span style={codeStyle}>{scenario.code}</span>
-        <span>·</span>
-        <span>{scenario.title}</span>
-        <span>·</span>
-        <span>{scenario.direction_label}</span>
-      </div>
-
+      {/* ⚑ THE IDENTITY LINE IS GONE (T5, Roman's ruling 5).
+          It read `S-11 · The $50,000 · Offensive` and was the THIRD naming of
+          the same scenario on this page — the breadcrumb says it, the header
+          strip above says it with the role chip and the status, and this said
+          it again in plain text. Three identities on one page is the chaos the
+          strip was built to end. What this block is for starts below. */}
       {/* The theme. A scenario nobody has framed shows its stated gap here
           rather than an empty space where the page's first sentence goes. */}
       {scenario.what_this_is ? (

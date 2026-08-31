@@ -92,6 +92,23 @@ pub struct ScenarioIdentityWordingDto {
     /// The label on the control that opens Marie's practice drill (PRACTICE v0).
     pub practice_link_label: String,
 
+    // ── The header strip and the Timeline-subsets section (T5) ─────────────
+    pub rehearsal_disabled_tooltip: String,
+    pub edit_subsets_section_title: String,
+    pub edit_subsets_section_hint: String,
+    pub edit_subsets_attached_state: String,
+    pub edit_subsets_not_attached_state: String,
+    pub edit_subsets_attach_button: String,
+    pub edit_subsets_detach_button: String,
+    pub edit_subsets_preview_link: String,
+    pub edit_subsets_create_link: String,
+    pub edit_subsets_create_hint: String,
+
+    // ── The header strip's three button labels (T5 round two) ──────────────
+    pub header_edit_label: String,
+    pub header_rehearsal_view_label: String,
+    pub header_delete_label: String,
+
     // ── The unified identity vocabulary (task R2; SHIPPED in R4) ────────────
     //
     // ## Why these nine arrived a build late
@@ -161,6 +178,19 @@ pub fn identity_wording(w: &ScenarioAuthoringWording) -> ScenarioIdentityWording
         meaning_needs_attack_text: w.identity_meaning_needs_attack_text.clone(),
         rehearsal_link_blocked_reason: w.rehearsal_link_blocked_reason.clone(),
         practice_link_label: w.practice_link_label.clone(),
+        rehearsal_disabled_tooltip: w.rehearsal_disabled_tooltip.clone(),
+        edit_subsets_section_title: w.edit_subsets_section_title.clone(),
+        edit_subsets_section_hint: w.edit_subsets_section_hint.clone(),
+        edit_subsets_attached_state: w.edit_subsets_attached_state.clone(),
+        edit_subsets_not_attached_state: w.edit_subsets_not_attached_state.clone(),
+        edit_subsets_attach_button: w.edit_subsets_attach_button.clone(),
+        edit_subsets_detach_button: w.edit_subsets_detach_button.clone(),
+        edit_subsets_preview_link: w.edit_subsets_preview_link.clone(),
+        edit_subsets_create_link: w.edit_subsets_create_link.clone(),
+        edit_subsets_create_hint: w.edit_subsets_create_hint.clone(),
+        header_edit_label: w.header_edit_label.clone(),
+        header_rehearsal_view_label: w.header_rehearsal_view_label.clone(),
+        header_delete_label: w.header_delete_label.clone(),
         // The `identity_` prefix is dropped on the wire: over there the whole
         // struct IS the identity vocabulary, so repeating it in every field name
         // would be the payload saying "identity" nine times to one reader.

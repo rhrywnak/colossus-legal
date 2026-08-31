@@ -249,10 +249,6 @@ pub struct ChronologyWording {
     pub subsets_picker_gap_hint: String,
     /// Opens a scenario's attached subset in the floating window. R2 as made explicit 2026-08-30: EVERY scenario view carries it when a subset is attached.
     pub scenario_view_timeline_button: String,
-    /// Labels the attached-subsets row in the scenario header. The colon is part of the stored words.
-    pub scenario_timeline_row_label: String,
-    /// Opens the list of subsets this scenario could carry. The ellipsis promises a chooser, not an action.
-    pub scenario_attach_link: String,
     /// The floating window's footer link to the full page filtered to this subset. It opens the page; it never navigates the page under the window.
     pub subsets_window_open_timeline: String,
     /// Opens the subset's name, description and picker from inside the floating window.
@@ -408,8 +404,6 @@ pub fn build_chronology_wording<E>(
         subsets_picker_hint: read(KEY_SUBSETS_PICKER_HINT)?,
         subsets_picker_gap_hint: read(KEY_SUBSETS_PICKER_GAP_HINT)?,
         scenario_view_timeline_button: read(KEY_SCENARIO_VIEW_TIMELINE_BUTTON)?,
-        scenario_timeline_row_label: read(KEY_SCENARIO_TIMELINE_ROW_LABEL)?,
-        scenario_attach_link: read(KEY_SCENARIO_ATTACH_LINK)?,
         subsets_window_open_timeline: read(KEY_SUBSETS_WINDOW_OPEN_TIMELINE)?,
         subsets_window_edit: read(KEY_SUBSETS_WINDOW_EDIT)?,
         subsets_window_footer_events_template: read(KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE)?,

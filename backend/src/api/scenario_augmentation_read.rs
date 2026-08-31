@@ -83,6 +83,10 @@ fn to_identity_dto(record: &ScenarioRecord) -> ScenarioIdentityDto {
         code: scenario_code(record.code_ordinal),
         name: record.name.clone(),
         direction: record.direction.clone(),
+        // Straight off the record — no derivation, because the control that
+        // renders this also WRITES it, and a header showing a computed status
+        // could disagree with what the toggle is about to send.
+        status: record.status.clone(),
         theme_statement: record.theme_statement.clone(),
         motivation: record.motivation.clone(),
         // Read out of the opaque definition body. A definition that is `{}` or a

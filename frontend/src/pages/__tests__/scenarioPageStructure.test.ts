@@ -34,7 +34,7 @@ const read = (...parts: string[]) => readFileSync(join(SRC, ...parts), "utf8");
  */
 const SCENARIO_TREE = [
   "pages/ScenarioDetailPage.tsx",
-  "components/ScenarioHeaderTiers.tsx",
+  "components/scenario/ScenarioHeaderStrip.tsx",
   "components/ScenarioIdentityBlock.tsx",
   "components/ScanSection.tsx",
   "components/ThemeScanPanel.tsx",
@@ -187,7 +187,7 @@ describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-0
     // Each surface raises its own request upward — the header's `onDelete`, the
     // card's `onRequestDelete` — and neither may call the delete service itself.
     for (const [file, callback] of [
-      ["ScenarioHeaderTiers.tsx", "onDelete"],
+      ["scenario/ScenarioHeaderStrip.tsx", "onDelete"],
       ["ScenarioCard.tsx", "onRequestDelete"],
     ]) {
       const source = read("components", file);
@@ -207,13 +207,20 @@ describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-0
     // rehearse" is the status control, and it must not sit next to the
     // destructive one. It lives in the IDENTITY row; Delete is last in the
     // ACTIONS row, behind a separator.
-    const header = read("components", "ScenarioHeaderTiers.tsx");
+    // T5: the separator is gone because the two are now on DIFFERENT LINES —
+    // status in row 1 with the identity, Delete at the far end of row 2 behind
+    // `row2Right`'s auto margin. That is more distance than the separator ever
+    // bought, and this asserts the order rather than the spacer.
+    const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
     const statusAt = header.indexOf("<ScenarioStatusControl");
-    const deleteAt = header.indexOf("deleteButtonStyle}");
+    const row2At = header.indexOf("style={ss.row2}");
+    const deleteAt = header.indexOf("ss.dangerButton");
     expect(statusAt, "the status control is still on the header").toBeGreaterThan(-1);
     expect(deleteAt, "Delete is still on the header").toBeGreaterThan(-1);
-    expect(header.slice(statusAt, deleteAt)).toContain("actionsRowStyle");
-    expect(header).toContain("actionSeparatorStyle");
+    expect(row2At, "row 2 exists").toBeGreaterThan(-1);
+    expect(statusAt, "status is in row 1").toBeLessThan(row2At);
+    expect(deleteAt, "Delete is in row 2").toBeGreaterThan(row2At);
+    expect(header, "and pushed to the far end of it").toContain("ss.row2Right");
   });
 
   it("the kebab is deleted from the tree, not merely unmounted", () => {
@@ -410,7 +417,7 @@ describe("the v3 visual language (task 1.7D)", () => {
   it("the status toggle button is gone, replaced by the segmented control", () => {
     // Item 3 / ruling R4. A button states the ACTION available, not the state you
     // are in, and the reader had to invert it to learn the status.
-    const header = read("components", "ScenarioHeaderTiers.tsx");
+    const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
     expect(header).not.toContain("Mark ready to rehearse");
     expect(header).not.toContain("Remove from rehearsal");
     expect(header).toContain("ScenarioStatusControl");
@@ -466,11 +473,22 @@ describe("nothing fake is rendered (the Phase-1 law, §1 and §6)", () => {
   });
 
   it("the readiness verdict slot renders nothing until 2.4 computes one", () => {
-    // `headerDescriptor` returns `readiness: null` and the header guards on it. A
-    // verdict is a claim about whether this scenario can be taken into a courtroom;
-    // a grey "Unknown" chip would be the page making that claim with no basis.
+    // `headerDescriptor` returns `readiness: null` and nothing renders it. A
+    // verdict is a claim about whether this scenario can be taken into a
+    // courtroom; a grey "Unknown" chip would be the page making that claim with
+    // no basis.
+    //
+    // ⚑ T5: the guard moved from a conditional to an ABSENCE. Screen 1 draws no
+    // readiness chip, so the strip renders none — which satisfies "nothing fake
+    // is rendered" more completely than a slot that was always false. The
+    // descriptor still says `readiness: null`, so the day 2.4 computes one there
+    // is exactly one place to change and this fence will fail, which is what it
+    // is for.
     expect(read("components", "scenarioHeader.ts")).toContain("readiness: null");
-    expect(read("components", "ScenarioHeaderTiers.tsx")).toContain("header.readiness &&");
+    expect(
+      read("components", "scenario", "ScenarioHeaderStrip.tsx"),
+      "the strip must not invent a verdict chip",
+    ).not.toContain("readiness");
   });
 });
 
@@ -899,48 +917,50 @@ describe("the scenario header stacks, and the four card labels are bold", () => 
    * not set up (CLAUDE.md Rule 30), and what would actually be undone here is a
    * style declaration, not a rendered pixel.
    */
-  it("puts the header's two sides in a COLUMN, not one shared row", () => {
-    const header = read("components", "ScenarioHeaderTiers.tsx");
-    const rowStyle = header.slice(
-      header.indexOf("const headerRowStyle"),
-      header.indexOf("const identityRowStyle"),
+  /**
+   * ⚑ SUPERSEDED BY SCREEN 1 (T5, 2026-08-31), and rewritten rather than deleted.
+   *
+   * The two fences here pinned a COLUMN header whose actions row WRAPPED. Both
+   * were correct answers to the 2026-08-25 defect — `space-between` had squeezed
+   * a title into 235px of a 1016px page — and both are the wrong answer now.
+   * Roman's verdict on the result: "It looks like crap … very chaotic."
+   *
+   * Screen 1 replaces the arrangement rather than tuning it: ONE line, code ·
+   * title · role · status · two actions, with the second line carrying only
+   * Edit · Rehearsal view · Delete. The title cannot be squeezed because the
+   * actions are `margin-left:auto` rather than a competing flex child, and it
+   * cannot wrap to two lines because it declares `nowrap` and ellipsises.
+   *
+   * So what these guard is unchanged in KIND — the header must not go back to
+   * fighting itself for width — and the properties they name are inverted.
+   */
+  it("keeps row 1 on ONE line: nowrap, and the actions pushed by auto margin", () => {
+    const styles = read("components", "scenario", "stripStyles.ts");
+    const row1 = styles.slice(styles.indexOf("export const row1"), styles.indexOf("export const code"));
+    expect(row1, "Screen 1 is one line — wrapping is the chaotic header").toContain(
+      'flexWrap: "nowrap"',
     );
-    expect(rowStyle, "the header container declares a column").toContain(
-      'flexDirection: "column"',
+    // `space-between` is what squeezed the title in 2026-08-25. `margin-left:auto`
+    // on the ACTIONS does the same job without giving them a width claim.
+    expect(row1, "space-between must not come back").not.toContain("justifyContent");
+    const actions = styles.slice(
+      styles.indexOf("export const actions"),
+      styles.indexOf("export const row2"),
     );
-    expect(
-      rowStyle,
-      "space-between is what squeezed the title — it must not come back",
-    ).not.toContain("justifyContent");
-    // `stretch` is what makes the identity row occupy the whole column rather
-    // than shrinking to its content — the half of "full width" that is not the
-    // `column` itself. `flex-start` here would silently restore a title box
-    // sized to its neighbours.
-    expect(rowStyle).toContain('alignItems: "stretch"');
-    // The old 24px separated the two SIDES; 12px separates the title from the
-    // controls beneath it, and matches `practiceEditorStyles.titleRow`. Pinned
-    // so the two pages cannot drift apart one pixel at a time.
-    expect(rowStyle).toContain('gap: "12px"');
+    expect(actions).toContain('marginLeft: "auto"');
   });
 
-  it("lets the actions row wrap, so no control lands off the edge", () => {
-    const header = read("components", "ScenarioHeaderTiers.tsx");
-    const actions = header.slice(
-      header.indexOf("const actionsRowStyle"),
-      header.indexOf("The gap between the routine actions"),
+  it("lets the title ellipsise rather than wrap or squeeze", () => {
+    // The other half of "the title cannot be squeezed": nowrap alone would let a
+    // long name overflow the card. It truncates instead, and the full name is a
+    // breadcrumb and a page away.
+    const styles = read("components", "scenario", "stripStyles.ts");
+    const title = styles.slice(
+      styles.indexOf("export const title"),
+      styles.indexOf("export const roleChip"),
     );
-    expect(actions, "five controls plus the notice will not always fit").toContain(
-      'flexWrap: "wrap"',
-    );
-    expect(
-      actions,
-      "flexShrink: 0 was this side refusing to give the title width back",
-    ).not.toContain("flexShrink");
-    // The other property that belonged to the old arrangement: it hand-nudged
-    // this block down to the title's optical baseline when the two shared a
-    // row. `headerRowStyle`'s column gap is what separates them now, so a
-    // restored padding would be 14px of unexplained space, twice-specified.
-    expect(actions).not.toContain("paddingTop");
+    expect(title).toContain('whiteSpace: "nowrap"');
+    expect(title).toContain('textOverflow: "ellipsis"');
   });
 
   it("makes the four identity labels legible, and keeps them reading as labels", () => {
@@ -1000,25 +1020,19 @@ describe("the scenario header stacks, and the four card labels are bold", () => 
     );
   });
 
-  it("does not bold the SCENARIO eyebrow as a side effect", () => {
-    // The eyebrow is the same visual family (11px, uppercase, tracked, muted) and
-    // Roman named the four labels, not it. It is a separate object in a separate
-    // file, and this asserts the separation still holds — the cheap way to make
-    // them one shared style is exactly the change that would bold it silently.
+  it("has no SCENARIO eyebrow left to bold — Screen 1 removed it", () => {
+    // ⚑ SUPERSEDED (T5, 2026-08-31). This held the eyebrow at weight 600 while
+    // its visual family went bold — Roman excluded it twice, and the fence
+    // existed because "make the small caps bold" is the edit that would sweep it
+    // up. Screen 1 deletes the eyebrow: the strip is one line of code · title ·
+    // role · status, and a word reading "Scenario" above a scenario's name was
+    // the header explaining itself.
     //
-    // ## This one is a FORWARD fence, and says so
-    //
-    // Unlike its three neighbours it does NOT fail if 2026-08-25's change is
-    // reverted: the eyebrow was 600 before and after, so a plain revert leaves it
-    // green. It is here to fail on the NEXT edit — the one that merges these two
-    // objects, or reaches for "make the small caps bold" a second time and takes
-    // the kicker with it. Recorded plainly so nobody later reads it as evidence
-    // that the scenario-card change happened.
-    const header = read("components", "ScenarioHeaderTiers.tsx");
-    const eyebrow = header.slice(
-      header.indexOf("const eyebrowStyle"),
-      header.indexOf("const headerRowStyle"),
-    );
-    expect(eyebrow).toContain("fontWeight: 600");
+    // Inverted rather than deleted, because the thing worth guarding survives:
+    // nobody should reintroduce a small-caps label above the title.
+    const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
+    expect(header).not.toContain("eyebrow");
+    const styles = read("components", "scenario", "stripStyles.ts");
+    expect(styles).not.toContain("eyebrow");
   });
 });

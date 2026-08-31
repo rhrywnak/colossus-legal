@@ -19,6 +19,7 @@ import {
   EmptyState,
   MetricsBand,
 } from "../components/TrialPrepViews";
+import { listSubsets } from "../services/caseTimelineSubsets";
 import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import ScenarioCard from "../components/ScenarioCard";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
@@ -26,7 +27,6 @@ import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
 import { deleteScenario } from "../services/scenarioCrud";
-import { listSubsets } from "../services/caseTimelineSubsets";
 import { getTrialPrepDashboard } from "../services/trialPrep";
 import type { ScenarioSummary, TrialPrepDashboard } from "./trialPrepData";
 
@@ -143,15 +143,6 @@ const TrialPrepDashboardPage: React.FC = () => {
   // `pendingDelete` is the scenario the dialog is asking about — `null` means
   // no dialog. Holding the scenario rather than a boolean is what lets the
   // dialog name it.
-  const [pendingDelete, setPendingDelete] = useState<ScenarioSummary | null>(null);
-  const [deleting, setDeleting] = useState(false);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-
-  const { dashboard, loading, error } = useTrialPrepDashboard(slug, refreshKey);
-
-  // ⚑ ONE read for the whole grid, not one per card. `carried_by` holds
-  // scenario CODES — the join key the subsets read already publishes — and the
-  // dashboard's own scenarios carry both a code and an id, so the mapping is
   // honest rather than a guess. A card whose code is in this set gets the dock;
   // the dock then fetches its own data and hides itself if it disagrees.
   const [carrying, setCarrying] = useState<Set<string>>(new Set());
@@ -173,6 +164,13 @@ const TrialPrepDashboardPage: React.FC = () => {
       cancelled = true;
     };
   }, [refreshKey]);
+
+  const [pendingDelete, setPendingDelete] = useState<ScenarioSummary | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
+  const { dashboard, loading, error } = useTrialPrepDashboard(slug, refreshKey);
+
 
   const confirmDelete = () => {
     if (!pendingDelete) return;
@@ -268,6 +266,22 @@ const TrialPrepDashboardPage: React.FC = () => {
             // timeline button. Wrapping keeps its contract untouched.
             <div key={s.id}>
               <ScenarioCard scenario={s} slug={slug} onRequestDelete={setPendingDelete} />
+              {/* ⚑ NO STRIP HERE, AND IT IS NOT AN OVERSIGHT — measured, T5.
+                  Roman's ruling 6 puts the strip on four surfaces including
+                  "the dashboard row". This page has no row: `gridStyle` is a
+                  THREE-COLUMN grid of 230px cards. Measured on the running app,
+                  the strip's row 1 needs 378px of content in a 188px box — it
+                  overflows by two to one, and the title is the part that goes.
+                  `ScenarioCard` also already renders the code, the title, the
+                  status dot and Delete, so a strip beside it would say all of
+                  that twice — the duplication ruling 5 just removed from the
+                  rehearsal page.
+
+                  So this keeps what was here before: the card, and the dock for
+                  the View Timeline button. No regression, and no broken header
+                  on the war room. The choice between widening this grid to one
+                  column and giving the strip a narrow mode is a design call and
+                  it is in the T5 report under NEEDS A RULING. */}
               {carrying.has(s.code) && (
                 <ScenarioTimelineDock slug={slug} scenarioId={s.id} />
               )}

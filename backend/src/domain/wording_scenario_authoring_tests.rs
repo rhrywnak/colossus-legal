@@ -35,6 +35,10 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260808084539_theme_scan_tier2_settings_and_scan_wording.sql",
     "pipeline_migrations/20260810094435_r1_390_rehearsal_gate_wording_and_response_uniqueness.sql",
     "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
+    // T5 (2026-08-31): the strip's tooltip and the Timeline-subsets section.
+    "pipeline_migrations/20260831134354_t5_scenario_strip_and_edit_subsets_wording.sql",
+    // T5 round two (2026-08-31): the strip's three button labels.
+    "pipeline_migrations/20260831143404_t5_scenario_header_button_labels.sql",
 ];
 
 /// Migrations that CORRECT a value one of the seeds above already wrote.
@@ -140,6 +144,21 @@ const TEST_SEED: &[(&str, &str)] = &[
          this page first.",
     ),
     (KEY_PRACTICE_LINK_LABEL, "Practice"),
+    // T5, seeded by the migration named above.
+    (KEY_REHEARSAL_DISABLED_TOOLTIP, "Draft scenarios do not rehearse — switch to Ready first"),
+    (KEY_EDIT_SUBSETS_SECTION_TITLE, "Timeline subsets"),
+    (KEY_EDIT_SUBSETS_SECTION_HINT, "Attach the stories this scenario tells in dates. Attached subsets appear behind the View Timeline button on every page of this scenario. A subset can be carried by several scenarios; detaching never deletes it."),
+    (KEY_EDIT_SUBSETS_ATTACHED_STATE, "Attached"),
+    (KEY_EDIT_SUBSETS_NOT_ATTACHED_STATE, "not attached"),
+    (KEY_EDIT_SUBSETS_ATTACH_BUTTON, "Attach"),
+    (KEY_EDIT_SUBSETS_DETACH_BUTTON, "Detach"),
+    (KEY_EDIT_SUBSETS_PREVIEW_LINK, "Preview"),
+    (KEY_EDIT_SUBSETS_CREATE_LINK, "Create a new subset on the timeline"),
+    (KEY_EDIT_SUBSETS_CREATE_HINT, "opens the timeline in a new tab; come back and Attach"),
+    // T5 round two.
+    (KEY_HEADER_EDIT_LABEL, "Edit"),
+    (KEY_HEADER_REHEARSAL_VIEW_LABEL, "Rehearsal view"),
+    (KEY_HEADER_DELETE_LABEL, "Delete"),
 ];
 
 impl ScenarioAuthoringWording {

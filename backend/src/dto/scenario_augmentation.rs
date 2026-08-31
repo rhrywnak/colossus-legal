@@ -72,6 +72,24 @@ pub struct ScenarioIdentityDto {
     pub code: String,
     pub name: String,
     pub direction: String,
+    /// `"draft"` / `"ready"` — the state the Draft/Ready control both SHOWS and
+    /// WRITES.
+    ///
+    /// ## Why the header's status rides the identity payload (T5)
+    ///
+    /// The scenario header strip renders on four surfaces — the dashboard row,
+    /// the detail page, practice and rehearsal — and only two of their payloads
+    /// carry a status at all: `PracticeDeck` and `RehearsalScenario` have none.
+    /// A strip that took status as a PROP would therefore have needed three DTOs
+    /// widened and four pages taught about it, which is the shape
+    /// `ScenarioTimelineDock` already rejected for the same reason and recorded
+    /// in its own header.
+    ///
+    /// So the strip self-fetches, and this is the read it fetches: the one that
+    /// already carries the code, the name, the direction and the header's own
+    /// vocabulary for the same scenario. One field here replaces three widened
+    /// payloads.
+    pub status: String,
     /// Our one-sentence answer. `None` until a human writes it.
     pub theme_statement: Option<String>,
     /// What they want the jury to believe. `None` until written.

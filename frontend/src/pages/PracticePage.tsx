@@ -43,7 +43,7 @@ import {
   practiceQuestionPath,
   practiceWalkPath,
 } from "../utils/routePaths";
-import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
+import ScenarioHeaderStrip from "../components/scenario/ScenarioHeaderStrip";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 import { usePracticeEditor } from "./usePracticeEditor";
@@ -198,12 +198,17 @@ const PracticePage: React.FC = () => {
       <style>{f.LINK_CSS}</style>
       {crumb}
 
-      {/* Mockup Screen 1's button, and the window it opens. Self-contained: it
-          fetches its own data and hides itself when this scenario carries no
-          subset, so this page's own reads are untouched. The window must never
-          steal focus from an answer being typed underneath — it does not
-          autofocus, by construction. */}
-      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
+      {/* ⚑ THE STRIP (T5, Screen 1). It renders the View Timeline button in its
+          own action slot by mounting the dock there, so this page no longer
+          mounts one separately.
+
+          `hidePractice` — this IS the practice page; a button back to where the
+          reader already is would be furniture. `hideEdit` / `hideDelete` — the
+          identity modal and the delete confirm are the detail page's dialogs
+          and this page owns neither, and the strip does not draw a control it
+          has no handler for. Status and Rehearsal view stay: both are true
+          statements about the scenario wherever it is read. */}
+      <ScenarioHeaderStrip slug={slug} scenarioId={scenarioId} hidePractice />
 
       <PracticeStart
         code={deck.code}
