@@ -52,7 +52,6 @@ import {
   dateCaption,
   dividerFor,
   footerLine,
-  isDateToConfirm,
 } from "./subsetRows";
 import * as ws from "./windowStyles";
 
@@ -96,7 +95,6 @@ const SubsetWindowBody: React.FC<Props> = ({
           // in the hairline colour, which reads as "no tag" rather than as some
           // other tag's green.
           const rule = dotColor(tags, event, "var(--border-default)");
-          const flagged = isDateToConfirm(event);
           return (
             <React.Fragment key={event.id}>
               {divider !== null && (
@@ -129,17 +127,15 @@ const SubsetWindowBody: React.FC<Props> = ({
                       </span>
                     );
                   })}
-                  {/* ⚑ The GLYPH is in code and the WORDS are a row, which is
-                      the same split the title bar's ⧉ ⇲ – × already use: a
-                      glyph is furniture with no language in it, and the
-                      sentence beside it is the thing an editor would want to
-                      change. The mockup draws "⚑ date to confirm"; the stored
-                      row carries the four words. */}
-                  {flagged && (
-                    <span style={ws.dateFlag}>
-                      ⚑ {cw(wording, "subsets_date_to_confirm_badge")}
-                    </span>
-                  )}
+                  {/* ⚑ THE "date to confirm" BADGE WAS HERE AND IS RETIRED
+                      (Roman's ruling, 2026-08-31, reversing his own T4 call).
+                      It could only read `approximate`, so it claimed four of
+                      the case's thirty-one events needed a date confirmed —
+                      including two nobody has ever flagged. The ⚑ carries a
+                      specific meaning in this case and spreading it that
+                      thinly destroyed the signal. What stays is what the data
+                      supports: the date is amber and its caption says
+                      "month · approx.". See the T6 round-two migration. */}
                   {row.removed && (
                     <span style={ws.gapBadge}>{cw(wording, "subsets_gap_badge_label")}</span>
                   )}

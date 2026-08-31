@@ -17,7 +17,6 @@ import {
   crossesPhases,
   dateCaption,
   dividerFor,
-  flagCount,
   footerLine,
   isDateToConfirm,
   phaseLabel,
@@ -30,7 +29,6 @@ const WORDING: ChronologyWording = {
   subsets_precision_month_label: "month · approx.",
   subsets_precision_year_label: "year · approx.",
   subsets_year_phase_divider_template: "{year} · {phase}",
-  subsets_date_to_confirm_badge: "date to confirm",
   subsets_window_footer_events_template: "{count} events",
 };
 
@@ -124,10 +122,17 @@ describe("dateCaption", () => {
 });
 
 // -----------------------------------------------------------------------------
-// The ⚑
+// The ⚑ predicate — kept, unrendered, and still tested
 // -----------------------------------------------------------------------------
 
-describe("the date-to-confirm flag", () => {
+describe("the date-to-confirm predicate", () => {
+  // ⚑ NOTHING RENDERS THIS. Roman retired the badge on 2026-08-31, reversing
+  // his own T4 ruling, and instructed that the predicate and its tests stay:
+  // when a real "date to confirm" column lands on `chronology_events` this is
+  // the ONE place that changes, and both surfaces get the badge back together
+  // or not at all. These tests are what will tell whoever makes that change
+  // what the function was supposed to mean.
+
   it("marks an approximate date and nothing else", () => {
     expect(isDateToConfirm(event({ approximate: true }))).toBe(true);
     expect(isDateToConfirm(event({ approximate: false }))).toBe(false);
@@ -141,46 +146,39 @@ describe("the date-to-confirm flag", () => {
     const prose = event({ approximate: false, fact: "on a date still to be confirmed ⚑" });
     expect(isDateToConfirm(prose)).toBe(false);
   });
-
-  it("counts the flagged LIVE rows — the mockup's '2 ⚑' on The $50,000", () => {
-    const rows = [
-      row({ id: "a" }),
-      row({ id: "b", event_date: "2009-04-01", date_precision: "month", approximate: true }),
-      row({ id: "c" }),
-      row({ id: "d", event_date: "2009-05-03", approximate: true }),
-    ];
-    expect(flagCount(rows)).toBe(2);
-  });
-
-  it("does not count a flagged row whose event is gone from the chronology", () => {
-    // A gap is already marked as a gap, and its date is not one anybody can go
-    // and confirm. Counting it would inflate a number the reader acts on.
-    const rows = [row({ id: "a", approximate: true }, true), row({ id: "b", approximate: true })];
-    expect(flagCount(rows)).toBe(1);
-  });
 });
 
 // -----------------------------------------------------------------------------
-// The footer — "15 events · 2 ⚑"
+// The footer — "15 events", and no second number
 // -----------------------------------------------------------------------------
 
 describe("footerLine", () => {
-  it("reads exactly as the mockup draws it for The $50,000", () => {
+  it("says how many events, and only that", () => {
     // Fifteen events, two of them approximate — the story as it sits on DEV.
+    // It used to read "15 events · 2 ⚑". The second number counted rows whose
+    // date was merely APPROXIMATE while wearing a glyph that claimed somebody
+    // must confirm them, and Roman retired the claim (2026-08-31).
     const rows = [
       ...Array.from({ length: 13 }, (_, i) => row({ id: `e${i}` })),
       row({ id: "ap1", event_date: "2009-04-01", date_precision: "month", approximate: true }),
       row({ id: "ap2", event_date: "2009-05-03", approximate: true }),
     ];
     expect(rows).toHaveLength(15);
-    expect(footerLine(rows, WORDING)).toBe("15 events · 2 ⚑");
+    expect(footerLine(rows, WORDING)).toBe("15 events");
   });
 
-  it("DROPS the flag half entirely when nothing is flagged", () => {
-    // Not "· 0 ⚑". A zero here is not information — it asks the reader to work
-    // out what the symbol would have meant, on every story that has none.
-    const rows = [row({ id: "a" }), row({ id: "b" })];
-    expect(footerLine(rows, WORDING)).toBe("2 events");
+  it("carries no ⚑ at all, on any mix of rows", () => {
+    // The absence assertion, because a removal has no natural test: every one
+    // of these used to produce a second half, and none of them may now.
+    const mixes = [
+      [row({ id: "a", approximate: true })],
+      [row({ id: "a", approximate: true }, true), row({ id: "b", approximate: true })],
+      [row({ id: "a" }), row({ id: "b", date_precision: "month", approximate: true })],
+    ];
+    for (const rows of mixes) {
+      expect(footerLine(rows, WORDING)).not.toContain("⚑");
+      expect(footerLine(rows, WORDING)).toBe(`${rows.length} events`);
+    }
   });
 
   it("counts every reference, gaps INCLUDED — the title bar's number", () => {
@@ -189,13 +187,6 @@ describe("footerLine", () => {
     // story is how a reader stops trusting either.
     const rows = [row({ id: "a" }), row({ id: "b" }, true)];
     expect(footerLine(rows, WORDING)).toBe("2 events");
-  });
-
-  it("does not count a GAP row's flag, even though it counts the row", () => {
-    // The row is in the total; its ⚑ is not, because a deleted event's date is
-    // not one anybody can go and confirm.
-    const rows = [row({ id: "a", approximate: true }, true), row({ id: "b", approximate: true })];
-    expect(footerLine(rows, WORDING)).toBe("2 events · 1 ⚑");
   });
 
   it("survives an empty subset without inventing a number", () => {

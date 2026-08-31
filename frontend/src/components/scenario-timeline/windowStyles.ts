@@ -315,24 +315,14 @@ export const eventFact: CSSProperties = {
   color: "var(--text-secondary)",
 };
 
-/**
- * Mockup `.fev .flag`: the amber "date to confirm" pill.
- *
- * A FILLED pill, where `gapBadge` below is an outlined one — the two mark
- * different facts and appear on the same row, so they must not be mistakable
- * for one another. This one says the DATE is unsettled; that one says the EVENT
- * is gone from the chronology.
- */
-export const dateFlag: CSSProperties = {
-  display: "inline-block",
-  fontSize: "0.66rem",
-  fontWeight: 700,
-  color: "var(--burden-warning-text)",
-  background: "var(--burden-warning-bg)",
-  borderRadius: "999px",
-  padding: "0.05rem 0.5rem",
-  marginLeft: "0.375rem",
-};
+// ⚑ `dateFlag` — the mockup's `.fev .flag`, the amber "date to confirm" pill —
+// was here and is REMOVED with the badge it dressed (Roman's ruling,
+// 2026-08-31). The style went rather than being left unused: unlike
+// `isDateToConfirm`, which he instructed be kept because a real column will
+// call it, a pill nothing renders is just a pill nothing renders. `gapBadge`
+// below is the one that remains, and it now has the row to itself — the two
+// used to sit side by side and were deliberately drawn unalike, one filled and
+// one outlined, so nobody read "the date is unsettled" as "the event is gone".
 
 /** Mockup `.gap .badge`: the amber "not on the chronology" pill. */
 export const gapBadge: CSSProperties = {

@@ -12,16 +12,17 @@ import type { ChronologyWording, TimelineEvent } from "../../../services/caseTim
 import { dateCell } from "../pickerDateCell";
 
 /**
- * Only the four rows this module reads.
+ * Only the two rows this module reads.
  *
  * `cw` throws by name on a missing key, so a fixture carrying the whole
- * chronology block would hide a module that started reading a fifth one. Four
- * keys means the test fails loudly the moment this module's appetite changes.
+ * chronology block would hide a module that started reading a third one. Two
+ * keys means the test fails loudly the moment this module's appetite changes —
+ * which is exactly how the retired `subsets_date_to_confirm_badge` was proved
+ * to have no reader left here.
  */
 const wording = {
   subsets_precision_month_label: "month · approx.",
   subsets_precision_year_label: "year · approx.",
-  subsets_date_to_confirm_badge: "date to confirm",
 } as unknown as ChronologyWording;
 
 function event(over: Partial<TimelineEvent>): TimelineEvent {
@@ -69,27 +70,58 @@ describe("dateCell — the mockup's four rows", () => {
     expect(cell.caption).toBe("year · approx.");
   });
 
-  it("day precision, approximate: the full date, and the ⚑ beneath", () => {
-    // The Milster handoff. A day IS stated, and what is unsettled is whether it
-    // is the right one — so the caption is the flag rather than a precision.
+  it("day precision, approximate: the full date, amber, and NO caption", () => {
+    // The Milster handoff. It used to wear "⚑ date to confirm"; Roman retired
+    // that on 2026-08-31 because the flag could only read `approximate`, so it
+    // made the same claim about three other events nobody had flagged.
+    //
+    // What is left is true: a day IS stated, the date IS approximate, and
+    // `approximate: true` is what paints it amber. No caption is needed to say
+    // so — "~ May 3, 2009" already does.
     const cell = dateCell(
       event({ event_date: "2009-05-03", date_precision: "day", approximate: true }),
       wording,
     );
     expect(cell.text).toBe("~ May 3, 2009");
-    expect(cell.caption).toBe("⚑ date to confirm");
+    expect(cell.caption).toBe("");
     expect(cell.approximate).toBe(true);
   });
 });
 
-describe("dateCell — the glyph and the word", () => {
-  it("keeps the ⚑ in code and the words in the store", () => {
+describe("dateCell — the retired badge stays retired", () => {
+  // A removal has no natural test. These are it: the ⚑ came off two surfaces
+  // by ruling, and a caption that quietly regained it would break no build.
+
+  it("puts no ⚑ on ANY date, of any precision, approximate or not", () => {
+    const shapes = [
+      { date_precision: "day", approximate: false },
+      { date_precision: "day", approximate: true },
+      { date_precision: "month", approximate: true },
+      { date_precision: "year", approximate: true },
+      { date_precision: "fortnight", approximate: true },
+    ];
+    for (const shape of shapes) {
+      const cell = dateCell(event(shape), wording);
+      expect(cell.caption).not.toContain("⚑");
+      expect(cell.text).not.toContain("⚑");
+    }
+  });
+
+  it("still paints every approximate date amber — that part was never in doubt", () => {
+    // The badge made a claim about the RECORD. `approximate` is a fact the
+    // record holds, and it is what the amber says. Only the claim came off.
+    expect(dateCell(event({ approximate: true }), wording).approximate).toBe(true);
+    expect(dateCell(event({ approximate: false }), wording).approximate).toBe(false);
+  });
+});
+
+describe("dateCell — the words come from the store", () => {
+  it("reads the caption from the row, so an editor can reword it", () => {
     const cell = dateCell(
-      event({ date_precision: "day", approximate: true }),
-      { ...wording, subsets_date_to_confirm_badge: "check this" } as ChronologyWording,
+      event({ event_date: "2009-04-01", date_precision: "month", approximate: true }),
+      { ...wording, subsets_precision_month_label: "roughly, month only" } as ChronologyWording,
     );
-    // Reworded in the store, the glyph is untouched: that is the whole split.
-    expect(cell.caption).toBe("⚑ check this");
+    expect(cell.caption).toBe("roughly, month only");
   });
 
   it("draws no caption at all on an exact date, whatever its precision", () => {
@@ -118,6 +150,6 @@ describe("dateCell — the edges the mockup does not draw", () => {
       wording,
     );
     expect(cell.text).toBe("~ May 3, 2009");
-    expect(cell.caption).toBe("⚑ date to confirm");
+    expect(cell.caption).toBe("");
   });
 });

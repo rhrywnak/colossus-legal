@@ -133,7 +133,6 @@ pub struct ChronologyWordingDto {
     // Timeline subsets, task 4: the redrawn row and Pop out.
     pub subsets_window_popout_label: String,
     pub subsets_window_popin_label: String,
-    pub subsets_date_to_confirm_badge: String,
     pub subsets_precision_month_label: String,
     pub subsets_precision_year_label: String,
     pub subsets_year_phase_divider_template: String,
@@ -249,7 +248,6 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_window_loading_label: w.subsets_window_loading_label.clone(),
             subsets_window_popout_label: w.subsets_window_popout_label.clone(),
             subsets_window_popin_label: w.subsets_window_popin_label.clone(),
-            subsets_date_to_confirm_badge: w.subsets_date_to_confirm_badge.clone(),
             subsets_precision_month_label: w.subsets_precision_month_label.clone(),
             subsets_precision_year_label: w.subsets_precision_year_label.clone(),
             subsets_year_phase_divider_template: w.subsets_year_phase_divider_template.clone(),

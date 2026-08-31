@@ -27,7 +27,6 @@
 
 import type { ChronologyWording, TimelineEvent } from "../../services/caseTimeline";
 import { cw } from "../../services/caseTimeline";
-import { isDateToConfirm } from "../scenario-timeline/subsetRows";
 import { formatEventDate } from "./timelineFilters";
 
 /** The two lines of the date cell, and whether they are drawn amber. */
@@ -43,33 +42,33 @@ export type DateCell = {
 /**
  * How one event's date reads in a picker row.
  *
- * ## The caption, case by case (mockup Screen 3, rows 8, 14 and the last)
+ * ## The caption, case by case (mockup Screen 3, as amended by T6 round two)
  *
  * | precision | approximate | text            | caption          |
  * |-----------|-------------|-----------------|------------------|
  * | `day`     | no          | `Aug 18, 2008`  | `""`             |
  * | `month`   | yes         | `~ Apr 2009`    | `month · approx.`|
  * | `year`    | yes         | `~ 2009`        | `year · approx.` |
- * | `day`     | yes         | `~ May 3, 2009` | `⚑ to confirm`   |
+ * | `day`     | yes         | `~ May 3, 2009` | `""`  ← was `⚑`  |
  *
- * The three captions are STORED ROWS, seeded by T4 and already spoken by the
+ * Both captions are STORED ROWS, seeded by T4 and already spoken by the
  * floating window: this is the second surface to read them, which is the point
- * of a store. The ⚑ is a glyph and stays in code, the same split the window's
- * ⧉ ⇲ – × and the order arrows' ▲▼ already make.
+ * of a store.
  *
- * ## ⚑ The flag decision is T4's, deliberately not re-made here
+ * ## ⚑ The ⚑ "date to confirm" caption was a third case here, and is retired
  *
- * `isDateToConfirm` is imported rather than re-derived because there is exactly
- * one answer to "is this date one somebody must go and confirm", and T4 recorded
- * it with its reasoning: NOTHING in the data carries a "to confirm" flag, so the
- * badge marks `approximate`, which is what the data does know. Two surfaces
- * badging on two rules would be a story that says one thing on the timeline and
- * another in the picker.
+ * T6.2 shipped a day-precision approximate date with "⚑ date to confirm" under
+ * it, reusing T4's flag. Roman removed it on 2026-08-31, reversing his own T4
+ * ruling: the flag could only read `approximate`, so it claimed four of the
+ * case's thirty-one events needed a date confirmed — two of which nobody has
+ * ever flagged — and spreading the ⚑ that thinly destroyed the signal it
+ * exists to carry.
  *
- * A day-precision approximate date therefore gets the flag caption and a
- * month/year one gets its precision instead — the same three rows the mockup
- * draws, and the reason is that "month · approx." already SAYS the date is
- * unsettled, so "⚑ to confirm" under it would be the same statement twice.
+ * The full reasoning, and the predicate that would bring the badge back if a
+ * real "date to confirm" column ever lands on `chronology_events`, live
+ * together at `isDateToConfirm` in `subsetRows.ts`. That function is
+ * deliberately kept and deliberately unread; this module no longer imports it,
+ * so the two surfaces would get the badge back together or not at all.
  */
 export function dateCell(event: TimelineEvent, wording: ChronologyWording): DateCell {
   const text = formatEventDate(event.event_date, event.approximate, event.date_precision);
@@ -81,29 +80,26 @@ export function dateCell(event: TimelineEvent, wording: ChronologyWording): Date
 }
 
 /**
- * The small line: the precision, the flag, or nothing.
+ * The small line: the precision, or nothing.
  *
- * The precision captions come first and take an approximate date OUT of the
- * flag's reach, which is why "month · approx." and "⚑ date to confirm" never
- * appear on the same row — "month · approx." already says the date is
- * unsettled, so the flag under it would be the same statement twice.
+ * A date is captioned only when it is APPROXIMATE and the source stated less
+ * than a day — "month · approx." says the record gives a month and no more, so
+ * "Apr 1, 2009" would be a fabricated day. That is the class of mistake the
+ * precision vocabulary exists to prevent, and this caption is where a reader is
+ * told.
  *
- * The last question is asked of `isDateToConfirm` and not of
- * `event.approximate`, even though today they answer the same thing. That is
- * deliberate and it is the difference between a live call and a dead branch: if
- * a first-class "date to confirm" column ever lands (T4's open ruling), that
- * function narrows and the flag correctly narrows with it, on both surfaces, in
- * one edit.
+ * An approximate DAY-precision date gets no caption. It is still drawn amber
+ * and still reads "~ May 3, 2009", which says everything the record supports:
+ * a day IS stated and it is approximate. Until T6 round two it also wore
+ * "⚑ date to confirm", a claim nothing in the data could back — see the module
+ * header, and `isDateToConfirm` in `subsetRows.ts` for the function that would
+ * bring it back if a real column ever lands.
  */
 function captionFor(event: TimelineEvent, wording: ChronologyWording): string {
-  if (event.approximate && event.date_precision === "month") {
-    return cw(wording, "subsets_precision_month_label");
-  }
-  if (event.approximate && event.date_precision === "year") {
-    return cw(wording, "subsets_precision_year_label");
-  }
-  // Day precision — and any precision the payload invents, the same
+  if (!event.approximate) return "";
+  if (event.date_precision === "month") return cw(wording, "subsets_precision_month_label");
+  if (event.date_precision === "year") return cw(wording, "subsets_precision_year_label");
+  // Day precision, and any precision the payload invents — the same
   // fall-through `formatEventDate` makes, so the two never disagree.
-  if (isDateToConfirm(event)) return `⚑ ${cw(wording, "subsets_date_to_confirm_badge")}`;
   return "";
 }

@@ -135,12 +135,16 @@ pub(crate) const KEY_SUBSETS_GAP_BADGE_LABEL: &str = "chronology_subsets_gap_bad
 pub(crate) const KEY_SUBSETS_WINDOW_LOADING_LABEL: &str = "chronology_subsets_window_loading_label";
 
 // Timeline subsets, task 4 (2026-08-31): the redrawn row and Pop out. Two aria
-// rows for glyphs that say nothing on their own, the badge on an unsettled
-// date, the two precision captions under it, and the cross-phase divider.
+// rows for glyphs that say nothing on their own, the two precision captions
+// under an approximate date, and the cross-phase divider.
+//
+// ⚑ KEY_SUBSETS_DATE_TO_CONFIRM_BADGE was here — "the badge on an unsettled
+// date" — and is RETIRED (Roman's ruling, 2026-08-31, reversing his own T4
+// call). It could only read `approximate`, so it claimed four of the case's
+// thirty-one events needed a date confirmed. The two precision captions below
+// SURVIVE it: they say the source stated a month or a year, which is true.
 pub(crate) const KEY_SUBSETS_WINDOW_POPOUT_LABEL: &str = "chronology_subsets_window_popout_label";
 pub(crate) const KEY_SUBSETS_WINDOW_POPIN_LABEL: &str = "chronology_subsets_window_popin_label";
-pub(crate) const KEY_SUBSETS_DATE_TO_CONFIRM_BADGE: &str =
-    "chronology_subsets_date_to_confirm_badge";
 pub(crate) const KEY_SUBSETS_PRECISION_MONTH_LABEL: &str =
     "chronology_subsets_precision_month_label";
 pub(crate) const KEY_SUBSETS_PRECISION_YEAR_LABEL: &str = "chronology_subsets_precision_year_label";
@@ -260,7 +264,6 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     // Timeline subsets, task 4.
     KEY_SUBSETS_WINDOW_POPOUT_LABEL,
     KEY_SUBSETS_WINDOW_POPIN_LABEL,
-    KEY_SUBSETS_DATE_TO_CONFIRM_BADGE,
     KEY_SUBSETS_PRECISION_MONTH_LABEL,
     KEY_SUBSETS_PRECISION_YEAR_LABEL,
     KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE,
