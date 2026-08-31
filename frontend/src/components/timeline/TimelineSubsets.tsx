@@ -158,11 +158,17 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
             await replaceSubsetEvents(current.id, events_);
           }
         }
-        await reload();
-        setModal({ kind: "closed" });
       } catch (err: unknown) {
         // The modal stays OPEN, holding what was typed and picked, and the
         // banner says which of the two calls failed and what the server said.
+        // ⚑ The `"unknown error"` fallback is the FOURTH site of a hardcoded
+        // English string in this file (lines 82, 100, 118 are the others, all
+        // pre-existing). It is kept identical to them deliberately: the fix is
+        // one wording row that all four read, not a longer sentence written in
+        // code here, which would make the inconsistency worse rather than
+        // better. Filed in the T6 report under NEXT. The path is reachable only
+        // if something that is not an `Error` is thrown — nothing in the
+        // service does — and it is SHOWN rather than swallowed, so Rule 1 holds.
         const sentence = err instanceof Error ? err.message : "unknown error";
         setSaveFailure({
           nameSaved,
@@ -170,7 +176,24 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
           reason: err instanceof SubsetWriteError ? err.reason : "",
           sentence,
         });
+        setSaving(false);
+        return;
+      }
+      // ⚑ THE RE-READ IS OUTSIDE THE WRITE'S try, AND THAT IS THE POINT
+      //
+      // Everything above committed. If the list re-read then fails — a network
+      // blip between two requests in one interaction — the save DID land, and a
+      // banner reading "the event list was not saved" over a list that WAS
+      // saved is the same lie D2 exists to end, wearing different clothes. So
+      // the modal closes on the writes' success and the re-read reports itself,
+      // in the section's own error line, where a failed read belongs.
+      //
+      // `reload` already swallows nothing: it sets `error`, which the section
+      // renders in place of its list. Nothing is lost by letting it own this.
+      try {
+        await reload();
       } finally {
+        setModal({ kind: "closed" });
         setSaving(false);
       }
     },

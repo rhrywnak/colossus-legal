@@ -6,11 +6,12 @@
 // sibling of `subsetStyles.ts`: that is the section on the page, this is the
 // modal over it.
 //
-// CONST: geometry and rhythm, not settings. There is no frontend config surface
-// for a grid template, and these are not per-deployment values — they are one
-// approved drawing, transcribed. The mockup's own pixel values are kept in the
-// comments beside them so the next reader can diff a screenshot against the
-// drawing without opening the HTML.
+// STRUCTURAL: geometry and rhythm, not settings. There is no frontend config
+// surface for a grid template, and none of these values could legitimately
+// differ between DEV and PROD — they are one approved drawing, transcribed. The
+// mockup's own pixel values are kept in the comments beside them so the next
+// reader can diff a screenshot against the drawing without opening the HTML.
+// (Same marker, and the same reason, as `subsetWindow.ts`'s geometry block.)
 //
 // ## ⚑ THE MOCKUP'S PALETTE IS NOT THIS APP'S PALETTE
 //
@@ -29,10 +30,12 @@ import type { CSSProperties } from "react";
 /**
  * Mockup `.mbox` geometry — the three numbers T6.3 names (defect D7).
  *
- * CONST and not config: an approved drawing, transcribed. `MODAL_TOP` is 48px
- * because that is one app-header's height, so the box opens clear of it; the
+ * STRUCTURAL and not config: an approved drawing, transcribed. `MODAL_TOP` is
+ * 48px because that is one app-header's height, so the box opens clear of it,
+ * which makes it a LAYOUT RELATIONSHIP rather than a tunable; the
  * `MODAL_MARGIN` of 96 is that gap top AND bottom, which is what keeps the
- * footer — and therefore Save — on screen at 700px as well as at 900.
+ * footer — and therefore Save — on screen at 700px as well as at 900. A
+ * deployment that could change these is a deployment that redraws the dialog.
  */
 export const MODAL_WIDTH = 860;
 export const MODAL_TOP = 48;

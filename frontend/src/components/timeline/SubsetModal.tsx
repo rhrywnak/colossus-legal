@@ -71,10 +71,13 @@ import * as w from "./timelineWriteStyles";
 /**
  * The class `react-rnd` matches to decide whether a pointer-down starts a drag.
  *
- * CONST: an identifier the library reads, not a setting — there is nothing about
- * it a deployment would change, and it must be identical in the two places it
- * appears or the box silently stops being draggable.
+ * STRUCTURAL: API wire vocabulary for `react-rnd`, not a setting. The library
+ * matches this string against the element a pointer-down landed on; it must be
+ * identical in the two places it appears or the box silently stops being
+ * draggable, and there is nothing about it a deployment could legitimately
+ * change.
  */
+// STRUCTURAL: see above — a library-read identifier, never a tunable.
 const DRAG_HANDLE_CLASS = "subset-modal-bar";
 
 type Props = {

@@ -80,13 +80,30 @@ export function dateCell(event: TimelineEvent, wording: ChronologyWording): Date
   };
 }
 
-/** The small line: the precision, the flag, or nothing. */
+/**
+ * The small line: the precision, the flag, or nothing.
+ *
+ * The precision captions come first and take an approximate date OUT of the
+ * flag's reach, which is why "month · approx." and "⚑ date to confirm" never
+ * appear on the same row — "month · approx." already says the date is
+ * unsettled, so the flag under it would be the same statement twice.
+ *
+ * The last question is asked of `isDateToConfirm` and not of
+ * `event.approximate`, even though today they answer the same thing. That is
+ * deliberate and it is the difference between a live call and a dead branch: if
+ * a first-class "date to confirm" column ever lands (T4's open ruling), that
+ * function narrows and the flag correctly narrows with it, on both surfaces, in
+ * one edit.
+ */
 function captionFor(event: TimelineEvent, wording: ChronologyWording): string {
-  if (!event.approximate) return "";
-  if (event.date_precision === "month") return cw(wording, "subsets_precision_month_label");
-  if (event.date_precision === "year") return cw(wording, "subsets_precision_year_label");
-  // Day precision (and any precision the payload invents — the same
-  // fall-through `formatEventDate` makes) with the date marked approximate.
-  if (!isDateToConfirm(event)) return "";
-  return `⚑ ${cw(wording, "subsets_date_to_confirm_badge")}`;
+  if (event.approximate && event.date_precision === "month") {
+    return cw(wording, "subsets_precision_month_label");
+  }
+  if (event.approximate && event.date_precision === "year") {
+    return cw(wording, "subsets_precision_year_label");
+  }
+  // Day precision — and any precision the payload invents, the same
+  // fall-through `formatEventDate` makes, so the two never disagree.
+  if (isDateToConfirm(event)) return `⚑ ${cw(wording, "subsets_date_to_confirm_badge")}`;
+  return "";
 }
