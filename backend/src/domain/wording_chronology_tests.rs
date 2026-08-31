@@ -24,6 +24,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260830122249_timeline_subsets.sql",
     // Task 2 (2026-08-30): the seven words Screens 2 and 3 speak.
     "pipeline_migrations/20260830153346_timeline_subsets_screen_wording.sql",
+    // Task 3 (2026-08-30): the two aria rows and the window's four.
+    "pipeline_migrations/20260830162405_timeline_subsets_window_wording.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -128,6 +130,14 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SUBSETS_FORM_NAME_LABEL, "Name"),
     (KEY_SUBSETS_FORM_DESCRIPTION_LABEL, "Description — what this story proves, one or two sentences"),
     (KEY_SUBSETS_NOTE_PLACEHOLDER, "note"),
+    // Timeline subsets, task 3, seeded by the fifth migration named above.
+    (KEY_SUBSETS_MOVE_EARLIER_LABEL, "Move earlier in the story"),
+    (KEY_SUBSETS_MOVE_LATER_LABEL, "Move later in the story"),
+    (KEY_SUBSETS_WINDOW_MINIMIZE_LABEL, "Minimize"),
+    (KEY_SUBSETS_WINDOW_CLOSE_LABEL, "Close"),
+    (KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE, "{count} events"),
+    (KEY_SUBSETS_GAP_BADGE_LABEL, "Not on the chronology"),
+    (KEY_SUBSETS_WINDOW_LOADING_LABEL, "Loading the story…"),
 ];
 
 impl ChronologyWording {
@@ -287,6 +297,13 @@ fn the_templates_carry_the_placeholders_their_callers_fill() {
             &w.subsets_picked_count_template,
         ),
         ("subsets_pill_gaps_template", &w.subsets_pill_gaps_template),
+        // Task 3's one. Named here as well as caught by the derived suffix walk
+        // below, because this list is the one that says WHICH placeholder each
+        // template owes — the walk only says that a template owes one.
+        (
+            "subsets_window_events_count_template",
+            &w.subsets_window_events_count_template,
+        ),
     ] {
         assert!(
             value.contains("{count}"),
