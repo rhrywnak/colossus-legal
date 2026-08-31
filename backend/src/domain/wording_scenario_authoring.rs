@@ -150,6 +150,14 @@ pub struct ScenarioAuthoringWording {
     /// The muted aside promising a new tab and saying what to do on return.
     pub edit_subsets_create_hint: String,
 
+    // ── The header strip's three button labels (T5 round two) ──────────────
+    /// The strip's identity-editor control. The ✎ in front of it is furniture.
+    pub header_edit_label: String,
+    /// The strip's rehearsal control — INERT unless the scenario is Ready.
+    pub header_rehearsal_view_label: String,
+    /// The strip's destructive control. A visible button; the dialog is the guard.
+    pub header_delete_label: String,
+
     // ── The unified identity vocabulary (task R2, Roman 2026-08-10) ─────────
     //
     // ONE row per idea, rendered by BOTH the read-only identity block and the
@@ -229,6 +237,15 @@ pub(crate) const KEY_EDIT_SUBSETS_PREVIEW_LINK: &str = "scenario_edit_subsets_pr
 pub(crate) const KEY_EDIT_SUBSETS_CREATE_LINK: &str = "scenario_edit_subsets_create_link";
 pub(crate) const KEY_EDIT_SUBSETS_CREATE_HINT: &str = "scenario_edit_subsets_create_hint";
 
+// ── The header strip's three button labels (T5 round two, 2026-08-31) ───────
+//
+// Carried forward as literals from the header T5 deletes, reported as OWED, and
+// approved as rows the same day. The ✎ glyph stays in the component — the same
+// split ⧉ ⇲ – × already make.
+pub(crate) const KEY_HEADER_EDIT_LABEL: &str = "scenario_header_edit_label";
+pub(crate) const KEY_HEADER_REHEARSAL_VIEW_LABEL: &str = "scenario_header_rehearsal_view_label";
+pub(crate) const KEY_HEADER_DELETE_LABEL: &str = "scenario_header_delete_label";
+
 /// Every scenario-authoring key this build reads, so a missing one is caught at
 /// boot BY NAME rather than as a blank label in front of a human mid-sentence.
 pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
@@ -260,6 +277,9 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_EDIT_SUBSETS_PREVIEW_LINK,
     KEY_EDIT_SUBSETS_CREATE_LINK,
     KEY_EDIT_SUBSETS_CREATE_HINT,
+    KEY_HEADER_EDIT_LABEL,
+    KEY_HEADER_REHEARSAL_VIEW_LABEL,
+    KEY_HEADER_DELETE_LABEL,
     KEY_IDENTITY_ATTACK_LABEL,
     KEY_IDENTITY_ATTACK_ABSENT,
     KEY_IDENTITY_THEME_LABEL,
@@ -318,6 +338,9 @@ pub fn build_scenario_authoring_wording<E>(
         edit_subsets_preview_link: read(KEY_EDIT_SUBSETS_PREVIEW_LINK)?,
         edit_subsets_create_link: read(KEY_EDIT_SUBSETS_CREATE_LINK)?,
         edit_subsets_create_hint: read(KEY_EDIT_SUBSETS_CREATE_HINT)?,
+        header_edit_label: read(KEY_HEADER_EDIT_LABEL)?,
+        header_rehearsal_view_label: read(KEY_HEADER_REHEARSAL_VIEW_LABEL)?,
+        header_delete_label: read(KEY_HEADER_DELETE_LABEL)?,
         identity_attack_label: read(KEY_IDENTITY_ATTACK_LABEL)?,
         identity_attack_absent: read(KEY_IDENTITY_ATTACK_ABSENT)?,
         identity_theme_label: read(KEY_IDENTITY_THEME_LABEL)?,

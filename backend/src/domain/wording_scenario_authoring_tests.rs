@@ -37,6 +37,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260810114629_r2_391_unified_names_one_attack_box_and_scan_default_model.sql",
     // T5 (2026-08-31): the strip's tooltip and the Timeline-subsets section.
     "pipeline_migrations/20260831134354_t5_scenario_strip_and_edit_subsets_wording.sql",
+    // T5 round two (2026-08-31): the strip's three button labels.
+    "pipeline_migrations/20260831143404_t5_scenario_header_button_labels.sql",
 ];
 
 /// Migrations that CORRECT a value one of the seeds above already wrote.
@@ -153,6 +155,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_EDIT_SUBSETS_PREVIEW_LINK, "Preview"),
     (KEY_EDIT_SUBSETS_CREATE_LINK, "Create a new subset on the timeline"),
     (KEY_EDIT_SUBSETS_CREATE_HINT, "opens the timeline in a new tab; come back and Attach"),
+    // T5 round two.
+    (KEY_HEADER_EDIT_LABEL, "Edit"),
+    (KEY_HEADER_REHEARSAL_VIEW_LABEL, "Rehearsal view"),
+    (KEY_HEADER_DELETE_LABEL, "Delete"),
 ];
 
 impl ScenarioAuthoringWording {

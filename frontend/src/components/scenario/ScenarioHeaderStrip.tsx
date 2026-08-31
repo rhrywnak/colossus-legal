@@ -185,7 +185,9 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
       <div style={ss.row2}>
         {!hideEdit && onEdit !== undefined && (
           <button type="button" style={ss.quietButton} onClick={onEdit}>
-            ✎ Edit
+            {/* The ✎ is furniture and lives here; the word is a row. Same split
+                the window's ⧉ ⇲ – × and this section's ✓ and + → already make. */}
+            ✎ {wording.header_edit_label}
           </button>
         )}
 
@@ -206,11 +208,11 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
               to={rehearsalScenarioPath(slug, identity.code)}
               style={ss.quietButton}
             >
-              Rehearsal view
+              {wording.header_rehearsal_view_label}
             </Link>
           ) : (
             <span style={ss.quietDisabled} title={wording.rehearsal_disabled_tooltip}>
-              Rehearsal view
+              {wording.header_rehearsal_view_label}
             </span>
           ))}
 
@@ -219,7 +221,7 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
         {!hideDelete && onDelete !== undefined && (
           <span style={ss.row2Right}>
             <button type="button" style={ss.dangerButton} onClick={onDelete}>
-              Delete
+              {wording.header_delete_label}
             </button>
           </span>
         )}

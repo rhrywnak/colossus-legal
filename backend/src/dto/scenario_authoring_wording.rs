@@ -104,6 +104,11 @@ pub struct ScenarioIdentityWordingDto {
     pub edit_subsets_create_link: String,
     pub edit_subsets_create_hint: String,
 
+    // ── The header strip's three button labels (T5 round two) ──────────────
+    pub header_edit_label: String,
+    pub header_rehearsal_view_label: String,
+    pub header_delete_label: String,
+
     // ── The unified identity vocabulary (task R2; SHIPPED in R4) ────────────
     //
     // ## Why these nine arrived a build late
@@ -183,6 +188,9 @@ pub fn identity_wording(w: &ScenarioAuthoringWording) -> ScenarioIdentityWording
         edit_subsets_preview_link: w.edit_subsets_preview_link.clone(),
         edit_subsets_create_link: w.edit_subsets_create_link.clone(),
         edit_subsets_create_hint: w.edit_subsets_create_hint.clone(),
+        header_edit_label: w.header_edit_label.clone(),
+        header_rehearsal_view_label: w.header_rehearsal_view_label.clone(),
+        header_delete_label: w.header_delete_label.clone(),
         // The `identity_` prefix is dropped on the wire: over there the whole
         // struct IS the identity vocabulary, so repeating it in every field name
         // would be the payload saying "identity" nine times to one reader.

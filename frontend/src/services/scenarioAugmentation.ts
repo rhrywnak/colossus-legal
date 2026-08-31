@@ -124,6 +124,10 @@ export type ScenarioIdentityWording = {
   edit_subsets_preview_link: string;
   edit_subsets_create_link: string;
   edit_subsets_create_hint: string;
+  /** The strip's three button labels (T5 round two). The ✎ is in code. */
+  header_edit_label: string;
+  header_rehearsal_view_label: string;
+  header_delete_label: string;
   /**
    * The label on the control that opens Marie's practice drill (PRACTICE v0).
    *

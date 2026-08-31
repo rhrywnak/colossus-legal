@@ -22,15 +22,22 @@
 //   --indigo-bg     #eef2ff        --state-info-bg-soft     #e0e7ff
 //   --indigo-ink    #3730a3        --accent-primary         #1570ef
 //   --blue          #2563eb        --accent-primary         #1570ef
-//   --red           #b91c1c        --state-danger-strong / --v3-red-text
+//   --red           #b91c1c        --state-danger-strong    #dc2626
 //   --red-bg        #fef2f2        --state-danger-bg-soft
 //
-// ⚑ `--indigo-line` maps to `--border-default`, NOT to `--accent-primary`. That
-// mapping was made once as `--accent-primary` in T4, defended in a comment as
-// "furniture, no contrast requirement rides on it", and REJECTED by Roman: a
-// pale hairline is not a saturated blue outline whatever the contrast maths
-// says. `.btn.ghost`'s border is the same `--indigo-line`, so it takes the same
-// token, and so does every other `--indigo-line` site this task touches.
+// ⚑ THE STANDING RULING, REACHED IN THREE STEPS AND NOW FLAT:
+//
+//     `--accent-primary` IS AN INK AND A FILL. IT IS NEVER A HAIRLINE.
+//
+// Rejected once in the T4 follow-up (the floating window's border, defended in
+// a comment as "furniture, no contrast requirement rides on it"), once in T5
+// round one (`.btn.ghost`), and once in T5 round two (the attached subset row).
+// Every `--indigo-line` in the drawing maps to `--border-default`; the accent is
+// spent on text and on solid fills, which is what the mockup's `--indigo-ink`
+// and `--blue` are for.
+//
+// A `border` or `borderColor` in this file reading `--accent-primary` is that
+// defect returning for a fourth time.
 //
 // `--accent-primary` appears below only as `color:` — the ghost button's text
 // and the section's links. That is `--indigo-ink` / `--blue`, a different role.
@@ -228,18 +235,36 @@ export const sectionHint: CSSProperties = {
   maxWidth: "60rem",
 };
 
-/** Mockup `.srow`: `grid-template-columns:1fr 90px 110px 190px`. */
+/**
+ * Mockup `.srow`: `grid-template-columns:1fr 90px 110px 190px`.
+ *
+ * ## ⚑ THE BORDER IS PALE ON BOTH ROWS — the third time this was got wrong
+ *
+ * The attached row was outlined in `--accent-primary`, and Roman rejected it for
+ * the third time on 2026-08-31, after the T4 window's border and `.btn.ghost`'s.
+ * The ruling is now flat and this comment is where it is written down:
+ *
+ *   `--accent-primary` is an INK and a FILL. It is never a hairline.
+ *
+ * The mockup's `.srow.on` carries `border-color:var(--indigo-line)` — #c7d2fe,
+ * a pale hairline — over `background:var(--indigo-bg)`. What marks an attached
+ * row is the GROUND, not the outline, and the accent is spent on the two things
+ * that are genuinely ink: the "✓ Attached" state and the Preview link.
+ *
+ * So both rows take `--border-default`, and only the ground and the ink differ.
+ */
 export function subsetRow(attached: boolean): CSSProperties {
   return {
     display: "grid",
     gridTemplateColumns: "1fr 90px 110px 190px",
     gap: "0.75rem",
     alignItems: "center",
-    border: `1px solid ${attached ? "var(--accent-primary)" : "var(--border-default)"}`,
+    border: "1px solid var(--border-default)",
     borderRadius: "10px",
     padding: "0.625rem 0.875rem",
     marginTop: "0.5rem",
-    // Mockup `.srow.on`: the indigo ground marks what this scenario carries.
+    // Mockup `.srow.on`: the indigo GROUND is what marks what this scenario
+    // carries. It is the whole of the difference, plus the state word's ink.
     background: attached ? "var(--state-info-bg-soft)" : "var(--bg-surface)",
   };
 }
@@ -310,9 +335,15 @@ export const sectionError: CSSProperties = {
   marginTop: "0.5rem",
   padding: "0.5rem 0.75rem",
   borderRadius: "8px",
-  border: "1px solid var(--v3-red-text)",
+  // ⚑ `--state-danger-strong`, not `--v3-red-text`. Round one fixed the role
+  // chip and the Delete button and MISSED this one — in the file whose own
+  // header explains why. `--v3-red-text` is scoped to `[data-surface="v3"]`
+  // and empty at `:root`, and this style is used by the header strip, which
+  // renders on practice and rehearsal as well as the detail page. An error
+  // banner is the last thing that should render in an inherited colour.
+  border: "1px solid var(--state-danger-strong)",
   background: "var(--state-danger-bg-soft)",
-  color: "var(--v3-red-text)",
+  color: "var(--state-danger-strong)",
   fontSize: "0.81rem",
   fontWeight: 600,
 };
