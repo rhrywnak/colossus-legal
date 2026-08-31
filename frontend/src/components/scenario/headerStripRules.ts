@@ -73,6 +73,19 @@ export function stripControls(status: ScenarioStripStatus): StripControls {
 }
 
 /**
+ * The two directions this build knows how to name.
+ *
+ * Mirrors `directionChip`'s own map, and exists so the CHIP'S COLOUR is a
+ * decision with a test rather than a string comparison against another
+ * component's return value. A recognised direction gets the drawing's red; an
+ * unrecognised token gets amber, because "Offensive" on a scenario the database
+ * calls something else would be the page inventing a posture.
+ */
+export function isKnownDirection(direction: string): boolean {
+  return direction === "offense" || direction === "defense";
+}
+
+/**
  * Is the View Timeline button drawn at all?
  *
  * ABSENT and not disabled, per Screen 1: "when no subset is attached the button

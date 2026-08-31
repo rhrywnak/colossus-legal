@@ -19,7 +19,8 @@ import {
   EmptyState,
   MetricsBand,
 } from "../components/TrialPrepViews";
-import ScenarioHeaderStrip from "../components/scenario/ScenarioHeaderStrip";
+import { listSubsets } from "../services/caseTimelineSubsets";
+import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import ScenarioCard from "../components/ScenarioCard";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
@@ -142,6 +143,28 @@ const TrialPrepDashboardPage: React.FC = () => {
   // `pendingDelete` is the scenario the dialog is asking about — `null` means
   // no dialog. Holding the scenario rather than a boolean is what lets the
   // dialog name it.
+  // honest rather than a guess. A card whose code is in this set gets the dock;
+  // the dock then fetches its own data and hides itself if it disagrees.
+  const [carrying, setCarrying] = useState<Set<string>>(new Set());
+  const [carryingError, setCarryingError] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    listSubsets()
+      .then((subsets) => {
+        if (!cancelled) setCarrying(new Set(subsets.flatMap((sub) => sub.carried_by)));
+      })
+      .catch((err: unknown) => {
+        // NOT best-effort: that carve-out is for cosmetic browser storage and
+        // explicitly not for a fetch. A failure here means no View Timeline
+        // button renders anywhere on this page, which is a control silently
+        // absent — so it says so instead.
+        if (!cancelled) setCarryingError(err instanceof Error ? err.message : "unknown error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [refreshKey]);
+
   const [pendingDelete, setPendingDelete] = useState<ScenarioSummary | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
@@ -231,6 +254,8 @@ const TrialPrepDashboardPage: React.FC = () => {
 
       {dashboard.alerts.length > 0 && <AlertsStrip alerts={dashboard.alerts} />}
 
+      {carryingError !== null && <div style={errorStyle}>{carryingError}</div>}
+
       {dashboard.scenarios.length === 0 ? (
         <EmptyState message="No scenarios generated yet." />
       ) : (
@@ -241,23 +266,25 @@ const TrialPrepDashboardPage: React.FC = () => {
             // timeline button. Wrapping keeps its contract untouched.
             <div key={s.id}>
               <ScenarioCard scenario={s} slug={slug} onRequestDelete={setPendingDelete} />
-              {/* ⚑ THE STRIP (T5, Screen 1), which also renders the View
-                  Timeline button — so the dock is no longer mounted here and
-                  the `carrying` gate below it is gone with it. That gate was
-                  always redundant: the dock hides its own button when the
-                  scenario carries no subset, which is why `carrying` only ever
-                  saved a request rather than preventing a wrong render.
+              {/* ⚑ NO STRIP HERE, AND IT IS NOT AN OVERSIGHT — measured, T5.
+                  Roman's ruling 6 puts the strip on four surfaces including
+                  "the dashboard row". This page has no row: `gridStyle` is a
+                  THREE-COLUMN grid of 230px cards. Measured on the running app,
+                  the strip's row 1 needs 378px of content in a 188px box — it
+                  overflows by two to one, and the title is the part that goes.
+                  `ScenarioCard` also already renders the code, the title, the
+                  status dot and Delete, so a strip beside it would say all of
+                  that twice — the duplication ruling 5 just removed from the
+                  rehearsal page.
 
-                  `hideEdit` — the identity modal is the detail page's. Delete
-                  stays, because deleting from the dashboard is what the card's
-                  own control already did, and it goes through the same confirm
-                  this page already mounts. */}
-              <ScenarioHeaderStrip
-                slug={slug}
-                scenarioId={s.id}
-                hideEdit
-                onDelete={() => setPendingDelete(s)}
-              />
+                  So this keeps what was here before: the card, and the dock for
+                  the View Timeline button. No regression, and no broken header
+                  on the war room. The choice between widening this grid to one
+                  column and giving the strip a narrow mode is a design call and
+                  it is in the T5 report under NEEDS A RULING. */}
+              {carrying.has(s.code) && (
+                <ScenarioTimelineDock slug={slug} scenarioId={s.id} />
+              )}
             </div>
           ))}
           {/* On-demand entry point — visual affordance only in Stage 1. */}

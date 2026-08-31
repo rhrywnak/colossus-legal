@@ -60,7 +60,9 @@ import {
   decodeWindowState,
   encodeWindowState,
   initialSubsetId,
+  namedSubset,
   openStateFor,
+  previewWindowState,
   POPUP_CLOSED_POLL_MS,
   selectorOrder,
   type WindowState,
@@ -249,16 +251,14 @@ const ScenarioTimelineDock: React.FC<Props> = ({
    *
    * A separate effect and not a branch inside `openWindow`, because the trigger
    * is different in kind: the reader clicked Preview on a row in another
-   * component, so there is no click here to hang the open on. Runs when the
-   * previewed id changes and does nothing at all on an ordinary mount.
+   * component, so there is no click here to hang the open on. Where it opens is
+   * `previewWindowState`, which a test can reach.
    */
   useEffect(() => {
     if (previewSubsetId === null) return;
     const header = document.querySelector("header[data-app-chrome]");
     const headerBottom = header === null ? 0 : header.getBoundingClientRect().bottom;
-    setWin(
-      openStateFor(window.innerWidth, window.innerHeight, headerBottom, previewSubsetId),
-    );
+    setWin(previewWindowState(previewSubsetId, window.innerWidth, window.innerHeight, headerBottom));
     setOpen(true);
   }, [previewSubsetId]);
 
@@ -433,7 +433,9 @@ const ScenarioTimelineDock: React.FC<Props> = ({
 
   const wording = data.wording;
   const ordered = selectorOrder(attached, win?.subsetId ?? null);
-  const current = attached.find((s) => s.id === win?.subsetId) ?? attached[0];
+  // Which subset the bar names — see `namedSubset`, which the preview path broke
+  // once already and which is now decided where a test can reach it.
+  const current = namedSubset(previewSubsetId, subset, attached, win?.subsetId ?? null);
   const countLine =
     current === undefined
       ? ""
@@ -496,7 +498,7 @@ const ScenarioTimelineDock: React.FC<Props> = ({
         <SubsetFloatingWindow
           win={win}
           current={current}
-          ordered={ordered}
+          ordered={previewSubsetId === null ? ordered : []}
           countLine={countLine}
           wording={wording}
           canPopOut={subset !== null}

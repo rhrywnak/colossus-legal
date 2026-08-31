@@ -83,17 +83,32 @@ export const title: CSSProperties = {
   textOverflow: "ellipsis",
 };
 
-/** Mockup `.chip.role`: red-soft fill, red text, pill. Direction is read-only. */
-export const roleChip: CSSProperties = {
-  display: "inline-block",
-  background: "var(--state-danger-bg-soft)",
-  color: "var(--v3-red-text)",
-  borderRadius: "999px",
-  padding: "0.125rem 0.625rem",
-  fontSize: "0.75rem",
-  fontWeight: 600,
-  whiteSpace: "nowrap",
-};
+/**
+ * Mockup `.chip.role`: red-soft fill, pill, 12px/600.
+ *
+ * ⚑ `--state-danger-strong` and NOT `--v3-red-text`, which is what the header
+ * this replaces used. Measured on the running app: `--v3-red-text` (#991b1b) is
+ * defined on `[data-surface="v3"]` and is EMPTY at `:root`. The old header could
+ * rely on it because it rendered on one page inside that scope; this strip
+ * renders on four, and on the three without the attribute the declaration would
+ * have been invalid and the chip would have inherited whatever colour it landed
+ * in. `--state-danger-strong` (#dc2626) is on `:root`, and its soft ground
+ * `--state-danger-bg-soft` (#fef2f2) is the mockup's `--red-bg` exactly.
+ *
+ * An unrecognised direction goes AMBER rather than red — see `isKnownDirection`.
+ */
+export function roleChip(known: boolean): CSSProperties {
+  return {
+    display: "inline-block",
+    background: known ? "var(--state-danger-bg-soft)" : "var(--state-warning-bg-soft)",
+    color: known ? "var(--state-danger-strong)" : "var(--state-warning-strong)",
+    borderRadius: "999px",
+    padding: "0.125rem 0.625rem",
+    fontSize: "0.75rem",
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+  };
+}
 
 /** Mockup `.strip .acts`: pushed right, the two primary actions. */
 export const actions: CSSProperties = {
@@ -172,11 +187,17 @@ export const quietDisabled: CSSProperties = {
   cursor: "not-allowed",
 };
 
-/** Mockup `.btn.danger`: red text, NO border, no fill. Distance is the guard. */
+/**
+ * Mockup `.btn.danger`: red text, NO border, no fill. Distance is the guard.
+ *
+ * `--state-danger-strong` for the same reason the role chip uses it: the
+ * `--v3-red-text` the old header reached for is scoped to `[data-surface="v3"]`
+ * and undefined on three of this strip's four surfaces.
+ */
 export const dangerButton: CSSProperties = {
   ...buttonBase,
   background: "transparent",
-  color: "var(--v3-red-text)",
+  color: "var(--state-danger-strong)",
   border: "none",
   padding: "0.5rem 0.5rem",
 };

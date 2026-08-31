@@ -29,7 +29,9 @@ import {
   MIN_HEIGHT,
   MIN_WIDTH,
   minimizedPosition,
+  namedSubset,
   openStateFor,
+  previewWindowState,
   RIGHT_MARGIN,
   selectorOrder,
   TOP_BELOW_HEADER,
@@ -257,5 +259,67 @@ describe("the selector's order", () => {
   it("initialSubsetId is null when nothing is attached — the button is hidden", () => {
     expect(initialSubsetId([], null)).toBeNull();
     expect(initialSubsetId([], "a")).toBeNull();
+  });
+});
+
+// -----------------------------------------------------------------------------
+// PREVIEW (T5) — the two decisions the preview path broke once already
+// -----------------------------------------------------------------------------
+
+describe("namedSubset — which subset the title bar names", () => {
+  const attached = [
+    { id: "a", name: "The $50,000", event_count: 15 },
+    { id: "b", name: "The redirects", event_count: 4 },
+  ];
+
+  it("names the SELECTED subset on an ordinary open", () => {
+    expect(namedSubset(null, null, attached, "b")?.name).toBe("The redirects");
+  });
+
+  it("falls back to the first attached when nothing is selected", () => {
+    expect(namedSubset(null, null, attached, null)?.name).toBe("The $50,000");
+  });
+
+  it("names the PREVIEWED subset even though it is not attached — the defect", () => {
+    // Clicking Preview on "The fee engine" opened a window titled
+    // "The $50,000 · 15 events" over the fee engine's events, because
+    // `attached.find` missed and the fallback took `attached[0]`. The bar lied
+    // about which story was on screen.
+    const fee = { id: "fee", name: "The fee engine", event_count: 0 };
+    expect(namedSubset("fee", fee, attached, null)).toEqual(fee);
+  });
+
+  it("names NOTHING while the previewed detail is still loading", () => {
+    // Rather than falling back to an attached subset, which is how the bar
+    // came to name the wrong one. Undefined withdraws the bar's name until the
+    // right one arrives.
+    expect(namedSubset("fee", null, attached, null)).toBeUndefined();
+  });
+
+  it("refuses a STALE detail from the previously previewed subset", () => {
+    const old = { id: "a", name: "The $50,000", event_count: 15 };
+    expect(namedSubset("fee", old, attached, null)).toBeUndefined();
+  });
+
+  it("is undefined when nothing is attached and nothing is previewed", () => {
+    expect(namedSubset(null, null, [], null)).toBeUndefined();
+  });
+});
+
+describe("previewWindowState", () => {
+  it("opens at the ordinary first-open place, on the previewed subset", () => {
+    const w = previewWindowState("fee", 1440, 900, 64);
+    expect(w.subsetId).toBe("fee");
+    expect(w.minimized).toBe(false);
+    expect(w).toEqual(openStateFor(1440, 900, 64, "fee"));
+  });
+
+  it("does NOT consult the remembered position", () => {
+    // A preview that opened wherever the reader last dragged the real window
+    // would look like the real window — the one thing it must not be mistaken
+    // for. Same inputs, same place, every time.
+    expect(previewWindowState("fee", 1440, 900, 64)).toEqual(
+      previewWindowState("fee", 1440, 900, 64),
+    );
   });
 });

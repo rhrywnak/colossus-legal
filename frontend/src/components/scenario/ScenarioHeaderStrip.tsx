@@ -57,7 +57,8 @@ import {
 } from "../../services/scenarioAugmentation";
 import type { ScenarioStatus } from "../../pages/trialPrepData";
 import { practicePath, rehearsalScenarioPath } from "../../utils/routePaths";
-import { stripControls } from "./headerStripRules";
+import { directionChip } from "../scenarioHeader";
+import { isKnownDirection, stripControls } from "./headerStripRules";
 import * as ss from "./stripStyles";
 
 type Props = {
@@ -127,16 +128,32 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
   if (identity === null || wording === null) return null;
 
   const controls = stripControls(identity.status);
+  const role = directionChip(identity.direction);
+  const knownRole = isKnownDirection(identity.direction);
 
   return (
-    <div style={ss.strip}>
+    // `data-scenario-strip` is a stable handle, in the manner of the header's
+    // own `data-app-chrome`: it is what the harness selects to photograph one
+    // strip out of four on the dashboard, and what a future test would assert
+    // the count of. It carries no styling and no behaviour.
+    <div style={ss.strip} data-scenario-strip>
       {/* Row 1 — ONE line: code · title · role · status · the two actions. */}
       <div style={ss.row1}>
         <span style={ss.code}>{identity.code}</span>
         <h1 style={ss.title}>{identity.name}</h1>
-        {/* Direction is READ-ONLY: flipping it would make this a different
-            scenario, and the update route refuses it. */}
-        <span style={ss.roleChip}>{identity.direction}</span>
+        {/* Mockup `.chip.role`, and the LABEL comes from `directionChip` — the
+            one place that turns the stored `offense` into the word "Offensive".
+            Rendering `identity.direction` raw is what this drew at first, and it
+            put the database's token on screen where the drawing has English.
+
+            An unrecognised direction is shown VERBATIM and amber by that same
+            helper: "Defensive" on a scenario the database calls something else
+            would be the page inventing a posture. Direction is read-only —
+            flipping it would make this a different scenario, and the update
+            route refuses it, which is what the chip's title says. */}
+        <span style={ss.roleChip(knownRole)} title={role.title ?? undefined}>
+          {role.label}
+        </span>
 
         {!hideStatus && (
           <ScenarioStatusControl

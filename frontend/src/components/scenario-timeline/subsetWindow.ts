@@ -254,3 +254,49 @@ export function initialSubsetId<T extends { id: string; position?: number }>(
   const ordered = selectorOrder(attached, rememberedId);
   return ordered.length === 0 ? null : ordered[0].id;
 }
+
+/**
+ * Which subset the title bar NAMES.
+ *
+ * ## ⚑ PREVIEW BROKE THE ONE-LINER THIS REPLACES, AND CLICKING FOUND IT
+ *
+ * The dock read `attached.find(…) ?? attached[0]`, which is right for every
+ * ordinary open — the window can only show a subset the scenario carries — and
+ * wrong for the one case Preview exists for: reading a subset BEFORE attaching
+ * it. `find` missed, the fallback named `attached[0]`, and clicking Preview on
+ * "The fee engine" opened a window titled "The $50,000 · 15 events" over the
+ * right events. The bar lied about which story was on screen.
+ *
+ * So a PREVIEWED subset is named from the detail fetched for it, and the
+ * fallback survives for the ordinary path where it has always been correct.
+ * `detail` is `null` until that fetch lands, which is why the preview arm also
+ * checks the id: a stale detail from the previous subset must not name this one.
+ */
+export function namedSubset<T extends { id: string; name: string; event_count: number }>(
+  previewSubsetId: string | null,
+  detail: { id: string; name: string; event_count: number } | null,
+  attached: T[],
+  selectedId: string | null,
+): { id: string; name: string; event_count: number } | undefined {
+  if (previewSubsetId !== null) {
+    return detail !== null && detail.id === previewSubsetId ? detail : undefined;
+  }
+  return attached.find((s) => s.id === selectedId) ?? attached[0];
+}
+
+/**
+ * Where a PREVIEW window opens: the ordinary first-open place, on that subset.
+ *
+ * Preview deliberately does NOT consult the remembered position. The reader is
+ * deciding whether to carry a story, not returning to one they arranged — and a
+ * preview that opened wherever they last dragged the real window would look
+ * like the real window, which is the one thing it must not be mistaken for.
+ */
+export function previewWindowState(
+  previewSubsetId: string,
+  viewportWidth: number,
+  viewportHeight: number,
+  headerBottom: number,
+): WindowState {
+  return openStateFor(viewportWidth, viewportHeight, headerBottom, previewSubsetId);
+}

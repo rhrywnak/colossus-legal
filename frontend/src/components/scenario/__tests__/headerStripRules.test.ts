@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { showsViewTimeline, stripControls } from "../headerStripRules";
+import { isKnownDirection, showsViewTimeline, stripControls } from "../headerStripRules";
 
 describe("stripControls — the rehearsal gate", () => {
   it("lets a READY scenario into rehearsal", () => {
@@ -53,6 +53,21 @@ describe("stripControls — the three that are never gated", () => {
       expect(c.deleteEnabled).toBe(true);
     });
   }
+});
+
+describe("isKnownDirection — which colour the role chip takes", () => {
+  it("recognises the two directions this build names", () => {
+    expect(isKnownDirection("offense")).toBe(true);
+    expect(isKnownDirection("defense")).toBe(true);
+  });
+
+  it("refuses anything else, so an unknown posture goes AMBER not red", () => {
+    // "Offensive" on a scenario the database calls something else would be the
+    // page inventing a posture. The chip shows the raw token in amber instead.
+    expect(isKnownDirection("neutral")).toBe(false);
+    expect(isKnownDirection("Offense")).toBe(false); // case matters: it is a column value
+    expect(isKnownDirection("")).toBe(false);
+  });
 });
 
 describe("showsViewTimeline", () => {
