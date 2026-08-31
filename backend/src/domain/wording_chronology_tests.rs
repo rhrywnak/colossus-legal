@@ -30,6 +30,11 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260831112213_timeline_subsets_t4_window_wording.sql",
     // Task 4 follow-up (2026-08-31): the footer, corrected.
     "pipeline_migrations/20260831125728_timeline_subsets_t4_footer_events_template.sql",
+    // T5 (2026-08-31): retires chronology_scenario_timeline_row_label and
+    // chronology_scenario_attach_link, whose only caller — the "Timeline: …
+    // Attach…" row — comes off every view page. Named here so a reader looking
+    // for where they went has the file.
+    "pipeline_migrations/20260831134354_t5_scenario_strip_and_edit_subsets_wording.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -120,8 +125,6 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SUBSETS_PICKER_HINT, "Tick an event to add it. Order defaults to date; drag the number to change the story order. The note is optional — one line on why this event is in the story."),
     (KEY_SUBSETS_PICKER_GAP_HINT, "Gaps are not on the chronology — add them with \"+ Add event\" on the timeline first; the picker only lists what exists."),
     (KEY_SCENARIO_VIEW_TIMELINE_BUTTON, "View Timeline"),
-    (KEY_SCENARIO_TIMELINE_ROW_LABEL, "Timeline:"),
-    (KEY_SCENARIO_ATTACH_LINK, "Attach…"),
     (KEY_SUBSETS_WINDOW_OPEN_TIMELINE, "Open on the timeline"),
     (KEY_SUBSETS_WINDOW_EDIT, "Edit subset"),
     (KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE, "{count} events"),

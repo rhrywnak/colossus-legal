@@ -103,8 +103,6 @@ pub(crate) const KEY_SUBSETS_PICKER_HINT: &str = "chronology_subsets_picker_hint
 pub(crate) const KEY_SUBSETS_PICKER_GAP_HINT: &str = "chronology_subsets_picker_gap_hint";
 pub(crate) const KEY_SCENARIO_VIEW_TIMELINE_BUTTON: &str =
     "chronology_scenario_view_timeline_button";
-pub(crate) const KEY_SCENARIO_TIMELINE_ROW_LABEL: &str = "chronology_scenario_timeline_row_label";
-pub(crate) const KEY_SCENARIO_ATTACH_LINK: &str = "chronology_scenario_attach_link";
 pub(crate) const KEY_SUBSETS_WINDOW_OPEN_TIMELINE: &str = "chronology_subsets_window_open_timeline";
 pub(crate) const KEY_SUBSETS_WINDOW_EDIT: &str = "chronology_subsets_window_edit";
 pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE: &str =
@@ -230,8 +228,6 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_PICKER_HINT,
     KEY_SUBSETS_PICKER_GAP_HINT,
     KEY_SCENARIO_VIEW_TIMELINE_BUTTON,
-    KEY_SCENARIO_TIMELINE_ROW_LABEL,
-    KEY_SCENARIO_ATTACH_LINK,
     KEY_SUBSETS_WINDOW_OPEN_TIMELINE,
     KEY_SUBSETS_WINDOW_EDIT,
     KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE,

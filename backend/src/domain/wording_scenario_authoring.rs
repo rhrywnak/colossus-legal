@@ -126,6 +126,30 @@ pub struct ScenarioAuthoringWording {
     /// screen able to say so.
     pub practice_link_label: String,
 
+    // ── The header strip and the Timeline-subsets section (T5) ─────────────
+    /// The SHORT tooltip on the strip's disabled "Rehearsal view" control. No
+    /// `{status}`: the segmented control beside it already shows the state.
+    pub rehearsal_disabled_tooltip: String,
+    /// The heading of the attach/detach section.
+    pub edit_subsets_section_title: String,
+    /// What the section teaches: where an attached subset shows up, that
+    /// attachment is many-to-many, and that Detach is not Delete.
+    pub edit_subsets_section_hint: String,
+    /// The state word on a row this scenario carries. The ✓ is furniture, in code.
+    pub edit_subsets_attached_state: String,
+    /// The mirror of [`Self::edit_subsets_attached_state`]. Edit the two together.
+    pub edit_subsets_not_attached_state: String,
+    /// The button that links a subset. Explicit, not a ✓-toggle — defect D10.
+    pub edit_subsets_attach_button: String,
+    /// The button that unlinks one. Never "Remove": the subset is untouched.
+    pub edit_subsets_detach_button: String,
+    /// Opens the floating window on one subset WITHOUT attaching it.
+    pub edit_subsets_preview_link: String,
+    /// The link out to the timeline, where subsets are made.
+    pub edit_subsets_create_link: String,
+    /// The muted aside promising a new tab and saying what to do on return.
+    pub edit_subsets_create_hint: String,
+
     // ── The unified identity vocabulary (task R2, Roman 2026-08-10) ─────────
     //
     // ONE row per idea, rendered by BOTH the read-only identity block and the
@@ -188,6 +212,23 @@ pub(crate) const KEY_IDENTITY_BEARS_ON_ABSENT: &str = "scenario_identity_bears_o
 /// word, with a failure path of its own to surface.
 pub(crate) const KEY_PRACTICE_LINK_LABEL: &str = "scenario_practice_link_label";
 
+// ── The header strip and the Timeline-subsets section (T5, 2026-08-31) ──────
+//
+// One word for Screen 1's disabled Rehearsal control, nine for Screen 4's
+// section. See the migration's header for why the long rehearsal sentence stays
+// in the store while leaving the page.
+pub(crate) const KEY_REHEARSAL_DISABLED_TOOLTIP: &str = "scenario_rehearsal_disabled_tooltip";
+pub(crate) const KEY_EDIT_SUBSETS_SECTION_TITLE: &str = "scenario_edit_subsets_section_title";
+pub(crate) const KEY_EDIT_SUBSETS_SECTION_HINT: &str = "scenario_edit_subsets_section_hint";
+pub(crate) const KEY_EDIT_SUBSETS_ATTACHED_STATE: &str = "scenario_edit_subsets_attached_state";
+pub(crate) const KEY_EDIT_SUBSETS_NOT_ATTACHED_STATE: &str =
+    "scenario_edit_subsets_not_attached_state";
+pub(crate) const KEY_EDIT_SUBSETS_ATTACH_BUTTON: &str = "scenario_edit_subsets_attach_button";
+pub(crate) const KEY_EDIT_SUBSETS_DETACH_BUTTON: &str = "scenario_edit_subsets_detach_button";
+pub(crate) const KEY_EDIT_SUBSETS_PREVIEW_LINK: &str = "scenario_edit_subsets_preview_link";
+pub(crate) const KEY_EDIT_SUBSETS_CREATE_LINK: &str = "scenario_edit_subsets_create_link";
+pub(crate) const KEY_EDIT_SUBSETS_CREATE_HINT: &str = "scenario_edit_subsets_create_hint";
+
 /// Every scenario-authoring key this build reads, so a missing one is caught at
 /// boot BY NAME rather than as a blank label in front of a human mid-sentence.
 pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
@@ -208,6 +249,17 @@ pub const SCENARIO_AUTHORING_WORDING_KEYS: &[&str] = &[
     KEY_MEANING_NEEDS_ATTACK_TEXT,
     KEY_REHEARSAL_LINK_BLOCKED,
     KEY_PRACTICE_LINK_LABEL,
+    // Task 5.
+    KEY_REHEARSAL_DISABLED_TOOLTIP,
+    KEY_EDIT_SUBSETS_SECTION_TITLE,
+    KEY_EDIT_SUBSETS_SECTION_HINT,
+    KEY_EDIT_SUBSETS_ATTACHED_STATE,
+    KEY_EDIT_SUBSETS_NOT_ATTACHED_STATE,
+    KEY_EDIT_SUBSETS_ATTACH_BUTTON,
+    KEY_EDIT_SUBSETS_DETACH_BUTTON,
+    KEY_EDIT_SUBSETS_PREVIEW_LINK,
+    KEY_EDIT_SUBSETS_CREATE_LINK,
+    KEY_EDIT_SUBSETS_CREATE_HINT,
     KEY_IDENTITY_ATTACK_LABEL,
     KEY_IDENTITY_ATTACK_ABSENT,
     KEY_IDENTITY_THEME_LABEL,
@@ -256,6 +308,16 @@ pub fn build_scenario_authoring_wording<E>(
         identity_meaning_needs_attack_text: read(KEY_MEANING_NEEDS_ATTACK_TEXT)?,
         rehearsal_link_blocked_reason: read(KEY_REHEARSAL_LINK_BLOCKED)?,
         practice_link_label: read(KEY_PRACTICE_LINK_LABEL)?,
+        rehearsal_disabled_tooltip: read(KEY_REHEARSAL_DISABLED_TOOLTIP)?,
+        edit_subsets_section_title: read(KEY_EDIT_SUBSETS_SECTION_TITLE)?,
+        edit_subsets_section_hint: read(KEY_EDIT_SUBSETS_SECTION_HINT)?,
+        edit_subsets_attached_state: read(KEY_EDIT_SUBSETS_ATTACHED_STATE)?,
+        edit_subsets_not_attached_state: read(KEY_EDIT_SUBSETS_NOT_ATTACHED_STATE)?,
+        edit_subsets_attach_button: read(KEY_EDIT_SUBSETS_ATTACH_BUTTON)?,
+        edit_subsets_detach_button: read(KEY_EDIT_SUBSETS_DETACH_BUTTON)?,
+        edit_subsets_preview_link: read(KEY_EDIT_SUBSETS_PREVIEW_LINK)?,
+        edit_subsets_create_link: read(KEY_EDIT_SUBSETS_CREATE_LINK)?,
+        edit_subsets_create_hint: read(KEY_EDIT_SUBSETS_CREATE_HINT)?,
         identity_attack_label: read(KEY_IDENTITY_ATTACK_LABEL)?,
         identity_attack_absent: read(KEY_IDENTITY_ATTACK_ABSENT)?,
         identity_theme_label: read(KEY_IDENTITY_THEME_LABEL)?,

@@ -652,12 +652,14 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCENARIO_AUTHORING_WORDING_KEYS.len(),
-        26,
+        36,
         "2026-08-07: the create form's two new fields, the identity modal's \
          target control, and the no-target notice — plus 2.15's never-scanned \
          notice, its sibling, R1's two (the second definition-loss refusal and \
-         the gated rehearsal control's reason), and R2's nine: the unified \
-         identity vocabulary both identity surfaces now share"
+         the gated rehearsal control's reason), R2's nine: the unified \
+         identity vocabulary both identity surfaces now share, and T5's TEN: \
+         the header strip's disabled-rehearsal tooltip and the nine words of \
+         the Timeline-subsets section"
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),
