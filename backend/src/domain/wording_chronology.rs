@@ -289,6 +289,18 @@ pub struct ChronologyWording {
     pub subsets_gap_badge_label: String,
     /// What the floating window says while the subset's events are being read. Says "the story" because that is what the window is for. NOT `saving_label`, which is a WRITE.
     pub subsets_window_loading_label: String,
+    /// The floating window's ⧉ control, which reopens the story as its own desktop window. A glyph with no accessible name of its own.
+    pub subsets_window_popout_label: String,
+    /// The popped-out window's ⇲ control. The mirror of [`Self::subsets_window_popout_label`]; ⇲ returns the story to the page, × puts it away.
+    pub subsets_window_popin_label: String,
+    /// The amber pill beside an approximate date. It marks the DATE, not the fact — the event happened; when is unsettled.
+    pub subsets_date_to_confirm_badge: String,
+    /// The caption under a month-precision date: the source stated a month, so a day would be fabricated.
+    pub subsets_precision_month_label: String,
+    /// The mirror of [`Self::subsets_precision_month_label`], for year precision. Edit the two together.
+    pub subsets_precision_year_label: String,
+    /// The window's divider where a story crosses a phase boundary — "2009 · probate". A bare year when the phase does not change.
+    pub subsets_year_phase_divider_template: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -416,6 +428,12 @@ pub fn build_chronology_wording<E>(
         subsets_window_events_count_template: read(KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE)?,
         subsets_gap_badge_label: read(KEY_SUBSETS_GAP_BADGE_LABEL)?,
         subsets_window_loading_label: read(KEY_SUBSETS_WINDOW_LOADING_LABEL)?,
+        subsets_window_popout_label: read(KEY_SUBSETS_WINDOW_POPOUT_LABEL)?,
+        subsets_window_popin_label: read(KEY_SUBSETS_WINDOW_POPIN_LABEL)?,
+        subsets_date_to_confirm_badge: read(KEY_SUBSETS_DATE_TO_CONFIRM_BADGE)?,
+        subsets_precision_month_label: read(KEY_SUBSETS_PRECISION_MONTH_LABEL)?,
+        subsets_precision_year_label: read(KEY_SUBSETS_PRECISION_YEAR_LABEL)?,
+        subsets_year_phase_divider_template: read(KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE)?,
     })
 }
 
