@@ -358,17 +358,19 @@ describe("the rehearsal labels carry the same weight as the scenario card's", ()
     });
   }
 
-  it("leaves the scenario page's SCENARIO eyebrow at 600", () => {
-    // The one member of the family Roman excluded, twice now. Asserted here as
-    // well as in scenarioPageStructure.test.ts because "make the small caps
-    // bold" is the edit that would sweep it up, and the person making it will be
-    // looking at the rehearsal page.
-    const header = read(COMPONENTS, "ScenarioHeaderTiers.tsx");
-    const eyebrow = header.slice(
-      header.indexOf("const eyebrowStyle"),
-      header.indexOf("const headerRowStyle"),
-    );
-    expect(eyebrow).toContain("fontWeight: 600");
+  it("has no SCENARIO eyebrow left to bold — Screen 1 removed it", () => {
+    // ⚑ SUPERSEDED (T5, 2026-08-31). This fence used to hold the scenario page's
+    // eyebrow at weight 600 while its siblings went bold, because Roman excluded
+    // it from that change twice. Screen 1 deletes the eyebrow outright: the strip
+    // is one line of code · title · role · status, and the word "Scenario" above
+    // it was the header explaining itself.
+    //
+    // Kept rather than deleted, inverted rather than weakened: what it guards is
+    // that nobody reintroduces a small-caps label above the title while making
+    // the family's caps bold.
+    const header = read(COMPONENTS, "scenario/ScenarioHeaderStrip.tsx");
+    expect(header).not.toContain("eyebrow");
+    expect(header).not.toContain("Scenario</div>");
   });
 });
 

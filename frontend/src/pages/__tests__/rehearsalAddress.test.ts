@@ -60,7 +60,7 @@ describe("moving between scenarios takes the address along", () => {
 const CONVERTED_FAMILY = [
   ["components", "RehearsalPageHeader.tsx"],
   ["pages", "RehearsalPage.tsx"],
-  ["components", "ScenarioHeaderTiers.tsx"],
+  ["components/scenario", "ScenarioHeaderStrip.tsx"],
   ["components", "TrialPrepViews.tsx"],
   ["pages", "ScenarioDetailPage.tsx"],
   // The sixth, added with the surface it serves (task R1 Piece 1d). Every row of
@@ -113,12 +113,15 @@ describe("no screen in the converted family spells a route by hand", () => {
  * must not compose the case-level one.
  */
 describe("the rehearsal control names the scenario it is on", () => {
-  const header = read("components", "ScenarioHeaderTiers.tsx");
+  const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
 
   it("composes the per-scenario address with this scenario's own code", () => {
     // `rehearsalScenarioPath` was routed, tested and documented for two releases
     // with NO producer anywhere in the app. This is its first caller.
-    expect(header).toContain("rehearsalScenarioPath(slug, code)");
+    // T5: the strip self-fetches, so the code comes off the identity it read
+    // rather than off a prop. The ARGUMENT is what this guard is about and it is
+    // unchanged — the address still names this scenario.
+    expect(header).toContain("rehearsalScenarioPath(slug, identity.code)");
   });
 
   it("cannot reach the case-level rehearsal address at all", () => {
@@ -136,10 +139,17 @@ describe("the rehearsal control names the scenario it is on", () => {
   });
 
   it("gates the live link on the scenario actually being ready", () => {
+    // T5: the RULE moved to `headerStripRules.ts`, where a unit test can reach
+    // it — the component now asks `controls.rehearsalEnabled`. Both halves are
+    // asserted, so neither can drift: the rule says "ready", the strip obeys it.
+    const rules = read("components", "scenario", "headerStripRules.ts");
+    expect(rules).toContain('status === "ready"');
+    expect(header).toContain("controls.rehearsalEnabled");
     // Rehearsal mode serves READY scenarios through a human gate (v2 §5/§10).
     // Before .390 the control rendered identically at every status and the only
-    // statement of the rule was a hover tooltip.
-    expect(header).toContain('status === "ready"');
+    // statement of the rule was a hover tooltip. The literal now lives in the
+    // rules module asserted two lines up — asserting it HERE as well would pin
+    // the rule to the component it was just extracted out of.
   });
 
   it("says why it is inert in a STORED sentence, never a literal", () => {
@@ -147,8 +157,17 @@ describe("the rehearsal control names the scenario it is on", () => {
     // here would be the one word on this control the configuration law cannot
     // reach — and it would have to guess "Draft", which is wrong for any other
     // non-Ready value the column still permits.
-    expect(header).toContain("rehearsalBlockedTemplate");
-    expect(header).toContain("{ status: statusMeta(status).label }");
+    // T5: the stored sentence is now the SHORT tooltip row, and it reaches the
+    // strip on the payload the strip already reads rather than as a prop. Still
+    // a stored row, never a literal, which is what this test is for.
+    expect(header).toContain("wording.rehearsal_disabled_tooltip");
+    // T5: the tooltip row has NO placeholder to fill. The long
+    // `{status}`-bearing sentence stayed in the store (the rehearsal gate still
+    // speaks it) but left this control: a tooltip on a button disabled for
+    // being Draft need not say "Draft" when the segmented control beside it
+    // does. So this asserts the absence of a hand-written reason instead.
+    expect(header).not.toContain("Not in rehearsal");
+    expect(header).not.toContain("Switch it to Ready");
   });
 });
 

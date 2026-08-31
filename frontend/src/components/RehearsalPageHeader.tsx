@@ -27,7 +27,6 @@
 import React from "react";
 
 import {
-  codeStyle,
   crumbStyle,
   linkStyle,
   navButtonDisabledStyle,
@@ -88,15 +87,14 @@ const RehearsalPageHeader: React.FC<Props> = ({
     </div>
 
     <div style={pageHeadStyle}>
-      <h1 style={pageTitleStyle}>
-        {scenario ? (
-          <>
-            <span style={codeStyle}>{scenario.code}</span> · {scenario.title}
-          </>
-        ) : (
-          wording.page_heading
-        )}
-      </h1>
+      {/* ⚑ THIS NO LONGER NAMES THE SCENARIO (T5, Roman's ruling 5).
+          It used to read `S-11 · The $50,000`, which — with the breadcrumb
+          above it and `PrepTopBlock`'s line below — put the same identity on
+          this page three times. The header strip names the scenario now, with
+          its role chip and its controls; this heading says what the PAGE is,
+          which is what a page heading is for. The breadcrumb still links the
+          scenario, because that is navigation rather than identity. */}
+      <h1 style={pageTitleStyle}>{wording.page_heading}</h1>
       <div style={{ flex: 1 }} />
       <div style={navGroupStyle}>
         {scenario && (

@@ -8,7 +8,7 @@
 //
 // SEVEN SECTIONS, TOP TO BOTTOM
 //
-//   1. Two-tier header + eyebrow      §2.1 (D7) — `ScenarioHeaderTiers`
+//   1. The scenario header strip     §11 item 1 — `ScenarioHeaderStrip`
 //   2. Identity block, read-only      §2.2 (D8) — `ScenarioIdentityBlock`
 //   3. Scan & candidates              §2.3 (D10) — `ScanSection`
 //   4. Scenario facts                 §2.4 — `ScenarioFactsSection`
@@ -49,8 +49,8 @@ import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
-import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
-import ScenarioHeaderTiers from "../components/ScenarioHeaderTiers";
+import ScenarioHeaderStrip from "../components/scenario/ScenarioHeaderStrip";
+import ScenarioSubsetsSection from "../components/scenario/ScenarioSubsetsSection";
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
 import ScenarioIdentityBlock from "../components/ScenarioIdentityBlock";
 import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
@@ -437,38 +437,22 @@ const ScenarioDetailPage: React.FC = () => {
         items={[{ label: "Dashboard", to: "/" }, backCrumb, { label: scenario.attack }]}
       />
 
-      {/* Mockup Screen 1: the View Timeline button, and the floating window it
-          opens. Self-contained by ruling — it takes a slug and a scenario id
-          and fetches everything else itself, so this page's own reads are
-          untouched and it hides itself when the scenario carries no subset. */}
-      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId ?? ""} />
+      {/* ⚑ ONE STRIP, replacing two tiers, the dock's separate mount and the
+          "Timeline: … Attach…" row (T5, Screen 1). It self-fetches, so this
+          page's own reads are untouched, and it renders the View Timeline
+          button in its own action slot by mounting the dock there.
 
-      {/* 1 — §2.1 */}
-      <ScenarioHeaderTiers
+          `ScenarioHeaderTiers` is retired with this change: it was used by this
+          page alone, and everything it drew is here. */}
+      <ScenarioHeaderStrip
         slug={slug}
-        scenarioId={scenarioId}
-        code={scenario.code}
-        name={scenario.attack}
-        direction={scenario.direction}
-        status={scenario.status}
+        scenarioId={scenarioId ?? ""}
         onEdit={() => setEditingIdentity(true)}
         onDelete={() => {
           setDeleteError(null);
           setShowDelete(true);
         }}
-        onReadyChanged={refresh}
-        // `null` while the augmentation payload is unloaded or failed, which
-        // withdraws the rehearsal control entirely rather than rendering it with
-        // no words (ruling 8: honest-gap, same as `AccusationSection`'s
-        // `if (!panel) return null`). The failure notice below says why.
-        rehearsalBlockedTemplate={
-          augmentation?.identity_wording.rehearsal_link_blocked_reason ?? null
-        }
-        // PRACTICE v0. Rides the identity wording this page ALREADY fetches —
-        // one label, no second request, and no failure path of its own. `null`
-        // withdraws the control, exactly as it does for the rehearsal link
-        // beside it, and the page's own augmentation-failure notice says why.
-        practiceLabel={augmentation?.identity_wording.practice_link_label ?? null}
+        onStatusChanged={refresh}
       />
 
       {/* 2 — §2.2. The three texts come from the augmentation identity, which is
@@ -609,6 +593,27 @@ const ScenarioDetailPage: React.FC = () => {
       {/* Mounted only while open so it re-reads on every open — a dialog holding a
           draft from ten minutes ago would let a human overwrite an edit made since,
           and this is the coldest path here. */}
+
+      {/* ⚑ SCREEN 4, AT THE FOOT OF THIS PAGE — not on an Edit page, because
+          this app has none. `App.tsx` declares no scenario-edit route; editing
+          identity is a modal. The mockup drew a surface that does not exist,
+          and Roman ruled on 2026-08-31 that T5 does not invent one: the section
+          goes here, and everything inside it reproduces as drawn.
+
+          It is self-contained on `(slug, scenarioId)` so that when a real Edit
+          page arrives it moves there unchanged.
+
+          Preview opens the floating window on a subset WITHOUT attaching it.
+          On this page that works plainly — the window is z-40 and nothing on
+          this page is above it. */}
+      {augmentation !== null && scenarioId !== undefined && (
+        <ScenarioSubsetsSection
+          slug={slug}
+          scenarioId={scenarioId}
+          wording={augmentation.identity_wording}
+        />
+      )}
+
       {editingIdentity && (
         <ScenarioIdentityModal
           slug={slug}
