@@ -107,8 +107,8 @@ pub(crate) const KEY_SCENARIO_TIMELINE_ROW_LABEL: &str = "chronology_scenario_ti
 pub(crate) const KEY_SCENARIO_ATTACH_LINK: &str = "chronology_scenario_attach_link";
 pub(crate) const KEY_SUBSETS_WINDOW_OPEN_TIMELINE: &str = "chronology_subsets_window_open_timeline";
 pub(crate) const KEY_SUBSETS_WINDOW_EDIT: &str = "chronology_subsets_window_edit";
-pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE: &str =
-    "chronology_subsets_window_footer_template";
+pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE: &str =
+    "chronology_subsets_window_footer_events_template";
 pub(crate) const KEY_SUBSETS_EMPTY_STATE: &str = "chronology_subsets_empty_state";
 
 // Timeline subsets, task 2 (2026-08-30): the seven Screens 2 and 3 needed and
@@ -135,6 +135,19 @@ pub(crate) const KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE: &str =
     "chronology_subsets_window_events_count_template";
 pub(crate) const KEY_SUBSETS_GAP_BADGE_LABEL: &str = "chronology_subsets_gap_badge_label";
 pub(crate) const KEY_SUBSETS_WINDOW_LOADING_LABEL: &str = "chronology_subsets_window_loading_label";
+
+// Timeline subsets, task 4 (2026-08-31): the redrawn row and Pop out. Two aria
+// rows for glyphs that say nothing on their own, the badge on an unsettled
+// date, the two precision captions under it, and the cross-phase divider.
+pub(crate) const KEY_SUBSETS_WINDOW_POPOUT_LABEL: &str = "chronology_subsets_window_popout_label";
+pub(crate) const KEY_SUBSETS_WINDOW_POPIN_LABEL: &str = "chronology_subsets_window_popin_label";
+pub(crate) const KEY_SUBSETS_DATE_TO_CONFIRM_BADGE: &str =
+    "chronology_subsets_date_to_confirm_badge";
+pub(crate) const KEY_SUBSETS_PRECISION_MONTH_LABEL: &str =
+    "chronology_subsets_precision_month_label";
+pub(crate) const KEY_SUBSETS_PRECISION_YEAR_LABEL: &str = "chronology_subsets_precision_year_label";
+pub(crate) const KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE: &str =
+    "chronology_subsets_year_phase_divider_template";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -221,7 +234,7 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SCENARIO_ATTACH_LINK,
     KEY_SUBSETS_WINDOW_OPEN_TIMELINE,
     KEY_SUBSETS_WINDOW_EDIT,
-    KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE,
+    KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE,
     KEY_SUBSETS_EMPTY_STATE,
     // Timeline subsets, task 2.
     KEY_SUBSETS_EVENT_COUNT_TEMPLATE,
@@ -239,4 +252,11 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE,
     KEY_SUBSETS_GAP_BADGE_LABEL,
     KEY_SUBSETS_WINDOW_LOADING_LABEL,
+    // Timeline subsets, task 4.
+    KEY_SUBSETS_WINDOW_POPOUT_LABEL,
+    KEY_SUBSETS_WINDOW_POPIN_LABEL,
+    KEY_SUBSETS_DATE_TO_CONFIRM_BADGE,
+    KEY_SUBSETS_PRECISION_MONTH_LABEL,
+    KEY_SUBSETS_PRECISION_YEAR_LABEL,
+    KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE,
 ];

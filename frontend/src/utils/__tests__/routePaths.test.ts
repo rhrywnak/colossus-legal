@@ -65,6 +65,7 @@ import {
   proofReviewTabPath,
   rehearsalScenarioPath,
   scenarioPagePath,
+  subsetPopoutPath,
   timelineEventPath,
   timelinePath,
   trialPrepPath,
@@ -244,6 +245,20 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     name: "timelineEventPath",
     route: "/timeline/events/:id",
     emit: () => timelineEventPath("7f3a9c10-0000-4000-8000-000000000001"),
+  },
+  {
+    // Pop out's fallback address (design §11 item 5). Guarded for the reason
+    // every builder here is: it is composed in `ScenarioTimelineDock` and handed
+    // straight to `window.open`, where a wrong path opens a popup showing the
+    // 404 page — in a small chromeless window, with no nav to get out of it.
+    name: "subsetPopoutPath",
+    route: "/timeline/subsets/:id/popout",
+    emit: () => subsetPopoutPath("9c1e4d20-0000-4000-8000-000000000002"),
+  },
+  {
+    name: "subsetPopoutPath (id needs escaping)",
+    route: "/timeline/subsets/:id/popout",
+    emit: () => subsetPopoutPath("id/with/slashes"),
   },
   { name: "allegationsPath", route: "/allegations", emit: allegationsPath },
   {

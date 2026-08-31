@@ -266,6 +266,10 @@ const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
     // in this list after the feature it belongs to has shipped, it is a row
     // nothing says, and the honest move is to retire the row rather than to
     // keep excusing it.
+    //
+    // (Task 4 put six lines here for exactly one commit — T4.0, the migration —
+    // and took them out again in T4.1–T4.3, which are the screens that speak
+    // them. That is the whole intended life of an entry in this list.)
 ];
 
 #[test]

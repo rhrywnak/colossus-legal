@@ -26,6 +26,10 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260830153346_timeline_subsets_screen_wording.sql",
     // Task 3 (2026-08-30): the two aria rows and the window's four.
     "pipeline_migrations/20260830162405_timeline_subsets_window_wording.sql",
+    // Task 4 (2026-08-31): the redrawn row, the first-open rule and Pop out.
+    "pipeline_migrations/20260831112213_timeline_subsets_t4_window_wording.sql",
+    // Task 4 follow-up (2026-08-31): the footer, corrected.
+    "pipeline_migrations/20260831125728_timeline_subsets_t4_footer_events_template.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -120,7 +124,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SCENARIO_ATTACH_LINK, "Attach…"),
     (KEY_SUBSETS_WINDOW_OPEN_TIMELINE, "Open on the timeline"),
     (KEY_SUBSETS_WINDOW_EDIT, "Edit subset"),
-    (KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE, "{on_chronology} on the chronology · {gaps} gaps"),
+    (KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE, "{count} events"),
     (KEY_SUBSETS_EMPTY_STATE, "No subsets yet. A subset is a story told in dates — pick events from the phases above."),
     // Timeline subsets, task 2, seeded by the fourth migration named above.
     (KEY_SUBSETS_EVENT_COUNT_TEMPLATE, "{count} events"),
@@ -138,6 +142,13 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE, "{count} events"),
     (KEY_SUBSETS_GAP_BADGE_LABEL, "Not on the chronology"),
     (KEY_SUBSETS_WINDOW_LOADING_LABEL, "Loading the story…"),
+    // Timeline subsets, task 4, seeded by the sixth migration named above.
+    (KEY_SUBSETS_WINDOW_POPOUT_LABEL, "Pop out to its own window"),
+    (KEY_SUBSETS_WINDOW_POPIN_LABEL, "Back into the page"),
+    (KEY_SUBSETS_DATE_TO_CONFIRM_BADGE, "date to confirm"),
+    (KEY_SUBSETS_PRECISION_MONTH_LABEL, "month · approx."),
+    (KEY_SUBSETS_PRECISION_YEAR_LABEL, "year · approx."),
+    (KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE, "{year} · {phase}"),
 ];
 
 impl ChronologyWording {

@@ -111,7 +111,7 @@ pub struct ChronologyWordingDto {
     pub scenario_attach_link: String,
     pub subsets_window_open_timeline: String,
     pub subsets_window_edit: String,
-    pub subsets_window_footer_template: String,
+    pub subsets_window_footer_events_template: String,
     pub subsets_empty_state: String,
 
     // Timeline subsets, task 2: the seven Screens 2 and 3 needed.
@@ -131,6 +131,14 @@ pub struct ChronologyWordingDto {
     pub subsets_window_events_count_template: String,
     pub subsets_gap_badge_label: String,
     pub subsets_window_loading_label: String,
+
+    // Timeline subsets, task 4: the redrawn row and Pop out.
+    pub subsets_window_popout_label: String,
+    pub subsets_window_popin_label: String,
+    pub subsets_date_to_confirm_badge: String,
+    pub subsets_precision_month_label: String,
+    pub subsets_precision_year_label: String,
+    pub subsets_year_phase_divider_template: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -222,7 +230,7 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             scenario_attach_link: w.scenario_attach_link.clone(),
             subsets_window_open_timeline: w.subsets_window_open_timeline.clone(),
             subsets_window_edit: w.subsets_window_edit.clone(),
-            subsets_window_footer_template: w.subsets_window_footer_template.clone(),
+            subsets_window_footer_events_template: w.subsets_window_footer_events_template.clone(),
             subsets_empty_state: w.subsets_empty_state.clone(),
             subsets_event_count_template: w.subsets_event_count_template.clone(),
             subsets_form_add_title: w.subsets_form_add_title.clone(),
@@ -238,6 +246,12 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_window_events_count_template: w.subsets_window_events_count_template.clone(),
             subsets_gap_badge_label: w.subsets_gap_badge_label.clone(),
             subsets_window_loading_label: w.subsets_window_loading_label.clone(),
+            subsets_window_popout_label: w.subsets_window_popout_label.clone(),
+            subsets_window_popin_label: w.subsets_window_popin_label.clone(),
+            subsets_date_to_confirm_badge: w.subsets_date_to_confirm_badge.clone(),
+            subsets_precision_month_label: w.subsets_precision_month_label.clone(),
+            subsets_precision_year_label: w.subsets_precision_year_label.clone(),
+            subsets_year_phase_divider_template: w.subsets_year_phase_divider_template.clone(),
         }
     }
 }

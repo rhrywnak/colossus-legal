@@ -34,30 +34,35 @@
 // `subsetWindow.ts`, where a test can reach it.
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
-import { Rnd } from "react-rnd";
 
-import { cw, fill, type TimelinePhase } from "../../services/caseTimeline";
+import { cw, fill, type TimelinePhase, type TimelineTag } from "../../services/caseTimeline";
 import { getCaseTimeline } from "../../services/caseTimeline";
 import { getSubset, type SubsetDetail } from "../../services/caseTimelineSubsets";
+import { subsetPopoutPath, timelineEventPath, timelinePath } from "../../utils/routePaths";
 import * as d from "./dockStyles";
 import * as ws from "./windowStyles";
+import {
+  type MaybePipWindow,
+  popoutSize,
+  popupFeatures,
+  supportsDocumentPictureInPicture,
+} from "./popout";
 import {
   type AttachedSubset,
   getScenarioSubsets,
   type ScenarioSubsets,
 } from "./scenarioTimeline";
 import ScenarioTimelineRow from "./ScenarioTimelineRow";
+import SubsetFloatingWindow from "./SubsetFloatingWindow";
+import SubsetPopout from "./SubsetPopout";
 import SubsetWindowBody from "./SubsetWindowBody";
 import {
   clampToViewport,
   decodeWindowState,
   encodeWindowState,
   initialSubsetId,
-  MIN_HEIGHT,
-  MIN_WIDTH,
-  minimizedPosition,
   openStateFor,
+  POPUP_CLOSED_POLL_MS,
   selectorOrder,
   type WindowState,
   windowStorageKey,
@@ -102,7 +107,15 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
   const [subset, setSubset] = useState<SubsetDetail | null>(null);
   const [subsetError, setSubsetError] = useState<string | null>(null);
   const [phases, setPhases] = useState<TimelinePhase[]>([]);
+  const [tags, setTags] = useState<TimelineTag[]>([]);
   const [phasesError, setPhasesError] = useState<string | null>(null);
+  // The story is in its own desktop window. The in-page one HIDES while it is —
+  // two copies of the same story, one of them stale, is the state this avoids.
+  // Holding the WINDOW and not a boolean is what makes the dock its owner: it
+  // opened it in a click handler, and it is the only thing that closes it.
+  const [pipWindow, setPipWindow] = useState<Window | null>(null);
+  /** The fallback POPUP, when that is the path this browser took. */
+  const [popupWindow, setPopupWindow] = useState<Window | null>(null);
   const host = useRef<HTMLDivElement | null>(null);
 
   // The button's read. Also the dock's whole vocabulary.
@@ -126,16 +139,36 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
   const attached: AttachedSubset[] = useMemo(() => data?.subsets ?? [], [data]);
 
   const openWindow = useCallback(() => {
+    // ⚑ THE BUTTON IS ALSO THE WAY BACK, and that is deliberate.
+    //
+    // "View Timeline" means "show me the story here". If a popped-out window is
+    // somehow still recorded as open — the reader closed it in a way this
+    // program did not hear about, or a handle went stale — clicking the button
+    // must put the story back in the page rather than do nothing visible. A
+    // button that produces no effect is the state a reader can only escape by
+    // reloading, and they have no reason to guess that.
+    setPipWindow((open) => {
+      open?.close();
+      return null;
+    });
+    setPopupWindow((open) => {
+      open?.close();
+      return null;
+    });
+
     const stored = readStored(scenarioId);
     const chosen = initialSubsetId(attached, stored?.subsetId ?? null);
     // A stored position always wins — clamped, because the screen it was stored
-    // on may be gone. Otherwise the §10 rule decides, from the room actually
-    // beside the content column.
-    const box = host.current?.getBoundingClientRect();
-    const contentRight = box === undefined ? window.innerWidth : box.right;
+    // on may be gone. Otherwise the §11 first-open rule decides, and it needs
+    // one measurement: where the app's header strip ends. `data-app-chrome` is
+    // the header's own marker, already there for the print sheets; the fallback
+    // is 0, which puts the window 20px from the top of the viewport — visibly
+    // wrong rather than invisibly absent, if the header is ever renamed.
+    const header = document.querySelector("header[data-app-chrome]");
+    const headerBottom = header === null ? 0 : header.getBoundingClientRect().bottom;
     const next =
       stored === null
-        ? openStateFor(window.innerWidth, window.innerHeight, contentRight, chosen)
+        ? openStateFor(window.innerWidth, window.innerHeight, headerBottom, chosen)
         : clampToViewport({ ...stored, subsetId: chosen }, window.innerWidth, window.innerHeight);
     setWin(next);
     setOpen(true);
@@ -160,15 +193,21 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
     };
   }, [open, win?.subsetId]);
 
-  // The phases, for the dividers and the dots. The same payload the timeline
-  // page reads — one request, cached by the browser, and no second opinion
-  // about what colour `probate` is.
+  // The phases and the TAG VOCABULARY — the dividers, and the colour of the
+  // rule down every row's date column. The same payload the timeline page
+  // reads: one request, cached by the browser, and no second opinion about what
+  // colour `probate` or `financial` is. Reading the tag colours rather than
+  // transcribing the mockup's five hexes is also what keeps five domain colour
+  // names out of this build (standing rule 2).
   useEffect(() => {
     if (!open || phases.length > 0) return;
     let cancelled = false;
     getCaseTimeline()
       .then((t) => {
-        if (!cancelled) setPhases(t.phases);
+        if (!cancelled) {
+          setPhases(t.phases);
+          setTags(t.tags);
+        }
       })
       .catch((e: unknown) => {
         // ⚑ NOT best-effort, and the first draft of this had it wrong.
@@ -199,12 +238,191 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
     [scenarioId],
   );
 
+  /**
+   * ⧉ — the story leaves the page.
+   *
+   * Two paths, and the FEATURE decides which, never the user agent. Chrome and
+   * Edge get a real always-on-top window through the Document Picture-in-
+   * Picture API, rendered by `SubsetPopout` from this same React tree. Safari
+   * and Firefox have no such API and get a plain popup at the subset's own
+   * address, which carries identical contents but sits behind the app when she
+   * clicks back into her answer — the difference §11 item 5 names.
+   *
+   * ## ⚑ A BLOCKED POPUP LEAVES THE IN-PAGE WINDOW OPEN, ON PURPOSE
+   *
+   * `window.open` returns `null` when a popup blocker refuses it. There is no
+   * stored sentence in this build for "your browser blocked that" — the T4
+   * instruction asked for the existing one and there is none; the row it needs
+   * is listed in the T4 report under NEEDS A RULING, and inventing the English
+   * here would be the plain rule breach the whole wording store exists to
+   * prevent.
+   *
+   * So the failure is carried by BEHAVIOUR rather than by a word, and it is
+   * still observable in the Standing Rule 1 sense: the two outcomes differ on
+   * screen. A popup that opened HIDES the in-page window; a popup that was
+   * blocked leaves it exactly where it was, so the reader is looking at their
+   * story either way and never at nothing. The reason is named in the console.
+   */
+  const popOut = useCallback(() => {
+    if (win === null) return;
+    const size = popoutSize(win);
+    const api = (window as unknown as MaybePipWindow).documentPictureInPicture;
+
+    if (supportsDocumentPictureInPicture(window as unknown as MaybePipWindow) && api !== undefined) {
+      // ⚑ CALLED HERE, SYNCHRONOUSLY, AND THAT IS THE WHOLE POINT.
+      //
+      // `requestWindow` needs USER ACTIVATION, which the browser grants to the
+      // click's own call stack and to nothing later. The first draft of this
+      // called it from an effect in `SubsetPopout` after a `setState`, and the
+      // browser refused every time:
+      //
+      //   NotAllowedError: Document PiP requires user activation
+      //
+      // Found by clicking the button, not by reading the code — no unit test
+      // can see it, because it is a property of the browser and of React's
+      // scheduler (StrictMode's double mount spent the activation twice over).
+      api
+        .requestWindow(size)
+        .then((pip) => setPipWindow(pip))
+        .catch((err: unknown) => {
+          // Not swallowed, and the reader is not stranded: the in-page window
+          // was never hidden — `pipWindow` is still null — so the story they
+          // clicked ⧉ on is still in front of them.
+          console.error("Could not open the timeline story in its own window.", err);
+        });
+      return;
+    }
+
+    const id = win.subsetId;
+    if (id === null) return;
+    const opened = window.open(subsetPopoutPath(id), `subset-${id}`, popupFeatures(size));
+    if (opened === null) {
+      // ## ⚑ A BLOCKED POPUP LEAVES THE IN-PAGE WINDOW OPEN, ON PURPOSE
+      //
+      // There is no stored sentence in this build for "your browser blocked
+      // that" — T4.3 asked for the existing one and there is none. The row it
+      // needs is listed in the T4 report under NEEDS A RULING, and inventing
+      // the English here would be the plain rule breach the whole wording store
+      // exists to prevent.
+      //
+      // So the failure is carried by BEHAVIOUR rather than by a word, and it is
+      // still observable in the Standing Rule 1 sense — the two outcomes differ
+      // on screen. A popup that opened hides the in-page window; a popup that
+      // was blocked leaves it exactly where it was, so the reader is looking at
+      // their story either way and never at nothing.
+      console.error(
+        "The browser blocked the popup for the timeline story " +
+          `(subset ${id}). The in-page window is left open.`,
+      );
+      return;
+    }
+    setPopupWindow(opened);
+  }, [win]);
+
+  /** ⇲, and the OS window's own ×: the story comes back to the page, where it was. */
+  const popIn = useCallback(() => {
+    setPipWindow((open) => {
+      open?.close();
+      return null;
+    });
+    setPopupWindow((open) => {
+      open?.close();
+      return null;
+    });
+  }, []);
+
+  /**
+   * ⚑ THE POPUP CLOSING HAS TO REACH THIS PROGRAM, and a listener will not do.
+   *
+   * The picture-in-picture path has `pagehide`, which `SubsetPopout` attaches to
+   * a document it is already inside. The popup has no such handle: it is a
+   * SEPARATE document that navigates after `window.open` returns, and a listener
+   * attached to the handle beforehand does not survive that navigation.
+   *
+   * Without this, closing the popup from its own × left the in-page window
+   * hidden with nothing on screen to bring it back — the reader's only escape
+   * was reloading the page, which nothing tells them to do. That is the "two
+   * operationally distinct states, one observable" failure Standing Rule 1 is
+   * about, and it was found in review rather than by clicking.
+   *
+   * So: a `POPUP_CLOSED_POLL_MS` check of `closed`, which is the documented
+   * same-origin way to learn that a popup went away. It is bounded (it runs only
+   * while a popup is recorded as open), it is cheap (a boolean read, no
+   * request), and it stops the moment it fires.
+   */
+  useEffect(() => {
+    if (popupWindow === null) return;
+    const timer = window.setInterval(() => {
+      if (popupWindow.closed) setPopupWindow(null);
+    }, POPUP_CLOSED_POLL_MS);
+    return () => window.clearInterval(timer);
+  }, [popupWindow]);
+
+  // Both windows are OS resources this component owns. Leaving the surface — a
+  // route change, a scenario change — must not leave one on the desktop with
+  // nothing left to close it.
+  useEffect(() => {
+    return () => {
+      popupWindow?.close();
+    };
+  }, [popupWindow]);
+
+  /** × on the popped-out bar: put the story away entirely. */
+  const closeAll = useCallback(() => {
+    popIn();
+    setOpen(false);
+  }, [popIn]);
+
+  // The window is an OS resource this component owns. Leaving the surface —
+  // a route change, a scenario change — must not leave it on the desktop with
+  // nothing left to close it.
+  useEffect(() => {
+    return () => {
+      pipWindow?.close();
+    };
+  }, [pipWindow]);
+
   if (readError !== null) return <div style={ws.errorState}>{readError}</div>;
   if (data === null) return null;
 
   const wording = data.wording;
   const ordered = selectorOrder(attached, win?.subsetId ?? null);
   const current = attached.find((s) => s.id === win?.subsetId) ?? attached[0];
+  const countLine =
+    current === undefined
+      ? ""
+      : fill(cw(wording, "subsets_window_events_count_template"), {
+          count: current.event_count,
+        });
+
+  /**
+   * The window's contents, wherever the window happens to be.
+   *
+   * ONE tree for both containers — the in-page `Rnd` and the popped-out
+   * document render this same value. Screen 5's own words: "one row design, two
+   * containers". A second copy for the popped-out case is how the two would
+   * come to disagree about what a row looks like.
+   */
+  const contents = (
+    <>
+      {phasesError !== null && <div style={ws.errorState}>{phasesError}</div>}
+      {subsetError !== null && <div style={ws.errorState}>{subsetError}</div>}
+      {subsetError === null && subset === null && (
+        <div style={ws.state}>{cw(wording, "subsets_window_loading_label")}</div>
+      )}
+      {subset !== null && (
+        <SubsetWindowBody
+          subset={subset}
+          phases={phases}
+          tags={tags}
+          wording={wording}
+          onOpenTimeline={() => window.open(timelinePath(), "_blank", "noopener")}
+          onEditSubset={() => window.open(timelinePath(), "_blank", "noopener")}
+          onOpenEvent={(id) => window.open(timelineEventPath(id), "_blank", "noopener")}
+        />
+      )}
+    </>
+  );
 
   return (
     <div ref={host}>
@@ -227,127 +445,40 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
         onChanged={(next) => setData({ subsets: next, wording })}
       />
 
-      {/* ⚑ A PORTAL TO `body`, and it is not decoration.
-          `Rnd` places its element relative to the nearest POSITIONED ancestor,
-          and every one of the five surfaces wraps this dock in its own laid-out
-          page. The open-position rule computes VIEWPORT coordinates — "is there
-          460px of free width beside the content column" is a question about the
-          screen, not about a card — so the two disagreed and the window landed
-          in the middle of the page instead of in the right margin. Portalling to
-          `body` makes the coordinate space the one the rule is written in, and
-          it also puts the window above every page's own stacking context rather
-          than inside one. Found by opening it, not by reading it. */}
-      {open &&
-        win !== null &&
-        createPortal(
-          <Rnd
-          size={{ width: win.width, height: win.minimized ? MIN_HEIGHT : win.height }}
-          // Minimized, the bar is PINNED bottom-right (§5C), and `win.x/y` go on
-          // meaning where the OPEN window belongs — so restoring returns it to the
-          // place the reader put it, not to wherever its bar happened to sit.
-          position={
-            win.minimized
-              ? minimizedPosition(window.innerWidth, window.innerHeight)
-              : { x: win.x, y: win.y }
-          }
-          minWidth={MIN_WIDTH}
-          minHeight={MIN_HEIGHT}
-          bounds="window"
-          // Drag by the title bar only (mockup, and §5C): a window draggable by
-          // its body cannot have a scrolling body.
-          dragHandleClassName="subset-window-bar"
-          enableResizing={!win.minimized}
-          style={{ zIndex: 40 }}
-          onDragStop={(_e, dd) => persist({ ...win, x: dd.x, y: dd.y })}
-          onResizeStop={(_e, _dir, ref, _delta, pos) =>
-            persist({
-              ...win,
-              width: ref.offsetWidth,
-              height: ref.offsetHeight,
-              x: pos.x,
-              y: pos.y,
-            })
-          }
+      {/* The in-page window. A module of its own: a draggable, resizable,
+          minimizable shell is a different concern from the button that opens
+          it, and this file was over Rule 17's 300 lines with both in it. */}
+      {open && pipWindow === null && popupWindow === null && win !== null && current !== undefined && (
+        <SubsetFloatingWindow
+          win={win}
+          current={current}
+          ordered={ordered}
+          countLine={countLine}
+          wording={wording}
+          canPopOut={subset !== null}
+          onPersist={persist}
+          onPopOut={popOut}
+          onClose={() => setOpen(false)}
         >
-          <div style={win.minimized ? ws.minimizedBar : ws.shell}>
-            <div style={win.minimized ? undefined : ws.bar} className="subset-window-bar">
-              <span style={ws.barTitle}>{current.name}</span>
-              <span style={ws.barCount}>
-                {fill(cw(wording, "subsets_window_events_count_template"), {
-                  count: current.event_count,
-                })}
-              </span>
-              {ordered.length > 1 && (
-                <select
-                  style={ws.barSelect}
-                  value={current.id}
-                  onChange={(e) => persist({ ...win, subsetId: e.target.value })}
-                >
-                  {ordered.map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
-                    </option>
-                  ))}
-                </select>
-              )}
-              <span style={ws.barActions}>
-                <button
-                  type="button"
-                  style={ws.barButton}
-                  aria-label={cw(wording, "subsets_window_minimize_label")}
-                  title={cw(wording, "subsets_window_minimize_label")}
-                  onClick={() => persist({ ...win, minimized: !win.minimized })}
-                >
-                  {win.minimized ? "▢" : "–"}
-                </button>
-                <button
-                  type="button"
-                  style={ws.barButton}
-                  aria-label={cw(wording, "subsets_window_close_label")}
-                  title={cw(wording, "subsets_window_close_label")}
-                  onClick={() => setOpen(false)}
-                >
-                  ×
-                </button>
-              </span>
-            </div>
+          {contents}
+        </SubsetFloatingWindow>
+      )}
 
-            {/* A failed phases read is shown, not swallowed: the dividers lose
-                their labels and colours, and the reader is told why rather than
-                left to wonder at a list of bare slugs. */}
-            {!win.minimized && phasesError !== null && (
-              <div style={ws.errorState}>{phasesError}</div>
-            )}
-            {!win.minimized && subsetError !== null && (
-              <div style={ws.errorState}>{subsetError}</div>
-            )}
-            {/* ⚑ The loading moment now has a word of its own.
-                It shipped blank for a day rather than borrowing a wrong one:
-                `saving_label` ("Saving…") is a WRITE and would have told a
-                reader their work was being written, and `BOOTSTRAP_TEXT.loading`
-                does not apply here because that exception exists for the request
-                that DELIVERS the wording — by this point the whole block is
-                already in hand, so English in code would have been a plain rule
-                breach rather than a bootstrap. Ruled and seeded 2026-08-30. */}
-            {!win.minimized && subsetError === null && subset === null && (
-              <div style={ws.state}>{cw(wording, "subsets_window_loading_label")}</div>
-            )}
-            {!win.minimized && subset !== null && (
-              <SubsetWindowBody
-                subset={subset}
-                phases={phases}
-                wording={wording}
-                onOpenTimeline={() => window.open("/timeline", "_blank", "noopener")}
-                onEditSubset={() => window.open("/timeline", "_blank", "noopener")}
-                onOpenEvent={(id) =>
-                  window.open(`/timeline/events/${encodeURIComponent(id)}`, "_blank", "noopener")
-                }
-              />
-            )}
-            </div>
-          </Rnd>,
-          document.body,
-        )}
+      {/* The same story, in its own OS window — the window `popOut` opened.
+          Rendered only on the API path: the popup fallback is a whole second
+          DOCUMENT at `/timeline/subsets/:id/popout` and has nothing to portal. */}
+      {open && pipWindow !== null && current !== undefined && (
+        <SubsetPopout
+          pipWindow={pipWindow}
+          title={current.name}
+          count={countLine}
+          wording={wording}
+          onPopIn={popIn}
+          onClose={closeAll}
+        >
+          {contents}
+        </SubsetPopout>
+      )}
     </div>
   );
 };

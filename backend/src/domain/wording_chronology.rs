@@ -257,8 +257,8 @@ pub struct ChronologyWording {
     pub subsets_window_open_timeline: String,
     /// Opens the subset's name, description and picker from inside the floating window.
     pub subsets_window_edit: String,
-    /// The window's footer count. `{on_chronology}` live events, `{gaps}` removed ones. TWO numbers, because one total over a list of struck lines is the sentence that makes a reader distrust the count.
-    pub subsets_window_footer_template: String,
+    /// The window's footer count — "15 events". `{count}` is every reference the subset holds, gaps included: the SAME number the title bar shows, so one window cannot report two counts of one story. The footer may carry " · {n} ⚑" after this, composed in code and dropped when n is zero. REPLACED `subsets_window_footer_template`, whose two numbers answered a question nobody was asking.
+    pub subsets_window_footer_events_template: String,
     /// Shown in the Subsets section when the case holds none. It teaches rather than reporting: this is where a reader meets the idea.
     pub subsets_empty_state: String,
     /// How many events one subset holds, on its row in the Subsets section. Counts every REFERENCE, gaps included — the amber gap line below it says how many of those are gaps.
@@ -289,6 +289,18 @@ pub struct ChronologyWording {
     pub subsets_gap_badge_label: String,
     /// What the floating window says while the subset's events are being read. Says "the story" because that is what the window is for. NOT `saving_label`, which is a WRITE.
     pub subsets_window_loading_label: String,
+    /// The floating window's ⧉ control, which reopens the story as its own desktop window. A glyph with no accessible name of its own.
+    pub subsets_window_popout_label: String,
+    /// The popped-out window's ⇲ control. The mirror of [`Self::subsets_window_popout_label`]; ⇲ returns the story to the page, × puts it away.
+    pub subsets_window_popin_label: String,
+    /// The amber pill beside an approximate date. It marks the DATE, not the fact — the event happened; when is unsettled.
+    pub subsets_date_to_confirm_badge: String,
+    /// The caption under a month-precision date: the source stated a month, so a day would be fabricated.
+    pub subsets_precision_month_label: String,
+    /// The mirror of [`Self::subsets_precision_month_label`], for year precision. Edit the two together.
+    pub subsets_precision_year_label: String,
+    /// The window's divider where a story crosses a phase boundary — "2009 · probate". A bare year when the phase does not change.
+    pub subsets_year_phase_divider_template: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -400,7 +412,7 @@ pub fn build_chronology_wording<E>(
         scenario_attach_link: read(KEY_SCENARIO_ATTACH_LINK)?,
         subsets_window_open_timeline: read(KEY_SUBSETS_WINDOW_OPEN_TIMELINE)?,
         subsets_window_edit: read(KEY_SUBSETS_WINDOW_EDIT)?,
-        subsets_window_footer_template: read(KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE)?,
+        subsets_window_footer_events_template: read(KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE)?,
         subsets_empty_state: read(KEY_SUBSETS_EMPTY_STATE)?,
         subsets_event_count_template: read(KEY_SUBSETS_EVENT_COUNT_TEMPLATE)?,
         subsets_form_add_title: read(KEY_SUBSETS_FORM_ADD_TITLE)?,
@@ -416,6 +428,12 @@ pub fn build_chronology_wording<E>(
         subsets_window_events_count_template: read(KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE)?,
         subsets_gap_badge_label: read(KEY_SUBSETS_GAP_BADGE_LABEL)?,
         subsets_window_loading_label: read(KEY_SUBSETS_WINDOW_LOADING_LABEL)?,
+        subsets_window_popout_label: read(KEY_SUBSETS_WINDOW_POPOUT_LABEL)?,
+        subsets_window_popin_label: read(KEY_SUBSETS_WINDOW_POPIN_LABEL)?,
+        subsets_date_to_confirm_badge: read(KEY_SUBSETS_DATE_TO_CONFIRM_BADGE)?,
+        subsets_precision_month_label: read(KEY_SUBSETS_PRECISION_MONTH_LABEL)?,
+        subsets_precision_year_label: read(KEY_SUBSETS_PRECISION_YEAR_LABEL)?,
+        subsets_year_phase_divider_template: read(KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE)?,
     })
 }
 
