@@ -33,6 +33,7 @@ import {
   deleteSubset,
   listSubsets,
   replaceSubsetEvents,
+  SubsetWriteError,
   type SubsetDetail,
   type SubsetSummary,
   getSubset,
@@ -41,6 +42,7 @@ import {
 } from "../../services/caseTimelineSubsets";
 import SubsetModal from "./SubsetModal";
 import { gapLine, type Pick, toSubsetPayload } from "./subsetPicker";
+import { eventsAreDirty, type SaveFailure } from "./subsetSaveModel";
 import * as ss from "./subsetStyles";
 import * as w from "./timelineWriteStyles";
 
@@ -63,6 +65,10 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
   const [modal, setModal] = useState<ModalState>({ kind: "closed" });
   const [saving, setSaving] = useState(false);
   const [writeError, setWriteError] = useState<string | null>(null);
+  // The modal's own banner (T6.4). Separate from `writeError` because it is a
+  // richer thing — it must be able to say that HALF the save landed — and
+  // because it belongs to a screen the section's delete/undo writes are not on.
+  const [saveFailure, setSaveFailure] = useState<SaveFailure | null>(null);
   // Subsets deleted in THIS visit, whose undo line stands where the row was
   // (R10, the practice-page pattern — no confirm dialog anywhere).
   const [undoable, setUndoable] = useState<SubsetSummary[]>([]);
@@ -101,6 +107,7 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
   );
 
   const openEdit = useCallback(async (id: string) => {
+    setSaveFailure(null);
     setModal({ kind: "loading" });
     try {
       setModal({ kind: "editing", subset: await getSubset(id) });
@@ -112,29 +119,62 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
     }
   }, []);
 
+  /**
+   * One Save: up to two writes, and an honest account of what landed (T6.4).
+   *
+   * ## ⚑ WHY THIS IS NOT `runWrite`
+   *
+   * `runWrite` reports one failure for one write. A save is two, and the whole
+   * point of D2 is that the SECOND can fail after the FIRST has committed — so
+   * this path has to remember which calls it got through before it threw. It
+   * still ends where `runWrite` ends: the list is re-read, `saving` is cleared,
+   * and nothing is swallowed.
+   */
   const save = useCallback(
     async (name: string, description: string, picks: Pick[]) => {
       const events_ = toSubsetPayload(picks);
       const current = modal.kind === "editing" ? modal.subset : null;
-      const ok = await runWrite(async () => {
+      setSaveFailure(null);
+      setWriteError(null);
+      setSaving(true);
+      // Tracks what has COMMITTED, so a failure knows which half of the banner
+      // to draw. It is only ever set after an `await` returns without throwing.
+      let nameSaved = false;
+      try {
         if (current === null) {
           await createSubset(name, description, events_);
-          return;
+        } else {
+          // Name/description only when CHANGED — an unchanged pair would still
+          // be a legal write, but it would put an `updated` row in the history
+          // for an act nobody performed.
+          if (name !== current.name || description !== current.description) {
+            await updateSubset(current.id, name, description);
+            nameSaved = true;
+          }
+          // The COMPLETE ordered set, and only when it has actually moved.
+          // T1's replace semantics: one human act, one history row, never
+          // per-row calls. See `eventsAreDirty` for why the skip is here.
+          if (eventsAreDirty(current, picks)) {
+            await replaceSubsetEvents(current.id, events_);
+          }
         }
-        // Name/description only when CHANGED — an unchanged pair would still be
-        // a legal write, but it would put an `updated` row in the history for an
-        // act nobody performed.
-        if (name !== current.name || description !== current.description) {
-          await updateSubset(current.id, name, description);
-        }
-        // The COMPLETE ordered set, always. T1's replace semantics: one human
-        // act, one history row, never per-row calls.
-        await replaceSubsetEvents(current.id, events_);
-      });
-      // The modal stays OPEN on failure, holding what was typed and picked.
-      if (ok) setModal({ kind: "closed" });
+        await reload();
+        setModal({ kind: "closed" });
+      } catch (err: unknown) {
+        // The modal stays OPEN, holding what was typed and picked, and the
+        // banner says which of the two calls failed and what the server said.
+        const sentence = err instanceof Error ? err.message : "unknown error";
+        setSaveFailure({
+          nameSaved,
+          status: err instanceof SubsetWriteError ? err.status : null,
+          reason: err instanceof SubsetWriteError ? err.reason : "",
+          sentence,
+        });
+      } finally {
+        setSaving(false);
+      }
     },
-    [modal, runWrite],
+    [modal, reload],
   );
 
   const remove = useCallback(
@@ -166,7 +206,10 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
           style={ss.addButton}
           disabled={saving}
           onClick={() => {
+            // A banner from the LAST save is not about this one. Cleared here,
+            // on Cancel and on openEdit — the three doors into the modal.
             setWriteError(null);
+            setSaveFailure(null);
             setModal({ kind: "adding" });
           }}
         >
@@ -266,11 +309,12 @@ const TimelineSubsets: React.FC<Props> = ({ events, phases, wording }) => {
           phases={phases}
           wording={wording}
           saving={saving}
-          error={writeError}
+          failure={saveFailure}
           onSave={(name, description, picks) => void save(name, description, picks)}
           onCancel={() => {
             setModal({ kind: "closed" });
             setWriteError(null);
+            setSaveFailure(null);
           }}
           onDelete={
             modal.kind === "editing"

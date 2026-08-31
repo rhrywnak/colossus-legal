@@ -270,14 +270,6 @@ const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
     // (Task 4 put six lines here for exactly one commit — T4.0, the migration —
     // and took them out again in T4.1–T4.3, which are the screens that speak
     // them. That is the whole intended life of an entry in this list.)
-    //
-    // ── Task 6 (2026-08-31), and these three come OUT in the next commit ─────
-    //
-    // T6.1 is the migration commit; T6.2–T6.4 are the modal that speaks them.
-    // If they are still here when T6 is reported DONE, T6 is not done.
-    "subsets_saved_name_only_banner",
-    "subsets_events_not_saved_banner_template",
-    "subsets_modal_drag_label",
 ];
 
 #[test]
