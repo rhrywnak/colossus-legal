@@ -107,8 +107,8 @@ pub(crate) const KEY_SCENARIO_TIMELINE_ROW_LABEL: &str = "chronology_scenario_ti
 pub(crate) const KEY_SCENARIO_ATTACH_LINK: &str = "chronology_scenario_attach_link";
 pub(crate) const KEY_SUBSETS_WINDOW_OPEN_TIMELINE: &str = "chronology_subsets_window_open_timeline";
 pub(crate) const KEY_SUBSETS_WINDOW_EDIT: &str = "chronology_subsets_window_edit";
-pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE: &str =
-    "chronology_subsets_window_footer_template";
+pub(crate) const KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE: &str =
+    "chronology_subsets_window_footer_events_template";
 pub(crate) const KEY_SUBSETS_EMPTY_STATE: &str = "chronology_subsets_empty_state";
 
 // Timeline subsets, task 2 (2026-08-30): the seven Screens 2 and 3 needed and
@@ -234,7 +234,7 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SCENARIO_ATTACH_LINK,
     KEY_SUBSETS_WINDOW_OPEN_TIMELINE,
     KEY_SUBSETS_WINDOW_EDIT,
-    KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE,
+    KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE,
     KEY_SUBSETS_EMPTY_STATE,
     // Timeline subsets, task 2.
     KEY_SUBSETS_EVENT_COUNT_TEMPLATE,

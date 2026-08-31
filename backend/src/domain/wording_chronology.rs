@@ -257,8 +257,8 @@ pub struct ChronologyWording {
     pub subsets_window_open_timeline: String,
     /// Opens the subset's name, description and picker from inside the floating window.
     pub subsets_window_edit: String,
-    /// The window's footer count. `{on_chronology}` live events, `{gaps}` removed ones. TWO numbers, because one total over a list of struck lines is the sentence that makes a reader distrust the count.
-    pub subsets_window_footer_template: String,
+    /// The window's footer count — "15 events". `{count}` is every reference the subset holds, gaps included: the SAME number the title bar shows, so one window cannot report two counts of one story. The footer may carry " · {n} ⚑" after this, composed in code and dropped when n is zero. REPLACED `subsets_window_footer_template`, whose two numbers answered a question nobody was asking.
+    pub subsets_window_footer_events_template: String,
     /// Shown in the Subsets section when the case holds none. It teaches rather than reporting: this is where a reader meets the idea.
     pub subsets_empty_state: String,
     /// How many events one subset holds, on its row in the Subsets section. Counts every REFERENCE, gaps included — the amber gap line below it says how many of those are gaps.
@@ -412,7 +412,7 @@ pub fn build_chronology_wording<E>(
         scenario_attach_link: read(KEY_SCENARIO_ATTACH_LINK)?,
         subsets_window_open_timeline: read(KEY_SUBSETS_WINDOW_OPEN_TIMELINE)?,
         subsets_window_edit: read(KEY_SUBSETS_WINDOW_EDIT)?,
-        subsets_window_footer_template: read(KEY_SUBSETS_WINDOW_FOOTER_TEMPLATE)?,
+        subsets_window_footer_events_template: read(KEY_SUBSETS_WINDOW_FOOTER_EVENTS_TEMPLATE)?,
         subsets_empty_state: read(KEY_SUBSETS_EMPTY_STATE)?,
         subsets_event_count_template: read(KEY_SUBSETS_EVENT_COUNT_TEMPLATE)?,
         subsets_form_add_title: read(KEY_SUBSETS_FORM_ADD_TITLE)?,

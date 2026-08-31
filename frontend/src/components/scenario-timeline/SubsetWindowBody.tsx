@@ -44,10 +44,16 @@ import type {
   TimelinePhase,
   TimelineTag,
 } from "../../services/caseTimeline";
-import { cw, fill } from "../../services/caseTimeline";
+import { cw } from "../../services/caseTimeline";
 import type { SubsetDetail } from "../../services/caseTimelineSubsets";
 import { dotColor, splitEventDate } from "../timeline/timelineFilters";
-import { crossesPhases, dateCaption, dividerFor, isDateToConfirm } from "./subsetRows";
+import {
+  crossesPhases,
+  dateCaption,
+  dividerFor,
+  footerLine,
+  isDateToConfirm,
+} from "./subsetRows";
 import * as ws from "./windowStyles";
 
 type Props = {
@@ -70,8 +76,6 @@ const SubsetWindowBody: React.FC<Props> = ({
   onEditSubset,
   onOpenEvent,
 }) => {
-  const live = subset.events.filter((e) => !e.removed).length;
-  const gaps = subset.events.length - live;
   // Asked once for the whole story, because "does this story cross phases" is a
   // fact about the story and not about any one row.
   const spansPhases = crossesPhases(subset.events);
@@ -160,27 +164,14 @@ const SubsetWindowBody: React.FC<Props> = ({
         <button type="button" style={ws.footLink} onClick={onEditSubset}>
           {cw(wording, "subsets_window_edit")}
         </button>
-        {/* TWO numbers and not one total, for the reason the stored template's
-            own note gives: "15 events" over a list showing twelve live lines
-            and three struck ones is the sentence that makes a reader distrust
-            the count.
-
-            ⚑ DEVIATION from the mockup, reported in full. Screen 2's footer
-            reads "15 events · 2 ⚑" — a total and a FLAG count. The stored row
-            this renders carries {on_chronology} and {gaps}, and its meaning
-            column says in as many words that {gaps} is how many events were
-            REMOVED FROM THE CHRONOLOGY. That is a different number from the ⚑
-            count, so filling this template with it would make the footer lie in
-            the store's own vocabulary. Changing the row's value was not this
-            task's to do (T4.0 seeds exactly six rows, and this is not one of
-            them). The flag count is therefore not in the footer, and the
-            wording row it needs is listed under NEEDS A RULING. */}
-        <span style={ws.footCount}>
-          {fill(cw(wording, "subsets_window_footer_template"), {
-            on_chronology: live,
-            gaps,
-          })}
-        </span>
+        {/* "15 events · 2 ⚑", exactly as Screen 2 draws it.
+            This shipped as "15 on the chronology · 0 gaps" and was rejected on
+            2026-08-31: it is a DIFFERENT NUMBER wearing the same clothes. The
+            gap count answers "how many of these were deleted off the
+            chronology"; the ⚑ answers "how many of these dates are unsettled".
+            Gaps are still marked, one badge per row, where a reader can act on
+            one. `footerLine` is where the composition lives and is tested. */}
+        <span style={ws.footCount}>{footerLine(subset.events, wording)}</span>
       </div>
     </>
   );

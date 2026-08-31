@@ -18,6 +18,7 @@ import {
   dateCaption,
   dividerFor,
   flagCount,
+  footerLine,
   isDateToConfirm,
   phaseLabel,
   yearOf,
@@ -30,6 +31,7 @@ const WORDING: ChronologyWording = {
   subsets_precision_year_label: "year · approx.",
   subsets_year_phase_divider_template: "{year} · {phase}",
   subsets_date_to_confirm_badge: "date to confirm",
+  subsets_window_footer_events_template: "{count} events",
 };
 
 const PHASES: TimelinePhase[] = [
@@ -155,6 +157,49 @@ describe("the date-to-confirm flag", () => {
     // and confirm. Counting it would inflate a number the reader acts on.
     const rows = [row({ id: "a", approximate: true }, true), row({ id: "b", approximate: true })];
     expect(flagCount(rows)).toBe(1);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The footer — "15 events · 2 ⚑"
+// -----------------------------------------------------------------------------
+
+describe("footerLine", () => {
+  it("reads exactly as the mockup draws it for The $50,000", () => {
+    // Fifteen events, two of them approximate — the story as it sits on DEV.
+    const rows = [
+      ...Array.from({ length: 13 }, (_, i) => row({ id: `e${i}` })),
+      row({ id: "ap1", event_date: "2009-04-01", date_precision: "month", approximate: true }),
+      row({ id: "ap2", event_date: "2009-05-03", approximate: true }),
+    ];
+    expect(rows).toHaveLength(15);
+    expect(footerLine(rows, WORDING)).toBe("15 events · 2 ⚑");
+  });
+
+  it("DROPS the flag half entirely when nothing is flagged", () => {
+    // Not "· 0 ⚑". A zero here is not information — it asks the reader to work
+    // out what the symbol would have meant, on every story that has none.
+    const rows = [row({ id: "a" }), row({ id: "b" })];
+    expect(footerLine(rows, WORDING)).toBe("2 events");
+  });
+
+  it("counts every reference, gaps INCLUDED — the title bar's number", () => {
+    // One live, one soft-deleted off the chronology. The footer says two,
+    // because the title bar says two; one window reporting two counts of one
+    // story is how a reader stops trusting either.
+    const rows = [row({ id: "a" }), row({ id: "b" }, true)];
+    expect(footerLine(rows, WORDING)).toBe("2 events");
+  });
+
+  it("does not count a GAP row's flag, even though it counts the row", () => {
+    // The row is in the total; its ⚑ is not, because a deleted event's date is
+    // not one anybody can go and confirm.
+    const rows = [row({ id: "a", approximate: true }, true), row({ id: "b", approximate: true })];
+    expect(footerLine(rows, WORDING)).toBe("2 events · 1 ⚑");
+  });
+
+  it("survives an empty subset without inventing a number", () => {
+    expect(footerLine([], WORDING)).toBe("0 events");
   });
 });
 

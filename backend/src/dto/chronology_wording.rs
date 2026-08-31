@@ -111,7 +111,7 @@ pub struct ChronologyWordingDto {
     pub scenario_attach_link: String,
     pub subsets_window_open_timeline: String,
     pub subsets_window_edit: String,
-    pub subsets_window_footer_template: String,
+    pub subsets_window_footer_events_template: String,
     pub subsets_empty_state: String,
 
     // Timeline subsets, task 2: the seven Screens 2 and 3 needed.
@@ -230,7 +230,7 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             scenario_attach_link: w.scenario_attach_link.clone(),
             subsets_window_open_timeline: w.subsets_window_open_timeline.clone(),
             subsets_window_edit: w.subsets_window_edit.clone(),
-            subsets_window_footer_template: w.subsets_window_footer_template.clone(),
+            subsets_window_footer_events_template: w.subsets_window_footer_events_template.clone(),
             subsets_empty_state: w.subsets_empty_state.clone(),
             subsets_event_count_template: w.subsets_event_count_template.clone(),
             subsets_form_add_title: w.subsets_form_add_title.clone(),

@@ -60,6 +60,37 @@ export function flagCount(rows: SubsetEvent[]): number {
   return rows.filter((row) => !row.removed && isDateToConfirm(row.event)).length;
 }
 
+/**
+ * The footer's right-hand line — "15 events", or "15 events · 2 ⚑".
+ *
+ * ## ⚑ WHY THE WORDS ARE A ROW AND THE GLYPH IS NOT
+ *
+ * `subsets_window_footer_events_template` carries "{count} events" because
+ * "events" is a word: an editor might make it "dates", a translator would
+ * certainly change it. The " · {n} ⚑" that may follow is a middle dot, a
+ * number and a glyph — there is nothing in it to edit and nothing to
+ * translate. That is the same split the title bar already makes, where ⧉ ⇲ –
+ * and × live in code and their accessible NAMES are stored rows.
+ *
+ * ## The suffix is DROPPED at zero, not rendered as "· 0 ⚑"
+ *
+ * A zero here is not information. "15 events · 0 ⚑" invites the reader to work
+ * out what the symbol would have meant if there had been any, on every story
+ * that has none — which is most of them. When there is nothing to flag the
+ * footer simply says how many events there are.
+ *
+ * `count` is every reference the subset holds, gaps included — the SAME number
+ * the title bar shows. Two different counts of one story on one window is how a
+ * reader stops trusting either.
+ */
+export function footerLine(rows: SubsetEvent[], wording: ChronologyWording): string {
+  const events = fill(cw(wording, "subsets_window_footer_events_template"), {
+    count: rows.length,
+  });
+  const flags = flagCount(rows);
+  return flags === 0 ? events : `${events} · ${flags} ⚑`;
+}
+
 /** The four-digit year an event belongs to, straight off the stored ISO date. */
 export function yearOf(event: TimelineEvent): string {
   return event.event_date.slice(0, 4);
