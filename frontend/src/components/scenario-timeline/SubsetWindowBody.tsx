@@ -160,13 +160,14 @@ const SubsetWindowBody: React.FC<Props> = ({
         <button type="button" style={ws.footLink} onClick={onEditSubset}>
           {cw(wording, "subsets_window_edit")}
         </button>
-        {/* "15 events · 2 ⚑", exactly as Screen 2 draws it.
-            This shipped as "15 on the chronology · 0 gaps" and was rejected on
-            2026-08-31: it is a DIFFERENT NUMBER wearing the same clothes. The
-            gap count answers "how many of these were deleted off the
-            chronology"; the ⚑ answers "how many of these dates are unsettled".
-            Gaps are still marked, one badge per row, where a reader can act on
-            one. `footerLine` is where the composition lives and is tested. */}
+        {/* "15 events" — and only that, since T6 round two.
+            Two rulings, in order. It first shipped as "15 on the chronology · 0
+            gaps" and was rejected on 2026-08-31: a DIFFERENT NUMBER wearing the
+            same clothes, since the gap count answers "how many of these were
+            deleted off the chronology". It became "15 events · 2 ⚑", and the ⚑
+            half was retired later the same day with the badge it counted — see
+            `isDateToConfirm`. Gaps are still marked, one badge per row, where a
+            reader can act on one. `footerLine` composes this and is tested. */}
         <span style={ws.footCount}>{footerLine(subset.events, wording)}</span>
       </div>
     </>
