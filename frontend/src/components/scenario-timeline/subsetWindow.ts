@@ -2,22 +2,18 @@
 // subsetWindow.ts — every decision the floating timeline window makes
 // =============================================================================
 //
-// TIMELINE_SUBSET_DESIGN_v1 §5C and §5D, and the open-position rule of §10.
-// The sibling of `timelineFilters.ts` and `subsetPicker.ts`, written for the
-// same reason and in the same shape: this project has no component-testing
-// tier, so anything decided inside a component is decided where no test can
-// reach it. Where the window opens, where it is allowed to be, what is
-// remembered about it and which subset it shows are all decided here.
+// TIMELINE_SUBSET_DESIGN_v1 §5C and §5D, and the FIRST-OPEN rule of §11 — which
+// supersedes §10, whose 460-px free-width test and open-minimized branch this
+// module no longer carries. The sibling of `timelineFilters.ts` and
+// `subsetPicker.ts`, written for the same reason and in the same shape: this
+// project has no component-testing tier, so anything decided inside a component
+// is decided where no test can reach it. Where the window opens, where it is
+// allowed to be, what is remembered about it and which subset it shows are all
+// decided here; what one of its ROWS says is decided in `subsetRows.ts`.
 //
-// ## ⚑ THE WINDOW ITSELF IS NOT BUILT YET, AND THIS IS NOT DEAD CODE
-//
-// Task 3 could not mount it: there is no header component the five scenario
-// views share and no read they have in common, so the wording block has nowhere
-// to be delivered and the button has nowhere to live. The T3 report carries
-// what each of the five actually calls and asks for a ruling. These functions
-// are the part of task 3 that does NOT depend on that answer — where a window
-// opens and what is remembered about it are the same wherever it is mounted —
-// so they are built and tested now rather than guessed at later.
+// (The header this replaces said the window was not built yet. It was built in
+// T3 and mounted on the five scenario surfaces; the note outlived its fact by
+// one task, which is what module headers do when nobody deletes them.)
 //
 // ## Rust Learning parallel, for the reader coming from the backend
 //
@@ -41,21 +37,46 @@ export type WindowState = {
   subsetId: string | null;
 };
 
-// CONST: the window's drawn geometry, from the approved mockup and design §5C —
-// 420px wide, 60% of the viewport tall, minimum 320×140. Not settings: there is
-// no frontend config surface for a window's default size and these are not
-// per-deployment values, they are one approved drawing transcribed. Named here
-// so the four places that need them cannot disagree.
-export const DEFAULT_WIDTH = 420;
-export const DEFAULT_HEIGHT_RATIO = 0.6;
-export const MIN_WIDTH = 320;
-export const MIN_HEIGHT = 140;
+// STRUCTURAL: the window's drawn geometry, transcribed rule for rule from
+// TIMELINE_SUBSET_MOCKUP_v2_2026-08-31.html Screen 2 — `.fw{width:460px;
+// height:590px; top:20px; right:22px; min-width:340px; min-height:160px}`.
+//
+// STRUCTURAL and not configuration, and the distinction is worth stating
+// because Rule 2 is otherwise emphatic. These are not values that vary by
+// environment, by case, or by deployment — they are ONE APPROVED DRAWING, ruled
+// on by Roman on 2026-08-31, and a deployment that could change them could
+// change the design without anybody reviewing it. There is no frontend
+// configuration surface for a window's furniture and there should not be one:
+// the thing that changes these is a new mockup and a new ruling, which is a
+// code change by definition. Named here so the places that need them cannot
+// disagree with each other.
+//
+// (The marker was `// CONST:` through T3, which reads as "a number the codebase
+// picked" — exactly the class Rule 2 says belongs in configuration. These are
+// the other thing, and the marker now says so.)
+export const DEFAULT_WIDTH = 460;
+export const DEFAULT_HEIGHT = 590;
+export const MIN_WIDTH = 340;
+export const MIN_HEIGHT = 160;
 
-// CONST: the open-position rule of design §10, standing unless overruled — the
-// window opens in the right margin when at least this much free width exists
-// beside the content column, and otherwise opens minimized. 460 is the drawn
-// 420 plus the margin that keeps it off the text.
-export const MARGIN_OPEN_MIN_WIDTH = 460;
+// STRUCTURAL: the mockup's `right:22px` and `top:20px`, same reasoning as above.
+// The top is measured from the bottom of the app's header strip, NOT from the
+// top of the viewport — the window is portalled to `body` and lives in viewport
+// coordinates, so 20px from the viewport top would put it behind the header.
+export const RIGHT_MARGIN = 22;
+export const TOP_BELOW_HEADER = 20;
+
+// STRUCTURAL: how often the dock asks a popped-out POPUP whether it has been
+// closed. Not configuration, and the reasoning is the same shape as the
+// geometry above: this is a latency a person FEELS, not a number that varies by
+// environment. A second is short enough that the in-page window is back before
+// the reader has finished looking for it, and long enough that the check —
+// which is a single boolean read, no request — costs nothing.
+//
+// It exists at all because a popup is a separate document that navigates after
+// `window.open` returns, so a listener attached to the handle does not survive.
+// See the effect in `ScenarioTimelineDock` that uses it.
+export const POPUP_CLOSED_POLL_MS = 1000;
 
 /** The storage key for one scenario's window. */
 export function windowStorageKey(scenarioId: string): string {
@@ -65,40 +86,47 @@ export function windowStorageKey(scenarioId: string): string {
 /**
  * Where a window opens when nothing is remembered about it.
  *
- * ## ⚑ The rule, and why it opens MINIMIZED rather than smaller
+ * ## ⚑ ALWAYS FULL SIZE, AT THE RIGHT EDGE — the §10 rule is WITHDRAWN
  *
- * Design §10: the right margin when there is room beside the content column,
- * otherwise minimized to the bottom-right for the reader to place. It does not
- * shrink to fit, because §5D is explicit that Marie is reading this beside a
- * cross-examination question and the window must never cover the question she
- * is answering. A narrow window over the text is worse than a title bar out of
- * the way — she can open it where she wants it, but she cannot un-read the line
- * it hid.
+ * This is defect D8 and its fix. §10 said the window opened in the right margin
+ * when at least 460px of free width existed beside the content column and
+ * otherwise opened MINIMIZED to a title bar bottom-right. On a MacBook that
+ * second branch is the one that fires, so the feature's first contact with its
+ * reader was a grey bar in the corner — Roman opened it on 08-31 and got a bar.
+ * The reasoning was sound (better a bar out of the way than a window over the
+ * question she is answering) and the outcome was not: a reader who clicks
+ * "View Timeline" has asked to see a timeline.
+ *
+ * Design §11 item 2 withdraws it in as many words: first open is ALWAYS full
+ * size, 460 × 590, at the right edge, 20px below the header strip. The window
+ * is draggable and resizable and the position is remembered, so a reader who
+ * wants it elsewhere moves it once and it stays there. There is no free-width
+ * test left, and no branch that opens minimized.
+ *
+ * `headerBottom` is the app header strip's bottom edge in viewport pixels —
+ * measured by the caller, because the strip's height is a rendered fact and not
+ * a constant this module could honestly hold.
+ *
+ * The size is still CLAMPED to the viewport: 590px of window on a 500px-tall
+ * browser would put the footer — and its two links — off the bottom of the
+ * screen, and unlike the minimized branch that is not a placement the reader
+ * can drag their way out of.
  */
 export function openStateFor(
   viewportWidth: number,
   viewportHeight: number,
-  contentRight: number,
+  headerBottom: number,
   subsetId: string | null,
 ): WindowState {
-  const freeWidth = viewportWidth - contentRight;
-  const height = Math.max(MIN_HEIGHT, Math.round(viewportHeight * DEFAULT_HEIGHT_RATIO));
-  if (freeWidth >= MARGIN_OPEN_MIN_WIDTH) {
-    return {
-      x: Math.max(0, viewportWidth - DEFAULT_WIDTH - 26),
-      y: 96,
-      width: DEFAULT_WIDTH,
-      height,
-      minimized: false,
-      subsetId,
-    };
-  }
+  const y = Math.max(0, headerBottom + TOP_BELOW_HEADER);
+  const width = Math.max(MIN_WIDTH, Math.min(DEFAULT_WIDTH, viewportWidth));
+  const height = Math.max(MIN_HEIGHT, Math.min(DEFAULT_HEIGHT, viewportHeight - y));
   return {
-    x: Math.max(0, viewportWidth - DEFAULT_WIDTH - 26),
-    y: Math.max(0, viewportHeight - MIN_HEIGHT),
-    width: DEFAULT_WIDTH,
+    x: Math.max(0, viewportWidth - width - RIGHT_MARGIN),
+    y,
+    width,
     height,
-    minimized: true,
+    minimized: false,
     subsetId,
   };
 }
@@ -152,7 +180,7 @@ export function minimizedPosition(
   viewportHeight: number,
 ): { x: number; y: number } {
   return {
-    x: Math.max(0, viewportWidth - DEFAULT_WIDTH - 26),
+    x: Math.max(0, viewportWidth - DEFAULT_WIDTH - RIGHT_MARGIN),
     y: Math.max(0, viewportHeight - MIN_HEIGHT - 16),
   };
 }

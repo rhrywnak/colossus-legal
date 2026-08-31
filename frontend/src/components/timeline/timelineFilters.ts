@@ -143,6 +143,60 @@ export function formatEventDate(
   return approximate ? `~ ${formatted}` : formatted;
 }
 
+/**
+ * The same date, split into the two lines the subset window stacks.
+ *
+ * ## ⚑ Why this lives HERE and not beside the window that renders it
+ *
+ * The window draws the date over two lines — "Aug 18" above, "2008" below
+ * (mockup v2 Screen 2) — and `formatEventDate` returns one string with no seam
+ * to cut. The obvious move was a second formatter in `scenario-timeline/`. It
+ * would have been a SECOND opinion about what a month-precision date says, in a
+ * different directory, and the two would have drifted the first time somebody
+ * changed a locale option in one of them. So the split lives against the
+ * formatter it must agree with, sharing its parse, its fallback, and its `~`.
+ *
+ * `lead` is the big line, `year` the small one under it:
+ *
+ * | precision | approximate | lead      | year   |
+ * |-----------|-------------|-----------|--------|
+ * | `day`     | no          | `Aug 18`  | `2008` |
+ * | `day`     | yes         | `~ May 3` | `2009` |
+ * | `month`   | yes         | `~ Apr`   | `2009` |
+ * | `year`    | yes         | `~ 2009`  | `""`   |
+ *
+ * A year-precision date returns an EMPTY `year` rather than repeating itself:
+ * the year IS the lead, and "2009" stacked under "~ 2009" reads as two facts
+ * where there is one. An unparseable date returns the raw string as the lead
+ * and an empty year, the same degradation `formatEventDate` makes — a date the
+ * browser cannot parse is still shown, never blanked.
+ */
+export type SplitEventDate = { lead: string; year: string };
+
+export function splitEventDate(
+  isoDate: string,
+  approximate: boolean,
+  precision: string,
+): SplitEventDate {
+  const parsed = new Date(`${isoDate}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return { lead: isoDate, year: "" };
+
+  const tilde = (text: string): string => (approximate ? `~ ${text}` : text);
+  const year = parsed.toLocaleDateString("en-US", { year: "numeric" });
+
+  if (precision === "year") return { lead: tilde(year), year: "" };
+  if (precision === "month") {
+    return { lead: tilde(parsed.toLocaleDateString("en-US", { month: "short" })), year };
+  }
+  // Everything else is day precision — the same fall-through `formatEventDate`
+  // makes, so an unrecognised precision string renders a full date in both
+  // rather than one surface silently dropping the day.
+  return {
+    lead: tilde(parsed.toLocaleDateString("en-US", { month: "short", day: "numeric" })),
+    year,
+  };
+}
+
 /** The tag row for an id, or undefined when the vocabulary does not have it. */
 export function tagOf(tags: TimelineTag[], id: string): TimelineTag | undefined {
   return tags.find((tag) => tag.id === id);

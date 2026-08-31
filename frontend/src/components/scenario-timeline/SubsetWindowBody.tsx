@@ -1,10 +1,26 @@
 // =============================================================================
-// SubsetWindowBody.tsx — the window's contents (mockup Screen 1, inside `.fw`)
+// SubsetWindowBody.tsx — the window's contents (mockup v2 Screen 2, inside `.fw`)
 // =============================================================================
 //
 // Split from the window shell for Rule 17 and because these are two different
 // concerns: the shell is a draggable box, this is a subset rendered as the
-// timeline renders it. Description strip, phase dividers, event rows, footer.
+// timeline renders it. Description strip, year dividers, event rows, footer.
+//
+// It is ARRANGEMENT ONLY. Every decision a row makes — which divider goes
+// above it, whether it carries the ⚑, what the caption under its date says,
+// how the two lines of the date split — is a pure function in `subsetRows.ts`
+// or `timelineFilters.ts`, where a test can reach it. This project has no
+// component-testing tier, so anything decided inside the `.map()` below would
+// be decided where nothing can check it.
+//
+// ## ⚑ THE DATE IS THE FIRST AND BOLDEST THING IN EVERY ROW
+//
+// Defect D3, 2026-08-31: this shipped with the date as a grey caption beside a
+// black title. Design §11 item 2 and the v2 mockup put it in its own 96-px
+// column, at full ink, weight 800, with a rule in the tag's colour down its
+// right edge and the year small and muted underneath. Nothing else in the row
+// is grey. If a future change makes the date quieter than the title, it has
+// re-introduced the defect.
 //
 // ## ⚑ CLICKING AN EVENT OPENS A NEW TAB, ALWAYS
 //
@@ -23,34 +39,32 @@
 
 import React from "react";
 
-import type { ChronologyWording, TimelinePhase } from "../../services/caseTimeline";
+import type {
+  ChronologyWording,
+  TimelinePhase,
+  TimelineTag,
+} from "../../services/caseTimeline";
 import { cw, fill } from "../../services/caseTimeline";
 import type { SubsetDetail } from "../../services/caseTimelineSubsets";
+import { dotColor, splitEventDate } from "../timeline/timelineFilters";
+import { crossesPhases, dateCaption, dividerFor, isDateToConfirm } from "./subsetRows";
 import * as ws from "./windowStyles";
 
 type Props = {
   subset: SubsetDetail;
   phases: TimelinePhase[];
+  /** The case's tag vocabulary — the source of every row's rule colour. */
+  tags: TimelineTag[];
   wording: ChronologyWording;
   onOpenTimeline: () => void;
   onEditSubset: () => void;
   onOpenEvent: (eventId: string) => void;
 };
 
-/** One phase's colour and label, or a muted fallback for a phase with no row. */
-function phaseOf(phases: TimelinePhase[], id: string): { label: string; color: string } {
-  const found = phases.find((p) => p.id === id);
-  // A phase the payload does not carry still gets a divider rather than none:
-  // an event silently filed under nothing is the defect the timeline's own
-  // unknown-phase row exists to prevent.
-  return found === undefined
-    ? { label: id, color: "var(--text-muted)" }
-    : { label: found.label, color: found.color };
-}
-
 const SubsetWindowBody: React.FC<Props> = ({
   subset,
   phases,
+  tags,
   wording,
   onOpenTimeline,
   onEditSubset,
@@ -58,27 +72,33 @@ const SubsetWindowBody: React.FC<Props> = ({
 }) => {
   const live = subset.events.filter((e) => !e.removed).length;
   const gaps = subset.events.length - live;
-
-  let lastPhase: string | null = null;
+  // Asked once for the whole story, because "does this story cross phases" is a
+  // fact about the story and not about any one row.
+  const spansPhases = crossesPhases(subset.events);
 
   return (
     <>
       {subset.description !== "" && <div style={ws.description}>{subset.description}</div>}
 
       <div style={ws.body}>
-        {subset.events.map((row) => {
+        {subset.events.map((row, index) => {
           const event = row.event;
-          const phase = phaseOf(phases, event.phase);
-          // A divider whenever the phase changes, so "estate → probate →
-          // appeals" stays visible without leaving the list (design §5C).
-          const divider = event.phase !== lastPhase;
-          lastPhase = event.phase;
+          const previous = index === 0 ? null : subset.events[index - 1].event;
+          const divider = dividerFor(event, previous, spansPhases, phases, wording);
+          const date = splitEventDate(event.event_date, event.approximate, event.date_precision);
+          const caption = dateCaption(event, date.year, wording);
+          // The tag's OWN stored colour. `--border-default` is the fallback for
+          // an event whose tags the vocabulary has not caught up with: a rule
+          // in the hairline colour, which reads as "no tag" rather than as some
+          // other tag's green.
+          const rule = dotColor(tags, event, "var(--border-default)");
+          const flagged = isDateToConfirm(event);
           return (
             <React.Fragment key={event.id}>
-              {divider && (
-                <div style={ws.phaseDivider(phase.color)}>
+              {divider !== null && (
+                <div style={ws.yearDivider}>
                   <span style={ws.dividerRule} />
-                  <span>{phase.label}</span>
+                  <span>{divider}</span>
                   <span style={ws.dividerRule} />
                 </div>
               )}
@@ -87,15 +107,38 @@ const SubsetWindowBody: React.FC<Props> = ({
                 style={ws.eventRow(row.removed)}
                 onClick={() => onOpenEvent(event.id)}
               >
-                <span style={ws.eventDate}>{event.event_date}</span>
-                <span style={ws.eventDot(phase.color)} />
+                <span style={ws.eventDate(rule, event.approximate)}>
+                  {date.lead}
+                  {caption !== "" && <small style={ws.eventDateCaption}>{caption}</small>}
+                </span>
                 <span>
-                  <h4 style={row.removed ? ws.removedTitle : ws.eventTitle}>
-                    {event.title}
-                    {row.removed && (
-                      <span style={ws.gapBadge}>{cw(wording, "subsets_gap_badge_label")}</span>
-                    )}
-                  </h4>
+                  <h4 style={row.removed ? ws.removedTitle : ws.eventTitle}>{event.title}</h4>
+                  {event.tags.map((id) => {
+                    const tag = tags.find((t) => t.id === id);
+                    // A tag the vocabulary does not carry gets no pill rather
+                    // than a pill reading its raw slug: the slug is not a word
+                    // anybody chose to show, and the rule colour already
+                    // degraded for the same event.
+                    return tag === undefined ? null : (
+                      <span key={id} style={ws.tagPill(tag.color)}>
+                        {tag.label}
+                      </span>
+                    );
+                  })}
+                  {/* ⚑ The GLYPH is in code and the WORDS are a row, which is
+                      the same split the title bar's ⧉ ⇲ – × already use: a
+                      glyph is furniture with no language in it, and the
+                      sentence beside it is the thing an editor would want to
+                      change. The mockup draws "⚑ date to confirm"; the stored
+                      row carries the four words. */}
+                  {flagged && (
+                    <span style={ws.dateFlag}>
+                      ⚑ {cw(wording, "subsets_date_to_confirm_badge")}
+                    </span>
+                  )}
+                  {row.removed && (
+                    <span style={ws.gapBadge}>{cw(wording, "subsets_gap_badge_label")}</span>
+                  )}
                   {row.removed && (
                     <p style={ws.eventFact}>{cw(wording, "subsets_removed_event_line")}</p>
                   )}
@@ -120,7 +163,18 @@ const SubsetWindowBody: React.FC<Props> = ({
         {/* TWO numbers and not one total, for the reason the stored template's
             own note gives: "15 events" over a list showing twelve live lines
             and three struck ones is the sentence that makes a reader distrust
-            the count. */}
+            the count.
+
+            ⚑ DEVIATION from the mockup, reported in full. Screen 2's footer
+            reads "15 events · 2 ⚑" — a total and a FLAG count. The stored row
+            this renders carries {on_chronology} and {gaps}, and its meaning
+            column says in as many words that {gaps} is how many events were
+            REMOVED FROM THE CHRONOLOGY. That is a different number from the ⚑
+            count, so filling this template with it would make the footer lie in
+            the store's own vocabulary. Changing the row's value was not this
+            task's to do (T4.0 seeds exactly six rows, and this is not one of
+            them). The flag count is therefore not in the footer, and the
+            wording row it needs is listed under NEEDS A RULING. */}
         <span style={ws.footCount}>
           {fill(cw(wording, "subsets_window_footer_template"), {
             on_chronology: live,

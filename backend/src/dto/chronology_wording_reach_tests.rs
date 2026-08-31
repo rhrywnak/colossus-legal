@@ -267,17 +267,9 @@ const DECLARED_AHEAD_OF_THEIR_SCREEN: &[&str] = &[
     // nothing says, and the honest move is to retire the row rather than to
     // keep excusing it.
     //
-    // ── Task 4 (2026-08-31), and these six come OUT in the next commit ───────
-    //
-    // T4.0 is the migration commit; T4.1–T4.3 are the screens that speak these.
-    // Six lines for one commit is the promise this list is for. If they are
-    // still here when T4 is reported DONE, T4 is not done.
-    "subsets_window_popout_label",
-    "subsets_window_popin_label",
-    "subsets_date_to_confirm_badge",
-    "subsets_precision_month_label",
-    "subsets_precision_year_label",
-    "subsets_year_phase_divider_template",
+    // (Task 4 put six lines here for exactly one commit — T4.0, the migration —
+    // and took them out again in T4.1–T4.3, which are the screens that speak
+    // them. That is the whole intended life of an entry in this list.)
 ];
 
 #[test]

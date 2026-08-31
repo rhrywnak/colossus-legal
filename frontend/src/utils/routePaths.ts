@@ -348,6 +348,32 @@ export function timelineEventPath(id: string): string {
 }
 
 /**
+ * One subset, alone in a window with no app chrome. Declared as
+ * `/timeline/subsets/:id/popout`.
+ *
+ * ## ⚑ A ROUTE AND NOT A QUERY PARAMETER, AND WHY THIS EXISTS AT ALL
+ *
+ * The FALLBACK half of Pop out (design §11 item 5). Chrome and Edge give the
+ * story a real always-on-top window through the Document Picture-in-Picture
+ * API, which needs no address at all — the same React tree is portalled into
+ * the new document. Safari and Firefox have no such API, so there the button
+ * opens a plain `window.open` popup, and a popup needs a URL.
+ *
+ * That URL renders the window body and NOTHING else: no header, no nav, no
+ * page padding. A `?chrome=none` query on `/timeline` would have been the
+ * smaller diff and the wrong shape — the thing at this address is a different
+ * document, not the timeline page in a mode, and every surface in this app that
+ * a person can be looking at has its own address (the Admin note in `App.tsx`
+ * is the same argument).
+ *
+ * Behind the same auth as everything else: it is an ordinary route in the
+ * ordinary app bundle, reached same-origin with the same session cookie.
+ */
+export function subsetPopoutPath(id: string): string {
+  return `/timeline/subsets/${encodeURIComponent(id)}/popout`;
+}
+
+/**
  * The allegation list.
  *
  * Declared as `/allegations`. Reached from `AllegationDetailPage`'s Back button
