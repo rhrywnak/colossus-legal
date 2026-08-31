@@ -130,6 +130,7 @@ pub struct ChronologyWordingDto {
     pub subsets_window_close_label: String,
     pub subsets_window_events_count_template: String,
     pub subsets_gap_badge_label: String,
+    pub subsets_window_loading_label: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -236,6 +237,7 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
             subsets_window_close_label: w.subsets_window_close_label.clone(),
             subsets_window_events_count_template: w.subsets_window_events_count_template.clone(),
             subsets_gap_badge_label: w.subsets_gap_badge_label.clone(),
+            subsets_window_loading_label: w.subsets_window_loading_label.clone(),
         }
     }
 }

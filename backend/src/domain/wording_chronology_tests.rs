@@ -137,6 +137,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_SUBSETS_WINDOW_CLOSE_LABEL, "Close"),
     (KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE, "{count} events"),
     (KEY_SUBSETS_GAP_BADGE_LABEL, "Not on the chronology"),
+    (KEY_SUBSETS_WINDOW_LOADING_LABEL, "Loading the story…"),
 ];
 
 impl ChronologyWording {

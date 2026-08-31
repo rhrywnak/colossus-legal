@@ -1,4 +1,4 @@
--- timeline_subsets_window_wording — the six words task 3 needs.
+-- timeline_subsets_window_wording — the seven words task 3 needs.
 --
 -- Created: 2026-08-30 16:24:05
 -- Target: pipeline database (colossus_legal_v2)
@@ -21,11 +21,26 @@
 -- scans for `cw(` calls, not for string literals), nor tsc, nor vitest can see
 -- one. Only a reader can.
 --
--- ## The four the floating window needs
+-- ## The five the floating window needs
 --
--- Transcribed from the approved mockup's Screen 1, not invented: the title
--- bar's two controls, its event count, and the amber badge on a row whose event
--- is gone from the chronology.
+-- Four are transcribed from the approved mockup's Screen 1, not invented: the
+-- title bar's two controls, its event count, and the amber badge on a row whose
+-- event is gone from the chronology.
+--
+-- The fifth was added on 2026-08-30 after the window was built and its loading
+-- moment had nothing honest to say. `saving_label` ("Saving…") was the obvious
+-- filler and is the wrong word for a READ — it would tell a reader their work
+-- was being written. `BOOTSTRAP_TEXT.loading` was the other candidate and does
+-- not apply: that exception exists because the wording store arrives WITH the
+-- request whose failure it describes, and by then the whole block is already in
+-- hand, so English in code would be a plain rule breach rather than a
+-- bootstrap. The window drew nothing at all rather than say a wrong word. This
+-- row is what it says instead.
+--
+-- ⚑ This migration was AMENDED to add that row rather than a second migration
+-- being written beside it, because it is unapplied everywhere — DEV included —
+-- and a two-line feature arriving as two migrations is how a wording block ends
+-- up spread across files nobody can count.
 
 INSERT INTO app_settings
     (key, value, value_kind, default_value, min_value, max_value, meaning,
@@ -111,6 +126,20 @@ VALUES ('chronology_subsets_gap_badge_label',
     'migration')
 ON CONFLICT (key) DO NOTHING;
 
+INSERT INTO app_settings
+    (key, value, value_kind, default_value, min_value, max_value, meaning,
+     consumed_by, updated_at, updated_by)
+VALUES ('chronology_subsets_window_loading_label',
+    'Loading the story…',
+    'text',
+    'Loading the story…',
+    NULL, NULL,
+    'Shown in the floating window''s body while the subset''s events are being read (design §5C). Domain note: it says "the story" and not "the events" because that is what the window is for — the subset is a story told in dates, and the one moment the reader is waiting is the moment to say so. NOT chronology_saving_label ("Saving…"), which is a WRITE and would tell a reader their work was being written when nothing is being written. The ellipsis is a single character (U+2026).',
+    NULL,
+    NOW(),
+    'migration')
+ON CONFLICT (key) DO NOTHING;
+
 -- ── the END-state assertions (CLAUDE.md rule 25a) ───────────────────────────
 --
 -- A statement matching zero rows is silent in Postgres and the old value keeps
@@ -120,7 +149,7 @@ DO $$
 DECLARE
     n INTEGER;
 BEGIN
-    -- ── the six new rows ─────────────────────────────────────────────────────
+    -- ── the seven new rows ───────────────────────────────────────────────────
     SELECT COUNT(*) INTO n FROM app_settings
      WHERE key IN (
             'chronology_subsets_move_earlier_label',
@@ -128,11 +157,12 @@ BEGIN
             'chronology_subsets_window_minimize_label',
             'chronology_subsets_window_close_label',
             'chronology_subsets_window_events_count_template',
-            'chronology_subsets_gap_badge_label'
+            'chronology_subsets_gap_badge_label',
+            'chronology_subsets_window_loading_label'
      );
-    IF n <> 6 THEN
+    IF n <> 7 THEN
         RAISE EXCEPTION
-            'the timeline-subset window wording must hold all 6 rows, found %', n;
+            'the timeline-subset window wording must hold all 7 rows, found %', n;
     END IF;
 
     -- ── the one template still carries the placeholder its caller fills ─────

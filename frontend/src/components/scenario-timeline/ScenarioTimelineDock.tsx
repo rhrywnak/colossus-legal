@@ -321,16 +321,17 @@ const ScenarioTimelineDock: React.FC<Props> = ({ slug, scenarioId }) => {
             {!win.minimized && subsetError !== null && (
               <div style={ws.errorState}>{subsetError}</div>
             )}
-            {/* ⚑ NOTHING is drawn while the events load, deliberately. The
-                obvious filler was `saving_label` ("Saving…"), which is the
-                wrong word for a read and would have told the reader their work
-                was being written. `BOOTSTRAP_TEXT.loading` was the other
-                candidate and does not apply: that exception exists because the
-                wording store arrives WITH the request whose failure it
-                describes, and here the whole block is already in hand — so
-                English in code would be a plain rule breach, not a bootstrap.
-                No stored row says "loading" yet. A blank body for one request
-                is honest; a wrong word is not. Recorded in the T3 report. */}
+            {/* ⚑ The loading moment now has a word of its own.
+                It shipped blank for a day rather than borrowing a wrong one:
+                `saving_label` ("Saving…") is a WRITE and would have told a
+                reader their work was being written, and `BOOTSTRAP_TEXT.loading`
+                does not apply here because that exception exists for the request
+                that DELIVERS the wording — by this point the whole block is
+                already in hand, so English in code would have been a plain rule
+                breach rather than a bootstrap. Ruled and seeded 2026-08-30. */}
+            {!win.minimized && subsetError === null && subset === null && (
+              <div style={ws.state}>{cw(wording, "subsets_window_loading_label")}</div>
+            )}
             {!win.minimized && subset !== null && (
               <SubsetWindowBody
                 subset={subset}

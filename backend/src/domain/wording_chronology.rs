@@ -287,6 +287,8 @@ pub struct ChronologyWording {
     pub subsets_window_events_count_template: String,
     /// The amber badge on a window row whose event is gone. The SHORT form; `subsets_removed_event_line` is the sentence.
     pub subsets_gap_badge_label: String,
+    /// What the floating window says while the subset's events are being read. Says "the story" because that is what the window is for. NOT `saving_label`, which is a WRITE.
+    pub subsets_window_loading_label: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -413,6 +415,7 @@ pub fn build_chronology_wording<E>(
         subsets_window_close_label: read(KEY_SUBSETS_WINDOW_CLOSE_LABEL)?,
         subsets_window_events_count_template: read(KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE)?,
         subsets_gap_badge_label: read(KEY_SUBSETS_GAP_BADGE_LABEL)?,
+        subsets_window_loading_label: read(KEY_SUBSETS_WINDOW_LOADING_LABEL)?,
     })
 }
 

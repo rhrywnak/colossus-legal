@@ -134,6 +134,7 @@ pub(crate) const KEY_SUBSETS_WINDOW_CLOSE_LABEL: &str = "chronology_subsets_wind
 pub(crate) const KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE: &str =
     "chronology_subsets_window_events_count_template";
 pub(crate) const KEY_SUBSETS_GAP_BADGE_LABEL: &str = "chronology_subsets_gap_badge_label";
+pub(crate) const KEY_SUBSETS_WINDOW_LOADING_LABEL: &str = "chronology_subsets_window_loading_label";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -237,4 +238,5 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_WINDOW_CLOSE_LABEL,
     KEY_SUBSETS_WINDOW_EVENTS_COUNT_TEMPLATE,
     KEY_SUBSETS_GAP_BADGE_LABEL,
+    KEY_SUBSETS_WINDOW_LOADING_LABEL,
 ];
