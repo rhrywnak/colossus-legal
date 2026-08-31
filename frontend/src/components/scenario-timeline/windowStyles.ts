@@ -28,7 +28,7 @@
 //   --card          #ffffff        --bg-surface             #ffffff    same
 //   --soft          #fafafa        --bg-page                #f4f5f7    same
 //   --line          #e5e7eb        --border-default         #d0d5dd    same
-//   --indigo-line   #c7d2fe        --accent-primary         #1570ef    STRONGER
+//   --indigo-line   #c7d2fe        --border-default         #d0d5dd    same
 //   --indigo-bg     #eef2ff        --state-info-bg-soft     #e0e7ff    same
 //   --indigo-ink    #3730a3        --accent-primary         #1570ef    same
 //   --amber         #b45309        --burden-warning-text    #b54708    same
@@ -40,31 +40,41 @@
 //     domain colour names into shared code for values the database already
 //     serves; reading them reproduces the drawing AND obeys the standing rule.
 //
-// The one STRONGER row is the window's border and furniture: this app has no
-// pale-indigo hairline token, and `--accent-primary` is a heavier line than the
-// mockup's. It is furniture, not text, and no contrast requirement rides on it.
+// ## ⚑ EVERY LINE IN THIS FILE IS `--border-default`. THAT IS A CORRECTION.
 //
-// ## ⚑ AND THE DARK FRAME HAS NO ANSWER HERE
+// The first cut of this file drew the window's outline, the title bar's bottom
+// rule and the selector's border in `--accent-primary` (#1570ef) and defended it
+// in this comment as "furniture, no contrast requirement rides on it". Roman
+// rejected that on 2026-08-31, and the rejection is the right reading of the
+// drawing: the mockup's `--indigo-line` (#c7d2fe) is a PALE hairline, and a
+// saturated blue outline is not a pale one whatever the contrast maths says.
+// `--border-default` (#d0d5dd) is the token this same table already calls the
+// mockup's `--line`, and it is what a hairline is for.
 //
-// The mockup's `.frame.dark` block is drawn and approved and there is NOTHING
-// in this app to match it to: `tokens.css` says "Light theme only; dark mode is
-// explicitly out of scope for v2" and the build carries zero
-// `prefers-color-scheme` rules, zero `data-theme` attributes and no toggle. So
-// the dark half of Screen 2 is not reproduced, not deviated from, and not
-// silently approximated — it has no surface to land on. See the T4 report.
+// `--accent-primary` survives in this file ONLY as `color:` — the bar's count,
+// its buttons, the story note, the footer links. That is the mockup's
+// `--indigo-ink`, which is a different role and correctly saturated. If a
+// `border` or `borderBottom` in this file ever reads `--accent-primary` again,
+// it is this defect coming back.
+//
+// The bar's GROUND stays `--state-info-bg-soft`: the pale indigo strip is what
+// makes the title bar read as a title bar, and it was never the thing at issue.
+//
+// (Light theme only — ruled 2026-08-31. `tokens.css` carries one palette and
+// this file matches it; there is no dark half to reconcile.)
 
 import type { CSSProperties } from "react";
 
 // ─── the floating window (mockup `.fw`) ─────────────────────────────────────
 
-/** Mockup `.fw`: rounded, indigo-bordered, its own shadow, column layout. */
+/** Mockup `.fw`: rounded, PALE-bordered, its own shadow, column layout. */
 export const shell: CSSProperties = {
   display: "flex",
   flexDirection: "column",
   height: "100%",
   width: "100%",
   background: "var(--bg-surface)",
-  border: "1px solid var(--accent-primary)",
+  border: "1px solid var(--border-default)",
   borderRadius: "12px",
   boxShadow: "0 12px 32px rgba(17, 24, 39, 0.18)",
   overflow: "hidden",
@@ -78,7 +88,7 @@ export const bar: CSSProperties = {
   gap: "0.5rem",
   padding: "0.55rem 0.75rem",
   background: "var(--state-info-bg-soft)",
-  borderBottom: "1px solid var(--accent-primary)",
+  borderBottom: "1px solid var(--border-default)",
   cursor: "move",
   userSelect: "none",
 };
@@ -102,7 +112,7 @@ export const barCount: CSSProperties = {
 export const barSelect: CSSProperties = {
   marginLeft: "0.25rem",
   fontSize: "0.72rem",
-  border: "1px solid var(--accent-primary)",
+  border: "1px solid var(--border-default)",
   borderRadius: "6px",
   background: "var(--bg-surface)",
   color: "var(--text-primary)",
@@ -450,11 +460,19 @@ export const popoutBar: CSSProperties = {
   cursor: "default",
 };
 
-/** The minimized bar, pinned bottom-right (§5C). */
+/**
+ * The minimized bar, pinned bottom-right (§5C).
+ *
+ * ⚑ A FOURTH declaration in the same role as the three the follow-up named, and
+ * it is changed with them. This IS the window's outline — the whole window, when
+ * it is collapsed — so leaving it saturated while the open window went pale
+ * would have shipped a bar that outlines itself differently from the box it
+ * collapses out of. Reported so it can be objected to.
+ */
 export const minimizedBar: CSSProperties = {
   ...bar,
   borderRadius: "10px",
-  border: "1px solid var(--accent-primary)",
+  border: "1px solid var(--border-default)",
   boxShadow: "0 8px 20px rgba(17, 24, 39, 0.16)",
   height: "100%",
   boxSizing: "border-box",
