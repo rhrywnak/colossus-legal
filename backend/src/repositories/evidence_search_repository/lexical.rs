@@ -43,6 +43,17 @@ use sqlx::{PgPool, Row};
 #[derive(Debug, thiserror::Error)]
 pub enum LexicalReadError {
     #[error(
+        "lexical read '{operation}' failed on probe '{probe}': {source} — check the L1a \
+         migration has been applied and that pg_trgm is installed"
+    )]
+    Probe {
+        operation: &'static str,
+        probe: String,
+        #[source]
+        source: sqlx::Error,
+    },
+
+    #[error(
         "lexical read '{operation}' failed against evidence_search: {source} — check the \
          L1a migration has been applied and that pg_trgm is installed"
     )]
@@ -51,6 +62,27 @@ pub enum LexicalReadError {
         #[source]
         source: sqlx::Error,
     },
+}
+
+impl LexicalReadError {
+    /// Re-label a failure with the probe that caused it.
+    ///
+    /// ## Rust Learning: consuming `self` to enrich an error
+    ///
+    /// Taking `self` BY VALUE rather than by reference lets the underlying
+    /// `sqlx::Error` be MOVED into the new variant. `sqlx::Error` is not
+    /// `Clone`, so a borrowing version could not be written at all without
+    /// dropping the cause — which is the one thing an error must never lose.
+    fn naming_probe(self, probe: &str) -> Self {
+        match self {
+            LexicalReadError::Query { operation, source } => LexicalReadError::Probe {
+                operation,
+                probe: probe.to_string(),
+                source,
+            },
+            already_named => already_named,
+        }
+    }
 }
 
 // STRUCTURAL: SQL is wire vocabulary for the Postgres protocol, not a
@@ -90,12 +122,45 @@ const FULL_TEXT_SQL: &str = "\
      ORDER BY ts_rank(search_vector, q.tsq) DESC, evidence_id ASC \
      LIMIT $2";
 
+// STRUCTURAL: as above — SQL is wire vocabulary, not a deployment setting.
+//
+// ## ⚑ `<%`, not `%` — measured, not preferred
+//
+// This was `quote % $1`, and it returned 0 hits for `$50,000` against 40 cards
+// that literally contain it. `%` uses `similarity()`, normalised over the UNION
+// of both trigram sets, so a 7-character needle against a 300-character quote
+// scores about 0.02 — below any threshold worth setting. A short probe can
+// NEVER match a long text with `%`, at any threshold.
+//
+// `<%` is `word_similarity`, normalised over the NEEDLE, which is the question
+// actually being asked: does this long text contain something close to this
+// short probe? Measured on the real corpus, `'Milster' <% quote` returned 10 —
+// exactly the `ILIKE '%Milster%'` ground truth.
+//
+// Operand order is NOT symmetric: `$1 <% probe_text` asks whether the PROBE
+// appears in the TEXT. Reversed it asks the opposite and returns nothing useful.
+//
+// ⚑ `<%` is NOT an exact substring match, and nobody should later describe it
+// as one or "fix" it into one. On `$50,000` it returned 49 against a ground
+// truth of 40 — it also reaches `$50,000.00` and near variants. That is
+// acceptable HERE because this half feeds a RANKING, not a filter: a loose match
+// costs a card a few places in a list that a reranker and then a human still
+// judge. It would not be acceptable in anything deciding what gets cited.
+//
+// The threshold is `pg_trgm.word_similarity_threshold`, left at Postgres's
+// default of 0.6. Nothing here lowers it, and lowering it to make hits appear
+// would prove nothing about why they were missing.
+//
+// It searches `probe_text` — quote, title and significance — not `quote`: 109
+// of 1209 quotes are a bare "Admitted." or "Denied as untrue.", so `quote`
+// alone could not answer for 9% of the corpus, including six of the seven
+// admissions AT-2 turns on. L1a's migration carries the full reasoning.
 const TRIGRAM_SQL: &str = "\
     SELECT evidence_id \
       FROM evidence_search \
-     WHERE quote % $1 \
+     WHERE $1 <% probe_text \
        AND ($4 OR about && $3::text[]) \
-     ORDER BY similarity(quote, $1) DESC, evidence_id ASC \
+     ORDER BY word_similarity($1, probe_text) DESC, evidence_id ASC \
      LIMIT $2";
 
 // STRUCTURAL: the id-ordered membership read behind the conservation baseline.
@@ -117,11 +182,25 @@ const MEMBERSHIP_SQL: &str = "\
 pub struct LexicalHits {
     /// Ranked best-first by `ts_rank`.
     pub full_text: Vec<String>,
-    /// Ranked best-first by trigram `similarity`.
-    pub trigram: Vec<String>,
+    /// One ranked list per probe THAT MATCHED, paired with the probe itself.
+    ///
+    /// Kept per-probe rather than concatenated so the caller can fuse them: a
+    /// card matching three probes should outrank one matching a single probe,
+    /// and a flattened list would lose exactly that.
+    ///
+    /// ⚑ The probe is carried BESIDE its hits, not discarded, because the row
+    /// count alone cannot tell a useful probe from a useless one. Measured on
+    /// S-11: `Court` matched 534 of 1030 admitted cards — over half the pool —
+    /// while `$50,000` matched 73. Both are just "a probe that hit" to a bare
+    /// count, and the first is the one drowning the ranking.
+    pub trigram: Vec<(String, Vec<String>)>,
 }
 
 /// Run both lexical halves for one query.
+///
+/// `probes` are the short strings the trigram half matches — see
+/// [`crate::services::gather_probes`]. Each runs its own query; `query` itself
+/// is used only by the full-text half.
 ///
 /// `parties` is `None` for "no filter" and `Some(list)` for "only these" — the
 /// same distinction [`crate::domain::gather_filter::GatherSubjectFilter`] draws,
@@ -133,15 +212,36 @@ pub struct LexicalHits {
 pub async fn lexical_search(
     pool: &PgPool,
     query: &str,
+    probes: &[String],
     parties: Option<&[&str]>,
     limit: i64,
 ) -> Result<LexicalHits, LexicalReadError> {
     let (party_list, unfiltered) = filter_args(parties);
+    let full_text = ranked_ids(pool, FULL_TEXT_SQL, query, &party_list, unfiltered, limit).await?;
 
-    Ok(LexicalHits {
-        full_text: ranked_ids(pool, FULL_TEXT_SQL, query, &party_list, unfiltered, limit).await?,
-        trigram: ranked_ids(pool, TRIGRAM_SQL, query, &party_list, unfiltered, limit).await?,
-    })
+    // One statement per probe. Sequential rather than concurrent: they share one
+    // pool connection, and a fan-out would trade real connection pressure for
+    // milliseconds nobody is waiting on in a human-paced tool. Measured, the
+    // probe count runs to the TENS — 14 for S-9 and 31 for S-11 — not the
+    // single figures an earlier draft of this comment claimed.
+    let mut trigram = Vec::with_capacity(probes.len());
+    for probe in probes {
+        let hits = ranked_ids(pool, TRIGRAM_SQL, probe, &party_list, unfiltered, limit)
+            .await
+            // WHICH probe. A failure on the seventeenth of thirty-one otherwise
+            // arrives carrying only the sqlx message, and the one thing an
+            // operator needs — the string that broke it — is the one thing the
+            // loop knows and the error did not.
+            .map_err(|source| source.naming_probe(probe))?;
+        // A probe that matched nothing contributes NO list rather than an empty
+        // one: an empty list is a no-op in the fusion either way, and carrying
+        // it would make `trigram.len()` mean "probes tried" here and "probes
+        // that hit" everywhere it is reported.
+        if !hits.is_empty() {
+            trigram.push((probe.clone(), hits));
+        }
+    }
+    Ok(LexicalHits { full_text, trigram })
 }
 
 /// Every evidence id the party filter admits, ignoring the query entirely.

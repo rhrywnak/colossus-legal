@@ -48,8 +48,9 @@ use crate::repositories::evidence_search_repository::lexical::{
     lexical_search, party_membership, LexicalReadError,
 };
 use crate::services::gather_fusion::{
-    append_conservation_tail, conservation_gap, fuse, CardPlacement, FusedCard, RRF_K,
+    append_conservation_tail, conservation_gap, fuse, fuse_many, CardPlacement, FusedCard, RRF_K,
 };
+use crate::services::gather_probes::probes_of;
 use crate::services::gather_vector::vector_search;
 use crate::services::qdrant_service::QdrantError;
 
@@ -92,8 +93,29 @@ pub struct RankedGather {
     pub vector_hits: usize,
     /// How many the full-text half returned.
     pub full_text_hits: usize,
-    /// How many the trigram half returned.
+    /// How many rows the trigram half returned, summed across every probe.
     pub trigram_hits: usize,
+    /// How many probes returned at least one row.
+    ///
+    /// Distinct from `probes.len()`: "we searched for nine things" and "three of
+    /// them were found" are different facts, and a trigram half that is finding
+    /// nothing looks exactly like one that had nothing to look for unless both
+    /// are reported.
+    pub trigram_lists: usize,
+    /// Each probe that matched, with how many rows it matched.
+    ///
+    /// The row count alone cannot tell a useful probe from a useless one:
+    /// measured on S-11, `Court` matched 534 of 1030 admitted cards while
+    /// `$50,000` matched 73. Without the pairing, an operator looking at a
+    /// badly-ranked gather cannot find the probe that drowned it.
+    pub probe_hits: Vec<(String, usize)>,
+    /// The probes the trigram half searched for.
+    ///
+    /// Carried out because it is the most reviewable artefact of the whole
+    /// lexical half: a human can look at this list and see at once whether the
+    /// extractor found the figures and names the scenario turns on. No ranking
+    /// number would tell them that.
+    pub probes: Vec<String>,
     /// How deep each read went, from the `gather_read_depth` settings row. A
     /// thin result cannot be judged without it: 40 cards off a depth of 200 and
     /// 40 off a depth of 40 are different findings.
@@ -197,15 +219,28 @@ pub async fn ranked_gather(
     )
     .await?;
 
+    // The probes the trigram half matches, extracted from the composed query.
+    // Derived here rather than passed in so a caller cannot hand the two halves
+    // text that disagrees — the full-text half reads the query, the trigram
+    // half reads what this pulled out of that same query.
+    let probes = probes_of(input.query);
+
     let lexical = lexical_search(
         pool,
         input.query,
+        &probes,
         parties_slice,
         depth_as_limit(input.read_depth),
     )
     .await?;
 
     let lexical_ranked = fuse_lexical(&lexical.full_text, &lexical.trigram);
+    let trigram_hits: usize = lexical.trigram.iter().map(|(_, hits)| hits.len()).sum();
+    let probe_hits: Vec<(String, usize)> = lexical
+        .trigram
+        .iter()
+        .map(|(probe, hits)| (probe.clone(), hits.len()))
+        .collect();
     let retrieved = fuse(&vector_ranked, &lexical_ranked, RRF_K);
 
     // How many of today's pool the reads actually reached, measured BEFORE the
@@ -246,7 +281,11 @@ pub async fn ranked_gather(
         read_depth = input.read_depth,
         vector_hits = vector_ranked.len(),
         full_text_hits = lexical.full_text.len(),
-        trigram_hits = lexical.trigram.len(),
+        trigram_hits,
+        trigram_lists = lexical.trigram.len(),
+        probe_count = probes.len(),
+        probes = ?probes,
+        probe_hits = ?probe_hits,
         subject_only_pool = subject_only_pool.len(),
         unreached_by_reads = unreached,
         ranked = cards.len() - unreached,
@@ -257,7 +296,10 @@ pub async fn ranked_gather(
     Ok(RankedGather {
         vector_hits: vector_ranked.len(),
         full_text_hits: lexical.full_text.len(),
-        trigram_hits: lexical.trigram.len(),
+        trigram_hits,
+        trigram_lists: lexical.trigram.len(),
+        probe_hits,
+        probes,
         read_depth: input.read_depth,
         unreached_by_reads: unreached,
         cards,
@@ -329,14 +371,24 @@ fn depth_as_limit(depth: usize) -> i64 {
     i64::try_from(depth).unwrap_or(i64::MAX)
 }
 
-/// Fuse the two lexical halves into one lexical opinion.
+/// Fuse the lexical halves into one lexical opinion.
+///
+/// The trigram half is now one ranked list PER PROBE, so this fuses
+/// `1 + probes` lists, not two. A card matching three probes outranks one
+/// matching a single probe — probes are independent evidence about the same
+/// card, and agreement between them means what agreement between the two reads
+/// means.
 ///
 /// Returned as bare ids because the caller fuses again: only the ORDER carries
 /// forward, and keeping the intermediate scores would invite someone to add
 /// them to the vector scores, which is exactly the incomparable-magnitudes
 /// mistake reciprocal rank exists to avoid.
-fn fuse_lexical(full_text: &[String], trigram: &[String]) -> Vec<String> {
-    fuse(full_text, trigram, RRF_K)
+fn fuse_lexical(full_text: &[String], trigram: &[(String, Vec<String>)]) -> Vec<String> {
+    let mut lists: Vec<&[String]> = Vec::with_capacity(trigram.len() + 1);
+    lists.push(full_text);
+    lists.extend(trigram.iter().map(|(_, hits)| hits.as_slice()));
+
+    fuse_many(&lists, RRF_K)
         .into_iter()
         .map(|card| card.evidence_id)
         .collect()

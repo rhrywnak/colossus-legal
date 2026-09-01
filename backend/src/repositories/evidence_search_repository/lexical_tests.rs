@@ -22,6 +22,46 @@ fn the_lexical_reads_cannot_write() {
     }
 }
 
+/// ⚑ The trigram half must never regress to `%`.
+///
+/// `%` is `similarity()`, normalised over the union of both trigram sets, so a
+/// short probe against a long text scores ~0.02 and matches nothing at any
+/// threshold. Measured: `quote % '$50,000'` returned 0 against 40 rows that
+/// literally contain it. This is the single most reversible-looking mistake in
+/// the module — the operators differ by one character.
+#[test]
+fn the_trigram_half_does_not_use_the_similarity_operator() {
+    assert!(
+        !TRIGRAM_SQL.contains(" % "),
+        "the bare similarity operator cannot match a short needle in a long haystack"
+    );
+    assert!(
+        !TRIGRAM_SQL.contains("similarity(quote"),
+        "and it must not order by it either"
+    );
+    // Operand order is not symmetric: probe on the left, text on the right.
+    assert!(
+        TRIGRAM_SQL.contains("$1 <% probe_text") && !TRIGRAM_SQL.contains("probe_text <% $1"),
+        "reversed, <% asks whether the TEXT appears in the PROBE"
+    );
+}
+
+/// Both lexical halves search the SAME text, which is what makes their ranks
+/// comparable — full text over the weighted vector, trigram over the flat
+/// concatenation of the same three fields.
+#[test]
+fn both_halves_search_the_same_three_fields() {
+    assert!(FULL_TEXT_SQL.contains("search_vector"));
+    assert!(
+        TRIGRAM_SQL.contains("probe_text"),
+        "quote alone could not answer for the 109 cards whose quote is 'Admitted.'"
+    );
+    assert!(
+        !TRIGRAM_SQL.contains("quote gin_trgm") && !TRIGRAM_SQL.contains(" quote "),
+        "the trigram half no longer reads the quote column directly"
+    );
+}
+
 /// ⚑ Both halves use the operator their index answers.
 ///
 /// This is the difference between a read that uses a GIN index and one that
@@ -35,11 +75,12 @@ fn each_half_uses_the_operator_its_index_answers() {
         "@@ against the generated tsvector is what idx_evidence_search_vector answers"
     );
     assert!(
-        TRIGRAM_SQL.contains("quote % $1"),
-        "% is what idx_evidence_search_quote_trgm answers; similarity() alone is not"
+        TRIGRAM_SQL.contains("$1 <% probe_text"),
+        "<% is what idx_evidence_search_probe_trgm answers, and it is what can find a \
+         SHORT probe inside a LONG text — `%` measured 0 hits where 40 rows matched"
     );
     assert!(
-        TRIGRAM_SQL.contains("similarity(quote, $1) DESC"),
+        TRIGRAM_SQL.contains("word_similarity($1, probe_text) DESC"),
         "and the same measure orders the result"
     );
 }

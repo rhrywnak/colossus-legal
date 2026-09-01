@@ -16,6 +16,7 @@ pub mod embedding_service;
 pub mod embedding_text;
 pub mod evidence_mirror;
 pub mod gather_fusion;
+pub mod gather_probes;
 pub mod gather_query;
 pub mod gather_search;
 pub mod gather_vector;

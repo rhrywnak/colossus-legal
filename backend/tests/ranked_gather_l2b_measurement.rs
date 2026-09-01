@@ -173,7 +173,28 @@ async fn measure(
     println!("  ids admitted by filter: {}", gather.admitted.len());
     println!("  vector read returned  : {}", gather.vector_hits);
     println!("  full-text returned    : {}", gather.full_text_hits);
-    println!("  trigram returned      : {}", gather.trigram_hits);
+    println!(
+        "  PROBES ({:2})           : {}",
+        gather.probes.len(),
+        gather.probes.join("  ")
+    );
+    // Sorted by hit count: the noisiest probe first, because that is the one
+    // capable of drowning the fused ranking, and a bare total cannot name it.
+    let mut by_hits = gather.probe_hits.clone();
+    by_hits.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    println!(
+        "  probe hits (top 6)    : {}",
+        by_hits
+            .iter()
+            .take(6)
+            .map(|(probe, n)| format!("{probe}={n}"))
+            .collect::<Vec<_>>()
+            .join("  ")
+    );
+    println!(
+        "  trigram returned      : {} rows across {} probe(s) that hit",
+        gather.trigram_hits, gather.trigram_lists
+    );
     println!("  read depth (each read): {}", gather.read_depth);
     println!("  RANKED LIST SIZE      : {}", gather.cards.len());
     println!(

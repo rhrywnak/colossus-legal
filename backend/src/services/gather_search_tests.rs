@@ -24,7 +24,10 @@ fn ids(list: &[&str]) -> Vec<String> {
 fn the_lexical_halves_are_one_vote_not_two() {
     // `both-lexical` is rank 1 in BOTH lexical halves and absent from vector.
     // `vector-top` is rank 1 in vector and absent from lexical.
-    let lexical = fuse_lexical(&ids(&["both-lexical"]), &ids(&["both-lexical"]));
+    let lexical = fuse_lexical(
+        &ids(&["both-lexical"]),
+        &[("p".to_string(), ids(&["both-lexical"]))],
+    );
     let nested = fuse(&ids(&["vector-top"]), &lexical, RRF_K);
 
     let scores = |list: &[FusedCard], id: &str| {
@@ -56,7 +59,7 @@ fn the_lexical_halves_are_one_vote_not_two() {
 /// Fusing the halves keeps every card either half found.
 #[test]
 fn the_lexical_fusion_keeps_every_card_either_half_found() {
-    let merged = fuse_lexical(&ids(&["a", "b"]), &ids(&["c", "b"]));
+    let merged = fuse_lexical(&ids(&["a", "b"]), &[("p".to_string(), ids(&["c", "b"]))]);
 
     assert_eq!(merged.len(), 3, "a, b and c all survive");
     assert_eq!(merged[0], "b", "the card both halves found leads");
@@ -157,6 +160,9 @@ fn gather_with(admitted: &[&str], card_ids: &[&str]) -> RankedGather {
         subject_only_pool: Vec::new(),
         conservation_gap: Vec::new(),
         unreached_by_reads: 0,
+        probes: Vec::new(),
+        trigram_lists: 0,
+        probe_hits: Vec::new(),
         filter_mode: GatherSubjectFilter::Widened,
         read_depth: 200,
         vector_hits: card_ids.len(),

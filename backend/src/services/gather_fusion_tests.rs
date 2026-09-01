@@ -312,3 +312,73 @@ fn the_placement_tokens_match_their_serde_spelling() {
         );
     }
 }
+
+// ---------------------------------------------------------------------------
+// N-way fusion — the shape the trigram half actually uses
+// ---------------------------------------------------------------------------
+
+/// ⚑ A card several lists agree on outranks one a single list found.
+///
+/// This is the property that justifies one query PER PROBE instead of one
+/// concatenated trigram query: probes are independent evidence about the same
+/// card, and a card three of them found is a better bet than a card one found.
+#[test]
+fn a_card_several_lists_agree_on_leads() {
+    let one = ids(&["multi"]);
+    let two = ids(&["multi"]);
+    let three = ids(&["single", "multi"]);
+
+    let fused = fuse_many(&[&one, &two, &three], RRF_K);
+
+    assert_eq!(fused[0].evidence_id, "multi", "three lists to one");
+    // 1/61 + 1/61 + 1/62 against a single 1/61.
+    let multi = fused[0].fused_score;
+    let single = fused[1].fused_score;
+    assert!(multi > single * 2.0, "{multi} should far exceed {single}");
+}
+
+/// ⚑ `fuse_many` never sets the named ranks, however many lists it gets.
+///
+/// Those two fields mean "position in the VECTOR read" and "position in the
+/// LEXICAL read". They are a property of which lists were passed, not of how
+/// many, so the general function leaves them alone and [`fuse`] fills them in.
+/// Set inside `fuse_many` on a count test, a future two-list caller would
+/// silently receive fields it never asked for.
+#[test]
+fn fuse_many_never_names_the_two_reads() {
+    let a = ids(&["x"]);
+    let b = ids(&["x", "y"]);
+
+    for lists in [
+        vec![&a[..]],
+        vec![&a[..], &b[..]],
+        vec![&a[..], &b[..], &a[..]],
+    ] {
+        let count = lists.len();
+        for card in fuse_many(&lists, RRF_K) {
+            assert_eq!(card.vector_rank, None, "{count} list(s)");
+            assert_eq!(card.lexical_rank, None, "{count} list(s)");
+            assert!(
+                card.fused_score > 0.0,
+                "but the score is always accumulated"
+            );
+        }
+    }
+}
+
+/// `fuse` — and only `fuse` — names the two reads, by position in each list.
+#[test]
+fn fuse_names_the_two_reads_by_position() {
+    let fused = fuse(&ids(&["a", "shared"]), &ids(&["shared", "b"]), RRF_K);
+
+    let shared = find(&fused, "shared");
+    assert_eq!(shared.vector_rank, Some(2), "second in the vector read");
+    assert_eq!(shared.lexical_rank, Some(1), "first in the lexical read");
+
+    let only_vector = find(&fused, "a");
+    assert_eq!(only_vector.vector_rank, Some(1));
+    assert_eq!(
+        only_vector.lexical_rank, None,
+        "the lexical read never saw it"
+    );
+}
