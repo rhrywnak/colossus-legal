@@ -26,23 +26,6 @@ fn scenario() -> ScenarioQueryInput {
     }
 }
 
-/// Theme alone, and the basis says so.
-///
-/// The state that matters to L2c: a thin pool here is thin because the scenario
-/// has nothing linked, not because the corpus is empty, and the page must be
-/// able to tell a human which.
-#[test]
-fn a_scenario_with_no_allegations_composes_on_theme_alone() {
-    let query = compose_gather_query(&scenario(), &[], &[]);
-
-    assert_eq!(query.text, "Everything downstream flows from one choice.");
-    assert_eq!(query.query_basis, QueryBasis::ThemeOnly);
-    assert_eq!(query.query_basis.as_str(), "theme_only");
-    // Even with nothing linked, the subject is reachable — the widening must
-    // never be a narrowing.
-    assert_eq!(query.reachable_parties, vec!["person-george-phillips"]);
-}
-
 /// Theme then allegations, in the order given.
 #[test]
 fn theme_and_allegations_compose_in_order() {
@@ -251,51 +234,6 @@ fn composing_the_same_scenario_twice_is_byte_identical() {
         ]
     );
     assert_eq!(first, second);
-}
-
-/// ⚑ A scenario with NOTHING — no theme, no allegations — composes an EMPTY
-/// query, and that state is visible rather than dressed up.
-///
-/// L2b must check this before embedding: an empty string embeds to a degenerate
-/// vector that matches arbitrarily, which would fill the pool with noise and
-/// look like a working search. The basis still reads `theme_only`, which is why
-/// `text.is_empty()` — not the basis — is the check that matters.
-#[test]
-fn a_scenario_with_neither_theme_nor_allegations_composes_nothing() {
-    let empty = ScenarioQueryInput {
-        subject: "person-george-phillips".to_string(),
-        theme: None,
-    };
-    let query = compose_gather_query(&empty, &[], &[]);
-
-    assert_eq!(query.text, "", "there was nothing to compose from");
-    assert_eq!(query.query_basis, QueryBasis::ThemeOnly);
-    assert_eq!(
-        query.reachable_parties,
-        vec!["person-george-phillips"],
-        "the subject filter survives even when the query text does not"
-    );
-}
-
-/// The basis tokens are the three the design names, and serde agrees with
-/// `as_str`.
-#[test]
-fn the_basis_tokens_match_their_serde_spelling() {
-    for (basis, token) in [
-        (QueryBasis::ThemeOnly, "theme_only"),
-        (QueryBasis::ThemeAndAllegations, "theme_and_allegations"),
-        (
-            QueryBasis::ThemeAllegationsAndTalkingPoints,
-            "theme_allegations_and_talking_points",
-        ),
-    ] {
-        assert_eq!(basis.as_str(), token);
-        assert_eq!(
-            serde_json::to_value(basis).expect("serializes"),
-            serde_json::json!(token),
-            "as_str and the serde tag must not drift"
-        );
-    }
 }
 
 /// L2a.4 — the composer reproduces the nine allegations G0 froze for S-11.

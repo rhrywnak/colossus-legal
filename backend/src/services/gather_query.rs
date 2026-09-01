@@ -49,17 +49,22 @@ pub struct AllegationForQuery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum QueryBasis {
-    /// No allegations linked, so the theme is all there was to compose from.
+    /// Nothing at all: no theme written, no allegations linked, no talking
+    /// points. The composed `text` is EMPTY.
     ///
-    /// ⚑ It says nothing about whether a theme EXISTS. A scenario with no theme
-    /// written and no allegations linked composes to an EMPTY `text`, and is
-    /// still `theme_only` — because the honest report is still "nothing is
-    /// linked to this scenario". The emptiness is not hidden: it is visible in
-    /// [`GatherQuery::text`], and a caller must check it before embedding,
-    /// since an empty string embeds to a degenerate vector that would match
-    /// arbitrarily. L2b owns that check; this enum does not encode it, because
-    /// the three basis tokens are design vocabulary (§4 Stage 0) and inventing
-    /// a fourth is the architect's call, not this task's.
+    /// ⚑ This is why `theme_only` was not enough. A scenario in this state used
+    /// to report `theme_only`, which reads as though a theme existed and the
+    /// search had simply found little — sending a human to look at the corpus
+    /// when the answer is that nobody has written anything down yet. Those are
+    /// different problems with different fixes, so they are different tokens.
+    ///
+    /// Nothing composed this way can be embedded: see
+    /// [`crate::services::embedding_service`], which refuses an empty text
+    /// rather than returning the degenerate vector one would produce.
+    NoContent,
+    /// A theme, but no allegations linked — so the theme is all there was to
+    /// compose from, and the page should say so rather than presenting a thin
+    /// pool as a finished search.
     ThemeOnly,
     ThemeAndAllegations,
     ThemeAllegationsAndTalkingPoints,
@@ -77,6 +82,7 @@ impl QueryBasis {
     // spelling, and changing one would be a wire break, not a config change.
     pub fn as_str(self) -> &'static str {
         match self {
+            QueryBasis::NoContent => "no_content",
             QueryBasis::ThemeOnly => "theme_only",
             QueryBasis::ThemeAndAllegations => "theme_and_allegations",
             QueryBasis::ThemeAllegationsAndTalkingPoints => "theme_allegations_and_talking_points",
@@ -193,24 +199,51 @@ pub fn compose_gather_query(
         text: pieces.join("\n"),
         subject: scenario.subject.clone(),
         reachable_parties: parties.into_iter().collect(),
-        query_basis: basis_of(allegations, talking_points),
+        query_basis: basis_of(scenario.theme.as_deref(), allegations, talking_points),
     }
 }
 
-/// Which of the three bases this query rests on.
+/// Which of the four bases this query rests on.
 ///
 /// Decided by what was LINKED, not by what produced text: a scenario with a
 /// linked allegation whose text is empty is still `theme_and_allegations`,
 /// because the honest report to a human is "this scenario has allegations and
 /// one of them has no text", not "this scenario has no allegations".
-fn basis_of(allegations: &[AllegationForQuery], talking_points: &[String]) -> QueryBasis {
-    match (allegations.is_empty(), talking_points.is_empty()) {
-        (true, _) => QueryBasis::ThemeOnly,
-        (false, true) => QueryBasis::ThemeAndAllegations,
-        (false, false) => QueryBasis::ThemeAllegationsAndTalkingPoints,
+///
+/// The one exception is [`QueryBasis::NoContent`], which is about what EXISTS
+/// rather than what was linked: nothing was written and nothing was attached,
+/// so there is nothing to compose from and nothing to report but that.
+///
+/// ## Domain note: why `no_content` also checks the talking points
+///
+/// The ruling defined it as "no theme statement written and no allegations
+/// linked". Marie's talking points are a third source of real content, and a
+/// scenario carrying them is not contentless whatever else is missing — so
+/// they are checked too. That is one clause wider than the ruling's words and
+/// narrower than its intent would allow to slip: `no_content` means the
+/// composed text is empty AND nothing was linked, which is the only state the
+/// token can honestly describe.
+fn basis_of(
+    theme: Option<&str>,
+    allegations: &[AllegationForQuery],
+    talking_points: &[String],
+) -> QueryBasis {
+    let has_theme = theme.is_some_and(|t| !t.trim().is_empty());
+    match (has_theme, allegations.is_empty(), talking_points.is_empty()) {
+        (false, true, true) => QueryBasis::NoContent,
+        (_, true, _) => QueryBasis::ThemeOnly,
+        (_, false, true) => QueryBasis::ThemeAndAllegations,
+        (_, false, false) => QueryBasis::ThemeAllegationsAndTalkingPoints,
     }
 }
 
 #[cfg(test)]
 #[path = "gather_query_tests.rs"]
 mod tests;
+
+// Split from `tests` above: the composition cases and the basis cases are two
+// separate subjects, and the one file was at 294 lines with no room left
+// (Rule 17). `#[path]` keeps both out of this module's own line count.
+#[cfg(test)]
+#[path = "gather_query_basis_tests.rs"]
+mod basis_tests;
