@@ -24,6 +24,7 @@ import {
   replaceSubsetEvents,
   undeleteSubset,
   updateSubset,
+  SubsetWriteError,
 } from "../../services/caseTimelineSubsets";
 
 const ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
@@ -223,5 +224,47 @@ describe("every call is bounded by a timeout", () => {
     stubFetch({ ok: true, body: SUBSET });
     await createSubset("n", "d", []);
     expect(calls[0].init?.signal).toBeDefined();
+  });
+});
+
+describe("a refused write carries its parts, not just a sentence (T6.4)", () => {
+  it("throws a SubsetWriteError holding the status and the BARE reason", async () => {
+    // The banner fills a stored template with `{status}` and `{reason}`.
+    // Parsing those back out of the sentence would mean a regex over a string
+    // an editor is allowed to reword, so they travel beside it.
+    stubFetch({ ok: false, status: 422, body: { message: "position 8 has no event id" } });
+    const err = await replaceSubsetEvents(ID, []).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SubsetWriteError);
+    expect((err as SubsetWriteError).status).toBe(422);
+    // BARE: no em-dash, no parentheses, no "HTTP 422" — the template supplies
+    // all of that furniture itself.
+    expect((err as SubsetWriteError).reason).toBe("position 8 has no event id");
+  });
+
+  it("keeps the named sentence on `message`, so every existing catch still works", async () => {
+    // This is a SUBCLASS for exactly this reason: a screen that only ever reads
+    // `err.message` never learns it exists.
+    stubFetch({ ok: false, status: 409, body: { message: "a subset already has that name" } });
+    await expect(updateSubset(ID, "x", "y")).rejects.toThrow(
+      /That subset was not saved \(HTTP 409 — a subset already has that name\)\./,
+    );
+  });
+
+  it("carries an EMPTY reason when the body is not the app's JSON envelope", async () => {
+    // The 422 that started T6: Axum's extractor answers with plain text, so
+    // there is no message to quote and the banner renders the status alone.
+    stubFetch({ ok: false, status: 422, badJson: true });
+    const err = await replaceSubsetEvents(ID, []).catch((e: unknown) => e);
+    expect((err as SubsetWriteError).status).toBe(422);
+    expect((err as SubsetWriteError).reason).toBe("");
+  });
+
+  it("does NOT become one when no server answered at all", async () => {
+    // A timeout has no status. A SubsetWriteError with a made-up 0 in it would
+    // be a lie the banner then printed.
+    stubFetch({ ok: true, throws: new Error("The user aborted a request.") });
+    const err = await replaceSubsetEvents(ID, []).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(SubsetWriteError);
   });
 });

@@ -139,6 +139,54 @@ async function readSubsetJson(path: string, label: string): Promise<unknown> {
  * appended when there is one, which is what carries "a subset with that name is
  * already on this case" to the person who typed it.
  */
+/**
+ * A write that reached a server and was refused, with the parts split out.
+ *
+ * ## ⚑ WHY A CLASS AND NOT A SENTENCE
+ *
+ * Every other failure in this module is an `Error` carrying one named sentence,
+ * and that was enough while every screen did the same thing with it: render it.
+ * The Edit modal's banner (T6.4) does not — it says what SAVED in green and what
+ * did not in red, and the red half is a stored template with `{status}` and
+ * `{reason}` in it. Parsing those back out of the sentence would mean a regex
+ * over a string an editor is allowed to reword, so the parts travel beside it.
+ *
+ * `message` is unchanged and every existing `catch` keeps working: this is a
+ * subclass, so a screen that only ever reads `err.message` never learns it
+ * exists. That is the whole reason it is a subclass and not a new return shape.
+ *
+ * ## Rust Learning: this is the TS shape of a typed error enum
+ *
+ * The Rust half of this codebase answers with `thiserror` enums whose variants
+ * carry the offending field and value (CLAUDE.md §7). TypeScript has no enums
+ * with payloads, so the equivalent is a subclass with fields and an
+ * `instanceof` check at the call site. `readFailure` below is the boundary
+ * where the server's JSON becomes one.
+ *
+ * A failure with NO status — a timeout, a dropped connection — never becomes one
+ * of these. It stays a plain `Error`, because there is no status to carry and a
+ * `SubsetWriteError` with a made-up 0 in it would be a lie the banner then
+ * printed.
+ */
+export class SubsetWriteError extends Error {
+  /** The HTTP status the server answered with. */
+  readonly status: number;
+  /** The server's own message, bare. Empty when the body carried none. */
+  readonly reason: string;
+
+  constructor(message: string, status: number, reason: string) {
+    super(message);
+    // Required for `instanceof` to work on a subclass of a built-in once the
+    // build targets ES5-era output — without it the prototype chain is lost and
+    // every check silently answers false, which is the failure mode this whole
+    // class exists to avoid.
+    Object.setPrototypeOf(this, SubsetWriteError.prototype);
+    this.name = "SubsetWriteError";
+    this.status = status;
+    this.reason = reason;
+  }
+}
+
 async function writeSubset(
   path: string,
   method: "POST" | "PUT" | "DELETE",
@@ -159,7 +207,13 @@ async function writeSubset(
   }
   if (!response.ok) {
     const detail = await readErrorMessage(response);
-    throw new Error(`${action} (HTTP ${response.status}${detail}).`);
+    // The em-dash prefix is `readErrorMessage`'s, for the sentence. The BARE
+    // message is what the honest banner needs (T6.4) — see `SubsetWriteError`.
+    throw new SubsetWriteError(
+      `${action} (HTTP ${response.status}${detail}).`,
+      response.status,
+      detail.replace(/^ — /, ""),
+    );
   }
   let payload: unknown;
   try {

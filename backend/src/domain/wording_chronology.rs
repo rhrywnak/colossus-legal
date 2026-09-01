@@ -289,14 +289,20 @@ pub struct ChronologyWording {
     pub subsets_window_popout_label: String,
     /// The popped-out window's ⇲ control. The mirror of [`Self::subsets_window_popout_label`]; ⇲ returns the story to the page, × puts it away.
     pub subsets_window_popin_label: String,
-    /// The amber pill beside an approximate date. It marks the DATE, not the fact — the event happened; when is unsettled.
-    pub subsets_date_to_confirm_badge: String,
     /// The caption under a month-precision date: the source stated a month, so a day would be fabricated.
     pub subsets_precision_month_label: String,
     /// The mirror of [`Self::subsets_precision_month_label`], for year precision. Edit the two together.
     pub subsets_precision_year_label: String,
     /// The window's divider where a story crosses a phase boundary — "2009 · probate". A bare year when the phase does not change.
     pub subsets_year_phase_divider_template: String,
+
+    // ── The Edit-subset modal (T6) ─────────────────────────────────────────
+    /// The GREEN half of the split banner: what saved when the events did not.
+    pub subsets_saved_name_only_banner: String,
+    /// The RED half. `{status}` and `{reason}` — the server's own sentence.
+    pub subsets_events_not_saved_banner_template: String,
+    /// The accessible name of the ⠿ grip. The glyph says nothing aloud.
+    pub subsets_modal_drag_label: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -424,10 +430,14 @@ pub fn build_chronology_wording<E>(
         subsets_window_loading_label: read(KEY_SUBSETS_WINDOW_LOADING_LABEL)?,
         subsets_window_popout_label: read(KEY_SUBSETS_WINDOW_POPOUT_LABEL)?,
         subsets_window_popin_label: read(KEY_SUBSETS_WINDOW_POPIN_LABEL)?,
-        subsets_date_to_confirm_badge: read(KEY_SUBSETS_DATE_TO_CONFIRM_BADGE)?,
         subsets_precision_month_label: read(KEY_SUBSETS_PRECISION_MONTH_LABEL)?,
         subsets_precision_year_label: read(KEY_SUBSETS_PRECISION_YEAR_LABEL)?,
         subsets_year_phase_divider_template: read(KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE)?,
+        subsets_saved_name_only_banner: read(KEY_SUBSETS_SAVED_NAME_ONLY_BANNER)?,
+        subsets_events_not_saved_banner_template: read(
+            KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
+        )?,
+        subsets_modal_drag_label: read(KEY_SUBSETS_MODAL_DRAG_LABEL)?,
     })
 }
 

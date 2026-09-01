@@ -36,7 +36,8 @@ use axum::{
 
 use crate::auth::AuthUser;
 use crate::dto::chronology_subset::{
-    CreateSubsetRequest, SubsetDetailDto, SubsetEventRef, UpdateSubsetRequest,
+    CreateSubsetRequest, ReplaceSubsetEventsRequest, SubsetDetailDto, SubsetEventRef,
+    UpdateSubsetRequest,
 };
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::chronology_subsets::live_subset_named;
@@ -148,18 +149,22 @@ pub async fn put_subset(
 /// 400 when the id is not a UUID, or an event or a position is listed twice; 404
 /// when there is no such subset; 409 when it is deleted; 422 naming the first
 /// event id that is not in this case; 500 for a database failure.
+///
+/// ⚑ The body is `{"events": [...]}`, not a bare array. It took a bare
+/// `Vec<SubsetEventRef>` until 2026-08-31, which no client ever sent — see
+/// `ReplaceSubsetEventsRequest` for the whole of that story.
 #[tracing::instrument(skip(state, user, body), fields(by = %user.username, subset_id = %id))]
 pub async fn put_subset_events(
     user: AuthUser,
     State(state): State<AppState>,
     Path(id): Path<String>,
-    Json(body): Json<Vec<SubsetEventRef>>,
+    Json(body): Json<ReplaceSubsetEventsRequest>,
 ) -> Result<Json<SubsetDetailDto>, AppError> {
     let subset_id = parse_subset_id(&id)?;
     let writer = open_write(&user);
     let existing =
         require_subset(&state, subset_id, "the subset whose events are being set").await?;
-    let events = validated_events(&state, &existing.case_slug, &body).await?;
+    let events = validated_events(&state, &existing.case_slug, &body.events).await?;
 
     let written = subset_write::replace_events(&state.pipeline_pool, subset_id, &events, &writer)
         .await

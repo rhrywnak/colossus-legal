@@ -16,7 +16,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { softTint } from "../windowStyles";
+import { eventDate, eventDateCaption, softTint } from "../windowStyles";
 
 describe("softTint — the pale ground under a tag pill", () => {
   it("converts a full #rrggbb, which is what the tag table actually holds", () => {
@@ -75,5 +75,53 @@ describe("softTint — the pale ground under a tag pill", () => {
     // An empty colour column. The pill renders with no background, which is the
     // honest rendering of "this tag has no colour".
     expect(softTint("", 0.14)).toBe("");
+  });
+});
+
+
+// -----------------------------------------------------------------------------
+// The date column — the one piece of geometry that DID need a test
+// -----------------------------------------------------------------------------
+
+describe("the date caption stays inside its column", () => {
+  // ⚑ The exception to "geometry does not get a test", and it earned it.
+  //
+  // The caption declared `white-space: nowrap` and inherited another from
+  // `eventDate`. On a plain row that is invisible — "2009" is 30px of text in
+  // an 85px box. On a month- or year-precision approximate row it becomes
+  // "2009 · month · approx.", which needs 130px, and because the column also
+  // has `overflow: visible` the surplus 45px was PAINTED ACROSS the event
+  // title. One row of fifteen on "The $50,000", shipped since T4, and it
+  // survived a REPRODUCED/DEVIATED pass because the measurement used to check
+  // it — `getBoundingClientRect()` — returns the box and not the paint.
+  //
+  // These assert the three declarations that decide it. They cannot prove the
+  // wrap looks right; the measured table and the screenshot in the T6 report
+  // are what know that.
+
+  it("lets the caption wrap rather than overflow", () => {
+    expect(eventDateCaption.whiteSpace).toBe("normal");
+  });
+
+  it("breaks a word that cannot fit even alone", () => {
+    // Nothing in the store needs this today — "approx." is 40px in an 85px box
+    // — but the caption is two stored rows joined by a dot, and a reworded one
+    // is a single migration away. Measured live against a 26-character token:
+    // it wraps to three lines instead of overflowing.
+    expect(eventDateCaption.overflowWrap).toBe("break-word");
+  });
+
+  it("keeps the second line cheap", () => {
+    // 1.15 rather than the default: the wrapped row costs 13px, not 20, and
+    // rows here already vary by several lines of fact text.
+    expect(eventDateCaption.lineHeight).toBe(1.15);
+  });
+
+  it("leaves the DAY line above it on ONE line, always", () => {
+    // "~ May 3" broken across two lines would be a different and worse defect
+    // than the one the wrap fixes. Measured live: every one of the fifteen
+    // leads is a single line box, the widest 53px in an 85px column.
+    expect(eventDate("#059669", true).whiteSpace).toBe("nowrap");
+    expect(eventDate("#059669", false).whiteSpace).toBe("nowrap");
   });
 });

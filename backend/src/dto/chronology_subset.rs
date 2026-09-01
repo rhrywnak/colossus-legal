@@ -222,6 +222,38 @@ pub struct UpdateSubsetRequest {
     pub description: Option<String>,
 }
 
+/// REPLACE a subset's ordered event set. `PUT /api/timeline/subsets/:id/events`.
+///
+/// ## ⚑ THIS STRUCT IS THE FIX FOR THE 422, AND WHY IT IS A STRUCT
+///
+/// The handler took `Json<Vec<SubsetEventRef>>` — a BARE TOP-LEVEL ARRAY —
+/// while every client sent `{"events": [...]}`. Axum's `Json` extractor refused
+/// the map before any handler code ran, with
+///
+///   422 "Failed to deserialize the JSON body into the target type:
+///        invalid type: map, expected a sequence at line 1 column 0"
+///
+/// which meant the endpoint had NEVER worked: no save of the picker, of any
+/// shape, had ever reached the database. It surfaced as a rename bug only
+/// because a rename makes the first call succeed, so the reader sees half a save.
+///
+/// The envelope wins rather than the array, for three reasons. It is what every
+/// other request in this module already is — `CreateSubsetRequest`,
+/// `UpdateSubsetRequest` and `AttachSubsetRequest` are all named structs with
+/// `deny_unknown_fields`, and `CreateSubsetRequest` already carries an `events`
+/// field of the same name and element type. A bare top-level array cannot gain a
+/// sibling field later without breaking every client. And there was no
+/// compatibility cost either way, because nothing had ever successfully called
+/// this endpoint.
+// serde: deny_unknown_fields — a request, not a stored row.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReplaceSubsetEventsRequest {
+    /// The COMPLETE ordered set. T1's replace semantics: one human act, one
+    /// write, one history row — never a per-row add or remove.
+    pub events: Vec<SubsetEventRef>,
+}
+
 /// Attach one subset to a scenario.
 /// `POST /api/cases/:slug/scenarios/:scenario_id/subsets`.
 // serde: deny_unknown_fields — a request, not a stored row.
@@ -229,4 +261,75 @@ pub struct UpdateSubsetRequest {
 #[serde(deny_unknown_fields)]
 pub struct AttachSubsetRequest {
     pub subset_id: Uuid,
+}
+
+#[cfg(test)]
+mod wire_contract_tests {
+    use super::*;
+
+    /// ⚑ THE GUARD FOR THE DEFECT THAT COST T6 ITS FIRST HOUR.
+    ///
+    /// `PUT /api/timeline/subsets/:id/events` took a bare `Vec<SubsetEventRef>`
+    /// while every client sent `{"events": [...]}`. Axum refused the map with a
+    /// 422 before the handler ran, so the endpoint had NEVER worked — no save of
+    /// the picker had ever reached the database.
+    ///
+    /// It survived because BOTH SIDES WERE TESTED AND NEITHER TEST CROSSED THE
+    /// WIRE. `caseTimelineSubsets.test.ts` stubs `fetch` and asserts the body it
+    /// sent has an `events` array; the Rust tests construct the handler's input
+    /// as a Rust value. Each was green about a different contract.
+    ///
+    /// So this test does the one thing neither did: it deserializes the EXACT
+    /// BYTES the frontend sends. If `replaceSubsetEvents` changes shape, or this
+    /// struct does, one of them fails here rather than in front of Roman.
+    #[test]
+    fn the_events_request_parses_the_exact_body_the_frontend_sends() {
+        // Copied verbatim from the harness capture on 2026-08-31, trimmed to two
+        // refs. The full 15-ref body differs only in length.
+        let body = r#"{"events":[{"event_id":"526cb85f-6c05-4b5a-a4cc-37ee278f5b02","position":1},{"event_id":"bdd7c5ba-b1aa-43d2-99f1-46f819d396db","position":2}]}"#;
+
+        let parsed: ReplaceSubsetEventsRequest =
+            serde_json::from_str(body).expect("the body the frontend actually sends must parse");
+
+        assert_eq!(parsed.events.len(), 2);
+        assert_eq!(parsed.events[0].position, 1);
+        assert_eq!(
+            parsed.events[0].event_id.to_string(),
+            "526cb85f-6c05-4b5a-a4cc-37ee278f5b02"
+        );
+    }
+
+    /// A note rides through, because the picker sends one when an author wrote one.
+    #[test]
+    fn a_ref_carries_its_note() {
+        let body = r#"{"events":[{"event_id":"526cb85f-6c05-4b5a-a4cc-37ee278f5b02","position":1,"note":"the handoff"}]}"#;
+        let parsed: ReplaceSubsetEventsRequest = serde_json::from_str(body).expect("parses");
+        assert_eq!(parsed.events[0].note.as_deref(), Some("the handoff"));
+    }
+
+    /// The BARE ARRAY is refused now, which is the shape that used to be required.
+    ///
+    /// Asserted so nobody "restores" it: a client sending the old shape gets a
+    /// clean refusal rather than silently writing through a second accepted form.
+    #[test]
+    fn a_bare_array_is_no_longer_accepted() {
+        let body = r#"[{"event_id":"526cb85f-6c05-4b5a-a4cc-37ee278f5b02","position":1}]"#;
+        assert!(serde_json::from_str::<ReplaceSubsetEventsRequest>(body).is_err());
+    }
+
+    /// An empty set is legal: clearing a story is a thing an author does.
+    #[test]
+    fn an_empty_set_is_legal() {
+        let parsed: ReplaceSubsetEventsRequest =
+            serde_json::from_str(r#"{"events":[]}"#).expect("parses");
+        assert!(parsed.events.is_empty());
+    }
+
+    /// `deny_unknown_fields` holds, so a typo'd field is a refusal and not a
+    /// silently ignored half-request.
+    #[test]
+    fn an_unknown_field_is_refused() {
+        let body = r#"{"events":[],"evnets":[]}"#;
+        assert!(serde_json::from_str::<ReplaceSubsetEventsRequest>(body).is_err());
+    }
 }

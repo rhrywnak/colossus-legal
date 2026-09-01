@@ -135,17 +135,30 @@ pub(crate) const KEY_SUBSETS_GAP_BADGE_LABEL: &str = "chronology_subsets_gap_bad
 pub(crate) const KEY_SUBSETS_WINDOW_LOADING_LABEL: &str = "chronology_subsets_window_loading_label";
 
 // Timeline subsets, task 4 (2026-08-31): the redrawn row and Pop out. Two aria
-// rows for glyphs that say nothing on their own, the badge on an unsettled
-// date, the two precision captions under it, and the cross-phase divider.
+// rows for glyphs that say nothing on their own, the two precision captions
+// under an approximate date, and the cross-phase divider.
+//
+// ⚑ KEY_SUBSETS_DATE_TO_CONFIRM_BADGE was here — "the badge on an unsettled
+// date" — and is RETIRED (Roman's ruling, 2026-08-31, reversing his own T4
+// call). It could only read `approximate`, so it claimed four of the case's
+// thirty-one events needed a date confirmed. The two precision captions below
+// SURVIVE it: they say the source stated a month or a year, which is true.
 pub(crate) const KEY_SUBSETS_WINDOW_POPOUT_LABEL: &str = "chronology_subsets_window_popout_label";
 pub(crate) const KEY_SUBSETS_WINDOW_POPIN_LABEL: &str = "chronology_subsets_window_popin_label";
-pub(crate) const KEY_SUBSETS_DATE_TO_CONFIRM_BADGE: &str =
-    "chronology_subsets_date_to_confirm_badge";
 pub(crate) const KEY_SUBSETS_PRECISION_MONTH_LABEL: &str =
     "chronology_subsets_precision_month_label";
 pub(crate) const KEY_SUBSETS_PRECISION_YEAR_LABEL: &str = "chronology_subsets_precision_year_label";
 pub(crate) const KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE: &str =
     "chronology_subsets_year_phase_divider_template";
+
+// Timeline subsets, task 6 (2026-08-31): the Edit modal's honest banner and its
+// drag handle. The two banner halves exist because the old one said "That change
+// was not saved" when half of it had been.
+pub(crate) const KEY_SUBSETS_SAVED_NAME_ONLY_BANNER: &str =
+    "chronology_subsets_saved_name_only_banner";
+pub(crate) const KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE: &str =
+    "chronology_subsets_events_not_saved_banner_template";
+pub(crate) const KEY_SUBSETS_MODAL_DRAG_LABEL: &str = "chronology_subsets_modal_drag_label";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -251,8 +264,11 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     // Timeline subsets, task 4.
     KEY_SUBSETS_WINDOW_POPOUT_LABEL,
     KEY_SUBSETS_WINDOW_POPIN_LABEL,
-    KEY_SUBSETS_DATE_TO_CONFIRM_BADGE,
     KEY_SUBSETS_PRECISION_MONTH_LABEL,
     KEY_SUBSETS_PRECISION_YEAR_LABEL,
     KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE,
+    // Timeline subsets, task 6.
+    KEY_SUBSETS_SAVED_NAME_ONLY_BANNER,
+    KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
+    KEY_SUBSETS_MODAL_DRAG_LABEL,
 ];

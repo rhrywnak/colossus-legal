@@ -229,14 +229,45 @@ export function eventDate(tagColor: string, approximate: boolean): CSSProperties
   };
 }
 
-/** Mockup `.fev .d small`: the year, and the ONLY muted text in the column. */
+/**
+ * Mockup `.fev .d small`: the year, and the ONLY muted text in the column.
+ *
+ * ## ⚑ IT WRAPS, AND IT USED TO PAINT OVER THE EVENT TITLE
+ *
+ * This line inherits `nowrap` from [`eventDate`] and, until 2026-08-31, also
+ * declared its own. On a plain row that is right — "2009" is 85px of box
+ * holding 30px of text and nothing can overflow. On a month- or
+ * year-precision approximate row the line becomes "2009 · month · approx.",
+ * which needs 130px in an 85px content box, and because the column also has
+ * `overflow: visible` the surplus 45px was PAINTED ACROSS the event title.
+ * Measured on "The $50,000": one row of fifteen, `scrollWidth 130` against
+ * `clientWidth 85`.
+ *
+ * `white-space: normal` lets it break at the middle dots it already contains,
+ * so the caption takes a second line inside its own column instead of leaving
+ * it. The column stays 96px — the mockup drew 96 — and the row simply gets
+ * taller, which rows here already do: the fact paragraph beside them is one to
+ * eight lines depending on the event.
+ *
+ * `overflow-wrap: break-word` is the guard for a token that cannot fit even
+ * alone. Nothing in the store needs it today ("approx." is 40px), but a
+ * reworded caption is one migration away and a single long word would put the
+ * overflow straight back.
+ *
+ * `line-height: 1.15` is tighter than the default so the second line costs the
+ * row 13px rather than 20. The DAY line above keeps `nowrap` from
+ * [`eventDate`]: "~ May 3" broken across two lines would be a different and
+ * worse defect than the one this fixes.
+ */
 export const eventDateCaption: CSSProperties = {
   display: "block",
   fontSize: "0.69rem",
   fontWeight: 600,
   color: "var(--text-muted)",
   letterSpacing: "0.02em",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal",
+  overflowWrap: "break-word",
+  lineHeight: 1.15,
 };
 
 /**
@@ -315,24 +346,14 @@ export const eventFact: CSSProperties = {
   color: "var(--text-secondary)",
 };
 
-/**
- * Mockup `.fev .flag`: the amber "date to confirm" pill.
- *
- * A FILLED pill, where `gapBadge` below is an outlined one — the two mark
- * different facts and appear on the same row, so they must not be mistakable
- * for one another. This one says the DATE is unsettled; that one says the EVENT
- * is gone from the chronology.
- */
-export const dateFlag: CSSProperties = {
-  display: "inline-block",
-  fontSize: "0.66rem",
-  fontWeight: 700,
-  color: "var(--burden-warning-text)",
-  background: "var(--burden-warning-bg)",
-  borderRadius: "999px",
-  padding: "0.05rem 0.5rem",
-  marginLeft: "0.375rem",
-};
+// ⚑ `dateFlag` — the mockup's `.fev .flag`, the amber "date to confirm" pill —
+// was here and is REMOVED with the badge it dressed (Roman's ruling,
+// 2026-08-31). The style went rather than being left unused: unlike
+// `isDateToConfirm`, which he instructed be kept because a real column will
+// call it, a pill nothing renders is just a pill nothing renders. `gapBadge`
+// below is the one that remains, and it now has the row to itself — the two
+// used to sit side by side and were deliberately drawn unalike, one filled and
+// one outlined, so nobody read "the date is unsettled" as "the event is gone".
 
 /** Mockup `.gap .badge`: the amber "not on the chronology" pill. */
 export const gapBadge: CSSProperties = {

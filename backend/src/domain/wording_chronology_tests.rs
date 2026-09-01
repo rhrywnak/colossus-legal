@@ -35,6 +35,10 @@ const SEED_MIGRATIONS: &[&str] = &[
     // Attach…" row — comes off every view page. Named here so a reader looking
     // for where they went has the file.
     "pipeline_migrations/20260831134354_t5_scenario_strip_and_edit_subsets_wording.sql",
+    // Task 6 (2026-08-31): the Edit modal's banner and drag handle.
+    "pipeline_migrations/20260831151742_t6_subset_modal_wording.sql",
+    // Round two (2026-08-31): the hint corrected, the ⚑ badge retired.
+    "pipeline_migrations/20260831155823_t6r2_picker_hint_truth_and_badge_retirement.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -148,10 +152,16 @@ const TEST_SEED: &[(&str, &str)] = &[
     // Timeline subsets, task 4, seeded by the sixth migration named above.
     (KEY_SUBSETS_WINDOW_POPOUT_LABEL, "Pop out to its own window"),
     (KEY_SUBSETS_WINDOW_POPIN_LABEL, "Back into the page"),
-    (KEY_SUBSETS_DATE_TO_CONFIRM_BADGE, "date to confirm"),
     (KEY_SUBSETS_PRECISION_MONTH_LABEL, "month · approx."),
     (KEY_SUBSETS_PRECISION_YEAR_LABEL, "year · approx."),
     (KEY_SUBSETS_YEAR_PHASE_DIVIDER_TEMPLATE, "{year} · {phase}"),
+    // Timeline subsets, task 6.
+    (KEY_SUBSETS_SAVED_NAME_ONLY_BANNER, "Name and description saved."),
+    (
+        KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
+        "The event list was not saved — the server refused it (HTTP {status}: {reason}). Fix and Save again; nothing you picked has been lost.",
+    ),
+    (KEY_SUBSETS_MODAL_DRAG_LABEL, "Drag to move"),
 ];
 
 impl ChronologyWording {

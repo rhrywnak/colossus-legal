@@ -22,73 +22,60 @@ import { cw, fill } from "../../services/caseTimeline";
 import type { SubsetEvent } from "../../services/caseTimelineSubsets";
 
 /**
- * Does this row carry the amber "date to confirm" badge?
+ * Is this a date somebody must go and confirm?
  *
- * ## ⚑ `approximate` ALONE, and this is a recorded decision rather than a guess
+ * ## ⚑ NOTHING RENDERS THIS TODAY, AND THAT IS DELIBERATE
  *
- * The mockup badges the Milster handoff because Roman entered that date from
- * recollection. NOTHING IN THE DATA SAYS SO. Measured against DEV on
- * 2026-08-31: no `chronology_events` row carries "to confirm" in its fact, no
+ * It had one caller — the window's ⚑ badge, and later the picker's — and Roman
+ * retired both on 2026-08-31, reversing the T4 ruling that created them. The
+ * reason is worth keeping beside the function, because the function is the
+ * thing that would have to change:
+ *
+ * The badge was to mark a date entered from RECOLLECTION — the Milster handoff.
+ * Nothing in the data records that. Measured against DEV on 2026-08-31: no
+ * `chronology_events` row carries "to confirm" in its fact, no
  * `chronology_event_links` row carries it in a label or a pinpoint, and
- * `attributes` holds only `tags` and legacy `source`/`source_id`. There is no
- * flag to read.
+ * `attributes` holds only `tags` and legacy `source`/`source_id`. So T4 badged
+ * the nearest thing the data does know, `approximate`, and on "The $50,000"
+ * that happened to be exactly the two rows the mockup marks.
  *
- * The instruction's own fallback is what this implements, and it is the right
- * one: string-matching "to confirm" inside a fact would make a BADGE — a claim
- * about the reliability of a date, in a story that gets quoted into a brief —
- * depend on prose somebody might reword tomorrow. A badge that appears and
- * disappears when an author fixes a typo is worse than no badge.
+ * T6.2 put the same badge on the picker, which draws the WHOLE chronology, and
+ * the cost showed: four of thirty-one events wore "date to confirm", two of
+ * which nobody has ever flagged. A badge that makes a false claim about the
+ * record is worse than no badge.
  *
- * So the badge marks what the data actually knows: the date is approximate.
- * On "The $50,000" that is exactly the two rows the mockup marks. A first-class
- * "date to confirm" flag on the event is the proper fix and is filed under
- * NEEDS A RULING in the T4 report; when it exists, this function is the ONE
- * place that changes.
+ * It is KEPT, unrendered and tested, on Roman's instruction: when a real
+ * "date to confirm" column lands on `chronology_events`, this is the ONE place
+ * that changes, and the two surfaces get it back together or not at all. A
+ * function nobody calls is normally something to delete — this one is a
+ * recorded decision with a named successor, which is the exception.
  */
 export function isDateToConfirm(event: TimelineEvent): boolean {
   return event.approximate;
 }
 
 /**
- * How many rows carry the ⚑ — the footer's second number.
+ * The footer's right-hand line — "15 events".
  *
- * Counts LIVE rows only. A row whose event was soft-deleted off the chronology
- * is already marked as a gap and is not a date anybody can go and confirm, so
- * counting it here would inflate a number the reader is being asked to act on.
- */
-export function flagCount(rows: SubsetEvent[]): number {
-  return rows.filter((row) => !row.removed && isDateToConfirm(row.event)).length;
-}
-
-/**
- * The footer's right-hand line — "15 events", or "15 events · 2 ⚑".
+ * ## The "· n ⚑" half is GONE (Roman's ruling, 2026-08-31)
  *
- * ## ⚑ WHY THE WORDS ARE A ROW AND THE GLYPH IS NOT
+ * T4 built this to read "15 events · 2 ⚑". The second number counted rows whose
+ * date was `approximate`, wearing a glyph that claims somebody must confirm
+ * them — see [`isDateToConfirm`] for why that claim was not one the data could
+ * make. The count went with the badge.
+ *
+ * ## Why the words are still a row and the count still is not
  *
  * `subsets_window_footer_events_template` carries "{count} events" because
  * "events" is a word: an editor might make it "dates", a translator would
- * certainly change it. The " · {n} ⚑" that may follow is a middle dot, a
- * number and a glyph — there is nothing in it to edit and nothing to
- * translate. That is the same split the title bar already makes, where ⧉ ⇲ –
- * and × live in code and their accessible NAMES are stored rows.
- *
- * ## The suffix is DROPPED at zero, not rendered as "· 0 ⚑"
- *
- * A zero here is not information. "15 events · 0 ⚑" invites the reader to work
- * out what the symbol would have meant if there had been any, on every story
- * that has none — which is most of them. When there is nothing to flag the
- * footer simply says how many events there are.
+ * certainly change it. The number is a number.
  *
  * `count` is every reference the subset holds, gaps included — the SAME number
  * the title bar shows. Two different counts of one story on one window is how a
  * reader stops trusting either.
  */
 export function footerLine(rows: SubsetEvent[], wording: ChronologyWording): string {
-  const events = fill(cw(wording, "subsets_window_footer_events_template"), {
-    count: rows.length,
-  });
-  const flags = flagCount(rows);
-  return flags === 0 ? events : `${events} · ${flags} ⚑`;
+  return fill(cw(wording, "subsets_window_footer_events_template"), { count: rows.length });
 }
 
 /** The four-digit year an event belongs to, straight off the stored ISO date. */

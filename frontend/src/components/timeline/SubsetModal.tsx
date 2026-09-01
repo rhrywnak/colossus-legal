@@ -21,6 +21,14 @@
 // A picker that hid unpicked events would be a list of the answer rather than a
 // list of the choice.
 //
+// ## The box moves, and it never opens jammed (T6.3, defect D7)
+//
+// It used to be a flex-centred div in a fixed scrim, which put its top edge
+// under the app header at some viewport heights and its Save button below the
+// fold at others. It is now an `Rnd` at a computed centre, 48px down, capped at
+// `100vh - 96px`, dragged BY ITS TITLE BAR only — a box draggable by its body
+// cannot have a scrolling body, which this one does.
+//
 // ## The gaps a save must not eat
 //
 // A subset can reference an event since soft-deleted on the chronology. The
@@ -31,6 +39,7 @@
 // they merely dropped from the screen, the first Edit would delete them.
 
 import React, { useMemo, useState } from "react";
+import { Rnd } from "react-rnd";
 
 import type {
   ChronologyWording,
@@ -39,7 +48,9 @@ import type {
 } from "../../services/caseTimeline";
 import { cw, fill } from "../../services/caseTimeline";
 import type { SubsetDetail } from "../../services/caseTimelineSubsets";
+import { dateCell } from "./pickerDateCell";
 import * as m from "./subsetModalStyles";
+import { bannerModel, type SaveFailure } from "./subsetSaveModel";
 import {
   gapCount,
   initialPicks,
@@ -57,6 +68,18 @@ import {
 import { groupByPhase } from "./timelineFilters";
 import * as w from "./timelineWriteStyles";
 
+/**
+ * The class `react-rnd` matches to decide whether a pointer-down starts a drag.
+ *
+ * STRUCTURAL: API wire vocabulary for `react-rnd`, not a setting. The library
+ * matches this string against the element a pointer-down landed on; it must be
+ * identical in the two places it appears or the box silently stops being
+ * draggable, and there is nothing about it a deployment could legitimately
+ * change.
+ */
+// STRUCTURAL: see above — a library-read identifier, never a tunable.
+const DRAG_HANDLE_CLASS = "subset-modal-bar";
+
 type Props = {
   /** The subset being edited, or null when creating one. */
   subset: SubsetDetail | null;
@@ -65,8 +88,11 @@ type Props = {
   phases: TimelinePhase[];
   wording: ChronologyWording;
   saving: boolean;
-  /** A failed write, already a sentence. Rendered, never swallowed. */
-  error: string | null;
+  /**
+   * A save that did not fully land. Rendered as the split banner, never
+   * swallowed. `null` while nothing has failed.
+   */
+  failure: SaveFailure | null;
   onSave: (name: string, description: string, picks: Pick[]) => void;
   onCancel: () => void;
   /** Absent when creating — there is nothing to delete yet. */
@@ -79,7 +105,7 @@ const SubsetModal: React.FC<Props> = ({
   phases,
   wording,
   saving,
-  error,
+  failure,
   onSave,
   onCancel,
   onDelete,
@@ -111,6 +137,10 @@ const SubsetModal: React.FC<Props> = ({
   const renderRow = (event: TimelineEvent, removed: boolean) => {
     const on = isPicked(picks, event.id);
     const at = positionOf(picks, event.id);
+    // The timeline page's own format, plus the caption and the amber decision.
+    // Every one of those is decided in `pickerDateCell.ts`, where a test can
+    // reach it — see the note at the top of that module.
+    const date = dateCell(event, wording);
     return (
       <div key={event.id} style={m.pickRow(on)}>
         <input
@@ -166,7 +196,17 @@ const SubsetModal: React.FC<Props> = ({
             </>
           )}
         </span>
-        <span style={m.pickDate}>{event.event_date}</span>
+        {/* ⚑ READ-ONLY, and the fence in `subsetModalStyles.test.ts` keeps it
+            that way. A subset never edits an event: it is a list of REFERENCES
+            to events that already exist, so a date input here would be an edit
+            control for something this screen does not own — and, before T6.2,
+            one that showed "2009-04-01" for a source that said only "April
+            2009". The only controls in a row are the checkbox, the ▲▼ and the
+            note. */}
+        <span style={m.pickDate(date.approximate)}>
+          {date.text}
+          {date.caption !== "" && <i style={m.pickDateCaption}>{date.caption}</i>}
+        </span>
         <span style={removed ? m.removedTitle : m.pickTitle}>
           {event.title}
           {removed && (
@@ -185,10 +225,44 @@ const SubsetModal: React.FC<Props> = ({
     );
   };
 
+  // Centred once, at open, and NOT persisted — a modal reopens centred (T6.3).
+  // Computed in a state initialiser rather than an effect so the box is drawn in
+  // the right place on its first paint instead of jumping there afterwards.
+  const [origin] = useState(() => ({
+    x: Math.max(0, Math.round((window.innerWidth - m.MODAL_WIDTH) / 2)),
+    y: m.MODAL_TOP,
+  }));
+
+  const banner = failure === null ? null : bannerModel(wording, failure);
+
   return (
     <div style={m.scrim} role="dialog" aria-modal="true">
+      <Rnd
+        default={{ ...origin, width: m.MODAL_WIDTH, height: "auto" }}
+        // Kept inside the browser window, so a drag cannot park the Save button
+        // off-screen — which is the defect this whole section exists to close.
+        bounds="window"
+        // A dialog is not resizable: its width is the drawing's and its height
+        // is whatever its content needs up to the cap. Resize handles here would
+        // also fight the `max-height` that keeps the footer on screen.
+        enableResizing={false}
+        // ⚑ Drag by the TITLE BAR only. `react-rnd` matches this against the
+        // class on the element the pointer went down on, which is why the bar
+        // carries a plain class name and not a style object: the buttons and
+        // inputs inside it do not carry it, so they stay clickable.
+        dragHandleClassName={DRAG_HANDLE_CLASS}
+        style={{ zIndex: m.MODAL_Z_INDEX, display: "flex" }}
+      >
       <div style={m.box}>
-        <div style={m.head}>
+        <div style={m.head} className={DRAG_HANDLE_CLASS}>
+          {/* The grip is furniture with no accessible name of its own, so it
+              carries the stored one — the same rule the window's ⧉ ⇲ – × and
+              the order arrows' ▲▼ follow. `aria-hidden` is NOT set: the title
+              is what a pointer user reads on hover and what a screen-reader
+              user is told the bar is for. */}
+          <span style={m.grip} title={cw(wording, "subsets_modal_drag_label")}>
+            ⠿
+          </span>
           {/* Two calls and not one with a ternary inside: the reach guard reads
               the FIRST literal of a call, so a conditional key would leave the
               other invisible to it — declared, requested, and unguarded. */}
@@ -199,6 +273,18 @@ const SubsetModal: React.FC<Props> = ({
           </h3>
           <span style={m.pill}>{gapsLine === null ? pickedLine : `${pickedLine} · ${gapsLine}`}</span>
         </div>
+
+        {/* ⚑ THE BANNER TELLS THE TRUTH IN HALVES (T6.4, defect D2).
+            One box: what saved, then what did not and why. The modal stays open
+            behind it holding every pick and every note, which is what makes
+            "nothing you picked has been lost" a true statement about the screen
+            the reader is looking at rather than a hopeful one. */}
+        {banner !== null && (
+          <div style={m.banner} role="alert">
+            {banner.saved !== null && <span style={m.bannerSaved}>{banner.saved}</span>}
+            {banner.failed}
+          </div>
+        )}
 
         <div style={m.form}>
           <div>
@@ -259,12 +345,6 @@ const SubsetModal: React.FC<Props> = ({
           ))}
         </div>
 
-        {error !== null && (
-          <div style={w.writeError}>
-            {fill(cw(wording, "write_failed_template"), { reason: error })}
-          </div>
-        )}
-
         <div style={m.foot}>
           {tooLong !== null && <span style={m.sizeWarning}>{tooLong}</span>}
           {/* The running count is always shown, as mocked — the size sentence
@@ -289,6 +369,7 @@ const SubsetModal: React.FC<Props> = ({
           </button>
         </div>
       </div>
+      </Rnd>
     </div>
   );
 };
