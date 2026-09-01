@@ -229,14 +229,45 @@ export function eventDate(tagColor: string, approximate: boolean): CSSProperties
   };
 }
 
-/** Mockup `.fev .d small`: the year, and the ONLY muted text in the column. */
+/**
+ * Mockup `.fev .d small`: the year, and the ONLY muted text in the column.
+ *
+ * ## ⚑ IT WRAPS, AND IT USED TO PAINT OVER THE EVENT TITLE
+ *
+ * This line inherits `nowrap` from [`eventDate`] and, until 2026-08-31, also
+ * declared its own. On a plain row that is right — "2009" is 85px of box
+ * holding 30px of text and nothing can overflow. On a month- or
+ * year-precision approximate row the line becomes "2009 · month · approx.",
+ * which needs 130px in an 85px content box, and because the column also has
+ * `overflow: visible` the surplus 45px was PAINTED ACROSS the event title.
+ * Measured on "The $50,000": one row of fifteen, `scrollWidth 130` against
+ * `clientWidth 85`.
+ *
+ * `white-space: normal` lets it break at the middle dots it already contains,
+ * so the caption takes a second line inside its own column instead of leaving
+ * it. The column stays 96px — the mockup drew 96 — and the row simply gets
+ * taller, which rows here already do: the fact paragraph beside them is one to
+ * eight lines depending on the event.
+ *
+ * `overflow-wrap: break-word` is the guard for a token that cannot fit even
+ * alone. Nothing in the store needs it today ("approx." is 40px), but a
+ * reworded caption is one migration away and a single long word would put the
+ * overflow straight back.
+ *
+ * `line-height: 1.15` is tighter than the default so the second line costs the
+ * row 13px rather than 20. The DAY line above keeps `nowrap` from
+ * [`eventDate`]: "~ May 3" broken across two lines would be a different and
+ * worse defect than the one this fixes.
+ */
 export const eventDateCaption: CSSProperties = {
   display: "block",
   fontSize: "0.69rem",
   fontWeight: 600,
   color: "var(--text-muted)",
   letterSpacing: "0.02em",
-  whiteSpace: "nowrap",
+  whiteSpace: "normal",
+  overflowWrap: "break-word",
+  lineHeight: 1.15,
 };
 
 /**
