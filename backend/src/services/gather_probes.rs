@@ -77,6 +77,13 @@ fn clean_token(token: &str) -> Option<String> {
 #[path = "gather_probes_tests.rs"]
 mod tests;
 
+// Split from `tests` above: extraction and selection are two subjects, and the
+// one file was over Rule 17's 300 lines. `#[path]` keeps both out of this
+// module's own count.
+#[cfg(test)]
+#[path = "gather_probes_selection_tests.rs"]
+mod selection_tests;
+
 // ---------------------------------------------------------------------------
 // Selectivity — which probes are worth reading
 // ---------------------------------------------------------------------------
@@ -162,4 +169,100 @@ pub fn select_probes(
             .collect(),
         floor_applied: !by_selectivity.is_empty(),
     }
+}
+
+// ---------------------------------------------------------------------------
+// One term, one vote
+// ---------------------------------------------------------------------------
+
+/// Probes that turned out to be the same probe.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeGroup {
+    /// The spelling kept — the shortest, ties broken lexicographically.
+    pub representative: String,
+    /// The other spellings, which contributed nothing further.
+    pub collapsed: Vec<String>,
+}
+
+/// Collapse probes whose result sets are identical into one.
+///
+/// ## ⚑ Why this is a defect and not a parameter
+///
+/// The fusion's central claim is that a card SEVERAL INDEPENDENT probes found is
+/// a better bet than a card one probe found. Measured on S-11, three probes were
+/// not independent at all: `$50,000`, `$50,000.00` and `$500,000.00` returned
+/// the identical 65 ids, so every card they matched was scored three times for
+/// one match. `Plaintiff`, `Plaintiff's` and `Plaintiffs` did the same at 40;
+/// `Hanley` and `Hanley's` at 44. The agreement the ranking rewards was being
+/// manufactured out of spelling variants.
+///
+/// ## Exact set equality, deliberately
+///
+/// Two probes collapse only when their result sets are EQUAL — not similar, not
+/// overlapping. Exactness is what makes this safe: it cannot merge two probes
+/// that genuinely differ, because if either reaches one card the other does not,
+/// they stay apart and both keep their vote.
+///
+/// A similarity rule (say, Jaccard above some threshold) would be strictly more
+/// dangerous and buy little: `Hanley` (44) and `Higgs` (38) are different people
+/// who appear in overlapping documents, and a loose rule that merged them would
+/// silently delete one party's evidence from the ranking's reckoning. There is
+/// no threshold at which that risk is worth a few duplicate lists.
+///
+/// ## Sets, not sequences
+///
+/// The comparison is over the SET of ids — sorted AND deduplicated — not the
+/// ordered list. Two probes with
+/// the same matches can order them differently, because each row's
+/// `word_similarity` is measured against its own probe — `$50,000.00` scores
+/// the same cards slightly differently from `$50,000`. Comparing sequences would
+/// therefore miss exactly the duplicates this exists to catch.
+///
+/// The representative keeps ITS OWN ranked list, so the order that survives is a
+/// real one and not a merge of several.
+pub fn collapse_identical(
+    lists: Vec<(String, Vec<String>)>,
+) -> (Vec<(String, Vec<String>)>, Vec<ProbeGroup>) {
+    // Keyed by the sorted id set. BTreeMap so the output order is stable across
+    // runs, which the fused ranking downstream depends on.
+    let mut by_result: std::collections::BTreeMap<Vec<String>, Vec<(String, Vec<String>)>> =
+        std::collections::BTreeMap::new();
+    for (probe, hits) in lists {
+        // `sort` THEN `dedup`: the key must be a SET, and a bare sort would make
+        // it a sorted multiset. Two probes reaching the same cards but with a
+        // different number of duplicate rows would then key differently and
+        // fail to collapse — the exact thing this exists to catch, missed
+        // silently.
+        //
+        // Duplicates should not occur: `evidence_id` is the mirror's primary
+        // key and the read projects it from a single table, so one card is one
+        // row. `dedup` is here because the invariant is the READ's and this
+        // function should not inherit it — a future read that joins would break
+        // the collapse rather than the join, and nothing would say so.
+        let mut key = hits.clone();
+        key.sort();
+        key.dedup();
+        by_result.entry(key).or_default().push((probe, hits));
+    }
+
+    let mut kept = Vec::with_capacity(by_result.len());
+    let mut groups = Vec::new();
+    for (_, mut members) in by_result {
+        // Shortest spelling wins; ties break lexicographically so two runs agree.
+        members.sort_by(|a, b| {
+            a.0.chars()
+                .count()
+                .cmp(&b.0.chars().count())
+                .then(a.0.cmp(&b.0))
+        });
+        let (representative, hits) = members.remove(0);
+        if !members.is_empty() {
+            groups.push(ProbeGroup {
+                representative: representative.clone(),
+                collapsed: members.into_iter().map(|(probe, _)| probe).collect(),
+            });
+        }
+        kept.push((representative, hits));
+    }
+    (kept, groups)
 }

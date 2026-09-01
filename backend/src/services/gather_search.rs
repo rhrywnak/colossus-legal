@@ -50,7 +50,9 @@ use crate::repositories::evidence_search_repository::lexical::{
 use crate::services::gather_fusion::{
     append_conservation_tail, conservation_gap, fuse, fuse_many, CardPlacement, FusedCard, RRF_K,
 };
-use crate::services::gather_probes::{probes_of, select_probes, ProbeCount};
+use crate::services::gather_probes::{
+    collapse_identical, probes_of, select_probes, ProbeCount, ProbeGroup,
+};
 use crate::services::gather_vector::vector_search;
 use crate::services::qdrant_service::QdrantError;
 
@@ -93,15 +95,37 @@ pub struct RankedGather {
     pub vector_hits: usize,
     /// How many the full-text half returned.
     pub full_text_hits: usize,
-    /// How many rows the trigram half returned, summed across every probe.
+    /// How many rows the trigram half returned, summed across every DISTINCT
+    /// result set — that is, AFTER the collapse.
+    ///
+    /// The distinction is not pedantic: on S-11 three probes returned the same
+    /// 65 ids, so the pre-collapse sum was 195 and this is 65. A reader
+    /// comparing runs across the collapse landing would otherwise see a
+    /// threefold drop and think the reads had failed.
     pub trigram_hits: usize,
-    /// How many probes returned at least one row.
+    /// How many DISTINCT result sets the trigram half produced — after the
+    /// collapse, so one per vote the fusion actually receives.
     ///
     /// Distinct from `probes.len()`: "we searched for nine things" and "three of
     /// them were found" are different facts, and a trigram half that is finding
     /// nothing looks exactly like one that had nothing to look for unless both
-    /// are reported.
+    /// are reported. Distinct again from [`Self::trigram_lists_read`], which is
+    /// the same count BEFORE duplicates were merged.
     pub trigram_lists: usize,
+    /// How many probes returned at least one row, BEFORE the collapse.
+    ///
+    /// Carried on the struct and not only in the log because the difference
+    /// between this and [`Self::trigram_lists`] is the whole effect of the
+    /// collapse, and a caller reading the struct should not have to rederive it
+    /// from [`Self::collapsed`] by a formula nobody wrote down.
+    pub trigram_lists_read: usize,
+    /// Probes that turned out to be the same probe, collapsed into one vote.
+    ///
+    /// Reported because the collapse is invisible in every other number: three
+    /// probes returning one list looks exactly like one probe returning one
+    /// list, and the difference is whether the fusion was being fed
+    /// manufactured agreement.
+    pub collapsed: Vec<ProbeGroup>,
     /// Each probe that matched, with how many rows it matched.
     ///
     /// The row count alone cannot tell a useful probe from a useless one:
@@ -270,10 +294,19 @@ pub async fn ranked_gather(
     )
     .await?;
 
-    let lexical_ranked = fuse_lexical(&lexical.full_text, &lexical.trigram);
-    let trigram_hits: usize = lexical.trigram.iter().map(|(_, hits)| hits.len()).sum();
-    let probe_hits: Vec<(String, usize)> = lexical
-        .trigram
+    // ⚑ Collapse AFTER the reads, before the fusion. It has to be after: only a
+    // read produces a result SET, and set equality is what identifies a
+    // duplicate. It has to be before the fusion, because the fusion is what the
+    // duplicates were corrupting.
+    let trigram_lists_read = lexical.trigram.len();
+    let (trigram_lists_deduped, collapsed) = collapse_identical(lexical.trigram);
+
+    let lexical_ranked = fuse_lexical(&lexical.full_text, &trigram_lists_deduped);
+    let trigram_hits: usize = trigram_lists_deduped
+        .iter()
+        .map(|(_, hits)| hits.len())
+        .sum();
+    let probe_hits: Vec<(String, usize)> = trigram_lists_deduped
         .iter()
         .map(|(probe, hits)| (probe.clone(), hits.len()))
         .collect();
@@ -318,12 +351,14 @@ pub async fn ranked_gather(
         vector_hits = vector_ranked.len(),
         full_text_hits = lexical.full_text.len(),
         trigram_hits,
-        trigram_lists = lexical.trigram.len(),
+        trigram_lists_read,
+        trigram_lists = trigram_lists_deduped.len(),
         probes_extracted = extracted.len(),
         probes_kept = selection.kept.len(),
         probes_dropped = selection.dropped.len(),
         dropped = ?selection.dropped,
         probes = ?selection.kept,
+        collapsed = ?collapsed,
         probe_hits = ?probe_hits,
         subject_only_pool = subject_only_pool.len(),
         unreached_by_reads = unreached,
@@ -336,7 +371,9 @@ pub async fn ranked_gather(
         vector_hits: vector_ranked.len(),
         full_text_hits: lexical.full_text.len(),
         trigram_hits,
-        trigram_lists: lexical.trigram.len(),
+        trigram_lists: trigram_lists_deduped.len(),
+        trigram_lists_read,
+        collapsed,
         probe_hits,
         probes: selection.kept,
         probes_extracted: extracted.len(),

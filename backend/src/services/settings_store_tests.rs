@@ -301,7 +301,7 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         ),
         row(
             KEY_GATHER_PROBE_MAX_SHARE,
-            "1/3",
+            "1/6",
             ValueKind::Ratio,
             None,
             None,
@@ -1297,6 +1297,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // L2b probe selectivity.
         "pipeline_migrations/20260901154038_gather_probe_max_share.sql",
         "pipeline_migrations/20260901155817_gather_probe_floor.sql",
+        // R1: the share dropped from a third to a sixth. A CORRECTION of the
+        // row above, so `corrected_value_in` is what finds 1/6 here.
+        "pipeline_migrations/20260901162435_gather_probe_max_share_to_one_sixth.sql",
     ]
     .iter()
     .map(|relative| {
@@ -1698,4 +1701,47 @@ fn every_app_settings_insert_names_real_columns() {
         checked > 0,
         "no app_settings INSERT was examined — the scan read nothing"
     );
+}
+
+/// ⚑ The share ships as 1/6 and an illegal one still refuses the boot.
+///
+/// The value moved from 1/3 to 1/6 by migration. What must not move with it is
+/// the refusal: a share the reader cannot parse has to stop the process with
+/// the key named, not fall back to a default and search a pool nobody chose.
+#[test]
+fn the_probe_share_ships_at_one_sixth_and_refuses_an_illegal_value() {
+    let good = build_settings(&seeded()).expect("the seeded store builds");
+    assert_eq!(
+        good.gather_probe_max_share.to_string(),
+        "1/6",
+        "the ruled default, as the migration now seeds it"
+    );
+
+    for (illegal, why) in [
+        ("1/0", "a zero denominator would divide by nothing"),
+        ("3", "a bare number is not a ratio"),
+        ("one sixth", "words are not a ratio"),
+        ("", "and neither is nothing"),
+    ] {
+        let mut rows = seeded();
+        rows.insert(
+            KEY_GATHER_PROBE_MAX_SHARE.to_string(),
+            row(
+                KEY_GATHER_PROBE_MAX_SHARE,
+                illegal,
+                ValueKind::Ratio,
+                None,
+                None,
+            ),
+        );
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("'{illegal}' must refuse the boot: {why}");
+        };
+        assert!(
+            error.to_string().contains(KEY_GATHER_PROBE_MAX_SHARE)
+                || error.to_string().contains("ratio"),
+            "the refusal must be findable by the operator who has to fix it: {error}"
+        );
+    }
 }

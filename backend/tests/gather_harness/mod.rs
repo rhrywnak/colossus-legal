@@ -122,10 +122,10 @@ pub async fn measure(
             // here so the measurement is reproducible against a named number
             // rather than whatever a store happens to hold.
             read_depth: 200,
-            // The shipped default of `gather_probe_max_share`, 1/3. Pinned here
+            // The shipped default of `gather_probe_max_share`, 1/6. Pinned here
             // so the measurement is reproducible against a named number rather
             // than whatever a store happens to hold.
-            probe_max_share: 1.0 / 3.0,
+            probe_max_share: 1.0 / 6.0,
             probe_floor: 3,
         },
     )
@@ -160,6 +160,19 @@ pub async fn measure(
         gather.probes_dropped.len()
     );
     println!("  PROBES KEPT           : {}", gather.probes.join("  "));
+    println!(
+        "  COLLAPSED             : {}",
+        if gather.collapsed.is_empty() {
+            "none — every probe found a different set".to_string()
+        } else {
+            gather
+                .collapsed
+                .iter()
+                .map(|g| format!("{} <- {}", g.representative, g.collapsed.join(", ")))
+                .collect::<Vec<_>>()
+                .join("   ")
+        }
+    );
     let mut dropped = gather.probes_dropped.clone();
     dropped.sort_by(|a, b| b.matches.cmp(&a.matches).then(a.probe.cmp(&b.probe)));
     println!(
@@ -184,8 +197,8 @@ pub async fn measure(
             .join("  ")
     );
     println!(
-        "  trigram returned      : {} rows across {} probe(s) that hit",
-        gather.trigram_hits, gather.trigram_lists
+        "  trigram returned      : {} rows across {} distinct set(s), from {} probe(s) that hit",
+        gather.trigram_hits, gather.trigram_lists, gather.trigram_lists_read
     );
     println!("  read depth (each read): {}", gather.read_depth);
     println!("  RANKED LIST SIZE      : {}", gather.cards.len());

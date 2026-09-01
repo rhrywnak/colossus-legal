@@ -162,9 +162,11 @@ fn gather_with(admitted: &[&str], card_ids: &[&str]) -> RankedGather {
         unreached_by_reads: 0,
         probes: Vec::new(),
         trigram_lists: 0,
+        trigram_lists_read: 0,
         probe_hits: Vec::new(),
         probes_extracted: 0,
         probes_dropped: Vec::new(),
+        collapsed: Vec::new(),
         filter_mode: GatherSubjectFilter::Widened,
         read_depth: 200,
         vector_hits: card_ids.len(),
@@ -291,4 +293,58 @@ fn a_conservation_tail_card_is_not_a_retrieved_card() {
 fn without_a_tail_every_card_is_retrieved() {
     let gather = gather_with(&["a", "b"], &["a", "b"]);
     assert_eq!(gather.retrieved_ids(), vec!["a", "b"]);
+}
+
+/// ⚑ The collapse happens AFTER the drop, and after the reads.
+///
+/// The order is load-bearing in both directions and neither is provable from a
+/// pure test, because the stages are separated by database calls. It is pinned
+/// against the module's own source instead (CLAUDE.md §4 rule 21).
+///
+/// - After the DROP, because a probe nobody is going to read should not be
+///   collapsing anything, and the counts are what reveal the duplicates.
+/// - After the READS, because only a read produces a result SET, and set
+///   equality is the whole basis of the collapse.
+/// - Before the FUSION, because the fusion is what the duplicates corrupt.
+#[test]
+fn the_collapse_runs_after_the_drop_and_before_the_fusion() {
+    let source = include_str!("gather_search.rs");
+
+    let drop_at = source
+        .find("let selection = select_probes(")
+        .expect("the selectivity drop must still happen");
+    let read_at = source
+        .find("let lexical = lexical_search(")
+        .expect("the reads must still happen");
+    let collapse_at = source
+        .find("collapse_identical(lexical.trigram)")
+        .expect("the collapse must still happen");
+    let fuse_at = source
+        .find("let lexical_ranked = fuse_lexical(")
+        .expect("the fusion must still happen");
+
+    assert!(drop_at < read_at, "a dropped probe must never cost a read");
+    assert!(
+        read_at < collapse_at,
+        "only a read produces the result set the collapse compares"
+    );
+    assert!(
+        collapse_at < fuse_at,
+        "the fusion is what duplicate probes corrupt, so they go first"
+    );
+}
+
+/// The fusion is fed the DEDUPLICATED lists, not the raw ones.
+///
+/// The ordering test above proves the collapse runs; this proves its output is
+/// what reaches the fusion. Without it the collapse could compute a correct
+/// answer that nothing uses — which is how the trigram half spent a whole task
+/// searching a column that said "Admitted."
+#[test]
+fn the_fusion_is_fed_the_collapsed_lists() {
+    let source = include_str!("gather_search.rs");
+    assert!(
+        source.contains("fuse_lexical(&lexical.full_text, &trigram_lists_deduped)"),
+        "the fusion must take the collapsed lists, not lexical.trigram"
+    );
 }
