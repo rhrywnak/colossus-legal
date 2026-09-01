@@ -33,6 +33,8 @@
 
 use sqlx::{PgPool, Row};
 
+use crate::services::gather_probes::ProbeCount;
+
 /// Errors the lexical read can raise, naming the statement that raised them.
 ///
 /// Deliberately NOT the module's existing `EvidenceSearchReadError`: that type
@@ -155,6 +157,34 @@ const FULL_TEXT_SQL: &str = "\
 // of 1209 quotes are a bare "Admitted." or "Denied as untrue.", so `quote`
 // alone could not answer for 9% of the corpus, including six of the seven
 // admissions AT-2 turns on. L1a's migration carries the full reasoning.
+// STRUCTURAL: the probe COUNT, and it must stay the trigram read's twin.
+//
+// ## ⚑ Why counting is a separate query and not `hits.len()`
+//
+// The read is `LIMIT $2`. A probe matching 534 rows and a probe matching
+// exactly 200 both come back as 200 once the depth caps them, so a capped
+// result list cannot tell a saturating probe from a good one — which is the
+// number the selectivity rule needs. Counting first also means a dropped probe
+// never costs a read.
+//
+// All of them in ONE round trip, via `unnest` and a GROUP BY, rather than a
+// loop of N statements: for S-11 that is 1 call instead of 31 before any read
+// begins, and the count grows with the probe count on a path a human is
+// waiting on. A probe matching nothing produces NO ROW from the GROUP BY and is
+// filled back in at zero by the caller — those probes are exactly the ones the
+// selectivity rule keeps, so losing them here would be silent.
+//
+// It is built from the same `p.probe <% probe_text` predicate and the same party
+// filter as `TRIGRAM_SQL`, so the count and the read agree about what a probe
+// matches. A test asserts the two share that predicate; if they ever diverged,
+// the rule would be deciding on one question and the gather answering another.
+const TRIGRAM_COUNT_SQL: &str = "\
+    SELECT p.probe AS probe, count(*) AS matches \
+      FROM unnest($1::text[]) AS p(probe) \
+      JOIN evidence_search ON p.probe <% probe_text \
+     WHERE ($3 OR about && $2::text[]) \
+     GROUP BY p.probe";
+
 const TRIGRAM_SQL: &str = "\
     SELECT evidence_id \
       FROM evidence_search \
@@ -242,6 +272,67 @@ pub async fn lexical_search(
         }
     }
     Ok(LexicalHits { full_text, trigram })
+}
+
+/// How many rows in the admitted set each probe matches.
+///
+/// Counted rather than read: see [`TRIGRAM_COUNT_SQL`]. The order of `probes`
+/// is preserved, so the caller can pair counts back to probes positionally as
+/// well as by name.
+///
+/// # Errors
+/// Returns [`LexicalReadError`] if the statement fails.
+pub async fn probe_counts(
+    pool: &PgPool,
+    probes: &[String],
+    parties: Option<&[&str]>,
+) -> Result<Vec<ProbeCount>, LexicalReadError> {
+    let (party_list, unfiltered) = filter_args(parties);
+    if probes.is_empty() {
+        // The answer is knowable without a round trip, and `unnest` of an empty
+        // array would return no rows anyway — but returning early says so.
+        return Ok(Vec::new());
+    }
+
+    let rows = sqlx::query(TRIGRAM_COUNT_SQL)
+        .bind(probes)
+        .bind(&party_list)
+        .bind(unfiltered)
+        .fetch_all(pool)
+        .await
+        .map_err(|source| LexicalReadError::Query {
+            operation: "probe_counts",
+            source,
+        })?;
+
+    // The statement GROUPs, so a probe matching nothing produces no row. Those
+    // probes are the ones the selectivity rule deliberately KEEPS, so they are
+    // filled back in at zero rather than dropped — losing them here would turn
+    // "the corpus does not contain this term" into "we never asked".
+    let mut found: std::collections::BTreeMap<String, i64> = std::collections::BTreeMap::new();
+    for row in rows {
+        let probe: String = row
+            .try_get("probe")
+            .map_err(|source| LexicalReadError::Query {
+                operation: "probe_counts",
+                source,
+            })?;
+        let matches: i64 = row
+            .try_get("matches")
+            .map_err(|source| LexicalReadError::Query {
+                operation: "probe_counts",
+                source,
+            })?;
+        found.insert(probe, matches);
+    }
+
+    Ok(probes
+        .iter()
+        .map(|probe| ProbeCount {
+            probe: probe.clone(),
+            matches: found.get(probe).copied().unwrap_or(0),
+        })
+        .collect())
 }
 
 /// Every evidence id the party filter admits, ignoring the query entirely.

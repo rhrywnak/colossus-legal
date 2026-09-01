@@ -254,3 +254,109 @@ fn a_lexical_failure_names_the_statement_and_the_likely_cause() {
         "the two things that are actually ever wrong here: {rendered}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The count and the read must agree
+// ---------------------------------------------------------------------------
+
+/// ⚑ The count asks EXACTLY the question the read answers.
+///
+/// The selectivity rule decides on the count and the gather then acts on the
+/// read. If the two ever asked different questions — a different operator, a
+/// different column, a different filter — the rule would be dropping probes on
+/// one basis while the gather searched on another, and nothing would fail
+/// loudly enough to notice.
+#[test]
+fn the_probe_count_and_the_probe_read_ask_the_same_question() {
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("p.probe <% probe_text"),
+        "same operator, same surface, same operand order as the read — the probe on \
+         the left, the text on the right"
+    );
+    assert!(
+        TRIGRAM_SQL.contains("$1 <% probe_text"),
+        "and the read must still be the thing it is a twin of"
+    );
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("JOIN evidence_search")
+            && TRIGRAM_SQL.contains("FROM evidence_search"),
+        "and the same table — the count JOINs it against the probe array, the read \
+         selects from it directly, but it is the same rows either way"
+    );
+}
+
+/// Both carry the same party filter, so they count and read the same universe.
+///
+/// The placeholder NUMBERS differ — the read binds the limit at $2 and so its
+/// filter is $3/$4 — which is why this compares the shape rather than the text.
+#[test]
+fn the_count_and_the_read_filter_the_same_admitted_set() {
+    assert!(TRIGRAM_COUNT_SQL.contains("($3 OR about && $2::text[])"));
+    assert!(TRIGRAM_SQL.contains("($4 OR about && $3::text[])"));
+}
+
+/// ⚑ The count is NOT limited. That is the entire reason it exists.
+///
+/// A `LIMIT` here would cap the count at the read depth, and a probe matching
+/// 534 rows would report the same number as one matching exactly 200 — which is
+/// the measurement the selectivity rule cannot be built on.
+#[test]
+fn the_count_is_unbounded_because_a_capped_count_decides_nothing() {
+    assert!(
+        !TRIGRAM_COUNT_SQL.to_uppercase().contains("LIMIT"),
+        "a capped count cannot tell a saturating probe from a good one"
+    );
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("count(*)"),
+        "and it counts rather than returning rows, so a dropped probe costs no read"
+    );
+    // The read, by contrast, must stay bounded.
+    assert!(TRIGRAM_SQL.contains("LIMIT $2"));
+}
+
+/// The count cannot write either.
+#[test]
+fn the_probe_count_cannot_write() {
+    let upper = TRIGRAM_COUNT_SQL.to_uppercase();
+    for forbidden in [
+        "INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "TRUNCATE", "CREATE",
+    ] {
+        assert!(!upper.contains(forbidden), "{forbidden} in a count query");
+    }
+}
+
+/// The count's placeholders are dense from $1, like every other statement here.
+#[test]
+fn the_count_numbers_its_placeholders_densely() {
+    let used: std::collections::BTreeSet<usize> = (1..=9)
+        .filter(|n| TRIGRAM_COUNT_SQL.contains(&format!("${n}")))
+        .collect();
+    assert_eq!(used.iter().max(), Some(&3));
+    assert_eq!(
+        used.len(),
+        3,
+        "a gap would make Postgres demand a bind nobody supplies"
+    );
+}
+
+/// ⚑ The count is ONE round trip, not one per probe.
+///
+/// A loop of N statements would put 31 sequential calls in front of every S-11
+/// gather before a single row was read, on a path a human is waiting on. The
+/// `unnest` join answers all of them at once.
+#[test]
+fn the_count_asks_for_every_probe_in_one_statement() {
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("unnest($1::text[])"),
+        "every probe is bound as one array: {TRIGRAM_COUNT_SQL}"
+    );
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("GROUP BY p.probe"),
+        "and grouped back per probe"
+    );
+    assert!(
+        TRIGRAM_COUNT_SQL.contains("p.probe AS probe"),
+        "the probe is projected, so the caller can pair counts back by name rather \
+         than trusting the row order of a GROUP BY"
+    );
+}

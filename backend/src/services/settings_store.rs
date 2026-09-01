@@ -90,6 +90,15 @@ pub(crate) const KEY_GATHER_SUBJECT_FILTER: &str = "gather_subject_filter";
 // limit is per-deployment by Rule 13's own list, and no STRUCTURAL claim about
 // it would have been true — L3 exists partly to find out whether 200 is right.
 pub(crate) const KEY_GATHER_READ_DEPTH: &str = "gather_read_depth";
+// L2b probe selectivity (2026-09-01). The share of a scenario's admitted set
+// above which a trigram probe is dropped before it is read. Measured cause:
+// `Court` matched 534 of S-11's 1030 admitted cards and agreed with everything.
+pub(crate) const KEY_GATHER_PROBE_MAX_SHARE: &str = "gather_probe_max_share";
+// The companion floor: how many probes survive when every one of them is over
+// the share. A row and not a constant for the reason Rule 13 gives — the guard
+// ("never zero") is an invariant, but the NUMBER above zero is a judgement with
+// no external anchor.
+pub(crate) const KEY_GATHER_PROBE_FLOOR: &str = "gather_probe_floor";
 // ONE_CARD_GRAMMAR (2026-08-09). Both decide how much of a card's content is
 // SHOWN before it folds — the question's visible length, and how many element
 // chips stand before "+N more". They are §2b tunables rather than presentational
@@ -144,6 +153,8 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CHRONOLOGY_PICKER_MAX,
     KEY_TIMELINE_MIN_DATES,
     KEY_ROWS_EXPAND_MAX,
+    KEY_GATHER_PROBE_FLOOR,
+    KEY_GATHER_PROBE_MAX_SHARE,
     KEY_GATHER_READ_DEPTH,
     KEY_GATHER_SUBJECT_FILTER,
     KEY_THEME_SCAN_PROMPT_FILE,
@@ -304,6 +315,8 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         rehearsal_chrome_wording: words.chrome,
         authoring_wording: words.authoring,
         scenario_authoring_wording: words.scenario_authoring,
+        gather_probe_floor: count_of(require(rows, KEY_GATHER_PROBE_FLOOR)?)?,
+        gather_probe_max_share: ratio_of(require(rows, KEY_GATHER_PROBE_MAX_SHARE)?)?,
         gather_read_depth: count_of(require(rows, KEY_GATHER_READ_DEPTH)?)?,
         gather_subject_filter: gather_filter_of(require(rows, KEY_GATHER_SUBJECT_FILTER)?)?,
         theme_scan_prompt_file: text_of(require(rows, KEY_THEME_SCAN_PROMPT_FILE)?)?,

@@ -45,12 +45,12 @@ use sqlx::PgPool;
 
 use crate::domain::gather_filter::GatherSubjectFilter;
 use crate::repositories::evidence_search_repository::lexical::{
-    lexical_search, party_membership, LexicalReadError,
+    lexical_search, party_membership, probe_counts, LexicalReadError,
 };
 use crate::services::gather_fusion::{
     append_conservation_tail, conservation_gap, fuse, fuse_many, CardPlacement, FusedCard, RRF_K,
 };
-use crate::services::gather_probes::probes_of;
+use crate::services::gather_probes::{probes_of, select_probes, ProbeCount};
 use crate::services::gather_vector::vector_search;
 use crate::services::qdrant_service::QdrantError;
 
@@ -109,7 +109,16 @@ pub struct RankedGather {
     /// `$50,000` matched 73. Without the pairing, an operator looking at a
     /// badly-ranked gather cannot find the probe that drowned it.
     pub probe_hits: Vec<(String, usize)>,
-    /// The probes the trigram half searched for.
+    /// How many probes the composed query yielded, BEFORE selectivity.
+    ///
+    /// Reported beside the kept list because "we found four things worth
+    /// searching for" and "we found thirty-one and threw away twenty-seven" are
+    /// very different gathers and would otherwise look identical.
+    pub probes_extracted: usize,
+    /// The probes dropped for matching too much, each with its count — so a
+    /// human can see WHAT was discarded and judge whether the share is right.
+    pub probes_dropped: Vec<ProbeCount>,
+    /// The probes the trigram half actually searched for.
     ///
     /// Carried out because it is the most reviewable artefact of the whole
     /// lexical half: a human can look at this list and see at once whether the
@@ -223,12 +232,39 @@ pub async fn ranked_gather(
     // Derived here rather than passed in so a caller cannot hand the two halves
     // text that disagrees — the full-text half reads the query, the trigram
     // half reads what this pulled out of that same query.
-    let probes = probes_of(input.query);
+    let extracted = probes_of(input.query);
+
+    // ⚑ COUNT before reading. A probe matching 534 rows and one matching exactly
+    // the read depth both come back as 200 once the read caps them, so the
+    // selectivity rule cannot be built on the read's own output. Counting first
+    // also means a dropped probe never costs a read.
+    let counts = probe_counts(pool, &extracted, parties_slice).await?;
+    let selection = select_probes(
+        &counts,
+        admitted.len(),
+        input.probe_max_share,
+        input.probe_floor,
+    );
+
+    if selection.floor_applied {
+        // Rule 1: every probe was over the share and the floor kept the most
+        // selective anyway. That is a real and distinct state — the query's
+        // vocabulary is entirely generic — and it must not look like a normal
+        // selection that happened to keep three.
+        tracing::warn!(
+            extracted = extracted.len(),
+            kept = selection.kept.len(),
+            max_share = input.probe_max_share,
+            admitted = admitted.len(),
+            "every trigram probe matched more than the allowed share of the admitted \
+             set; the most selective were kept so the trigram half is not silently empty"
+        );
+    }
 
     let lexical = lexical_search(
         pool,
         input.query,
-        &probes,
+        &selection.kept,
         parties_slice,
         depth_as_limit(input.read_depth),
     )
@@ -283,8 +319,11 @@ pub async fn ranked_gather(
         full_text_hits = lexical.full_text.len(),
         trigram_hits,
         trigram_lists = lexical.trigram.len(),
-        probe_count = probes.len(),
-        probes = ?probes,
+        probes_extracted = extracted.len(),
+        probes_kept = selection.kept.len(),
+        probes_dropped = selection.dropped.len(),
+        dropped = ?selection.dropped,
+        probes = ?selection.kept,
         probe_hits = ?probe_hits,
         subject_only_pool = subject_only_pool.len(),
         unreached_by_reads = unreached,
@@ -299,7 +338,9 @@ pub async fn ranked_gather(
         trigram_hits,
         trigram_lists: lexical.trigram.len(),
         probe_hits,
-        probes,
+        probes: selection.kept,
+        probes_extracted: extracted.len(),
+        probes_dropped: selection.dropped,
         read_depth: input.read_depth,
         unreached_by_reads: unreached,
         cards,
@@ -328,6 +369,13 @@ pub struct GatherInput<'a> {
     /// The subject plus every party the linked allegations name (L2a).
     pub reachable_parties: &'a [String],
     pub filter_mode: GatherSubjectFilter,
+    /// How many probes survive when every one is over the share, from the
+    /// `gather_probe_floor` settings row. The guard is "never zero".
+    pub probe_floor: usize,
+    /// The share of the admitted set above which a trigram probe is dropped,
+    /// from the `gather_probe_max_share` settings row. Passed in rather than
+    /// read here so this stays testable without a settings store.
+    pub probe_max_share: f64,
     /// How deep each read goes, from the `gather_read_depth` settings row.
     /// Passed in rather than read here so this function stays testable without
     /// a settings store, and so both reads provably get the SAME number.

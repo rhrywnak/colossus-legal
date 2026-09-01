@@ -142,6 +142,12 @@ pub struct Settings {
     /// Which parties a ranked gather may reach (L2b). `widened` by default —
     /// the value AT-2 turns on, since four of the seven $50,000 admissions
     /// S-11 must reach are filed ABOUT Emil Awad alone.
+    /// How many trigram probes survive when every one is over the share (L2b).
+    /// The guard is "never zero"; this is how many above it. Default 3.
+    pub gather_probe_floor: usize,
+    /// The share of a scenario's admitted evidence above which a trigram probe
+    /// is dropped as saying nothing (L2b). Default 1/3.
+    pub gather_probe_max_share: Ratio,
     /// How many candidates each half of a ranked gather returns before fusion
     /// (L2b). Both reads go to the same depth.
     pub gather_read_depth: usize,

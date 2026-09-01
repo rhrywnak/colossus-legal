@@ -163,6 +163,8 @@ fn gather_with(admitted: &[&str], card_ids: &[&str]) -> RankedGather {
         probes: Vec::new(),
         trigram_lists: 0,
         probe_hits: Vec::new(),
+        probes_extracted: 0,
+        probes_dropped: Vec::new(),
         filter_mode: GatherSubjectFilter::Widened,
         read_depth: 200,
         vector_hits: card_ids.len(),

@@ -76,3 +76,90 @@ fn clean_token(token: &str) -> Option<String> {
 #[cfg(test)]
 #[path = "gather_probes_tests.rs"]
 mod tests;
+
+// ---------------------------------------------------------------------------
+// Selectivity — which probes are worth reading
+// ---------------------------------------------------------------------------
+
+/// One probe and how much of the admitted set it matches.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeCount {
+    pub probe: String,
+    /// Rows in the admitted set this probe matches — counted, not read.
+    pub matches: i64,
+}
+
+/// What the selectivity rule decided, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProbeSelection {
+    /// Probes worth reading, in the order given.
+    pub kept: Vec<String>,
+    /// Probes dropped for matching too much, each with its count.
+    pub dropped: Vec<ProbeCount>,
+    /// True when every probe was over the share and the floor kept the most
+    /// selective anyway — a state worth reporting, since it means the query's
+    /// vocabulary is entirely generic.
+    pub floor_applied: bool,
+}
+
+/// Drop the probes that match more than `max_share` of the admitted set.
+///
+/// ## ⚑ Why a probe matching everything is worse than no probe
+///
+/// The trigram half fuses one ranked list per probe, so a card several probes
+/// agree on outranks one a single probe found. A probe matching most of the
+/// pool agrees with EVERYTHING, so it contributes a near-uniform list that
+/// crowds out the figures and names the scenario turns on. Measured on S-11:
+/// `Court` matched 534 of 1030 admitted cards; `$50,000` matched 73.
+///
+/// ## The two guards
+///
+/// - **A probe matching NOTHING is kept.** It costs nothing to read — an empty
+///   list is a no-op in the fusion — and it is information: a term the corpus
+///   does not contain. The two ends of the range are not the same thing and
+///   must not be collapsed.
+/// - **Never zero probes.** If every probe is over the share, the most
+///   selective `floor` of them survive anyway. A silently empty trigram half
+///   would look exactly like a working one.
+///
+/// `floor` comes from the `gather_probe_floor` settings row. It is clamped to
+/// at least 1 here as well as bounded in the row: "never zero" is the invariant
+/// the whole guard exists for, and it must not be defeasible by a stored value
+/// however the row is bounded today.
+pub fn select_probes(
+    counts: &[ProbeCount],
+    admitted: usize,
+    max_share: f64,
+    floor: usize,
+) -> ProbeSelection {
+    let ceiling = admitted as f64 * max_share;
+
+    let (kept, dropped): (Vec<&ProbeCount>, Vec<&ProbeCount>) =
+        counts.iter().partition(|c| (c.matches as f64) <= ceiling);
+
+    if !kept.is_empty() {
+        return ProbeSelection {
+            kept: kept.iter().map(|c| c.probe.clone()).collect(),
+            dropped: dropped.into_iter().cloned().collect(),
+            floor_applied: false,
+        };
+    }
+
+    // Everything was over the share. Keep the most selective few rather than
+    // running none. Ties break on the probe text so two runs agree.
+    let mut by_selectivity: Vec<&ProbeCount> = counts.iter().collect();
+    by_selectivity.sort_by(|a, b| a.matches.cmp(&b.matches).then(a.probe.cmp(&b.probe)));
+    let floor = floor.max(1).min(by_selectivity.len());
+
+    ProbeSelection {
+        kept: by_selectivity[..floor]
+            .iter()
+            .map(|c| c.probe.clone())
+            .collect(),
+        dropped: by_selectivity[floor..]
+            .iter()
+            .map(|c| (*c).clone())
+            .collect(),
+        floor_applied: !by_selectivity.is_empty(),
+    }
+}

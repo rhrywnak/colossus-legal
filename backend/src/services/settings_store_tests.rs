@@ -287,6 +287,25 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         // fusion. Bounds mirror the migration — 20 is the smallest depth at
         // which AT-2's top-20 bar is expressible, 2000 is above the whole
         // corpus, so "retrieve everything" is permitted and "unbounded" is not.
+        // L2b probe selectivity: the share above which a trigram probe is
+        // dropped as saying nothing. A ratio so `1/3` survives exactly.
+        // The companion floor: how many probes survive when every one is over
+        // the share. Bounded at 1 so the "never zero" guard cannot be switched
+        // off from the settings page.
+        row(
+            KEY_GATHER_PROBE_FLOOR,
+            "3",
+            ValueKind::Count,
+            Some(1.0),
+            Some(25.0),
+        ),
+        row(
+            KEY_GATHER_PROBE_MAX_SHARE,
+            "1/3",
+            ValueKind::Ratio,
+            None,
+            None,
+        ),
         row(
             KEY_GATHER_READ_DEPTH,
             "200",
@@ -615,7 +634,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        36,
+        38,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -1275,6 +1294,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260901134610_gather_subject_filter_setting.sql",
         // L2b after review: the read depth, moved out of a compiled constant.
         "pipeline_migrations/20260901141104_gather_read_depth_setting.sql",
+        // L2b probe selectivity.
+        "pipeline_migrations/20260901154038_gather_probe_max_share.sql",
+        "pipeline_migrations/20260901155817_gather_probe_floor.sql",
     ]
     .iter()
     .map(|relative| {

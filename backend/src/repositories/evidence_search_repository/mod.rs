@@ -43,7 +43,7 @@ mod document;
 
 pub mod lexical;
 pub use document::{read_document_evidence, DocumentEvidence};
-pub use lexical::{lexical_search, party_membership, LexicalHits, LexicalReadError};
+pub use lexical::{lexical_search, party_membership, probe_counts, LexicalHits, LexicalReadError};
 
 use neo4rs::{query, Graph};
 
