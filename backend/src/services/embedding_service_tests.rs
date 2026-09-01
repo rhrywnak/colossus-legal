@@ -343,7 +343,7 @@ fn embed_with_cap(cache: &str, cap: usize, text: &str) -> Vec<f32> {
     let options = InitOptions::new(EmbeddingModel::NomicEmbedTextV15)
         .with_max_length(cap)
         .with_cache_dir(PathBuf::from(cache));
-    let mut model = TextEmbedding::try_new(options).expect("the model loads");
+    let model = TextEmbedding::try_new(options).expect("the model loads");
     model
         .embed(vec![text], None)
         .expect("the text embeds")

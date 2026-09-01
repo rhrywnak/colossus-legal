@@ -14,6 +14,7 @@
 
 use std::collections::HashMap;
 
+use crate::domain::gather_filter::GatherSubjectFilter;
 use crate::domain::settings::{
     parse_count, parse_float, parse_ratio, parse_text, parse_token_list, Bounds, Ratio,
     SettingError, ValueKind,
@@ -36,6 +37,28 @@ pub(crate) fn require<'a>(
     rows.get(key).ok_or_else(|| SettingError::Missing {
         key: key.to_string(),
     })
+}
+
+/// Read one `text` row as a gather subject filter, checking the vocabulary.
+///
+/// ## Why the vocabulary is checked HERE and not at the call site
+///
+/// This runs inside the boot snapshot, so an illegal value stops the process
+/// with the three legal spellings named. Checked later — at the first gather —
+/// it would instead be a request that failed for one user, on one page, hours
+/// after somebody typed it, with the pool silently wrong in between.
+pub(super) fn gather_filter_of(
+    record: &AppSettingRecord,
+) -> Result<GatherSubjectFilter, SettingError> {
+    let raw = text_of(record)?;
+    raw.parse::<GatherSubjectFilter>()
+        .map_err(|_| SettingError::Unreadable {
+            key: record.key.clone(),
+            value: raw,
+            // The three spellings, not a description of them: the operator's
+            // remedy is to type one of these exactly.
+            expected: "one of strict, widened, off",
+        })
 }
 
 /// Read one row as a float, checking that its declared kind agrees.

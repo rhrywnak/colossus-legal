@@ -31,6 +31,10 @@ use super::*;
 impl Settings {
     pub fn for_test() -> Self {
         Settings {
+            // The shipped default, so a fixture-built snapshot behaves like a
+            // freshly migrated store rather than like today's narrower gather.
+            gather_read_depth: 200,
+            gather_subject_filter: crate::domain::gather_filter::GatherSubjectFilter::Widened,
             confidence_band_high: 0.80,
             confidence_band_medium: 0.50,
             quote_context_window_chars: 240,

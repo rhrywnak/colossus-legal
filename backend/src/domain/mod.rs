@@ -31,6 +31,7 @@ pub mod evidence_tier;
 pub mod fact_role;
 pub mod fact_status;
 pub mod fact_tier;
+pub mod gather_filter;
 pub mod human_authored;
 pub mod link_cut;
 /// The Messages API `effort` dial and which call families turn it down —

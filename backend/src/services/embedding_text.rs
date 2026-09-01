@@ -17,6 +17,17 @@
 
 use std::collections::HashMap;
 
+// STRUCTURAL: nomic-embed-text's asymmetric prefixes. The model was trained
+// with these two exact strings, so they are model protocol, not a setting —
+// and they are a MATCHED PAIR. Text stored under `search_document:` must be
+// searched with `search_query:`; using the same prefix on both sides, or
+// omitting one, still returns vectors and still returns results, just worse
+// ones. There is no error and no empty list to notice, which is why they are
+// named here and asserted against each other in a test rather than typed out
+// at each of the fourteen call sites.
+pub const DOCUMENT_PREFIX: &str = "search_document: ";
+pub const QUERY_PREFIX: &str = "search_query: ";
+
 /// Build the embedding text for a node based on its type and properties.
 ///
 /// Returns a "search_document: ..." prefixed string ready for embedding.
