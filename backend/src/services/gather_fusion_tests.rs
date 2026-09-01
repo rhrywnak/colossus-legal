@@ -98,8 +98,8 @@ fn an_empty_side_leaves_the_other_sides_order_intact() {
         ["a", "b", "c"],
         "with one read empty the fused order IS the other read's order"
     );
-    assert_eq!(fused[0].rank, 1);
-    assert_eq!(fused[2].rank, 3);
+    assert_eq!(fused[0].rank, Some(1));
+    assert_eq!(fused[2].rank, Some(3));
     assert!(fused.iter().all(|c| c.lexical_rank.is_none()));
 
     assert!(
@@ -114,7 +114,7 @@ fn the_output_ranks_are_dense_and_ordered() {
     let fused = fuse(&ids(&["a", "b", "c"]), &ids(&["c", "b"]), RRF_K);
 
     for (index, card) in fused.iter().enumerate() {
-        assert_eq!(card.rank, index + 1, "rank is the 1-based position");
+        assert_eq!(card.rank, Some(index + 1), "rank is the 1-based position");
     }
     for pair in fused.windows(2) {
         assert!(
@@ -190,4 +190,125 @@ fn a_conservation_violation_names_the_cards_that_vanished() {
 fn an_empty_baseline_is_conserved_by_anything() {
     assert!(conservation_gap(&[], &fuse(&ids(&["a"]), &[], RRF_K)).is_empty());
     assert!(conservation_gap(&[], &[]).is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Conservation by construction — the tail
+// ---------------------------------------------------------------------------
+
+/// ⚑ The identity HOLDS after the append, at any read depth.
+///
+/// Before the tail it could not: the reads return the most RELEVANT cards while
+/// the pool is defined by MEMBERSHIP, and no top-K of the first contains the
+/// second. Measured on the real corpus, 204 of S-9's 292 were absent.
+#[test]
+fn the_tail_makes_conservation_hold_however_little_the_reads_reached() {
+    let baseline = ids(&["kept", "unreached-b", "unreached-a"]);
+    // The reads reached one of the three, and one card outside the pool.
+    let retrieved = fuse(&ids(&["outside", "kept"]), &[], RRF_K);
+    assert_eq!(
+        conservation_gap(&baseline, &retrieved).len(),
+        2,
+        "two of today's cards were not reached — the state the tail exists for"
+    );
+
+    let with_tail = append_conservation_tail(retrieved, &baseline);
+
+    assert!(
+        conservation_gap(&baseline, &with_tail).is_empty(),
+        "after the append nothing visible yesterday is invisible today"
+    );
+    assert_eq!(with_tail.len(), 4, "two retrieved plus the two appended");
+}
+
+/// The appended cards are marked, scoreless, and BELOW every ranked card.
+///
+/// "Ranked 120th" and "neither read reached this" are different statements. A
+/// list that rendered them identically would be lying by omission, so the
+/// placement is carried per card and the tail sits last.
+#[test]
+fn tail_cards_are_marked_scoreless_and_last() {
+    let baseline = ids(&["zzz-unreached", "kept"]);
+    let with_tail = append_conservation_tail(fuse(&ids(&["kept"]), &[], RRF_K), &baseline);
+
+    let ranked = &with_tail[0];
+    assert_eq!(ranked.evidence_id, "kept");
+    assert_eq!(ranked.placement, CardPlacement::Ranked);
+    assert!(
+        ranked.fused_score > 0.0,
+        "a retrieved card has a real score"
+    );
+
+    let tail = &with_tail[1];
+    assert_eq!(tail.evidence_id, "zzz-unreached");
+    assert_eq!(tail.placement, CardPlacement::ConservationTail);
+    assert_eq!(
+        tail.fused_score, 0.0,
+        "no read scored it, so it has no score"
+    );
+    assert_eq!(tail.vector_rank, None);
+    assert_eq!(tail.lexical_rank, None);
+    assert_eq!(
+        tail.rank, None,
+        "no read returned it, so there is no rank — carried in the TYPE rather than \
+         needing a placement check to interpret a number"
+    );
+}
+
+/// The tail is in ID order, so two runs append the same cards the same way.
+#[test]
+fn the_tail_is_ordered_so_two_runs_agree() {
+    let baseline = ids(&["c", "a", "b"]);
+    let first = append_conservation_tail(Vec::new(), &baseline);
+    let second = append_conservation_tail(Vec::new(), &baseline);
+
+    assert_eq!(
+        first
+            .iter()
+            .map(|c| c.evidence_id.as_str())
+            .collect::<Vec<_>>(),
+        ["a", "b", "c"]
+    );
+    assert_eq!(first, second);
+    assert!(
+        first.iter().all(|c| c.rank.is_none()),
+        "nothing here was retrieved, so nothing here has a rank"
+    );
+}
+
+/// A card the reads DID reach is never duplicated into the tail.
+#[test]
+fn a_retrieved_card_is_not_appended_again() {
+    let baseline = ids(&["kept"]);
+    let with_tail = append_conservation_tail(fuse(&ids(&["kept"]), &[], RRF_K), &baseline);
+
+    assert_eq!(with_tail.len(), 1, "one card, not two");
+    assert_eq!(with_tail[0].placement, CardPlacement::Ranked);
+}
+
+/// Nothing to append is a no-op, and the placements survive untouched.
+#[test]
+fn a_fully_reached_pool_appends_nothing() {
+    let ranked = fuse(&ids(&["a", "b"]), &[], RRF_K);
+    let with_tail = append_conservation_tail(ranked.clone(), &ids(&["a", "b"]));
+
+    assert_eq!(with_tail, ranked);
+    assert!(with_tail
+        .iter()
+        .all(|c| c.placement == CardPlacement::Ranked));
+}
+
+/// The placement token spells the way the DTO will carry it.
+#[test]
+fn the_placement_tokens_match_their_serde_spelling() {
+    for (placement, token) in [
+        (CardPlacement::Ranked, "ranked"),
+        (CardPlacement::ConservationTail, "conservation_tail"),
+    ] {
+        assert_eq!(
+            serde_json::to_value(placement).expect("serializes"),
+            serde_json::json!(token),
+            "L2c renders from this token; it must not drift"
+        );
+    }
 }

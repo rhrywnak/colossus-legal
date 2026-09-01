@@ -47,7 +47,9 @@ use crate::domain::gather_filter::GatherSubjectFilter;
 use crate::repositories::evidence_search_repository::lexical::{
     lexical_search, party_membership, LexicalReadError,
 };
-use crate::services::gather_fusion::{conservation_gap, fuse, FusedCard, RRF_K};
+use crate::services::gather_fusion::{
+    append_conservation_tail, conservation_gap, fuse, CardPlacement, FusedCard, RRF_K,
+};
 use crate::services::gather_vector::vector_search;
 use crate::services::qdrant_service::QdrantError;
 
@@ -63,9 +65,18 @@ pub struct RankedGather {
     /// Today's pool: every card filed ABOUT the subject alone. The baseline the
     /// conservation identity is measured against.
     pub subject_only_pool: Vec<String>,
-    /// Cards in [`Self::subject_only_pool`] that the fused list does NOT
-    /// contain. **Must be empty.** Non-empty is a defect, not a ranking.
+    /// Cards in [`Self::subject_only_pool`] that the returned list does NOT
+    /// contain. **Empty by construction** since the conservation tail was
+    /// added — non-empty means the append itself is broken.
     pub conservation_gap: Vec<String>,
+    /// How many of today's pool NEITHER read reached, measured before the tail
+    /// was appended.
+    ///
+    /// This is the number the tail exists for, and the only place it survives:
+    /// after the append the gap is zero, so without this a reader could not
+    /// tell a gather where the reads found everything from one where they found
+    /// almost nothing and the tail carried the pool.
+    pub unreached_by_reads: usize,
     /// The mode in force, so a thin result can be attributed to it.
     pub filter_mode: GatherSubjectFilter,
     /// Every id the party filter admitted, before either read ran.
@@ -90,6 +101,24 @@ pub struct RankedGather {
 }
 
 impl RankedGather {
+    /// The retrieved cards' ids, best first — the conservation tail excluded.
+    ///
+    /// ## ⚑ Why this is a method and not a filter at each call site
+    ///
+    /// The acceptance bars measure RETRIEVAL. A conservation-tail card was not
+    /// retrieved; it is present because it is in the subject-only pool, and
+    /// letting one satisfy a bar would report a ranking as working when it had
+    /// found nothing. That filter was written once inside the measurement
+    /// harness, where no fast test could reach it — so removing it would have
+    /// left every unit test green. It lives here now, and is tested.
+    pub fn retrieved_ids(&self) -> Vec<String> {
+        self.cards
+            .iter()
+            .filter(|card| card.placement == CardPlacement::Ranked)
+            .map(|card| card.evidence_id.clone())
+            .collect()
+    }
+
     /// Which stage lost a card — the question every thin gather raises.
     ///
     /// Answerable only because [`Self::admitted`] keeps the id set rather than
@@ -177,27 +206,60 @@ pub async fn ranked_gather(
     .await?;
 
     let lexical_ranked = fuse_lexical(&lexical.full_text, &lexical.trigram);
-    let cards = fuse(&vector_ranked, &lexical_ranked, RRF_K);
+    let retrieved = fuse(&vector_ranked, &lexical_ranked, RRF_K);
+
+    // How many of today's pool the reads actually reached, measured BEFORE the
+    // tail is appended. After the append the gap is zero by construction, so
+    // this is the only moment the number exists — and it is the number that
+    // says how much work the tail is doing.
+    let unreached = conservation_gap(&subject_only_pool, &retrieved).len();
+    let cards = append_conservation_tail(retrieved, &subject_only_pool);
+
+    // Now an assertion that can hold, and holds: the tail was just appended
+    // from this very list, so a non-empty gap here means the append is broken.
     let gap = conservation_gap(&subject_only_pool, &cards);
 
     if !gap.is_empty() {
-        // Rule 1: the one failure that would make this cascade a net loss must
-        // never be silent. A card a human could see yesterday and cannot see
-        // today is a defect, and it is named here even if no caller checks.
+        // Rule 1: unreachable by construction now — the tail is appended from
+        // the same baseline this compares against — so reaching here means
+        // `append_conservation_tail` is broken, which is worse than the
+        // original defect and must be just as loud.
         tracing::error!(
             missing = gap.len(),
             ids_excerpt = %id_excerpt(&gap),
             filter = %input.filter_mode,
-            "CONSERVATION VIOLATION: cards in the subject-only pool are absent from the \
-             ranked gather; the ranked gather must add and re-order, never drop"
+            "CONSERVATION VIOLATION: append_conservation_tail returned a list still \
+             missing cards from the subject-only pool. Since the tail is appended from \
+             the same baseline this compares against, this is a DEFECT IN THAT FUNCTION \
+             — not a ranking result and not a data problem. The gather is serving a \
+             short pool; examine append_conservation_tail before trusting any list."
         );
     }
+
+    // Rule 1: the two extreme gathers — the reads found everything, and the
+    // reads found almost nothing and the tail carried the pool — are entirely
+    // different states and were indistinguishable from the logs. The struct
+    // always carried the numbers; nothing emitted them.
+    tracing::info!(
+        filter = %input.filter_mode,
+        admitted = admitted.len(),
+        read_depth = input.read_depth,
+        vector_hits = vector_ranked.len(),
+        full_text_hits = lexical.full_text.len(),
+        trigram_hits = lexical.trigram.len(),
+        subject_only_pool = subject_only_pool.len(),
+        unreached_by_reads = unreached,
+        ranked = cards.len() - unreached,
+        total = cards.len(),
+        "ranked gather complete"
+    );
 
     Ok(RankedGather {
         vector_hits: vector_ranked.len(),
         full_text_hits: lexical.full_text.len(),
         trigram_hits: lexical.trigram.len(),
         read_depth: input.read_depth,
+        unreached_by_reads: unreached,
         cards,
         admitted,
         subject_only_pool,

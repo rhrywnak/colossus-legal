@@ -180,10 +180,15 @@ async fn measure(
         "  subject-only pool     : {}",
         gather.subject_only_pool.len()
     );
+    println!("  unreached by reads    : {}", gather.unreached_by_reads);
     println!(
         "  CONSERVATION          : {}",
         if gather.conservation_gap.is_empty() {
-            "HOLDS — every card in today's pool is still present".to_string()
+            format!(
+                "HOLDS — every card in today's pool is present ({} of them carried by the \
+                 conservation tail)",
+                gather.unreached_by_reads
+            )
         } else {
             format!(
                 "VIOLATED — {} card(s) dropped: {}",
@@ -195,12 +200,14 @@ async fn measure(
     // Deliberately NOT asserted here. The AT numbers are what this file exists
     // to print, and aborting on conservation before printing them would hide
     // the measurement behind a different failure. The caller asserts last.
+    // The AT bars are about RETRIEVAL, so a card sitting in the conservation
+    // tail must not be able to satisfy one by accident. `retrieved_ids` is the
+    // filter, and it lives on the type where a unit test can reach it.
+    let retrieved = gather.retrieved_ids();
+    println!("  of which RANKED       : {}", retrieved.len());
+
     Ok(Measured {
-        ranked: gather
-            .cards
-            .into_iter()
-            .map(|card| card.evidence_id)
-            .collect(),
+        ranked: retrieved,
         conservation_gap: gather.conservation_gap.len(),
         subject_only_pool: gather.subject_only_pool.len(),
     })

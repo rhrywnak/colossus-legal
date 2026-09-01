@@ -35,12 +35,45 @@ use std::collections::BTreeMap;
 // tests can vary it without a config surface nobody wants.
 pub const RRF_K: f64 = 60.0;
 
+/// Whether a card was RETRIEVED or is only present because conservation
+/// requires it.
+///
+/// ## ⚑ The distinction a reader must be able to make
+///
+/// "Ranked 120th" and "neither read reached this, but it was in yesterday's
+/// pool" are entirely different statements about a card, and a list that
+/// renders them identically would be lying by omission. L2c's DTO carries this
+/// as a field so the page can separate them — a rule below the last ranked card
+/// and a different treatment for what follows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CardPlacement {
+    /// At least one read returned it; [`FusedCard::fused_score`] is meaningful.
+    Ranked,
+    /// Neither read reached it. It is here only because it is in the
+    /// subject-only pool and conservation says nothing visible yesterday may be
+    /// invisible today. Score is zero and both ranks are `None`.
+    ConservationTail,
+}
+
 /// One card in the fused list.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FusedCard {
     pub evidence_id: String,
-    /// 1-based position in the fused list.
-    pub rank: usize,
+    /// 1-based rank among the RETRIEVED cards, or `None` for a card the reads
+    /// never returned.
+    ///
+    /// ## Rust Learning: `Option` instead of a field that means two things
+    ///
+    /// This was a bare `usize`, and a conservation-tail card was given its
+    /// position in the list. That made `rank` mean "how well it scored" for one
+    /// kind of card and "where it happens to sit" for another, with only
+    /// [`Self::placement`] to tell a caller which — a precondition the compiler
+    /// could not check and a reader had to remember. `None` carries "not
+    /// ranked" in the type, so the ambiguity cannot be written.
+    pub rank: Option<usize>,
+    /// Whether this card was retrieved or appended.
+    pub placement: CardPlacement,
     pub fused_score: f64,
     /// 1-based rank in the vector read, `None` if that read did not return it.
     pub vector_rank: Option<usize>,
@@ -95,7 +128,7 @@ pub fn fuse(vector_ranked: &[String], lexical_ranked: &[String], k: f64) -> Vec<
             .then_with(|| a.evidence_id.cmp(&b.evidence_id))
     });
     for (index, card) in fused.iter_mut().enumerate() {
-        card.rank = index + 1;
+        card.rank = Some(index + 1);
     }
     fused
 }
@@ -104,11 +137,47 @@ pub fn fuse(vector_ranked: &[String], lexical_ranked: &[String], k: f64) -> Vec<
 fn blank(evidence_id: &str) -> FusedCard {
     FusedCard {
         evidence_id: evidence_id.to_string(),
-        rank: 0,
+        rank: None,
+        placement: CardPlacement::Ranked,
         fused_score: 0.0,
         vector_rank: None,
         lexical_rank: None,
     }
+}
+
+/// Append every baseline card the reads did not reach, in id order.
+///
+/// ## ⚑ Conservation by CONSTRUCTION, not by luck
+///
+/// The identity — every card visible yesterday is still visible today — cannot
+/// be met by a relevance-bounded read at any depth: the two reads return the
+/// most RELEVANT cards, while the subject-only pool is defined by MEMBERSHIP,
+/// and no top-K of the first is guaranteed to contain the second. Measured
+/// before this existed: 204 of S-9's 292 and 197 of S-11's 292 were absent.
+///
+/// So they are appended rather than retrieved. The ranked cards keep their
+/// order and their scores; the unreached ones follow, in id order, marked
+/// [`CardPlacement::ConservationTail`] so nothing can mistake them for results.
+/// In a case file, "a card you could see yesterday is gone" outranks a tidy
+/// list — which is the whole reason this is a guarantee and not a metric.
+pub fn append_conservation_tail(mut fused: Vec<FusedCard>, baseline: &[String]) -> Vec<FusedCard> {
+    let mut missing = conservation_gap(baseline, &fused);
+    missing.sort();
+    missing.dedup();
+
+    for evidence_id in missing {
+        fused.push(FusedCard {
+            evidence_id,
+            // No rank: neither read returned it, so there is no position among
+            // the retrieved cards to give it.
+            rank: None,
+            placement: CardPlacement::ConservationTail,
+            fused_score: 0.0,
+            vector_rank: None,
+            lexical_rank: None,
+        });
+    }
+    fused
 }
 
 /// The ids in `baseline` that the fused list does not contain.

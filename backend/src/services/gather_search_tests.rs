@@ -6,6 +6,7 @@
 //! and needs a database, a Qdrant and the model weights.
 
 use super::*;
+use crate::services::gather_fusion::append_conservation_tail;
 
 fn ids(list: &[&str]) -> Vec<String> {
     list.iter().map(|s| (*s).to_string()).collect()
@@ -155,6 +156,7 @@ fn gather_with(admitted: &[&str], card_ids: &[&str]) -> RankedGather {
         admitted: ids(admitted),
         subject_only_pool: Vec::new(),
         conservation_gap: Vec::new(),
+        unreached_by_reads: 0,
         filter_mode: GatherSubjectFilter::Widened,
         read_depth: 200,
         vector_hits: card_ids.len(),
@@ -250,4 +252,35 @@ fn the_conservation_log_is_bounded_and_says_how_many_it_left_out() {
         "a, b",
         "a short gap is named in full"
     );
+}
+
+/// ⚑ A conservation-tail card can never satisfy an acceptance bar.
+///
+/// The bars measure RETRIEVAL. A tail card is present because it is in the
+/// subject-only pool, not because anything found it, so counting one would
+/// report a ranking as working when it had found nothing. The filter used to
+/// live inside the `#[ignore]`d measurement harness, where no fast test could
+/// reach it — removing it would have left every unit test green.
+#[test]
+fn a_conservation_tail_card_is_not_a_retrieved_card() {
+    let mut gather = gather_with(&["found", "unreached"], &["found"]);
+    gather.cards = append_conservation_tail(gather.cards, &ids(&["found", "unreached"]));
+
+    assert_eq!(gather.cards.len(), 2, "the list carries both");
+    assert_eq!(
+        gather.retrieved_ids(),
+        vec!["found"],
+        "but only the retrieved one may be offered to an acceptance bar"
+    );
+    assert!(
+        !gather.retrieved_ids().contains(&"unreached".to_string()),
+        "a card nothing found cannot prove the search found it"
+    );
+}
+
+/// With no tail, every card is retrieved — the filter does not over-reach.
+#[test]
+fn without_a_tail_every_card_is_retrieved() {
+    let gather = gather_with(&["a", "b"], &["a", "b"]);
+    assert_eq!(gather.retrieved_ids(), vec!["a", "b"]);
 }
