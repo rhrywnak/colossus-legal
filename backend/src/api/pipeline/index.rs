@@ -41,6 +41,7 @@ use crate::repositories::embedding_repository;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::embedding_service::{EmbeddingError, EmbeddingService};
 use crate::services::embedding_text::build_embedding_text;
+use crate::services::qdrant_payload;
 use crate::services::qdrant_service::{self, QdrantPoint};
 use crate::state::AppState;
 
@@ -154,32 +155,11 @@ pub(crate) async fn run_index_core(
             continue;
         };
 
-        let title = node
-            .properties
-            .get("title")
-            .or_else(|| node.properties.get("name"))
-            .cloned()
-            .unwrap_or_default();
-
-        let page_number = node.properties.get("page_number").cloned();
-
-        let mut payload = serde_json::json!({
-            "node_id": node.id,
-            "node_type": node.node_type,
-            "title": title,
-            "document_id": doc_id,
-            "source_document": doc_id,
-        });
-
-        // Add page_number if present
-        if let Some(ref page) = page_number {
-            if let Some(obj) = payload.as_object_mut() {
-                obj.insert(
-                    "page_number".to_string(),
-                    serde_json::Value::String(page.clone()),
-                );
-            }
-        }
+        // ONE builder, shared with `pipeline::steps::index::run_index`. Both
+        // index paths store the same payload for the same node because they
+        // call the same function, not because someone kept two copies in step.
+        // See `services::qdrant_payload`.
+        let payload = qdrant_payload::build_point_payload(node, doc_id);
 
         points.push(QdrantPoint {
             id: node_id_to_point_id(&node.id),

@@ -48,7 +48,7 @@ use colossus_pipeline::progress::ProgressReporter;
 use colossus_pipeline::{Step, StepResult};
 
 use crate::models::document_status::STATUS_INDEXED;
-use crate::pipeline::constants::{QDRANT_COLLECTION_NAME, QDRANT_DOCUMENT_ID_FIELD};
+use crate::pipeline::constants::QDRANT_COLLECTION_NAME;
 use crate::pipeline::context::AppContext;
 use crate::pipeline::steps::cleanup::{cleanup_qdrant, CleanupError};
 use crate::pipeline::steps::completeness::Completeness;
@@ -56,6 +56,7 @@ use crate::pipeline::task::DocProcessing;
 use crate::repositories::embedding_repository;
 use crate::repositories::pipeline_repository;
 use crate::services::embedding_text::build_embedding_text;
+use crate::services::qdrant_payload;
 use crate::services::qdrant_service::{self, QdrantPoint};
 
 /// Index step state.
@@ -304,30 +305,11 @@ pub async fn run_index(
             let vector = &vectors[i];
             *by_type.entry(node.node_type.clone()).or_insert(0) += 1;
 
-            let title = node
-                .properties
-                .get("title")
-                .or_else(|| node.properties.get("name"))
-                .cloned()
-                .unwrap_or_default();
-
-            let mut payload = serde_json::json!({
-                "node_id": node.id,
-                "node_type": node.node_type,
-                "title": title,
-                QDRANT_DOCUMENT_ID_FIELD: doc_id,
-                "source_document": doc_id,
-            });
-
-            // Attach page_number when present (Evidence nodes).
-            if let Some(page) = node.properties.get("page_number") {
-                if let Some(obj) = payload.as_object_mut() {
-                    obj.insert(
-                        "page_number".to_string(),
-                        serde_json::Value::String(page.clone()),
-                    );
-                }
-            }
+            // ONE builder, shared with `api::pipeline::index::run_index_core`.
+            // Both index paths store the same payload for the same node because
+            // they call the same function, not because someone kept two copies
+            // in step. See `services::qdrant_payload`.
+            let payload = qdrant_payload::build_point_payload(node, doc_id);
 
             points.push(QdrantPoint {
                 id: node_id_to_point_id(&node.id),
