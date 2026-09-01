@@ -309,7 +309,7 @@ pub async fn run_index(
             // Both index paths store the same payload for the same node because
             // they call the same function, not because someone kept two copies
             // in step. See `services::qdrant_payload`.
-            let payload = qdrant_payload::build_point_payload(node, doc_id);
+            let payload = qdrant_payload::build_point_payload(node, Some(doc_id));
 
             points.push(QdrantPoint {
                 id: node_id_to_point_id(&node.id),

@@ -48,7 +48,7 @@ pub async fn fetch_all_embeddable_nodes(
                     e.verbatim_quote AS verbatim_quote,
                     e.significance AS significance,
                     e.page_number AS page_number,
-                    e.document_id AS document_id,
+                    e.source_document AS document_id,
                     e.statement_type AS statement_type,
                     e.statement_date AS statement_date,
                     e.exhibit_number AS exhibit_number,
@@ -89,7 +89,8 @@ pub async fn fetch_all_embeddable_nodes(
                     NULL AS evidence_status,
                     a.category AS category,
                     a.severity AS severity,
-                    a.paragraph_number AS paragraph",
+                    a.paragraph_number AS paragraph,
+                    a.source_document AS document_id",
             vec![
                 "title",
                 "allegation",
@@ -98,6 +99,7 @@ pub async fn fetch_all_embeddable_nodes(
                 "category",
                 "severity",
                 "paragraph",
+                "document_id",
             ],
         ),
         (
@@ -107,12 +109,14 @@ pub async fn fetch_all_embeddable_nodes(
                     m.claim_text AS claim_text,
                     m.significance AS significance,
                     m.source_document_id AS source_document_id,
+                    m.source_document_id AS document_id,
                     m.category AS category",
             vec![
                 "title",
                 "claim_text",
                 "significance",
                 "source_document_id",
+                "document_id",
                 "category",
             ],
         ),
@@ -125,7 +129,8 @@ pub async fn fetch_all_embeddable_nodes(
                     h.subcategory AS subcategory,
                     h.amount AS amount,
                     h.date AS date,
-                    h.source_reference AS source_reference",
+                    h.source_reference AS source_reference,
+                    h.source_document AS document_id",
             vec![
                 "title",
                 "description",
@@ -134,6 +139,7 @@ pub async fn fetch_all_embeddable_nodes(
                 "amount",
                 "date",
                 "source_reference",
+                "document_id",
             ],
         ),
         (
@@ -143,8 +149,16 @@ pub async fn fetch_all_embeddable_nodes(
                     d.doc_type AS document_type,
                     d.date AS date,
                     d.page_count AS page_count,
-                    d.file_path AS file_path",
-            vec!["title", "document_type", "date", "page_count", "file_path"],
+                    d.file_path AS file_path,
+                    d.source_document_id AS document_id",
+            vec![
+                "title",
+                "document_type",
+                "date",
+                "page_count",
+                "file_path",
+                "document_id",
+            ],
         ),
         (
             "MATCH (p:Person)
@@ -152,16 +166,18 @@ pub async fn fetch_all_embeddable_nodes(
                     p.name AS name,
                     p.role AS role,
                     p.roles AS roles,
-                    p.description AS description",
-            vec!["name", "role", "roles", "description"],
+                    p.description AS description,
+                    p.source_document AS document_id",
+            vec!["name", "role", "roles", "description", "document_id"],
         ),
         (
             "MATCH (o:Organization)
              RETURN o.id AS id, 'Organization' AS node_type,
                     o.name AS name,
                     o.role AS role,
-                    o.description AS description",
-            vec!["name", "role", "description"],
+                    o.description AS description,
+                    o.source_document AS document_id",
+            vec!["name", "role", "description", "document_id"],
         ),
     ];
 
