@@ -118,10 +118,22 @@ const UPSERT_SQL: &str = "\
 /// staleness is handled by whole-document re-sync in L1c (Roman, 2026-09-01),
 /// not by comparing a per-row stamp against the graph.
 ///
+/// ## Rust Learning: `impl PgExecutor<'_>` so a caller can enrol this in a transaction
+///
+/// The parameter widened from `&PgPool` to `impl PgExecutor<'_>` when L1c needed
+/// the upsert and the ghost-row delete to be ONE transaction. `&PgPool` is
+/// itself a `PgExecutor` (each call takes its own connection), so **every
+/// existing call site compiles unchanged** — the backfill bin still passes
+/// `&pool`. `&mut PgConnection`, which is what a live transaction hands out, is
+/// also one. The body did not change; only who is allowed to run it.
+///
+/// This is the house pattern — `scenario_store::insert_scenario` and its
+/// siblings take the same parameter for the same reason.
+///
 /// # Errors
 /// Returns [`PipelineRepoError`] if the statement fails.
 pub async fn upsert_evidence_search_rows(
-    pool: &PgPool,
+    executor: impl sqlx::PgExecutor<'_>,
     rows: &[EvidenceSearchRow],
 ) -> Result<u64, PipelineRepoError> {
     if rows.is_empty() {
@@ -140,9 +152,90 @@ pub async fn upsert_evidence_search_rows(
         PipelineRepoError::Database(format!("could not serialize an evidence_search batch: {e}"))
     })?;
 
-    let result = sqlx::query(UPSERT_SQL).bind(&batch).execute(pool).await?;
+    let result = sqlx::query(UPSERT_SQL)
+        .bind(&batch)
+        .execute(executor)
+        .await?;
 
     Ok(result.rows_affected())
+}
+
+// STRUCTURAL: SQL text is wire vocabulary for the Postgres protocol, not a
+// deployment-variable setting. Held at module scope so the shape test asserts
+// against the text that runs.
+//
+// `<> ALL($2)` and not `NOT IN`: with an EMPTY array `evidence_id <> ALL('{}')`
+// is TRUE for every row, so the empty-set case deletes the document's rows
+// exactly as it must. `NOT IN` on an empty list is also true, but `NOT IN` turns
+// the whole predicate NULL the moment one element is NULL, which would silently
+// delete nothing. The ids come from the graph and are never null today; `ALL`
+// means that stays true by construction rather than by luck.
+//
+// Scoped by `document_id` — this statement can never touch another document's
+// rows, which is the property that makes it safe to run from two paths.
+const DELETE_GHOSTS_SQL: &str = "\
+    DELETE FROM evidence_search \
+    WHERE document_id = $1 AND evidence_id <> ALL($2::text[])";
+
+/// Make the mirror match the graph for ONE document, atomically.
+///
+/// Upserts every current row and deletes the rows this document used to have and
+/// no longer does. Returns `(written, deleted)`.
+///
+/// ## Why this exists rather than two calls at the call site
+///
+/// A caller that did the upsert and forgot the delete would leave ghost rows —
+/// evidence deleted from the graph still answering searches — and a caller that
+/// did them in the wrong order, or in two transactions, would leave a window
+/// where the mirror is missing rows it should have. Wrapping the pair means a
+/// caller cannot do half of it. Both of L1c's two call sites use this and
+/// neither carries any SQL of its own.
+///
+/// ## Whole-document re-sync IS the staleness strategy
+///
+/// Roman's ruling of 2026-09-01. There is no per-row staleness comparison and no
+/// `source_updated_at` column to make one with: every index of a document
+/// rewrites every row it has and removes every row it does not. A row therefore
+/// cannot be stale with respect to its document — which is why the empty case
+/// below is not an edge case but the mechanism.
+///
+/// ## The empty set is the point, not a special case
+///
+/// `rows` empty means the graph now holds no Evidence for this document. The
+/// upsert does nothing (L1b short-circuits) and the delete removes everything
+/// the mirror still had. Skipping the call on an empty list — the obvious
+/// "optimisation" — is precisely how ghost rows would survive for ever.
+///
+/// ## Rust Learning: `&mut *tx` — reborrowing a transaction for two statements
+///
+/// `sqlx::Transaction` yields its connection through `&mut *tx`, and each
+/// `execute` wants that mutable borrow. Passing `&mut *tx` **reborrows** rather
+/// than moving, so the first statement gives the borrow back and the second can
+/// take it — and `tx` is still owned afterwards to `commit()`. Passing `tx`
+/// itself would move it into the first call and the second would not compile.
+///
+/// # Errors
+/// Returns [`PipelineRepoError`] if either statement or the commit fails. On any
+/// error the transaction is dropped, which rolls it back: the mirror is left
+/// exactly as it was, never half-synced.
+pub async fn sync_document_evidence_search(
+    pool: &PgPool,
+    document_id: &str,
+    rows: &[EvidenceSearchRow],
+) -> Result<(u64, u64), PipelineRepoError> {
+    let ids: Vec<&str> = rows.iter().map(|r| r.evidence_id.as_str()).collect();
+
+    let mut tx = pool.begin().await?;
+    let written = upsert_evidence_search_rows(&mut *tx, rows).await?;
+    let deleted = sqlx::query(DELETE_GHOSTS_SQL)
+        .bind(document_id)
+        .bind(&ids)
+        .execute(&mut *tx)
+        .await?
+        .rows_affected();
+    tx.commit().await?;
+
+    Ok((written, deleted))
 }
 
 /// How many rows the mirror holds. The second of the three counts L1b asserts.
@@ -236,6 +329,49 @@ mod tests {
         assert!(
             UPSERT_SQL.contains("synced_at    = now()"),
             "an update must refresh synced_at, or the mirror cannot say when it was last written"
+        );
+    }
+
+    /// The ghost delete is scoped to one document and survives an empty set.
+    ///
+    /// Two properties, and both are load-bearing. The `document_id = $1` scope is
+    /// what makes it safe for two paths to call this — one document's sync can
+    /// never reach another's rows. And `<> ALL` is what makes the EMPTY set
+    /// clear the document rather than do nothing: `evidence_id <> ALL('{}')` is
+    /// true for every row, whereas the same predicate written with `NOT IN` goes
+    /// NULL the moment any element is NULL and would silently delete nothing.
+    #[test]
+    fn the_ghost_delete_is_document_scoped_and_empty_safe() {
+        assert!(
+            DELETE_GHOSTS_SQL.contains("WHERE document_id = $1"),
+            "the delete must be scoped to one document — two paths call this"
+        );
+        assert!(
+            DELETE_GHOSTS_SQL.contains("evidence_id <> ALL($2::text[])"),
+            "must be <> ALL, so an empty incoming set clears the document's rows"
+        );
+        assert!(
+            !DELETE_GHOSTS_SQL.contains("NOT IN"),
+            "NOT IN goes NULL on a NULL element and would delete nothing"
+        );
+    }
+
+    /// The sync's delete never touches rows it was not given a document for.
+    ///
+    /// A `DELETE` with no `WHERE` — or one scoped only by the id list — would
+    /// empty the mirror for every other document the first time it ran. Cheap to
+    /// assert, catastrophic to get wrong.
+    #[test]
+    fn the_ghost_delete_cannot_be_unscoped() {
+        let where_clause = DELETE_GHOSTS_SQL
+            .find("WHERE")
+            .expect("the delete must have a WHERE clause");
+        let doc_scope = DELETE_GHOSTS_SQL
+            .find("document_id = $1")
+            .expect("scoped by document");
+        assert!(
+            doc_scope > where_clause,
+            "the document scope must be part of the WHERE, not incidental text"
         );
     }
 

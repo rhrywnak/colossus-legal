@@ -41,6 +41,7 @@ use crate::repositories::embedding_repository;
 use crate::repositories::pipeline_repository::{self, steps};
 use crate::services::embedding_service::{EmbeddingError, EmbeddingService};
 use crate::services::embedding_text::build_embedding_text;
+use crate::services::evidence_mirror;
 use crate::services::qdrant_service::{self, QdrantPoint};
 use crate::state::AppState;
 
@@ -208,6 +209,33 @@ pub(crate) async fn run_index_core(
         .map_err(|e| AppError::Internal {
             message: format!("Qdrant upsert error: {e}"),
         })?;
+
+    // 8b. The LEXICAL half — keep `evidence_search` in step with the graph
+    //     (L1c). This function is one of the two per-document index paths that
+    //     call the mirror sync, and it covers BOTH of its own entries: the
+    //     `POST /documents/:id/index` route and the delta ingest's inline
+    //     trigger. The other path is `pipeline::steps::index::run_index`. See
+    //     `services::evidence_mirror` for why both call it, and why the
+    //     full-corpus re-embed in `services::embedding_pipeline` does NOT —
+    //     the mirror mirrors the GRAPH, not Qdrant.
+    //
+    //     Propagated, never logged-and-continued: a document in Qdrant with no
+    //     mirror row is half-searchable, and the only symptom is a lexical
+    //     search quietly missing a quote. Re-running Index fixes it; the sync
+    //     is idempotent.
+    let mirror = evidence_mirror::sync_document(&state.graph, &state.pipeline_pool, doc_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!(
+                "Evidence mirror failed for '{doc_id}' (Qdrant succeeded — re-run Index): {e}"
+            ),
+        })?;
+    tracing::info!(
+        doc_id = %doc_id,
+        rows_written = mirror.rows_written,
+        ghosts_removed = mirror.ghosts_removed,
+        "index: evidence mirror synced"
+    );
 
     let duration = start.elapsed().as_secs_f64();
     tracing::info!(

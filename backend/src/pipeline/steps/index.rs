@@ -56,6 +56,7 @@ use crate::pipeline::task::DocProcessing;
 use crate::repositories::embedding_repository;
 use crate::repositories::pipeline_repository;
 use crate::services::embedding_text::build_embedding_text;
+use crate::services::evidence_mirror;
 use crate::services::qdrant_service::{self, QdrantPoint};
 
 /// Index step state.
@@ -114,6 +115,20 @@ pub enum IndexError {
 
     #[error("Helper failed for document '{doc_id}': {message}")]
     Helper { doc_id: String, message: String },
+
+    /// The Qdrant half succeeded and the lexical mirror did not.
+    ///
+    /// Its own variant rather than a `Helper`: this is the one failure where the
+    /// document is left HALF-INDEXED — searchable by vector, invisible to
+    /// lexical search — and an operator reading the log needs to see that
+    /// without decoding a message string. Re-running the step fixes it; the sync
+    /// is idempotent.
+    #[error("Evidence mirror failed for document '{doc_id}' (Qdrant succeeded — re-run Index)")]
+    Mirror {
+        doc_id: String,
+        #[source]
+        source: crate::services::evidence_mirror::MirrorSyncError,
+    },
 }
 
 // ─────────────────────────────────────────────────────────────────────────
@@ -346,6 +361,28 @@ pub async fn run_index(
                 message: format!("upsert_points: {e}"),
             })?;
 
+        // 6b. The LEXICAL half — keep `evidence_search` in step with the graph
+        //     (L1c). One of the two per-document index paths that call this;
+        //     the other is `api::pipeline::index::run_index_core`. See
+        //     `services::evidence_mirror` for why both call it and why the
+        //     full-corpus re-embed in `services::embedding_pipeline` does NOT.
+        //
+        //     Propagated, never logged-and-continued: a document in Qdrant with
+        //     no mirror row is half-searchable, and the only symptom is a
+        //     lexical search quietly missing a quote.
+        let mirror = evidence_mirror::sync_document(&context.graph, db, doc_id)
+            .await
+            .map_err(|e| IndexError::Mirror {
+                doc_id: doc_id.to_string(),
+                source: e,
+            })?;
+        tracing::info!(
+            doc_id = %doc_id,
+            rows_written = mirror.rows_written,
+            ghosts_removed = mirror.ghosts_removed,
+            "index: evidence mirror synced"
+        );
+
         tracing::info!(
             doc_id = %doc_id,
             collection = QDRANT_COLLECTION_NAME,
@@ -403,5 +440,36 @@ mod tests {
             doc_id: "test-doc-42".to_string(),
         };
         assert!(format!("{err}").contains("test-doc-42"));
+    }
+
+    /// The mirror variant names the document AND the half-indexed state.
+    ///
+    /// This is the one failure that leaves a document searchable by vector and
+    /// invisible to lexical search, and the operator's first sight of it is this
+    /// sentence. `thiserror` builds it from a format attribute nothing else
+    /// checks, so a refactor that dropped `{doc_id}` would be silent.
+    #[test]
+    fn the_mirror_variant_names_the_document_and_the_half_indexed_state() {
+        use crate::services::evidence_mirror::MirrorSyncError;
+        let err = IndexError::Mirror {
+            doc_id: "test-doc-42".to_string(),
+            source: MirrorSyncError::Read {
+                doc_id: "test-doc-42".to_string(),
+                source: crate::repositories::evidence_search_repository::EvidenceSearchReadError::Query {
+                    operation: "read_document_evidence",
+                    source: neo4rs::Error::ConnectionError,
+                },
+            },
+        };
+        let rendered = format!("{err}");
+        assert!(rendered.contains("test-doc-42"), "got: {rendered}");
+        assert!(
+            rendered.contains("Qdrant succeeded"),
+            "the half-indexed state must be visible without opening the source chain: {rendered}"
+        );
+        assert!(
+            rendered.contains("re-run Index"),
+            "the recovery must be stated"
+        );
     }
 }
