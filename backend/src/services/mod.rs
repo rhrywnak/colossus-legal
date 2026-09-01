@@ -14,6 +14,7 @@ pub mod claude_client;
 pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;
+pub mod gate_fixture;
 pub mod graph_expander;
 pub mod graph_expansion_cypher;
 pub mod graph_expansion_minor;
