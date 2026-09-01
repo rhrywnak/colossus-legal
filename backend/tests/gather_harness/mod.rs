@@ -122,10 +122,10 @@ pub async fn measure(
             // here so the measurement is reproducible against a named number
             // rather than whatever a store happens to hold.
             read_depth: 200,
-            // The shipped default of `gather_probe_max_share`, 1/6. Pinned here
+            // The shipped default of `gather_probe_max_share`, 1/3. Pinned here
             // so the measurement is reproducible against a named number rather
             // than whatever a store happens to hold.
-            probe_max_share: 1.0 / 6.0,
+            probe_max_share: 1.0 / 3.0,
             probe_floor: 3,
         },
     )

@@ -301,7 +301,7 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         ),
         row(
             KEY_GATHER_PROBE_MAX_SHARE,
-            "1/6",
+            "1/3",
             ValueKind::Ratio,
             None,
             None,
@@ -1300,6 +1300,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // R1: the share dropped from a third to a sixth. A CORRECTION of the
         // row above, so `corrected_value_in` is what finds 1/6 here.
         "pipeline_migrations/20260901162435_gather_probe_max_share_to_one_sixth.sql",
+        // ...and reverted, after measurement disproved the ruling behind it.
+        "pipeline_migrations/20260901193521_gather_probe_max_share_back_to_one_third.sql",
     ]
     .iter()
     .map(|relative| {
@@ -1703,18 +1705,22 @@ fn every_app_settings_insert_names_real_columns() {
     );
 }
 
-/// ⚑ The share ships as 1/6 and an illegal one still refuses the boot.
+/// ⚑ The share ships as the migrations leave it, and an illegal one still
+/// refuses the boot.
 ///
-/// The value moved from 1/3 to 1/6 by migration. What must not move with it is
+/// The value went 1/3 -> 1/6 -> 1/3 across three migrations. The NAME does not
+/// say which, deliberately: a test named for a value has to be renamed every
+/// time the value moves, and the one time somebody forgets, the name lies to
+/// the next person reading a failure. What must not move with it is
 /// the refusal: a share the reader cannot parse has to stop the process with
 /// the key named, not fall back to a default and search a pool nobody chose.
 #[test]
-fn the_probe_share_ships_at_one_sixth_and_refuses_an_illegal_value() {
+fn the_probe_share_ships_at_the_seeded_value_and_refuses_an_illegal_one() {
     let good = build_settings(&seeded()).expect("the seeded store builds");
     assert_eq!(
         good.gather_probe_max_share.to_string(),
-        "1/6",
-        "the ruled default, as the migration now seeds it"
+        "1/3",
+        "reverted to a third; the 1/6 ruling was disproved by measurement"
     );
 
     for (illegal, why) in [

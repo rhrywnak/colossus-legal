@@ -39,7 +39,7 @@ impl Settings {
             gather_probe_floor: 3,
             gather_probe_max_share: Ratio {
                 numerator: 1,
-                denominator: 6,
+                denominator: 3,
             },
             gather_read_depth: 200,
             gather_subject_filter: crate::domain::gather_filter::GatherSubjectFilter::Widened,
