@@ -39,7 +39,8 @@
 //  2. Mirrors the page root's theme attributes onto it (`rootAttributesToMirror`).
 //  3. Listens for `pagehide`, which is how the OS window closing reaches this
 //     program when the reader used the window's own close button rather than
-//     the ⇲ in the bar.
+//     the ⇲ in the bar. After T7 that is a DIFFERENT callback from ⇲'s: one
+//     docks the story, the other puts it away. See `onWindowClosed`.
 //  4. Portals the SAME children the in-page window renders into its body. One
 //     row design, two containers — the mockup's own words for Screen 5.
 //
@@ -61,8 +62,22 @@ type Props = {
   title: string;
   count: string;
   wording: ChronologyWording;
-  /** ⇲, and the OS window's own close button — put the story back in the page. */
+  /** ⇲ `Back into the page` — dock it: this window closes, the in-page one opens. */
   onPopIn: () => void;
+  /**
+   * The OS window's own close button, heard through `pagehide`.
+   *
+   * ## ⚑ A SEPARATE PROP FROM `onPopIn`, AND T7 IS WHY
+   *
+   * Until T7 these were the same callback, and that was right: the floating
+   * window was an extra the reader had opted into with ⧉, so taking it away
+   * returned them to the in-page window they came from. T7.2 changes what the
+   * event MEANS. `View Timeline` now opens this window, so closing it is the
+   * reader putting the story away — not asking for a docked copy of it. One
+   * event, two possible intentions, and the caller is the one entitled to say
+   * which; this component only reports what happened.
+   */
+  onWindowClosed: () => void;
   /** × — close both. */
   onClose: () => void;
   children: React.ReactNode;
@@ -99,6 +114,7 @@ const SubsetPopout: React.FC<Props> = ({
   count,
   wording,
   onPopIn,
+  onWindowClosed,
   onClose,
   children,
 }) => {
@@ -144,9 +160,10 @@ const SubsetPopout: React.FC<Props> = ({
     }
 
     // The OS window's own close button. React never hears about it, so without
-    // this the in-page window would stay hidden and the reader would be left
-    // with a View Timeline button that appears to do nothing.
-    pipWindow.addEventListener("pagehide", onPopIn);
+    // this the dock would still believe the story is floating, and the reader
+    // would be left with a View Timeline button that appears to do nothing.
+    // What it MEANS is the dock's ruling, not this component's — see the prop.
+    pipWindow.addEventListener("pagehide", onWindowClosed);
     setHost(doc.body);
 
     return () => {
@@ -155,9 +172,9 @@ const SubsetPopout: React.FC<Props> = ({
       // StrictMode's mount/unmount/mount it would close the reader's window
       // half a second after they opened it. The dock closes it, because the
       // dock opened it.
-      pipWindow.removeEventListener("pagehide", onPopIn);
+      pipWindow.removeEventListener("pagehide", onWindowClosed);
     };
-  }, [pipWindow, onPopIn]);
+  }, [pipWindow, onWindowClosed]);
 
   if (host === null) return null;
 

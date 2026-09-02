@@ -18,6 +18,16 @@
 // that needed data passed in would have needed five different pages to learn
 // about it, and five payloads to grow a field. This one needs a one-line mount.
 //
+// ## ⚑ VIEW TIMELINE OPENS THE FLOATING WINDOW (T7, design §12.1)
+//
+// It did not always. Until T7 the button opened the in-page window and the
+// floating one hid behind a 12-px ⧉ in that window's title bar — "what the
+// heck do I need to push a button that is almost impossible to see to get a
+// floating popup?" (Roman, on beta.419). The main event does not hide behind a
+// glyph, so the click now takes the pop-out path FIRST and falls back down
+// `popout.ts`'s chain: picture-in-picture, then a popup, then the page. Both
+// directions still work — ⇲ docks it, ⧉ pops it out again.
+//
 // ## The window never steals the page
 //
 // No autofocus, ever: the reader may be typing an answer underneath. Clicking an
@@ -42,10 +52,12 @@ import { subsetPopoutPath, timelineEventPath, timelinePath } from "../../utils/r
 import * as d from "./dockStyles";
 import * as ws from "./windowStyles";
 import {
+  containerForOutcome,
+  firstPopoutRung,
   type MaybePipWindow,
   popoutSize,
   popupFeatures,
-  supportsDocumentPictureInPicture,
+  type SubsetContainer,
 } from "./popout";
 import {
   type AttachedSubset,
@@ -132,6 +144,21 @@ const ScenarioTimelineDock: React.FC<Props> = ({
   const [pipWindow, setPipWindow] = useState<Window | null>(null);
   /** The fallback POPUP, when that is the path this browser took. */
   const [popupWindow, setPopupWindow] = useState<Window | null>(null);
+  /**
+   * Which container is showing the story — or `null` while the browser is
+   * still deciding.
+   *
+   * ## ⚑ WHY `null` IS A STATE AND NOT A TIDINESS PROBLEM
+   *
+   * `requestWindow` returns a PROMISE. Between the click and its answer there
+   * is a real moment, and the two things this component could do in it are not
+   * equivalent: render the in-page window (which then vanishes a beat later as
+   * the OS window arrives — a flash of the very thing T7 exists to stop being
+   * the default), or render nothing and let the floating window be the first
+   * thing the reader sees. `null` is the second, and it is deliberately NOT
+   * the same value as "the story is in the page".
+   */
+  const [container, setContainer] = useState<SubsetContainer | null>("inpage");
   const host = useRef<HTMLDivElement | null>(null);
 
   // The button's read. Also the dock's whole vocabulary.
@@ -154,23 +181,114 @@ const ScenarioTimelineDock: React.FC<Props> = ({
 
   const attached: AttachedSubset[] = useMemo(() => data?.subsets ?? [], [data]);
 
-  const openWindow = useCallback(() => {
-    // ⚑ THE BUTTON IS ALSO THE WAY BACK, and that is deliberate.
-    //
-    // "View Timeline" means "show me the story here". If a popped-out window is
-    // somehow still recorded as open — the reader closed it in a way this
-    // program did not hear about, or a handle went stale — clicking the button
-    // must put the story back in the page rather than do nothing visible. A
-    // button that produces no effect is the state a reader can only escape by
-    // reloading, and they have no reason to guess that.
-    setPipWindow((open) => {
-      open?.close();
-      return null;
-    });
-    setPopupWindow((open) => {
-      open?.close();
-      return null;
-    });
+  /**
+   * The pop-out attempt itself — the chain in `popout.ts`, acted on.
+   *
+   * ## ⚑ CALLED FROM A CLICK HANDLER, SYNCHRONOUSLY, ALWAYS
+   *
+   * `requestWindow` needs USER ACTIVATION, which the browser grants to the
+   * click's own call stack and to nothing later. T4's first build called it
+   * from a `useEffect` after a `setState` and the browser refused every time:
+   *
+   *   NotAllowedError: Document PiP requires user activation
+   *
+   * — twice over, because StrictMode's double mount spent the activation on
+   * the first invocation. So this takes the window state as an ARGUMENT rather
+   * than reading `win` from state: both callers know the state at click time,
+   * and neither has to wait for a render to have committed before asking. Two
+   * handlers call it, `viewTimeline` and `popOut`, and no effect does. There is
+   * a test that reads this file and asserts exactly that.
+   *
+   * @param state where and how big the window should be — the reader's own
+   *              remembered geometry, which is what makes one click enough.
+   */
+  const floatOut = useCallback((state: WindowState) => {
+    const size = popoutSize(state);
+    const host = window as unknown as MaybePipWindow;
+
+    if (firstPopoutRung(host) === "pip") {
+      const api = host.documentPictureInPicture;
+      if (api === undefined) {
+        // Unreachable: `firstPopoutRung` answers "pip" only when
+        // `requestWindow` is a callable on this very object. It is written out
+        // because `tsc` cannot know that, and because the alternative — a `!`
+        // — would turn a refuted impossibility into a runtime throw the day
+        // the predicate and this branch drift apart.
+        setContainer("inpage");
+        return;
+      }
+      api
+        .requestWindow(size)
+        .then((pip) => {
+          setPipWindow(pip);
+          setContainer(containerForOutcome({ attempted: "pip", granted: true }));
+        })
+        .catch((err: unknown) => {
+          // Not swallowed, and the reader is not stranded: the resolver's last
+          // rung puts the story in the page. Silent in the design's sense —
+          // no banner for a browser's private refusal — and observable in
+          // Standing Rule 1's sense, in the console and on screen.
+          console.error("Could not open the timeline story in its own window.", err);
+          setContainer(containerForOutcome({ attempted: "pip", granted: false }));
+        });
+      return;
+    }
+
+    const id = state.subsetId;
+    if (id === null) {
+      // No subset to address means no popup URL to open. The in-page window
+      // needs no id — it renders whatever `namedSubset` resolves — so the
+      // reader still gets a window rather than a dead click.
+      setContainer("inpage");
+      return;
+    }
+    const opened = window.open(subsetPopoutPath(id), `subset-${id}`, popupFeatures(size));
+    if (opened === null) {
+      // ⚑ A BLOCKED POPUP IS THE THIRD RUNG, NOT A DEAD END.
+      //
+      // There is still no stored sentence in this build for "your browser
+      // blocked that" — T4.3 asked for the existing one and there is none, and
+      // inventing the English here would be the plain rule breach the wording
+      // store exists to prevent. So the failure is carried by BEHAVIOUR: the
+      // story opens in the page instead, which is a different screen from the
+      // one a granted popup produces, and the reason is named in the console.
+      console.error(
+        "The browser blocked the popup for the timeline story " +
+          `(subset ${id}). The story opens in the page instead.`,
+      );
+      setContainer(containerForOutcome({ attempted: "popup", granted: false }));
+      return;
+    }
+    setPopupWindow(opened);
+    setContainer(containerForOutcome({ attempted: "popup", granted: true }));
+  }, []);
+
+  /**
+   * `View Timeline` — the front door, and after T7 it opens the OS window.
+   *
+   * ⚑ ALREADY FLOATING? BRING IT FORWARD, DO NOT RE-OPEN IT.
+   *
+   * A second click while the window is up used to close it and put the story
+   * back in the page, which made sense when the in-page window was what the
+   * button meant. It no longer is. Closing and re-requesting would also fire
+   * the old window's `pagehide` — the same event the reader's own × uses — and
+   * the dock cannot tell those apart, so the new window would arrive to a dock
+   * that had just been told the reader put the story away. `focus()` is both
+   * the honest behaviour and the one with no race in it.
+   *
+   * A handle whose window is already `closed` is not "floating": that is the
+   * stale-handle case the old comment worried about, and it falls through to
+   * the chain below so the button always produces something visible.
+   */
+  const viewTimeline = useCallback(() => {
+    const floating = pipWindow ?? popupWindow;
+    if (floating !== null && !floating.closed) {
+      floating.focus();
+      return;
+    }
+    // Stale handles, dropped rather than closed — see above.
+    setPipWindow(null);
+    setPopupWindow(null);
 
     const stored = readStored(scenarioId);
     const chosen = initialSubsetId(attached, stored?.subsetId ?? null);
@@ -188,7 +306,10 @@ const ScenarioTimelineDock: React.FC<Props> = ({
         : clampToViewport({ ...stored, subsetId: chosen }, window.innerWidth, window.innerHeight);
     setWin(next);
     setOpen(true);
-  }, [attached, scenarioId]);
+    // Nothing on screen until the browser answers — see `container`.
+    setContainer(null);
+    floatOut(next);
+  }, [attached, floatOut, pipWindow, popupWindow, scenarioId]);
 
   // The window's events, read when it opens and whenever the selector moves.
   useEffect(() => {
@@ -260,6 +381,13 @@ const ScenarioTimelineDock: React.FC<Props> = ({
     const headerBottom = header === null ? 0 : header.getBoundingClientRect().bottom;
     setWin(previewWindowState(previewSubsetId, window.innerWidth, window.innerHeight, headerBottom));
     setOpen(true);
+    // ⚑ PREVIEW STAYS IN THE PAGE, and T7 does not change that. There is no
+    // click in THIS component to hang a pop-out on — the reader clicked
+    // Preview in another one — and `requestWindow` from an effect is the exact
+    // call that fails with `NotAllowedError` (design §12.2). A Preview that
+    // floats would need the pop-out attempt moved into that section's own
+    // handler, which is a surface T7's diff does not touch.
+    setContainer("inpage");
   }, [previewSubsetId]);
 
   const persist = useCallback(
@@ -271,97 +399,72 @@ const ScenarioTimelineDock: React.FC<Props> = ({
   );
 
   /**
-   * ⧉ — the story leaves the page.
+   * ⧉ in the docked window — the story leaves the page again.
    *
-   * Two paths, and the FEATURE decides which, never the user agent. Chrome and
-   * Edge get a real always-on-top window through the Document Picture-in-
-   * Picture API, rendered by `SubsetPopout` from this same React tree. Safari
-   * and Firefox have no such API and get a plain popup at the subset's own
-   * address, which carries identical contents but sits behind the app when she
-   * clicks back into her answer — the difference §11 item 5 names.
+   * T7.2: neither direction is removed. This is now the SECOND way to float a
+   * window rather than the only one, and it is the same chain `viewTimeline`
+   * takes, so a browser that falls back for one falls back for both.
    *
-   * ## ⚑ A BLOCKED POPUP LEAVES THE IN-PAGE WINDOW OPEN, ON PURPOSE
-   *
-   * `window.open` returns `null` when a popup blocker refuses it. There is no
-   * stored sentence in this build for "your browser blocked that" — the T4
-   * instruction asked for the existing one and there is none; the row it needs
-   * is listed in the T4 report under NEEDS A RULING, and inventing the English
-   * here would be the plain rule breach the whole wording store exists to
-   * prevent.
-   *
-   * So the failure is carried by BEHAVIOUR rather than by a word, and it is
-   * still observable in the Standing Rule 1 sense: the two outcomes differ on
-   * screen. A popup that opened HIDES the in-page window; a popup that was
-   * blocked leaves it exactly where it was, so the reader is looking at their
-   * story either way and never at nothing. The reason is named in the console.
+   * The docked window stays on screen while the request is outstanding — the
+   * container is left alone here, unlike in `viewTimeline` — so a rejection
+   * leaves the reader looking at the story they already had rather than at a
+   * blink of nothing.
    */
   const popOut = useCallback(() => {
     if (win === null) return;
-    const size = popoutSize(win);
-    const api = (window as unknown as MaybePipWindow).documentPictureInPicture;
+    floatOut(win);
+  }, [floatOut, win]);
 
-    if (supportsDocumentPictureInPicture(window as unknown as MaybePipWindow) && api !== undefined) {
-      // ⚑ CALLED HERE, SYNCHRONOUSLY, AND THAT IS THE WHOLE POINT.
-      //
-      // `requestWindow` needs USER ACTIVATION, which the browser grants to the
-      // click's own call stack and to nothing later. The first draft of this
-      // called it from an effect in `SubsetPopout` after a `setState`, and the
-      // browser refused every time:
-      //
-      //   NotAllowedError: Document PiP requires user activation
-      //
-      // Found by clicking the button, not by reading the code — no unit test
-      // can see it, because it is a property of the browser and of React's
-      // scheduler (StrictMode's double mount spent the activation twice over).
-      api
-        .requestWindow(size)
-        .then((pip) => setPipWindow(pip))
-        .catch((err: unknown) => {
-          // Not swallowed, and the reader is not stranded: the in-page window
-          // was never hidden — `pipWindow` is still null — so the story they
-          // clicked ⧉ on is still in front of them.
-          console.error("Could not open the timeline story in its own window.", err);
-        });
-      return;
-    }
-
-    const id = win.subsetId;
-    if (id === null) return;
-    const opened = window.open(subsetPopoutPath(id), `subset-${id}`, popupFeatures(size));
-    if (opened === null) {
-      // ## ⚑ A BLOCKED POPUP LEAVES THE IN-PAGE WINDOW OPEN, ON PURPOSE
-      //
-      // There is no stored sentence in this build for "your browser blocked
-      // that" — T4.3 asked for the existing one and there is none. The row it
-      // needs is listed in the T4 report under NEEDS A RULING, and inventing
-      // the English here would be the plain rule breach the whole wording store
-      // exists to prevent.
-      //
-      // So the failure is carried by BEHAVIOUR rather than by a word, and it is
-      // still observable in the Standing Rule 1 sense — the two outcomes differ
-      // on screen. A popup that opened hides the in-page window; a popup that
-      // was blocked leaves it exactly where it was, so the reader is looking at
-      // their story either way and never at nothing.
-      console.error(
-        "The browser blocked the popup for the timeline story " +
-          `(subset ${id}). The in-page window is left open.`,
-      );
-      return;
-    }
-    setPopupWindow(opened);
-  }, [win]);
-
-  /** ⇲, and the OS window's own ×: the story comes back to the page, where it was. */
+  /** ⇲ — `Back into the page`: the story comes back to the page, where it was. */
   const popIn = useCallback(() => {
-    setPipWindow((open) => {
-      open?.close();
+    setPipWindow((prev) => {
+      prev?.close();
       return null;
     });
-    setPopupWindow((open) => {
-      open?.close();
+    setPopupWindow((prev) => {
+      prev?.close();
       return null;
     });
+    setContainer("inpage");
   }, []);
+
+  /**
+   * Close the window entirely — the × on either bar.
+   *
+   * `onPreviewClosed` fires with it so a PREVIEW's owner learns the reader
+   * dismissed the window. Without that the section would still be holding the
+   * previewed id, and clicking Preview on the same row again would change
+   * nothing — a button that works once, which is the failure class T4's
+   * follow-up spent a commit on.
+   */
+  const closeWindow = useCallback(() => {
+    setOpen(false);
+    onPreviewClosed?.();
+  }, [onPreviewClosed]);
+
+  /**
+   * The floating window went away by the READER's hand.
+   *
+   * ## ⚑ AFTER T7 THIS CLOSES THE STORY; BEFORE T7 IT DOCKED IT
+   *
+   * T7.2, in the instruction's own words: "closing the floating window from
+   * the OS leaves the reader on the page with no window, which is correct:
+   * they closed it." Until T7 the same event ran `popIn`, and re-showing the
+   * in-page window was right then — the floating window was an extra the
+   * reader had opted into, so taking it away returned them to the default.
+   * The floating window IS the default now, and re-opening a docked copy of a
+   * story someone just closed would be the program arguing with them.
+   *
+   * ⚑ It closes NOTHING. Both callers report a window that is already gone —
+   * `pagehide` on the picture-in-picture document, and the popup poll below —
+   * so a `close()` here would only be capable of firing `pagehide` again.
+   */
+  const floatingClosed = useCallback(() => {
+    setPipWindow(null);
+    setPopupWindow(null);
+    setContainer("inpage");
+    closeWindow();
+  }, [closeWindow]);
 
   /**
    * ⚑ THE POPUP CLOSING HAS TO REACH THIS PROGRAM, and a listener will not do.
@@ -385,10 +488,13 @@ const ScenarioTimelineDock: React.FC<Props> = ({
   useEffect(() => {
     if (popupWindow === null) return;
     const timer = window.setInterval(() => {
-      if (popupWindow.closed) setPopupWindow(null);
+      // T7.2 read across to the popup rung: on Safari and Firefox THIS is the
+      // window `View Timeline` opens, so closing it means the same thing as
+      // closing the picture-in-picture one — the reader put the story away.
+      if (popupWindow.closed) floatingClosed();
     }, POPUP_CLOSED_POLL_MS);
     return () => window.clearInterval(timer);
-  }, [popupWindow]);
+  }, [floatingClosed, popupWindow]);
 
   // Both windows are OS resources this component owns. Leaving the surface — a
   // route change, a scenario change — must not leave one on the desktop with
@@ -398,20 +504,6 @@ const ScenarioTimelineDock: React.FC<Props> = ({
       popupWindow?.close();
     };
   }, [popupWindow]);
-
-  /**
-   * Close the window entirely — the × on either bar.
-   *
-   * `onPreviewClosed` fires with it so a PREVIEW's owner learns the reader
-   * dismissed the window. Without that the section would still be holding the
-   * previewed id, and clicking Preview on the same row again would change
-   * nothing — a button that works once, which is the failure class T4's
-   * follow-up spent a commit on.
-   */
-  const closeWindow = useCallback(() => {
-    setOpen(false);
-    onPreviewClosed?.();
-  }, [onPreviewClosed]);
 
   /** × on the popped-out bar: put the story away entirely. */
   const closeAll = useCallback(() => {
@@ -486,7 +578,7 @@ const ScenarioTimelineDock: React.FC<Props> = ({
           the two wording rows it spoke are retired in T5's migration. The dock
           now keeps only the button and the window. */}
       {attached.length > 0 && previewSubsetId === null && (
-        <button type="button" style={d.button} onClick={openWindow}>
+        <button type="button" style={d.button} onClick={viewTimeline}>
           {cw(wording, "scenario_view_timeline_button")}
         </button>
       )}
@@ -494,7 +586,7 @@ const ScenarioTimelineDock: React.FC<Props> = ({
       {/* The in-page window. A module of its own: a draggable, resizable,
           minimizable shell is a different concern from the button that opens
           it, and this file was over Rule 17's 300 lines with both in it. */}
-      {open && pipWindow === null && popupWindow === null && win !== null && current !== undefined && (
+      {open && container === "inpage" && win !== null && current !== undefined && (
         <SubsetFloatingWindow
           win={win}
           current={current}
@@ -510,16 +602,19 @@ const ScenarioTimelineDock: React.FC<Props> = ({
         </SubsetFloatingWindow>
       )}
 
-      {/* The same story, in its own OS window — the window `popOut` opened.
+      {/* The same story, in its own OS window — the window the click opened.
           Rendered only on the API path: the popup fallback is a whole second
-          DOCUMENT at `/timeline/subsets/:id/popout` and has nothing to portal. */}
-      {open && pipWindow !== null && current !== undefined && (
+          DOCUMENT at `/timeline/subsets/:id/popout` and has nothing to portal,
+          which is why `container === "popup"` draws nothing here and is not a
+          missing branch. */}
+      {open && container === "pip" && pipWindow !== null && current !== undefined && (
         <SubsetPopout
           pipWindow={pipWindow}
           title={current.name}
           count={countLine}
           wording={wording}
           onPopIn={popIn}
+          onWindowClosed={floatingClosed}
           onClose={closeAll}
         >
           {contents}
