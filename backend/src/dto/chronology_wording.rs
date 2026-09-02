@@ -141,6 +141,10 @@ pub struct ChronologyWordingDto {
     pub subsets_saved_name_only_banner: String,
     pub subsets_events_not_saved_banner_template: String,
     pub subsets_modal_drag_label: String,
+
+    // Timeline subsets, the compact "Dates only" view: one toggle, two labels.
+    pub subsets_window_dates_only: String,
+    pub subsets_window_show_details: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -256,6 +260,8 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
                 .subsets_events_not_saved_banner_template
                 .clone(),
             subsets_modal_drag_label: w.subsets_modal_drag_label.clone(),
+            subsets_window_dates_only: w.subsets_window_dates_only.clone(),
+            subsets_window_show_details: w.subsets_window_show_details.clone(),
         }
     }
 }

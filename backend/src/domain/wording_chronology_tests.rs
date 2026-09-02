@@ -39,6 +39,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260831151742_t6_subset_modal_wording.sql",
     // Round two (2026-08-31): the hint corrected, the ⚑ badge retired.
     "pipeline_migrations/20260831155823_t6r2_picker_hint_truth_and_badge_retirement.sql",
+    // The compact "Dates only" view (2026-09-02): one toggle, two labels.
+    "pipeline_migrations/20260902084626_timeline_subsets_compact_wording.sql",
 ];
 
 /// Migrations that CORRECT a value the seed already wrote.
@@ -162,6 +164,9 @@ const TEST_SEED: &[(&str, &str)] = &[
         "The event list was not saved — the server refused it (HTTP {status}: {reason}). Fix and Save again; nothing you picked has been lost.",
     ),
     (KEY_SUBSETS_MODAL_DRAG_LABEL, "Drag to move"),
+    // The compact view, seeded by the last migration named above.
+    (KEY_SUBSETS_WINDOW_DATES_ONLY, "Dates only"),
+    (KEY_SUBSETS_WINDOW_SHOW_DETAILS, "Show details"),
 ];
 
 impl ChronologyWording {

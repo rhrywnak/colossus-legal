@@ -303,6 +303,12 @@ pub struct ChronologyWording {
     pub subsets_events_not_saved_banner_template: String,
     /// The accessible name of the ⠿ grip. The glyph says nothing aloud.
     pub subsets_modal_drag_label: String,
+
+    // ── The "Dates only" view (compact) ────────────────────────────────────
+    /// The footer toggle while the window shows FULL rows: pressing it strips every row to its date and title. For the night before testimony, when the order is known and the dates are what is being refreshed.
+    pub subsets_window_dates_only: String,
+    /// The mirror of [`Self::subsets_window_dates_only`] — the same button once it has been pressed. Each names what pressing it does, never the state it is in. Edit the two together.
+    pub subsets_window_show_details: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -438,6 +444,8 @@ pub fn build_chronology_wording<E>(
             KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
         )?,
         subsets_modal_drag_label: read(KEY_SUBSETS_MODAL_DRAG_LABEL)?,
+        subsets_window_dates_only: read(KEY_SUBSETS_WINDOW_DATES_ONLY)?,
+        subsets_window_show_details: read(KEY_SUBSETS_WINDOW_SHOW_DETAILS)?,
     })
 }
 

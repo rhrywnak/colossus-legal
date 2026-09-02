@@ -160,6 +160,15 @@ pub(crate) const KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE: &str =
     "chronology_subsets_events_not_saved_banner_template";
 pub(crate) const KEY_SUBSETS_MODAL_DRAG_LABEL: &str = "chronology_subsets_modal_drag_label";
 
+// Timeline subsets, compact view (2026-09-02): the footer toggle that strips
+// every row to its date and title, and the same button's other half.
+//
+// ⚑ A PAIR. The control is a toggle, so each label names what pressing it DOES
+// rather than the state it is in — the same rule the ⧉ / ⇲ pair follows. Edit
+// the two together, or the button changes vocabulary halfway through.
+pub(crate) const KEY_SUBSETS_WINDOW_DATES_ONLY: &str = "chronology_subsets_window_dates_only";
+pub(crate) const KEY_SUBSETS_WINDOW_SHOW_DETAILS: &str = "chronology_subsets_window_show_details";
+
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
 /// catch before a deploy does.
@@ -271,4 +280,7 @@ pub const CHRONOLOGY_WORDING_KEYS: &[&str] = &[
     KEY_SUBSETS_SAVED_NAME_ONLY_BANNER,
     KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
     KEY_SUBSETS_MODAL_DRAG_LABEL,
+    // Timeline subsets, compact view.
+    KEY_SUBSETS_WINDOW_DATES_ONLY,
+    KEY_SUBSETS_WINDOW_SHOW_DETAILS,
 ];
