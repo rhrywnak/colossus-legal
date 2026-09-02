@@ -98,6 +98,21 @@ describe("splitEventDate — the mockup's four date shapes", () => {
 // The caption under the date
 // -----------------------------------------------------------------------------
 
+/**
+ * The caption's separator: space, middle dot, NO-BREAK space.
+ *
+ * ⚑ The two exact-string assertions below CHANGED on 2026-09-02 and the reason
+ * is a defect, not a preference. The date column is 96 px and the caption wraps
+ * (`eventDateCaption` sets `whiteSpace: normal`, deliberately, since the T6
+ * overflow fix). With ordinary spaces either side of the dot the browser broke
+ * after it, and "2009 · month · approx." came back on DEV as a line ending in a
+ * bare "month ·". The ruling: a line may BEGIN with "·" and may never END with
+ * one. Written as an escape rather than a pasted character because a no-break
+ * space is invisible in a diff, and a test whose expected value cannot be read
+ * is a test nobody can check.
+ */
+const SEP = " \u00b7\u00a0";
+
 describe("dateCaption", () => {
   it("is the bare year for an ordinary day", () => {
     expect(dateCaption(event({}), "2008", WORDING)).toBe("2008");
@@ -105,12 +120,15 @@ describe("dateCaption", () => {
 
   it("names month precision beside the year", () => {
     const e = event({ event_date: "2009-04-01", date_precision: "month", approximate: true });
-    expect(dateCaption(e, "2009", WORDING)).toBe("2009 · month · approx.");
+    expect(dateCaption(e, "2009", WORDING)).toBe(`2009${SEP}month${SEP}approx.`);
   });
 
   it("names year precision ALONE, because the year is already the lead", () => {
     const e = event({ event_date: "2009-10-01", date_precision: "year", approximate: true });
-    expect(dateCaption(e, "", WORDING)).toBe("year · approx.");
+    // The dot INSIDE the stored label gets the same treatment, without the
+    // wording row being edited — the character would be invisible to anybody
+    // reading the value in the store.
+    expect(dateCaption(e, "", WORDING)).toBe(`year${SEP}approx.`);
   });
 
   it("says nothing about precision on a date nobody marked approximate", () => {
@@ -118,6 +136,42 @@ describe("dateCaption", () => {
     // month. "approx." on it would be this surface inventing a doubt.
     const e = event({ event_date: "2009-04-01", date_precision: "month", approximate: false });
     expect(dateCaption(e, "2009", WORDING)).toBe("2009");
+  });
+});
+
+// -----------------------------------------------------------------------------
+// P2 — a line may BEGIN with "·" and may never END with one
+// -----------------------------------------------------------------------------
+
+describe("the caption never lets a line end on a bare dot", () => {
+  it("leaves no dot followed by a BREAKABLE space, anywhere", () => {
+    // The defect, stated as the browser sees it: "· " is the only sequence that
+    // lets a line end on the dot. Asserted over the whole caption rather than
+    // on one separator, because the joined string has two — the one this
+    // function adds and the one inside the stored label.
+    const e = event({ event_date: "2009-04-01", date_precision: "month", approximate: true });
+    const caption = dateCaption(e, "2009", WORDING);
+    expect(caption).not.toContain("\u00b7 ");
+    expect(caption.split("\u00b7")).toHaveLength(3);
+  });
+
+  it("keeps a breakable space BEFORE each dot — the wrap still happens, one word earlier", () => {
+    // Not merely "no break": the caption must still be able to wrap at 96 px.
+    // Removing the break entirely would push the whole caption out of its column,
+    // which is the T6 overflow defect this must not re-open.
+    const e = event({ event_date: "2009-04-01", date_precision: "month", approximate: true });
+    expect(dateCaption(e, "2009", WORDING)).toContain(" \u00b7");
+  });
+
+  it("leaves a year-only caption exactly as it was — no dot, nothing to fix", () => {
+    const caption = dateCaption(event({}), "2008", WORDING);
+    expect(caption).toBe("2008");
+    expect(caption).not.toContain("\u00a0");
+  });
+
+  it("leaves an empty caption empty", () => {
+    const e = event({ event_date: "2009-04-01", date_precision: "day", approximate: false });
+    expect(dateCaption(e, "", WORDING)).toBe("");
   });
 });
 

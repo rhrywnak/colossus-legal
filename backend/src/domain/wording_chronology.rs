@@ -303,6 +303,9 @@ pub struct ChronologyWording {
     pub subsets_events_not_saved_banner_template: String,
     /// The accessible name of the ⠿ grip. The glyph says nothing aloud.
     pub subsets_modal_drag_label: String,
+
+    /// What the window's body says when the story carries no events. The third state of that slot — loading and failed already had words, and an empty story rendered a blank band.
+    pub subsets_window_no_events: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -438,6 +441,7 @@ pub fn build_chronology_wording<E>(
             KEY_SUBSETS_EVENTS_NOT_SAVED_BANNER_TEMPLATE,
         )?,
         subsets_modal_drag_label: read(KEY_SUBSETS_MODAL_DRAG_LABEL)?,
+        subsets_window_no_events: read(KEY_SUBSETS_WINDOW_NO_EVENTS)?,
     })
 }
 

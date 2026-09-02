@@ -141,6 +141,9 @@ pub struct ChronologyWordingDto {
     pub subsets_saved_name_only_banner: String,
     pub subsets_events_not_saved_banner_template: String,
     pub subsets_modal_drag_label: String,
+
+    // Timeline subsets, polish: the window's empty-story sentence.
+    pub subsets_window_no_events: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -256,6 +259,7 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
                 .subsets_events_not_saved_banner_template
                 .clone(),
             subsets_modal_drag_label: w.subsets_modal_drag_label.clone(),
+            subsets_window_no_events: w.subsets_window_no_events.clone(),
         }
     }
 }

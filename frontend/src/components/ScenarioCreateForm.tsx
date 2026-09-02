@@ -386,7 +386,11 @@ const primaryButtonStyle: React.CSSProperties = {
   ...baseButtonStyle,
   color: "var(--accent-primary)",
   backgroundColor: "var(--accent-bg-soft)",
-  border: "1px solid var(--accent-primary)",
+  // Roman's standing rule, 2026-08-31: --accent-primary is INK or FILL,
+  // never a hairline. The soft ground and the accent ink are what mark this
+  // button as the primary one; the border is furniture and takes the
+  // furniture colour.
+  border: "1px solid var(--border-default)",
 };
 const secondaryButtonStyle: React.CSSProperties = {
   ...baseButtonStyle,

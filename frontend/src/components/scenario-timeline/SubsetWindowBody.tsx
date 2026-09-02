@@ -84,6 +84,20 @@ const SubsetWindowBody: React.FC<Props> = ({
       {subset.description !== "" && <div style={ws.description}>{subset.description}</div>}
 
       <div style={ws.body}>
+        {/* ⚑ THE THIRD STATE OF THIS SLOT, and it had no words until now.
+            Loading says so and a failed read says so; a story with no events
+            rendered a blank padded band — which a reader cannot tell from a
+            window that did not load, the Standing Rule 1 failure exactly. Seen
+            on DEV through the section's Preview.
+
+            A guard BESIDE the map and not a ternary around it: with zero events
+            the map renders nothing anyway, so the rows below are untouched. The
+            footer still says "0 events" from `footerLine` and is not special-
+            cased — the two sentences answer different questions and neither
+            replaces the other. */}
+        {subset.events.length === 0 && (
+          <div style={ws.state}>{cw(wording, "subsets_window_no_events")}</div>
+        )}
         {subset.events.map((row, index) => {
           const event = row.event;
           const previous = index === 0 ? null : subset.events[index - 1].event;
