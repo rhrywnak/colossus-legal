@@ -63,6 +63,59 @@ export function supportsDocumentPictureInPicture(win: MaybePipWindow | undefined
   return typeof win?.documentPictureInPicture?.requestWindow === "function";
 }
 
+/**
+ * Where the story ends up once the browser has answered.
+ *
+ * Three containers, and the reader never gets a fourth called "nothing":
+ * `pip` is the always-on-top OS window, `popup` the plain second window at
+ * `/timeline/subsets/:id/popout`, and `inpage` the draggable window inside the
+ * page — which after T7 is the FALLBACK rather than the default.
+ */
+export type SubsetContainer = "pip" | "popup" | "inpage";
+
+/**
+ * Which rung `View Timeline` takes first, decided by the browser alone.
+ *
+ * Design §12.1: the floating window is the default action, so the click asks
+ * for a real window before it considers the page. Chrome and Edge answer
+ * `pip`; Safari and Firefox have no such API today and answer `popup`. There
+ * is no rung here for "open it in the page" — the page is where the click
+ * lands only when a rung REFUSES, which is [`containerForOutcome`]'s job and
+ * not a decision this function is entitled to make.
+ */
+export function firstPopoutRung(win: MaybePipWindow | undefined): "pip" | "popup" {
+  return supportsDocumentPictureInPicture(win) ? "pip" : "popup";
+}
+
+/**
+ * What the browser said to the rung that was tried.
+ *
+ * `granted` is false for the two refusals that are indistinguishable to a
+ * reader and identical in consequence: the picture-in-picture request rejected
+ * (`NotAllowedError` and its relatives), and `window.open` returning `null`
+ * because a popup blocker refused it.
+ */
+export type PopoutOutcome = {
+  attempted: "pip" | "popup";
+  granted: boolean;
+};
+
+/**
+ * The last rung of the chain: a refusal lands the story in the page.
+ *
+ * ## ⚑ THE READER NEVER GETS NOTHING
+ *
+ * This is the whole reason the resolver is a function rather than three
+ * scattered `if`s in a click handler. Design §12.1's table has four rows and
+ * three of them are easy; the fourth — "PiP request rejected or popup blocked"
+ * — is the one that decides whether a reader who clicked a button is looking
+ * at their story or at an unchanged screen. A pure function is somewhere a
+ * test can hold that, in a codebase with no component tier (CLAUDE.md rule 30).
+ */
+export function containerForOutcome(outcome: PopoutOutcome): SubsetContainer {
+  return outcome.granted ? outcome.attempted : "inpage";
+}
+
 /** One stylesheet, as it would be re-created inside the new document. */
 export type StyleSheetClone =
   | { kind: "inline"; css: string }

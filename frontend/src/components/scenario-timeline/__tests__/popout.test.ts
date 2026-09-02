@@ -22,6 +22,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  containerForOutcome,
+  firstPopoutRung,
   MIRRORED_ROOT_ATTRIBUTES,
   popoutSize,
   popupFeatures,
@@ -69,6 +71,58 @@ describe("supportsDocumentPictureInPicture", () => {
     // one moment the reader was watching.
     const half = { documentPictureInPicture: {} } as unknown as MaybePipWindow;
     expect(supportsDocumentPictureInPicture(half)).toBe(false);
+  });
+});
+
+// -----------------------------------------------------------------------------
+// The fallback chain — design §12.1's table, as four assertions (T7.4)
+// -----------------------------------------------------------------------------
+//
+// `View Timeline` opens the floating window, and the interesting half of that
+// sentence is what happens when it cannot. The chain has three rungs and the
+// reader must never reach the bottom of it and find nothing.
+
+describe("firstPopoutRung — which rung the click takes first", () => {
+  it("asks for a real OS window where the API is there", () => {
+    const chrome: MaybePipWindow = {
+      documentPictureInPicture: { requestWindow: async () => window },
+    };
+    expect(firstPopoutRung(chrome)).toBe("pip");
+  });
+
+  it("asks for a popup where it is not — Safari and Firefox, today", () => {
+    expect(firstPopoutRung({})).toBe("popup");
+  });
+
+  it("never answers `inpage` — the page is where a REFUSAL lands, not a click", () => {
+    // The distinction the resolver exists to keep: this function reads the
+    // browser, and the browser can say "I have no such API". It cannot say
+    // "put it in the page" — only a refused request can, which is
+    // `containerForOutcome`'s decision and is made later.
+    expect(firstPopoutRung(undefined)).not.toBe("inpage");
+  });
+});
+
+describe("containerForOutcome — where the story actually ends up", () => {
+  it("keeps the OS window when the request was granted", () => {
+    expect(containerForOutcome({ attempted: "pip", granted: true })).toBe("pip");
+  });
+
+  it("keeps the popup when it opened", () => {
+    expect(containerForOutcome({ attempted: "popup", granted: true })).toBe("popup");
+  });
+
+  it("falls into the page when the picture-in-picture request is REJECTED", () => {
+    // `NotAllowedError` and its relatives. The reader clicked a button; they
+    // get their story in the page rather than an unchanged screen.
+    expect(containerForOutcome({ attempted: "pip", granted: false })).toBe("inpage");
+  });
+
+  it("falls into the page when a popup blocker refuses the popup", () => {
+    // `window.open` returning null. Indistinguishable to the reader from the
+    // rejection above, and identical in consequence — which is why one
+    // function answers both.
+    expect(containerForOutcome({ attempted: "popup", granted: false })).toBe("inpage");
   });
 });
 
