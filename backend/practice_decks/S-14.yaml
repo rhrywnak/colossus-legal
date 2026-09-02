@@ -1,0 +1,140 @@
+# =============================================================================
+# practice_decks/S-14.yaml — DRAFT — scenario S-14, "They consumed it"
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5.1, 2026-09-02, ~01:00) — for Roman's ruling, then
+# Chuck's review 2026-09-02; redlines flow back through `--update`.
+#
+# ⚑ HOW THIS DIFFERS FROM S-11's DECK, DISCLOSED. Built from the RANKED
+# GATHER of 2026-09-01 (SEEDS/S-14_ranked_gather.md) — Stage 1 retrieval
+# only, no reranker, no Opus judging, NO RULED POOL. Every card is a
+# CANDIDATE until Roman rules it. Receipts cite DOCUMENT AND PAGE.
+#
+# ⚑ THIS DECK'S STRENGTH: three of its receipts are ADJUDICATED — the Court of
+# Appeals' own findings in the Reconsideration Ruling 04-25-2013 (pp.1, 3).
+# Those are not Marie's characterisation; they are the court's numbers and
+# the court's words. Lead with them wherever the defense borrows a robe.
+# ⚑ THIS DECK'S DANGER: g5. The probate court SANCTIONED Marie under MCR
+# 2.114 (Recon. Ruling p.2). The defense will use it. Whether Marie answers
+# it or Chuck takes it on redirect is a ruling for Chuck, not this file.
+# ⚑ FOR CHUCK: the BILLING RECORDS — the "$500 up to speed" figure is read
+# off Phillips's own accounting statement (Reply Brief p.12), and the 125
+# hours / $7,400 auction figure is Argument II of the Penzien brief (p.20).
+# Have the statement itself.
+#
+# THEME (S-14): They didn't administer the estate — they consumed it, and
+# every hour of the consuming went on a bill.
+#
+# The scenario's spine, from the ranked gather:
+#   THEIR frame — the probate court reviewed and approved every fee and the
+#   Court of Appeals affirmed (Recon. Ruling p.2); Marie's parade of lawyers
+#   and frivolous objections drove the costs (Reply Brief p.12 quoting him);
+#   the auction was in the approved plan of administration and Marie had two
+#   months to object (Phillips MSD p.4); the second fee award was for
+#   DEFENDING the estate under MCL 700.3720 (Recon. p.2); the court sanctioned
+#   HER (Recon. p.2).
+#   OUR material — the court's own numbers: estate balance $50,576 against
+#   $72,585 in fees, expenses and claims, $24,512 of it Phillips's fees
+#   (Recon. Ruling p.1); the court's own finding: some of CFS's appellate time
+#   'was time spent defending the costs and fees awarded to it' and 'did not
+#   benefit the estate' (Recon. p.3); the auction: ~125 hours, over $7,400
+#   billed, ~$2,000 net (Penzien p.20) — lost the estate over $6,000 while
+#   billing ~$7,500 (Motion for Default p.14); Phillips's own accounting shows
+#   ~$500 for bringing Marie's attorneys 'up to speed', against $7,500 for
+#   Nadia's attorney (Reply Brief p.12); the proposed distribution: $8,109
+#   fiduciary + $16,527 Phillips (Phillips MSD p.4 — their own figures).
+#
+# Standing rulings hold: no `stronger` fields; every watch_for POINTS, never
+# scripts; all questions `source_kind: manual`. Schema follows S-11.yaml.
+
+scenario_code: S-14
+
+questions:
+
+  # ---------- The defense asks (cross) ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "COA Reconsideration Ruling 04-25-2013 p.2 (fees approved, affirmed) · p.1 (the court's own numbers) · p.3 (the finding FOR her)"
+    tactic: 6            # authority borrow — 'judges decide what's reasonable'
+    source_kind: manual
+    text: "Every fee in this estate was reviewed by a probate judge and approved. The Court of Appeals looked at it and affirmed. Judges decide what's reasonable, Ms. Awad — not the heir who objects to everything. Isn't that how it works?"
+    receipt: "Take the court's own numbers, then the court's own finding. Numbers: by October 2010 the estate held $50,576 and the fees, expenses and claims against it were $72,585 — $24,512 of that Phillips's attorney fees (COA Reconsideration Ruling 04-25-2013 p.1). Finding: 'at least some of the time CFS spent defending the appeal was time spent defending the costs and fees awarded to it. The time spent on such defense did not benefit the estate because it did not increase or preserve the estate's assets' (p.3). That is the Court of Appeals, not Marie."
+    pair_said: "\"After a hearing on October 14, 2010, the probate court approved the fees requested by CFS, awarded Phillips $19,512 in attorney fees…\" — COA Reconsideration Ruling 04-25-2013, p. 2"
+    pair_admitted: "\"…reflected an estate balance of $50,576 and fees, expenses, and claims against the estate totaling $72,585, $24,512 of which was for attorney fees sought by CFS's attorney, George Phillips.\" — COA Reconsideration Ruling 04-25-2013, p. 1"
+    watch_for: "WATCH FOR — the robe. Agree the courts ruled. Then the court's numbers: fifty thousand in, seventy-two thousand claimed. Then the court's finding: defending their own fees did not benefit the estate. Their court, their words. Stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Reply Brief 11-16-2012 p.12 (his claim, and his accounting statement) · Recon. Ruling p.6 (the court relied on his representation)"
+    tactic: 4            # false premise — 'your lawyers drove the costs'
+    source_kind: manual
+    text: "You went through lawyer after lawyer, Ms. Awad. Every one of them had to be brought up to speed, and the estate paid for it every time. Your own choices are what drove the administrative costs through the roof, aren't they?"
+    receipt: "His own accounting statement answers it: 'George Phillips' accounting statement, however, shows approximately $500.00 was expended in connection with bringing the attorneys \"Up to speed\" whereas, Nadia Awad's attorney cost the estate $7,500.00 which was primarily the cost to petition for guardian/conservator against her father's expressed wishes' (Reply Brief p.12). Five hundred dollars. The court was told otherwise and relied on it (Recon. Ruling p.6)."
+    pair_said: "\"George Phillips claims that with each of Appellant's attorneys, he had to bring them 'Up to speed' at a considerable cost to the estate.\" — Reply Brief 11-16-2012, p. 12"
+    pair_admitted: "\"George Phillips' accounting statement, however, shows approximately $500.00 was expended in connection with bringing the attorneys 'Up to speed'…\" — Reply Brief 11-16-2012, p. 12, reading his own billing"
+    watch_for: "WATCH FOR — 'lawyer after lawyer'. Do not defend the lawyers or explain why each left; that is the speech he wants. One number from his own statement: five hundred dollars. Then Nadia's: seven thousand five hundred. Stop."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Phillips MSD 07-10-2014 p.4 (the plan of administration; two months) · Penzien COA Brief p.20 · Motion for Default p.14 · Admissions p.1 (auctioneer — Admitted)"
+    tactic: 2            # half-truth — 'the auction was in the approved plan'
+    source_kind: manual
+    text: "The auction was in the plan of administration the court approved. You had two months to object to that plan. You didn't. Then CFS sold the property exactly as the plan said. Where's the breach?"
+    receipt: "The plan is true (MSD p.4). The result is the breach: 'The net proceed for the estate from the auction of personal effects, after all of this work, was approximately $2,000.00. The Personal Representative and its counsel spent approximately 125 hours and billed the estate over $7,400.00 to manage that sale' (Penzien p.20) — 'That auction lost the estate more than $6,000.00' while they billed 'approximately $7,500.00 for their effort to conduct the auction on worthless property' (Motion for Default p.14). Phillips admits CFS retained the auctioneer (Admissions p.1). A plan to sell is not a licence to spend more selling than the sale brings."
+    pair_said: "\"CFS sought approval to dispose of the decedent's personal property by conducting an auction, and anticipated closing the estate after the auction.\" — Phillips, Motion for Summary Disposition 07-10-2014, p. 4"
+    pair_admitted: "\"…spent approximately 125 hours and billed the estate over $7,400.00 to manage that sale\" — Penzien COA Brief 03-14-2011, p. 20 (Argument II); request that CFS ultimately retained an auctioneer — \"Admitted.\" — Admissions Response p. 1"
+    watch_for: "WATCH FOR — 'you didn't object'. Do not say 'I objected' or explain the two months. Three numbers: two thousand made, seven thousand four hundred billed, a hundred and twenty-five hours. Stop."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Phillips MSD p.4 ($8,109 + $16,527, their figures) · Recon. Ruling p.2 ($15,246.94 under MCL 700.3720) · Reply Brief p.9 (fees for fees) · Recon. p.3"
+    tactic: 5            # compound — every award stacked as 'earned'
+    source_kind: manual
+    text: "Eight thousand in fiduciary fees. Sixteen thousand in attorney fees. Fifteen thousand more for defending the estate on appeal. All approved, all under the statute. You call that 'consuming' the estate, Ms. Awad — the court called it earning it."
+    receipt: "One number at a time, and the last one is the court's. The $8,109 and $16,527 are their own proposed distribution (Phillips MSD p.4). The $15,246.94 was 'for defending the estate' under MCL 700.3720 (Recon. Ruling p.2) — for defending 'an appeal which, at its heart, dealt with the fees paid to CFS and its Counsel … a fees for fees situation' (Reply Brief p.9). And the Court of Appeals said so: time 'spent defending the costs and fees awarded to it … did not benefit the estate' (Recon. p.3). Fifty thousand in; seventy-two thousand claimed (p.1)."
+    pair_said: "\"The court concluded that 'MCL 700.3720 provides for payment of attorney fees for defending the estate' and, therefore, granted CFS's request for $15,246.94 in attorney fees and costs\" — COA Reconsideration Ruling 04-25-2013, p. 2"
+    pair_admitted: "\"…at least some of the time CFS spent defending the appeal was time spent defending the costs and fees awarded to it. The time spent on such defense did not benefit the estate…\" — COA Reconsideration Ruling 04-25-2013, p. 3"
+    watch_for: "WATCH FOR — three figures in one breath, then 'earning'. Do not total them back. Take the last one only: defending their own fees, the court said it didn't benefit the estate. Then the two numbers from page 1. Stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "COA Reconsideration Ruling 04-25-2013 p.2 (MCR 2.114 sanction, $2,345) · Penzien COA Brief p.11 (no evidence or testimony) — ⚑ WHETHER MARIE ANSWERS THIS IS CHUCK'S CALL"
+    tactic: 6            # authority borrow — the sanction
+    source_kind: manual
+    text: "The probate court didn't just rule against you, Ms. Awad. It SANCTIONED you — Michigan Court Rule 2.114 — and took away the $2,345 you were owed. A judge found that YOUR conduct was the problem in this estate. Didn't she?"
+    receipt: "True, and dated: October 14, 2010, the court 'sanctioned Awad under MCR 2.114 by eliminating a proposed distribution of $2,345' (Recon. Ruling p.2). At the same hearing: 'a summary proceeding without taking any evidence or testimony' (Penzien p.11). The sanction and the refusal to hear a witness are the same afternoon. ⚑ Whether Marie says the second sentence or Chuck does on redirect is Chuck's ruling."
+    pair_said: "\"…sanctioned Awad under MCR 2.114 by eliminating a proposed distribution of $2,345 to her for attorney fees that she incurred in the guardianship and conservatorship proceedings…\" — COA Reconsideration Ruling 04-25-2013, p. 2"
+    pair_admitted: "\"Judge Tighe conducted what could be described as a summary proceeding without taking any evidence or testimony.\" — Penzien COA Brief 03-14-2011, p. 11"
+    watch_for: "WATCH FOR — the sanction is real and she must not argue it was unfair; that reads as the uncooperative heir. 'Yes, at the hearing where no witness was heard.' If Chuck rules she says only 'yes', she says only 'yes'."
+
+  # ---------- Our side asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, by October 2010, what was your father's estate worth — and what were the fees, expenses and claims against it?"
+    receipt: "$50,576 in the estate; $72,585 in fees, expenses and claims, of which $24,512 was Phillips's attorney fees — the Court of Appeals' own figures (Recon. Ruling 04-25-2013 p.1)."
+    watch_for: "WATCH FOR — two numbers and whose they are: the court's. Nothing else."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "The auction of your father's belongings — what did it bring the estate, and what did it cost to run?"
+    receipt: "About $2,000 net; about 125 hours and over $7,400 billed to manage it (Penzien p.20). The estate lost more than $6,000 on it (Motion for Default p.14)."
+    watch_for: "WATCH FOR — made two, cost seven. Do not describe the belongings; 'worthless junk' is the pleading's word, not hers to say on the stand."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Mr. Phillips told the court that your lawyers cost the estate a great deal. What do his own billing records show?"
+    receipt: "Approximately $500 for bringing her attorneys up to speed — from his own accounting statement — against $7,500 the estate paid for Nadia's attorney (Reply Brief p.12)."
+    watch_for: "WATCH FOR — 'his own records: five hundred'. Let the comparison land without comment."

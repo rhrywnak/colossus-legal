@@ -1,0 +1,169 @@
+# =============================================================================
+# practice_decks/S-12.yaml — scenario S-12, "He ran it as supervised — it was
+# unsupervised"  (v3)
+# =============================================================================
+#
+# ARCHITECT DRAFT v3 (Fable 5.1, 2026-09-02). v1 went at the appointment; v2
+# went at the auction and the fees; both missed the CENTER of the header card
+# Roman ruled in on 2026-08-28 (SCENARIO_HEADER_CARDS_S11-S14_DRAFT_v2.md):
+#
+#   "At every step they ran to the probate court to have their own choices
+#   blessed — and then held the blessings up as SHIELDS: 'the court approved
+#   the plan,' 'the court approved the fees,' 'the Court of Appeals found no
+#   inappropriate actions.' That is abdication dressed as obedience. A
+#   fiduciary with full authority who petitions the court to approve what he
+#   alone decided isn't seeking supervision — he's manufacturing cover."
+#
+# THEIR MOTIVATION (the card): "That the probate court ran this estate and
+# they merely obeyed it. If every act carries a judge's approval, then
+# attacking the acts means attacking the judge, and no fiduciary can be
+# liable for obedience." — so the cross questions below ARE the shields, one
+# each, and every receipt takes the shield away the same way: unsupervised →
+# he never needed it → he asked anyway → an approval you asked for on a story
+# you could not source is your decision with her signature on it.
+#
+# ⚑ THE PREMISE, RULED. Roman, 2026-09-02: "The probate was under the
+# UNSUPERVISED rules as opposed to supervised." ⚑ FOR CHUCK: the order
+# appointing CFS (07-23-2009) and CFS's letters of authority say
+# "unsupervised" on their face — bring them; cite the EPIC provision. The
+# petition to approve the plan of administration and the order granting it are
+# dated 11-25-2009 and 12-15-2009 in the header card's motion-record cite;
+# ⚑ confirm those two dates against the filed papers before they are spoken.
+#
+# Built from the RANKED GATHER of 2026-09-01, NOT a ruled pool; every card is
+# a candidate until Roman rules it. Receipts cite DOCUMENT AND PAGE. Admissions
+# cards store the response; the request wording must be pulled before court.
+# The auction figures also appear in S-14 — deliberate: S-14 is the BILL, S-12
+# is the SHIELD held up when the bill is questioned.
+#
+# THEME (S-12): An unsupervised fiduciary owns his choices — a court blessing
+# he never needed, sought after the fact, is a shield he built, not authority
+# he had.
+#
+# The record, for the three shields and the story behind them:
+#   THE PLAN — "CFS sought approval to dispose of the decedent's personal
+#   property by conducting an auction" with "two months to conduct discovery
+#   and file motions" (Phillips MSD 07-10-2014 p.4); the court "entered an
+#   order approving the plan … and essentially granted all of the proposals
+#   made by CFS" and found it "reasonable for CFS to disregard the various
+#   issues the heirs 'bombarded' CFS with" (MSD p.4). What he told the judge
+#   to get it: "Mr. Awad's heirs were such disagreeable people that it was
+#   impossible for the estate to dispose of the personal property in any other
+#   way than to auction the material off" — Counsel for the PR, at the hearing
+#   on the Petition to Approve the Plan (Penzien COA Brief p.20). That claim
+#   has NO AUTHOR — asked by Interrogatory 14 who said so, he never named them
+#   (Motion for Default p.22); CFS is "unaware of who exactly … or when" (CFS
+#   Interrog. Response 08-08-16 p.6) — and it was UNTRUE: "the sisters did in
+#   fact meet amicably to divide" what was left after the auction (Motion for
+#   Default p.5). The auction was "the personal representative's belief" (CFS
+#   Interrog. p.8) about property CFS called junk (Admissions p.1): 125 hours,
+#   over $7,400, ~$2,000 net (Penzien p.20); a loss over $6,000 (Motion for
+#   Default p.14).
+#   THE FEES — approved October 14, 2010 at a hearing with no evidence or
+#   testimony (Recon. Ruling p.2; Penzien p.11); one hearing on Marie's
+#   objections billed $6,324.50 (Penzien p.22); then the 2012 petition for fees
+#   for defending his own fees (Reply Brief p.9; Recon. p.2), of which the COA
+#   said part "did not benefit the estate" (Recon. p.3).
+#   THE COURT OF APPEALS — "proceeded with the auction consistent with the
+#   probate court's order … Awad did not challenge, and generally agreed to"
+#   the collection for auction; the record "belied" her amicable claim (as
+#   quoted, MSD p.7). A finding on OBEDIENCE to an order he asked for, not on
+#   whether he needed it.
+#   THE COVER — two CFS staff at the auction "to make certain that the
+#   fiduciary could demonstrate this fact by corroborated testimony in court
+#   should accusations be made later" (Phillips COA Response 04-11-2011 p.11).
+#
+# Standing rulings hold: no `stronger` fields; every watch_for POINTS, never
+# scripts; all questions `source_kind: manual`. Schema follows S-11.yaml.
+
+scenario_code: S-12
+
+questions:
+
+  # ---------- The defense asks (cross) — each one a shield ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "SHIELD 1 — 'the court approved the plan.' Phillips MSD 07-10-2014 p.4 · Penzien COA Brief p.20 (what he told the judge at the plan hearing) · Motion for Default p.22 · CFS Interrog. p.6 · Motion for Default p.5 — ⚑ 11-25-2009 petition / 12-15-2009 order per the header card"
+    tactic: 6            # authority borrow — the judge's signature on his plan
+    source_kind: manual
+    text: "The plan of administration — the storage, the auction, the two-month window for the heirs — was approved by the probate court. An order, Ms. Awad. Signed by Judge Tighe. When you attack that plan, you're attacking her order. Aren't you?"
+    receipt: "This was an unsupervised administration. He did not need her order for any of it — the storage, the sale, the disposition were his to decide (⚑ letters of authority; Chuck's cite), and he admits CFS administered the disposition (Admissions p.1). He petitioned for the order anyway (⚑ 11-25-2009; granted 12-15-2009): 'CFS sought approval to dispose of the decedent's personal property by conducting an auction' (Phillips MSD p.4). And what he told the judge to get it: the heirs 'were such disagreeable people that it was impossible for the estate to dispose of the personal property in any other way than to auction the material off' (Penzien p.20). Asked under oath who said so, he never named anyone (Motion for Default p.22); CFS 'is unaware of who exactly … or when' (CFS Interrog. Response 08-08-16 p.6). And the sisters 'did in fact meet amicably to divide' what the auction left (Motion for Default p.5). An order you asked for, on a story you could not source, is not the judge's decision. It is yours, with her signature on it."
+    pair_said: "\"The Probate Court entered an order approving the plan of administration (including the auction, to which Awad made no objection) and essentially granted all of the proposals made by CFS.\" — Phillips, Motion for Summary Disposition 07-10-2014, p. 4"
+    pair_admitted: "\"According to Counsel for the Personal Representative at the hearing on the Petition to Approve the Plan of Administration, Mr. Awad's heirs were such disagreeable people that it was impossible for the estate to dispose of the personal property in any other way than to auction the material off.\" — Penzien COA Brief 03-14-2011, p. 20; and, asked who said so: never named (Motion for Default p. 22)"
+    watch_for: "WATCH FOR — 'attacking her order'. Never attack the judge. It was unsupervised; he didn't need her; he asked anyway; what he told her, nobody can source. Four sentences, then stop. The dates and the statute are Chuck's."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "SHIELD 2 — 'the court approved the fees.' Recon. Ruling 04-25-2013 p.2 (Oct 14, 2010; Apr 12, 2012) · Penzien p.11 (no evidence or testimony) · Penzien p.22 ($6,324.50) · Reply Brief p.9 · Recon. p.3"
+    tactic: 6            # authority borrow — two fee orders
+    source_kind: manual
+    text: "Every fee in this estate — CFS's and Mr. Phillips's — was petitioned for, noticed, heard and approved. October 14, 2010. Again April 12, 2012. If a single hour was improper, the judge would have said so. She didn't. Twice."
+    receipt: "In an unsupervised administration the personal representative pays reasonable fees on its own authority and answers for them (⚑ Chuck's cite). He petitioned instead — and billed the petitioning. The October 14 hearing took 'no evidence or testimony' (Penzien p.11), and responding to Marie's objections for it cost the estate $6,324.50 — 9.9 hours from CFS, 24.9 hours and 10 paralegal hours from Phillips, his own accounting (Penzien p.22). The 2012 petition was for fees 'defending an appeal which, at its heart, dealt with the fees paid to CFS and its Counsel' (Reply Brief p.9), and the Court of Appeals said part of that time 'did not benefit the estate' (Recon. Ruling p.3). The approval he holds up is the thing he billed the estate to obtain."
+    pair_said: "\"After a hearing on October 14, 2010, the probate court approved the fees requested by CFS, awarded Phillips $19,512 in attorney fees…\" — COA Reconsideration Ruling 04-25-2013, p. 2"
+    pair_admitted: "\"…the Personal Representative spent 9.9 hours and billed $544.50 in preparing the response and attending the subsequent hearing. Similarly, Attorney Phillips billed 24.9 hours of his time and 10.0 hours of paralegal time for a total fee of $5,780.00. In sum … $6,324.50 to the estate…\" — Penzien COA Brief 03-14-2011, p. 22, from the Amended Accounting"
+    watch_for: "WATCH FOR — 'twice'. Do not dispute the orders. Unsupervised: he didn't need them. He asked, and the asking cost six thousand three hundred dollars for one hearing — his accounting. Stop. The fee statute is Chuck's."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "SHIELD 3 — 'the Court of Appeals found nothing wrong.' Phillips MSD p.7 (the COA quoted) · CFS Interrog. p.8 · Admissions p.1 (junk; disposition) · Penzien p.20 · Motion for Default p.14 · p.5"
+    tactic: 6            # authority borrow — the appellate court
+    source_kind: manual
+    text: "And the Court of Appeals reviewed all of it. They found CFS 'proceeded with the auction consistent with the probate court's order,' that you 'generally agreed' to it, and that the record 'belied' your claim you'd have handled it amicably. Three judges, Ms. Awad. No inappropriate actions. Are they wrong too?"
+    receipt: "The Court of Appeals answered the question it was asked: did he follow the order? He did. Nobody asked whether he needed it. It was unsupervised; the auction was 'the personal representative's belief' (CFS Interrog. Response p.8), of property CFS itself called junk or worthless (Admissions p.1, 'Admitted.'); it took 'approximately 125 hours' and 'over $7,400.00' to net 'approximately $2,000.00' (Penzien p.20) — 'lost the estate more than $6,000.00' (Motion for Default p.14). A court that finds you obeyed an order you wrote for yourself has not found the order was needed. And the sisters did divide the rest amicably (Motion for Default p.5) — after he had billed the estate to prove they couldn't."
+    pair_said: "\"…proceeded with the auction consistent with the probate court's order and… Awad did not challenge, and generally agreed to, the collection of personal property for purposes of a sale at auction.\" — Court of Appeals, as quoted in Phillips MSD 07-10-2014, p. 7"
+    pair_admitted: "\"It was the personal representative's belief that an auction was the fairest and most efficient manner to dispose of the personal property.\" — CFS Interrogatory Response 08-08-2016, p. 8; request that CFS described the personal property as junk or worthless — \"Admitted.\" — Admissions Response p. 1"
+    watch_for: "WATCH FOR — 'are they wrong too'. Never. 'They found he followed the order. It was his order.' His belief, his word 'junk', a hundred and twenty-five hours to lose six thousand dollars. Stop. Do not argue 'belied'."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "THE JUSTIFICATION — 'we needed the court because you wouldn't cooperate.' Motion for Default p.22 · CFS Interrog. p.6 · Motion for Default p.5 · Phillips MSD p.4 ('disregard … unless and until')"
+    tactic: 4            # false premise — 'you made the court necessary'
+    source_kind: manual
+    text: "You wouldn't meet with your sisters. You wouldn't cooperate with the fiduciary. You bombarded him with demands. What was Mr. Phillips supposed to do — guess? He went to the court for direction because YOU made it impossible to do anything else. Didn't you?"
+    receipt: "Who said Marie wouldn't cooperate? He wrote that 'Other parties had indicated that it would be impossible for Marie to do anything amicably' — and asked by Interrogatory 14 who those parties were, never answered (Motion for Default p.22). CFS: 'unaware of who exactly brought that to the attention of Catholic Family Service or when' (CFS Interrog. Response p.6). It was untrue — the sisters 'did in fact meet amicably to divide' the property (Motion for Default p.5). And the 'direction' he went for was permission to 'disregard the various issues the heirs bombarded CFS with unless and until an order of the Probate Court directs otherwise' (Phillips MSD p.4). He did not go to the court for direction. He went for a note excusing him from listening."
+    pair_said: "\"The Probate Court found that it was reasonable for CFS to disregard the various issues the heirs 'bombarded' CFS with 'unless and until an order of [the Probate Court] directs otherwise.'\" — Phillips, Motion for Summary Disposition 07-10-2014, p. 4"
+    pair_admitted: "\"Catholic Family Service is unaware of who exactly brought that to the attention of Catholic Family Service or when that statement was specifically made.\" — CFS Interrogatory Response 08-08-2016, p. 6"
+    watch_for: "WATCH FOR — three accusations wanting one apology. Do not defend the demands; do not say 'bombarded' back. Who told him? He couldn't say. CFS couldn't say. We did meet. And what he asked the judge for was permission to ignore us. Stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "ABDICATION AS OBEDIENCE — 'prudence, not cover.' The header card's spine · Phillips COA Response 04-11-2011 p.11 (why two staff attended) · Admissions p.1 and p.16 (auction billed)"
+    tactic: 2            # half-truth — 'a careful fiduciary seeks guidance'
+    source_kind: manual
+    text: "A careful fiduciary in a contested estate seeks the court's guidance at every step and documents everything. That isn't 'cover,' Ms. Awad — that's prudence. You'd be here complaining either way, wouldn't you?"
+    receipt: "Unsupervised means the law had already given him the authority and the responsibility. A fiduciary with full authority who petitions the court to approve what he alone decided is not being supervised — he is manufacturing cover. Every approval he holds up was for a choice already made: the plan he wrote, the fees he billed, the auction he ran. And 'documents everything' — his own brief says why two CFS staff were at the auction: 'to make certain that the fiduciary could demonstrate this fact by corroborated testimony in court should accusations be made later' (Phillips COA Response 04-11-2011 p.11), billed to the estate (Admissions p.1; p.16). He was building his defence while spending Dad's estate. The judge did not run this estate. He did — and he kept her signature for the day he'd be asked."
+    pair_said: "Guidance sought at every step, everything documented — prudence, the defense's word for the pattern"
+    pair_admitted: "\"Two CFS representatives were present at the auction … to make certain that the fiduciary could demonstrate this fact by corroborated testimony in court should accusations be made later.\" — George Phillips, COA Response 04-11-2011, p. 11"
+    watch_for: "WATCH FOR — 'you'd complain either way' is bait; ignore it. One idea: he had the authority, he asked for cover, and his own brief says the two staff were there to be his witnesses. Stop. 'Abdication dressed as obedience' is Chuck's line for closing, not Marie's for the stand."
+
+  # ---------- Our side asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, was your father's estate a supervised administration or an unsupervised one?"
+    receipt: "Unsupervised (Roman's ruling 2026-09-02; ⚑ the appointing order of 07-23-2009 and CFS's letters of authority are the exhibit)."
+    watch_for: "WATCH FOR — one word. Chuck reads the letters of authority; Marie does not explain the difference."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "In an unsupervised administration, did Catholic Family Service need the judge's permission to store your father's belongings, to sell them, or to pay its own fees? And what did it do instead?"
+    receipt: "No (⚑ Chuck's cite). It petitioned for permission anyway — the petition to approve a plan of administration (⚑ 11-25-2009), granted (⚑ 12-15-2009): 'CFS sought approval to dispose of the decedent's personal property by conducting an auction' (Phillips MSD p.4)."
+    watch_for: "WATCH FOR — 'no; they asked anyway.' The dates are Chuck's to read from the papers."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "At the hearing on that petition, what did Mr. Phillips tell the judge about why an auction was the only way — and when you asked him under oath who had told him that, what did he say?"
+    receipt: "That the heirs were 'such disagreeable people that it was impossible for the estate to dispose of the personal property in any other way than to auction the material off' (Penzien p.20). Asked by Interrogatory 14 who said so, he never named them (Motion for Default p.22); CFS was 'unaware of who exactly … or when' (CFS Interrog. p.6)."
+    watch_for: "WATCH FOR — his sentence, then 'he never said who'. Nothing about what she thinks his reason was."

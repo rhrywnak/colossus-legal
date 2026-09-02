@@ -1,0 +1,160 @@
+# =============================================================================
+# practice_decks/S-1.yaml — scenario S-1, "Obstruction" (DEFENSIVE)
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5.1, 2026-09-02, noon) — for Roman's ruling, then
+# Chuck's review; redlines flow back through `--update`.
+#
+# S-1 IS THE DEFENSIVE SCENARIO. The "george" side below is THEIR case against
+# Marie — the obstructive heir: too many lawyers, refused to cooperate, opposed
+# storage, conspiracy theories, sanctioned, seventeen years of it. Its
+# vocabulary is the Phillips COA Response 04-11-2011 and his probate briefs.
+# The receipts are the theme's own list: every accusation behind the label
+# collapsed when it met an oath in 2016.
+#
+# ⚑ Built from the RANKED GATHER of 2026-09-02 (SEEDS/S-1_ranked_gather.md),
+# NOT a ruled pool; every card is a candidate until Roman rules it. Receipts
+# cite DOCUMENT AND PAGE. Subject is person-marie-awad (451-card pool).
+# ⚑ THE THEME'S SHARPEST RECEIPTS ARE IN THE CONSERVATION TAIL, not the ranked
+# sixty — the 2016 Response to Discovery cards: "personal conclusions"
+# (evidence:da4ec717) and "no list of dates supporting characterization of
+# Marie as unreasonably demanding" (evidence:efe9ff33). Their VERBATIM must be
+# pulled before court; they are cited below by document and title.
+# ⚑ FOR CHUCK: the certified letter agreeing to divide amicably (the one
+# Penzien p.20 describes); the four dated documents — 11-16-2009, 11-27-2009,
+# 12-15-2009, 03-05-2010 — showing she wanted the property moved and secured
+# (Motion for Default p.24); the 2016 Response to Discovery, pages for the two
+# answers above; Phillips's accounting statement (the ~$500).
+#
+# THEME (S-1): Every act they call obstruction is a right the law gives an heir
+# — objecting, appealing, demanding an accounting, presenting evidence — and
+# every specific accusation behind the label collapsed when it finally met an
+# oath. Obstruction is what a fiduciary calls the one heir who kept asking for
+# proof.
+#
+# The spine, from the ranked gather:
+#   THEIR frame — five lawyers each "brought up to speed" at the estate's
+#   expense (Recon. Ruling p.6, reciting his representation); she "could not
+#   work with her sisters" (Motion for Default p.5); she "demanded" the
+#   property "not be moved" and was "opposing moving these items into storage"
+#   (his words, Motion for Default p.24); "unintelligible, fanciful conspiracy
+#   theories" (A-55); the court sanctioned her under MCR 2.114 (Recon. p.2);
+#   the Court of Appeals rejected her factual-error claims (Recon. p.5);
+#   seventeen years and she files again.
+#   OUR material — his own accounting: ~$500 for bringing her attorneys up to
+#   speed, against $7,500 for Nadia's attorney (Reply Brief 11-16-2012 p.12);
+#   asked to admit it was under $750: "Denied as untrue"; asked to admit he
+#   raised it to suggest she could not cooperate or wasted estate resources:
+#   "Denied as untrue" (Admissions p.6, both). Her certified letter, sent
+#   BEFORE his statement in court, saying she was willing to go through the
+#   property amicably and "would do whatever it takes to save the estate money"
+#   (Penzien p.20); asked by Interrogatory 14 who said cooperation was
+#   impossible — never named (Motion for Default p.22); CFS "unaware of who …
+#   or when" (CFS Interrog. 08-08-16 p.6); under oath, his "burned her bridges"
+#   and "inability to get along" remarks were his personal conclusions, and he
+#   has no list of dates behind "unreasonably demanding" (Response to
+#   Discovery, ⚑ verbatim). Four dated documents in his possession showing she
+#   wanted the property moved and secured, while he told the court the opposite
+#   (Motion for Default p.24). Sanctions sought against her for her attorney's
+#   missed appearance and not against Nadia's attorney Luvol for the same
+#   (Reply Brief p.5); Phillips admits the court held multiple hearings on
+#   motions to sanction Marie's attorneys (Admissions p.1). The sanction came at
+#   a hearing with "no evidence or testimony" (Penzien p.11), on objections
+#   that "were fairly detailed and took issue with … the billings" (Penzien
+#   p.11) — one of which the Court of Appeals upheld (Recon. p.3). The facts
+#   were presented three times and never reviewed (Reply Brief p.8).
+#
+# Standing rulings hold: no `stronger` fields; every watch_for POINTS, never
+# scripts; all questions `source_kind: manual`. Schema follows S-11.yaml.
+
+scenario_code: S-1
+
+questions:
+
+  # ---------- The defense asks (cross) — the obstruction case ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Recon. Ruling 04-25-2013 p.6 (his 'up to speed' representation, recited) · Reply Brief 11-16-2012 p.12 (his accounting: ~$500) · Admissions p.6 ×2 ('Denied as untrue')"
+    tactic: 4            # false premise — 'your lawyers ruined the estate'
+    source_kind: manual
+    text: "Five lawyers, Ms. Awad. You went through five. And every single one had to be brought up to speed at the estate's expense — Mr. Phillips told the court exactly that. Your own choices are what drove the costs. Aren't they?"
+    receipt: "His own accounting statement 'shows approximately $500.00 was expended in connection with bringing the attorneys up to speed whereas, Nadia Awad's attorney cost the estate $7,500.00' (Reply Brief 11-16-2012 p.12). Then the oath, 2016: asked to admit her attorney changes cost the estate less than $750 — 'Denied as untrue'; asked to admit he raised the attorneys to suggest she could not cooperate or wasted estate resources — 'Denied as untrue' (Admissions Response p.6). Five hundred dollars, on his page, and two denials of his own page."
+    pair_said: "\"…because Awad engaged numerous attorneys during the original case, the amount of attorney fees incurred by CFS increased because Phillips spent a large number of hours bringing the attorneys hired by Awad up to speed.\" — Phillips's representation, as recited in COA Reconsideration Ruling 04-25-2013, p. 6"
+    pair_admitted: "\"George Phillips' accounting statement, however, shows approximately $500.00 was expended in connection with bringing the attorneys 'Up to speed'…\" — Reply Brief 11-16-2012, p. 12; request that he was aware her retention of multiple attorneys cost the estate less than $750 — \"Denied as untrue.\" — Admissions Response p. 6"
+    watch_for: "WATCH FOR — 'five'. Do not count lawyers, do not explain why each left. One number from his own statement: five hundred. Nadia's: seven thousand five hundred. Under oath he denied even that. Stop."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Motion for Default p.5 (the repeated 'could not work with her sisters') · Penzien COA Brief p.20 (the certified letter, BEFORE his statement) · Motion for Default p.22 (Interrog. 14) · CFS Interrog. 08-08-16 p.6 · Response to Discovery ⚑ ('personal conclusions'; no list of dates)"
+    tactic: 4            # false premise — 'you refused to cooperate'
+    source_kind: manual
+    text: "You wouldn't sit in a room with your sisters. You wouldn't divide your father's things. Mr. Phillips told the court it was impossible for you to do anything amicably, and the court believed him. You were the one who refused to cooperate — weren't you?"
+    receipt: "Before he said that in court, Marie 'had previously sent a certified letter to the Appellee and its attorney stating that she was willing to go through the personal property amicably with her sisters' and 'that she would do whatever it takes to save the estate money' (Penzien p.20). Asked by Interrogatory 14 who had said cooperation was impossible, he never named anyone (Motion for Default p.22); CFS was 'unaware of who exactly … or when' (CFS Interrog. p.6). And under oath in 2016, his 'burned her bridges' and 'inability to get along' remarks were his own personal conclusions, and he has no list of dates behind 'unreasonably demanding' (Response to Discovery — ⚑ verbatim to pull). Afterwards the sisters 'did in fact meet amicably to divide' the property (Motion for Default p.5)."
+    pair_said: "\"Other parties had indicated that it would be impossible for Marie to do anything amicably.\" — George Phillips, Reply to Awad's Objections 10-04-2010, as quoted in Motion for Default p. 22"
+    pair_admitted: "\"…Marie Awad had previously sent a certified letter to the Appellee and its attorney stating that she was willing to go through the personal property amicably with her sisters. Marie Awad went on to write that she would do whatever it takes to save the estate money.\" — Penzien COA Brief 03-14-2011, p. 20"
+    watch_for: "WATCH FOR — 'refused'. Do not describe the sisters. The letter came first, certified. Who told him otherwise? He couldn't say; CFS couldn't say; under oath it was his own conclusion. Then we divided it. Stop."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Motion for Default p.24 (his words: 'demanding … delay', 'opposing moving these items into storage') · p.24 (the four dated documents in his possession) · p.13 (property with James Hanley) · p.15 ($1,050 storage represented as free)"
+    tactic: 4            # false premise — 'you blocked the storage'
+    source_kind: manual
+    text: "Your father's property sat unsecured for months because YOU demanded it not be moved — Mr. Phillips wrote that to the court more than once. Whatever happened to those things happened because of your demand. Didn't it?"
+    receipt: "He wrote it — 'demanding that the estate delay placing these items in storage', 'Marie was opposing moving these items into storage' (his words, Motion for Default p.24). And 'at the time Defendant Phillips made the false accusations, he had in his possession documents dated November 16, 2009; November 27, 2009; December 15, 2009 and March 5, 2010 which clearly indicate that Plaintiff wanted the property moved and secured' (p.24). Where the property actually was: with Camille's son James Hanley (p.13), under a $1,050 storage agreement the court had been told was free (p.15)."
+    pair_said: "\"Marie was opposing moving these items into storage.\" — George Phillips, as quoted in Motion for Default p. 24"
+    pair_admitted: "\"…he had in his possession documents dated November 16, 2009; November 27, 2009; December 15, 2009 and March 5, 2010 which clearly indicate that Plaintiff wanted the property moved and secured.\" — Motion for Default p. 24 (⚑ the four documents are Chuck's exhibits)"
+    watch_for: "WATCH FOR — 'your demand'. Four dates. Say the four dates and what they say: moved and secured. Then who had the property and what the court was told it cost. Do not argue about the auction; that is S-12."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "Recon. Ruling p.2 (MCR 2.114 sanction) · A-55 ('fanciful conspiracy theories') · Penzien p.11 (objections 'fairly detailed'; no evidence or testimony) · Recon. p.3 (the objection the COA upheld) · Reply Brief p.5 (Luvol) · Admissions p.1 (multiple sanction hearings — Admitted)"
+    tactic: 6            # authority borrow — the sanction and the label
+    source_kind: manual
+    text: "The probate court sanctioned you, Ms. Awad — Rule 2.114 — for frivolous objections. Mr. Phillips called your positions what they were: unintelligible, fanciful conspiracy theories. A judge agreed with him. Wasn't she right?"
+    receipt: "The sanction is real: October 14, 2010 (Recon. Ruling p.2) — at a hearing that took 'no evidence or testimony' (Penzien p.11), on objections that 'were fairly detailed and took issue with a number of the claims that had been filed and the billings that had been submitted' (Penzien p.11). One of those 'fanciful' objections the Court of Appeals upheld: time CFS spent defending its own fees 'did not benefit the estate' (Recon. p.3). And the sanctions were sought selectively — against Marie for her attorney's failure to file an appearance, and not against Nadia's attorney Luvol for the same failure (Reply Brief p.5); Phillips admits the court held multiple hearings on motions to sanction Marie's attorneys (Admissions p.1, 'Admitted.')."
+    pair_said: "\"…sanctioned Awad under MCR 2.114 by eliminating a proposed distribution of $2,345…\" — COA Reconsideration Ruling 04-25-2013, p. 2"
+    pair_admitted: "\"…Appellee's request to sanction Marie Awad over her attorney's failure to file his appearance even though Nadia Awad's attorney, Alex Luvol, failed to file his appearance yet no sanctions were requested of her.\" — Reply Brief 11-16-2012, p. 5; request that the probate court conducted multiple hearings on motions to sanction Marie's attorneys — \"Admitted.\" — Admissions Response p. 1"
+    watch_for: "WATCH FOR — 'wasn't she right'. Never argue with the judge. The hearing heard no witness; the objections were detailed; one of them the Court of Appeals agreed with; and the same mistake by Nadia's lawyer drew no motion. Do not say 'conspiracy'; do not repeat his adjectives. Stop."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "The label itself — the theme · Admissions p.6 ×2 · Response to Discovery ⚑ (personal conclusions; no dates; no names) · Reply Brief p.8 (presented three times, never reviewed) · Recon. p.5 (the COA rejected her factual-error claims)"
+    tactic: 5            # compound — seventeen years braided into 'obstruction'
+    source_kind: manual
+    text: "Seventeen years, Ms. Awad. Objections. An appeal. Reconsideration. A removal petition. This lawsuit. Every court has ruled against you and you file again. At what point does 'asking questions' become obstruction?"
+    receipt: "Every act in that list is a right the law gives an heir — to object, to appeal, to demand an accounting, to present evidence. The word 'obstruction' is his, and every specific accusation behind it met an oath in 2016 and failed: the attorneys — 'Denied as untrue', twice (Admissions p.6); the refusal to cooperate — his own 'personal conclusions', no name, no date (Response to Discovery ⚑; Motion for Default p.22); the storage — contradicted by four documents in his own hands (p.24). The facts were 'presented to the Probate Court … again … and again … The Probate Court has never taken the time to review these facts' (Reply Brief p.8). Asking for proof is not obstruction; it is what she was entitled to do, and what he could not survive."
+    pair_said: "Objections, appeal, reconsideration, removal petition, this suit — seventeen years, the defense's braid"
+    pair_admitted: "\"This information was presented to the Probate Court in the context of the original estate proceedings, again in the context of the petition for additional fees and again in the context of the motion for reconsideration. The Probate Court has never taken the time to review these facts…\" — Reply Brief 11-16-2012, p. 8"
+    watch_for: "WATCH FOR — 'at what point'. Do not list the seventeen years back. One idea: each thing he called obstruction was a right, and each accusation failed under oath. 'Obstruction is what a fiduciary calls the heir who kept asking for proof' is Chuck's line for closing — Marie does not say it."
+
+  # ---------- Our side asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, before Mr. Phillips told the court you couldn't do anything amicably with your sisters, what had you sent him?"
+    receipt: "A certified letter saying she was willing to go through the personal property amicably with her sisters and would do whatever it takes to save the estate money (Penzien p.20). ⚑ The letter is Chuck's exhibit."
+    watch_for: "WATCH FOR — 'a certified letter', what it said, when. Not what she thinks he did with it."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "In 2016 you asked him under oath who had told him you were impossible to work with, and what his remarks about you were based on. What did he say?"
+    receipt: "He never named anyone (Motion for Default p.22, Interrogatory 14); CFS was 'unaware of who exactly … or when' (CFS Interrog. p.6); and his 'burned her bridges' and 'inability to get along' remarks were his own personal conclusions, with no list of dates behind 'unreasonably demanding' (Response to Discovery — ⚑ verbatim to pull)."
+    watch_for: "WATCH FOR — 'nobody', then his phrase: personal conclusions. Let the phrase sit."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Mr. Phillips told the court your changes of attorney cost the estate a great deal. What did his own accounting show — and what did he say under oath when asked to admit it?"
+    receipt: "About $500, from his own accounting statement, against $7,500 for Nadia's attorney (Reply Brief p.12). Asked to admit it was less than $750: 'Denied as untrue' (Admissions p.6)."
+    watch_for: "WATCH FOR — five hundred, his statement; then the two words. Nothing else."

@@ -1,0 +1,146 @@
+# =============================================================================
+# practice_decks/S-13.yaml — DRAFT — scenario S-13, "What his oath is worth"
+# =============================================================================
+#
+# ARCHITECT DRAFT (Fable 5.1, 2026-09-02, ~00:45) — for Roman's ruling, then
+# Chuck's review 2026-09-02; redlines flow back through `--update`.
+#
+# ⚑ HOW THIS DIFFERS FROM S-11's DECK, DISCLOSED. Built from the RANKED
+# GATHER of 2026-09-01 (SEEDS/S-13_ranked_gather.md) — Stage 1 retrieval
+# only, no reranker, no Opus judging, NO RULED POOL. Every card is a
+# CANDIDATE until Roman rules it. Receipts cite DOCUMENT AND PAGE.
+#
+# ⚑⚑ THE WARNING THAT MATTERS MOST FOR THIS DECK. Six of the top ten cards —
+# and nearly every receipt below — come from ONE document: Marie's own
+# Supplemental Brief re Motion for Reconsideration, 2026-01-27. That brief is
+# ARGUMENT. The EVIDENCE it rests on is its exhibits, which are NOT in the
+# corpus as documents: Exhibit 1 (the SSA letter and appointment
+# documentation, November 2025), Exhibit 2 (SSA Form 1724 as filed, October
+# 2012), and Exhibits 4–5 (the 2016 interrogatory and admission responses).
+# Marie must not be drilled on a sentence whose only source is her own brief.
+# ⚑ FOR CHUCK: bring Form 1724 and the SSA letter to the table. Until they
+# are in hand, every "represented under penalty of perjury" line below is
+# counsel's characterisation and is marked so.
+#
+# THEME (S-13): A fiduciary who swore to the federal government that his
+# ward's children did not exist — while writing letters to all three — has
+# told this court exactly what his oath is worth.
+#
+# The scenario's spine, from the ranked gather:
+#   THEIR frame — any Social Security money belonged to the ESTATE, so any
+#   injury "runs to the estate" and the probate court has exclusive
+#   jurisdiction (Phillips MSD 07-10-2014 p.11); the PR's duty is to marshal
+#   every asset, so claiming the funds was the job; the estate is closed, the
+#   appeal affirmed, the removal petition failed (MSD p.4); this is a 2012
+#   form raised in 2025.
+#   OUR material — in October 2012 the Defendants filed SSA Form 1724 for
+#   the funds (Supp. Brief p.3) and on it represented that Emil had no living
+#   children (p.3), while corresponding with all three (p.4); under SSA
+#   rules the three surviving children receive an underpayment directly, in
+#   equal shares — the ONLY way the estate could qualify was to say there
+#   were none (p.4); Marie asked in 2016 by interrogatory (p.2) and the sworn
+#   responses admitted responsibility for marshalling SS assets, admitted
+#   knowing children existed, and did NOT disclose the form, the
+#   representation, or whether any funds were paid, how much, or to whom
+#   (p.2); she learned of the form from SSA in November 2025 (p.3). The 2013
+#   complaint already alleged they were abandoning funds SSA said were
+#   available (allegation text) — the form shows they had already claimed
+#   them.
+#   THE OPEN QUESTION, and the one to put to Chuck: WAS THE MONEY PAID, HOW
+#   MUCH, AND TO WHOM? The discovery responses never said. That is the hole
+#   this scenario is built around.
+#
+# Standing rulings hold: no `stronger` fields; every watch_for POINTS, never
+# scripts; all questions `source_kind: manual`. Schema follows S-11.yaml.
+
+scenario_code: S-13
+
+questions:
+
+  # ---------- The defense asks (cross) ----------
+
+  - key: g1
+    side: george
+    kind: cross
+    source_line: "Phillips MSD 07-10-2014 p.11 ('run to the estate') · Supp. Brief 01-27-2026 p.4 (SSA priority — the children receive directly)"
+    tactic: 4            # false premise — 'it was the estate's money, not yours'
+    source_kind: manual
+    text: "Any Social Security payment owed at your father's death belonged to his ESTATE, Ms. Awad — not to you personally. So whatever the personal representative did or didn't do about it, that's the estate's business and the probate court's. It isn't your injury, is it?"
+    receipt: "The premise is the whole case. Under the Social Security regulations 'the three surviving children should have received in equal proportion the social security funds directly' (Supp. Brief p.4) — it was the children's money, not the estate's. 'The only way the Defendants would have qualified for those funds was by completing the social security form requesting payment' as if there were no children (p.4). If it ran to the estate, that is because the form said there was nobody else for it to run to."
+    pair_said: "\"All factual allegations which Awad relies upon in support of her claims pertain to injuries which would 'run to the estate,' therefore the probate court retains exclusive jurisdiction.\" — Phillips, Motion for Summary Disposition 07-10-2014, p. 11"
+    pair_admitted: "Sworn discovery responses: \"Admitted responsibility for marshalling Social Security assets … Admitted knowing that children existed\" — as summarised in Marie Awad's Supplemental Brief 01-27-2026, p. 2, citing Exhibits 4–5 (⚑ the responses themselves are the receipt; the brief is not)"
+    watch_for: "WATCH FOR — 'not your injury'. Do not argue jurisdiction; that is Chuck's. Say whose money Social Security says it is: the children's, directly. Then the one sentence: the only way to make it the estate's was to say there were no children."
+
+  - key: g2
+    side: george
+    kind: cross
+    source_line: "Supp. Brief 01-27-2026 p.3 (Form 1724, October 2012) · p.3 (no living children) · p.4 (correspondence with all three)"
+    tactic: 2            # half-truth — 'marshalling assets is the job'
+    source_kind: manual
+    text: "A personal representative has a legal duty to collect every asset of the estate — Social Security included. Filing a claim with the Social Security Administration wasn't misconduct, Ms. Awad. It was the job."
+    receipt: "Filing the claim was the job. Saying Emil had no children was not. 'In October of 2012 the Defendants filed a request with the Social Security Administration for the missing funds using SSA Form 1724' (Supp. Brief p.3), and on it 'represented to the Social Security Administration that the deceased Mr. Awad had no living children' (p.3) — while 'the existence of Defendant's correspondence to all three children' shows they knew otherwise (p.4). ⚑ The form is Exhibit 2; the words on it are the receipt."
+    pair_said: "Marshalling Social Security assets is a personal representative's duty — the defense's framing of the 2012 filing"
+    pair_admitted: "\"Under penalty of perjury, the Defendants represented to the Social Security Administration that the deceased Mr. Awad had no living children.\" — Marie Awad's Supplemental Brief 01-27-2026, p. 3, citing Exhibit 2 (⚑ counsel's characterisation until Form 1724 is in hand)"
+    watch_for: "WATCH FOR — he will make it about the duty to collect. Agree with the duty. The form said no children; he was writing to all three. NEVER say 'perjury' or 'fraud' from the stand — say what the form says, and let Chuck say what that is."
+
+  - key: g3
+    side: george
+    kind: cross
+    source_line: "Supp. Brief 01-27-2026 p.2 (2016 interrogatories) · p.2 (what the responses did not disclose) · p.3 (November 2025 discovery)"
+    tactic: 4            # false premise — 'why now?'
+    source_kind: manual
+    text: "This is a form from 2012. You're raising it in 2025 — thirteen years later, after the estate was closed, after every appeal. If it mattered so much, Ms. Awad, why now?"
+    receipt: "Because she asked in 2016 and they didn't tell her. 'In 2016, Plaintiff propounded interrogatories specifically requesting disclosure of Defendants' actions and outcomes relating to Social Security benefits' (Supp. Brief p.2). The sworn responses 'Failed to disclose the filing of SSA Form 1724; Failed to disclose the false representation regarding surviving children; Failed to disclose whether any Social Security funds were paid, in what amount, or to whom' (p.2). 'In November 2025, Plaintiff first discovered through the Social Security Administration' that the form had been filed (p.3). The thirteen years are theirs."
+    pair_said: "A 2012 form raised in 2025 — the defense's delay framing"
+    pair_admitted: "\"In 2016, Plaintiff propounded interrogatories specifically requesting disclosure of Defendants' actions and outcomes relating to Social Security benefits and estate assets.\" — Supplemental Brief 01-27-2026, p. 2 (⚑ the 2016 responses, Exhibits 4–5, are the receipt)"
+    watch_for: "WATCH FOR — 'why now' invites a speech about the whole case. Three dates only: asked in 2016; not told; SSA told me in 2025. Then stop."
+
+  - key: g4
+    side: george
+    kind: cross
+    source_line: "The 2013 complaint (allegation text: 'intend to abandon social security funds') · Supp. Brief p.2 (paid? how much? to whom?)"
+    tactic: 5            # compound — 'abandoned it' vs 'took it'
+    source_kind: manual
+    text: "In 2013 you swore they were ABANDONING the Social Security money. Now you say they TOOK it. Those can't both be true, Ms. Awad. Which one were you lying about?"
+    receipt: "Neither, and they are one story. In 2013 Marie was 'advised by the Social Security Administration that the funds are readily available for the Personal Representative to obtain' and the Defendants appeared to be abandoning them (complaint allegation). What she could not know in 2013 was that they had already filed for them in October 2012 (Supp. Brief p.3) — and the 2016 sworn responses never said 'whether any Social Security funds were paid, in what amount, or to whom' (p.2). Abandoned or taken is exactly the question they refused to answer."
+    pair_said: "'Abandoning' in 2013, 'took' in 2025 — the defense's contradiction"
+    pair_admitted: "\"Failed to disclose whether any Social Security funds were paid, in what amount, or to whom.\" — sworn discovery responses as summarised, Supplemental Brief 01-27-2026, p. 2"
+    watch_for: "WATCH FOR — 'which one were you lying about' wants a defence of 2013. Do not defend; say the question is where the money went and they have never said. One sentence."
+
+  - key: g5
+    side: george
+    kind: cross
+    source_line: "Phillips MSD 07-10-2014 p.4 (removal petition failed; estate remained with CFS) · Supp. Brief p.5 and p.1 (the fiduciary duty to disclose)"
+    tactic: 6            # authority borrow — 'every court has ruled'
+    source_kind: manual
+    text: "The probate court closed this estate. The Court of Appeals affirmed it. Your petition to remove Catholic Family Service was denied. Every court that has looked at these people has found nothing. What do you know that all those judges didn't?"
+    receipt: "The form. None of those courts was told about it — the sworn responses 'Failed to disclose the filing of SSA Form 1724' (Supp. Brief p.2). 'As fiduciaries the Defendants owed the Plaintiff a duty to disclose all their efforts to obtain the Social Security funds, the outcome of their efforts, and to properly account for all funds which were received' (p.5). A court cannot find what a fiduciary keeps from it."
+    pair_said: "\"Despite this petition, CFS remained the personal representative.\" — Phillips, Motion for Summary Disposition 07-10-2014, p. 4"
+    pair_admitted: "\"Defendants served as Personal Representative and fiduciaries owing Plaintiff duties of honesty, candor, loyalty, and full disclosure.\" — Supplemental Brief 01-27-2026, p. 1"
+    watch_for: "WATCH FOR — 'what do you know that the judges didn't' is the best question they have, and the answer is one word: the form. They didn't know because he didn't tell them. Do not list the courts back."
+
+  # ---------- Our side asks (direct) ----------
+
+  - key: c1
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Marie, how many children did your father have — and did Mr. Phillips and Catholic Family Service know that?"
+    receipt: "Three. They wrote to all three (Supp. Brief p.3–4) and 'Admitted knowing that children existed' in sworn discovery (p.2, citing Exhibits 4–5)."
+    watch_for: "WATCH FOR — 'three', then 'they wrote to all of us'. The discovery admission is Chuck's exhibit."
+
+  - key: c2
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "What did the Social Security Administration tell you in November 2025?"
+    receipt: "That the Defendants had filed SSA Form 1724 in 2012 to claim the outstanding funds, and that on it they had denied the existence of surviving children (Supp. Brief p.3, citing Exhibit 1 — the SSA letter). ⚑ The letter is the receipt."
+    watch_for: "WATCH FOR — what SSA told her, in SSA's words if the letter allows. Not what she concluded from it."
+
+  - key: c3
+    side: chuck
+    kind: direct
+    source_kind: manual
+    text: "Back in 2016, you asked them under oath about the Social Security money. Did they tell you about that form, or whether any money had been paid?"
+    receipt: "No. The responses admitted responsibility for the Social Security assets and admitted knowing children existed, and did not disclose the form, the representation on it, or whether any funds were paid, in what amount, or to whom (Supp. Brief p.2, citing Exhibits 4–5)."
+    watch_for: "WATCH FOR — 'no', then the three things they didn't say: the form, what it said, where the money went."
