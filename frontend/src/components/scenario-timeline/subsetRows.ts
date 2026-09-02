@@ -157,7 +157,34 @@ export function phaseLabel(phases: TimelinePhase[], id: string): string {
  *
  * Empty when there is nothing to say — a year-precision date whose year is
  * already the lead line, on an event nobody marked approximate.
+ *
+ * ## ⚑ A LINE MAY BEGIN WITH "·" AND MAY NEVER END WITH ONE
+ *
+ * The date column is 96 px and this caption WRAPS — `eventDateCaption` sets
+ * `whiteSpace: normal` deliberately, since the T6 overflow fix. With ordinary
+ * spaces either side of the dot the browser is free to break after it, and
+ * "2009 · month · approx." came back on DEV as a line ending in a bare
+ * "month ·" — a dot introducing a word that is not there yet.
+ *
+ * So every separator is rebuilt with a NO-BREAK space AFTER the dot and an
+ * ordinary one before it: the break can still happen before the dot, and the
+ * dot then travels to the next line with the word it introduces.
+ *
+ * ⚑ Done on the JOINED string, not on the join alone. The stored precision
+ * labels carry their own " · " inside them ("month · approx."), and those dots
+ * wrap on exactly the same rule — fixing this here covers them without editing
+ * two rows in the wording store, where the character would be invisible to
+ * anybody reading the value.
  */
+/**
+ * The caption's separator: space, middle dot, NO-BREAK space (U+00A0).
+ *
+ * STRUCTURAL: a typographic rule about where a line may break, not a setting.
+ * A deployment that could change it could put a bare "·" at the end of a line,
+ * which is the defect this constant exists to close.
+ */
+const SEPARATOR = " ·\u00a0";
+
 export function dateCaption(
   event: TimelineEvent,
   year: string,
@@ -171,5 +198,5 @@ export function dateCaption(
   if (event.approximate && event.date_precision === "year") {
     parts.push(cw(wording, "subsets_precision_year_label"));
   }
-  return parts.join(" · ");
+  return parts.join(SEPARATOR).replaceAll(" · ", SEPARATOR);
 }
