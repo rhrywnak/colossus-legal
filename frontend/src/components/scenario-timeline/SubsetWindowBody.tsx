@@ -29,6 +29,32 @@
 // away the question she is answering to show her the answer's evidence — she
 // would have to find her way back to a place she never chose to leave.
 //
+// ## ⚑ "DATES ONLY" — THE READING VIEW, AND WHAT IT IS NOT ALLOWED TO HIDE
+//
+// The footer's third control strips every row to its date and title. The
+// subset window is right for reference and wrong for the night before Marie
+// testifies: the other side's play is "she cannot keep the events straight",
+// she already knows the ORDER, and what she is refreshing is the DATES against
+// titles she knows. Fact paragraphs, tag pills and story notes are what push
+// fifteen events off the window while she does it.
+//
+// It HIDES: the description strip, each row's fact, the tag pills, the story
+// note, and the sentence under a gap row. It KEEPS everything that says
+// something the compact reader still needs — every divider, the whole date
+// column, the title, and the GAP BADGE. The badge is not negotiable: the
+// design calls a visible gap half a subset's value, and a view that dropped it
+// would tell a witness a story with a hole in it and no mark where the hole is.
+//
+// A compact row is the existing row with children omitted. Nothing is
+// re-styled: `eventTitle` is `display:inline` with `margin:0`, so the row
+// collapses to one line on its own.
+//
+// The choice is remembered in ONE key for every scenario — `compactView.ts`
+// says why — and it is held here rather than in the dock because this is the
+// one tree BOTH containers render. A control here reaches the in-page window
+// and the popped-out window for free, and `ScenarioTimelineDock` is not
+// touched at all.
+//
 // ## The gap rows are the point, not an error state
 //
 // A `removed` event is one the chronology soft-deleted. The row is MARKED and
@@ -37,7 +63,7 @@
 // design calls the visible gap half a subset's value: the story saying "this
 // happened and it is not on our timeline yet".
 
-import React from "react";
+import React, { useState } from "react";
 
 import type {
   ChronologyWording,
@@ -47,6 +73,7 @@ import type {
 import { cw } from "../../services/caseTimeline";
 import type { SubsetDetail } from "../../services/caseTimelineSubsets";
 import { dotColor, splitEventDate } from "../timeline/timelineFilters";
+import { browserStore, readCompact, writeCompact } from "./compactView";
 import {
   crossesPhases,
   dateCaption,
@@ -79,9 +106,25 @@ const SubsetWindowBody: React.FC<Props> = ({
   // fact about the story and not about any one row.
   const spansPhases = crossesPhases(subset.events);
 
+  // ⚑ READ ONCE, AT MOUNT, and that is what makes the choice survive both
+  // things Roman checks. The lazy initialiser runs on the first render and
+  // never again — so a reload rebuilds this component and reads the stored
+  // value back, and popping the window out (which mounts this tree inside the
+  // other container) does the same. Neither needs the dock to carry the flag.
+  const [compact, setCompact] = useState<boolean>(() => readCompact(browserStore()));
+
+  /** The footer toggle. Writes through, so the next story opens the same way. */
+  const toggleCompact = (): void => {
+    const next = !compact;
+    setCompact(next);
+    writeCompact(browserStore(), next);
+  };
+
   return (
     <>
-      {subset.description !== "" && <div style={ws.description}>{subset.description}</div>}
+      {!compact && subset.description !== "" && (
+        <div style={ws.description}>{subset.description}</div>
+      )}
 
       <div style={ws.body}>
         {/* ⚑ THE THIRD STATE OF THIS SLOT, and it had no words until now.
@@ -129,18 +172,19 @@ const SubsetWindowBody: React.FC<Props> = ({
                 </span>
                 <span>
                   <h4 style={row.removed ? ws.removedTitle : ws.eventTitle}>{event.title}</h4>
-                  {event.tags.map((id) => {
-                    const tag = tags.find((t) => t.id === id);
-                    // A tag the vocabulary does not carry gets no pill rather
-                    // than a pill reading its raw slug: the slug is not a word
-                    // anybody chose to show, and the rule colour already
-                    // degraded for the same event.
-                    return tag === undefined ? null : (
-                      <span key={id} style={ws.tagPill(tag.color)}>
-                        {tag.label}
-                      </span>
-                    );
-                  })}
+                  {!compact &&
+                    event.tags.map((id) => {
+                      const tag = tags.find((t) => t.id === id);
+                      // A tag the vocabulary does not carry gets no pill rather
+                      // than a pill reading its raw slug: the slug is not a word
+                      // anybody chose to show, and the rule colour already
+                      // degraded for the same event.
+                      return tag === undefined ? null : (
+                        <span key={id} style={ws.tagPill(tag.color)}>
+                          {tag.label}
+                        </span>
+                      );
+                    })}
                   {/* ⚑ THE "date to confirm" BADGE WAS HERE AND IS RETIRED
                       (Roman's ruling, 2026-08-31, reversing his own T4 call).
                       It could only read `approximate`, so it claimed four of
@@ -153,13 +197,15 @@ const SubsetWindowBody: React.FC<Props> = ({
                   {row.removed && (
                     <span style={ws.gapBadge}>{cw(wording, "subsets_gap_badge_label")}</span>
                   )}
-                  {row.removed && (
+                  {!compact && row.removed && (
                     <p style={ws.eventFact}>{cw(wording, "subsets_removed_event_line")}</p>
                   )}
-                  {!row.removed && event.fact !== undefined && event.fact !== "" && (
+                  {!compact && !row.removed && event.fact !== undefined && event.fact !== "" && (
                     <p style={ws.eventFact}>{event.fact}</p>
                   )}
-                  {row.subset_note !== "" && <div style={ws.storyNote}>{row.subset_note}</div>}
+                  {!compact && row.subset_note !== "" && (
+                    <div style={ws.storyNote}>{row.subset_note}</div>
+                  )}
                 </span>
               </button>
             </React.Fragment>
@@ -173,6 +219,15 @@ const SubsetWindowBody: React.FC<Props> = ({
         </button>
         <button type="button" style={ws.footLink} onClick={onEditSubset}>
           {cw(wording, "subsets_window_edit")}
+        </button>
+        {/* ⚑ Each label names what pressing it DOES, never the state the reader
+            is already in — the same rule the ⧉ / ⇲ pair follows. A single fixed
+            "Dates only" would leave no word on screen for the way back. The two
+            rows are mirrors and the migration says so on both. */}
+        <button type="button" style={ws.footLink} onClick={toggleCompact}>
+          {compact
+            ? cw(wording, "subsets_window_show_details")
+            : cw(wording, "subsets_window_dates_only")}
         </button>
         {/* "15 events" — and only that, since T6 round two.
             Two rulings, in order. It first shipped as "15 on the chronology · 0

@@ -144,6 +144,9 @@ pub struct ChronologyWordingDto {
 
     // Timeline subsets, polish: the window's empty-story sentence.
     pub subsets_window_no_events: String,
+    // Timeline subsets, the compact "Dates only" view: one toggle, two labels.
+    pub subsets_window_dates_only: String,
+    pub subsets_window_show_details: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -260,6 +263,8 @@ impl From<&ChronologyWording> for ChronologyWordingDto {
                 .clone(),
             subsets_modal_drag_label: w.subsets_modal_drag_label.clone(),
             subsets_window_no_events: w.subsets_window_no_events.clone(),
+            subsets_window_dates_only: w.subsets_window_dates_only.clone(),
+            subsets_window_show_details: w.subsets_window_show_details.clone(),
         }
     }
 }

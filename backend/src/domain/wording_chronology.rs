@@ -306,6 +306,11 @@ pub struct ChronologyWording {
 
     /// What the window's body says when the story carries no events. The third state of that slot — loading and failed already had words, and an empty story rendered a blank band.
     pub subsets_window_no_events: String,
+    // ── The "Dates only" view (compact) ────────────────────────────────────
+    /// The footer toggle while the window shows FULL rows: pressing it strips every row to its date and title. For the night before testimony, when the order is known and the dates are what is being refreshed.
+    pub subsets_window_dates_only: String,
+    /// The mirror of [`Self::subsets_window_dates_only`] — the same button once it has been pressed. Each names what pressing it does, never the state it is in. Edit the two together.
+    pub subsets_window_show_details: String,
 }
 
 /// Every stored key, and the list the boot loader is handed.
@@ -442,6 +447,8 @@ pub fn build_chronology_wording<E>(
         )?,
         subsets_modal_drag_label: read(KEY_SUBSETS_MODAL_DRAG_LABEL)?,
         subsets_window_no_events: read(KEY_SUBSETS_WINDOW_NO_EVENTS)?,
+        subsets_window_dates_only: read(KEY_SUBSETS_WINDOW_DATES_ONLY)?,
+        subsets_window_show_details: read(KEY_SUBSETS_WINDOW_SHOW_DETAILS)?,
     })
 }
 
