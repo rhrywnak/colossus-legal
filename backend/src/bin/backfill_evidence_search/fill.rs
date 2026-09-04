@@ -69,11 +69,25 @@ pub(crate) async fn fill(pool: &PgPool, graph: &neo4rs::Graph) -> Result<u64, Ex
         }
         skipped_total += skipped.len();
 
+        // Counted BEFORE the move into the upsert. This is the number that
+        // separates a real backfill from one that silently wrote NULLs: if a
+        // Cypher edit dropped `e.question AS question`, every node here still
+        // has a quote, still passes `mirror_row`, still lands in `rows`, and
+        // `batch_rows` and `written` come out identical to a correct run. Both
+        // generated columns would then be exactly what they were before the
+        // feature existed, with nothing in any log to say so.
+        let with_question = rows.iter().filter(|r| r.question.is_some()).count();
         written += read(
             upsert_evidence_search_rows(pool, &rows).await,
             "an evidence_search batch",
         )?;
-        info!(skip, batch_rows = rows.len(), written, "batch upserted");
+        info!(
+            skip,
+            batch_rows = rows.len(),
+            with_question,
+            written,
+            "batch upserted"
+        );
 
         if is_last_page(read_count, read_batch_size()) {
             break;

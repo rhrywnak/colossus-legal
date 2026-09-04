@@ -100,6 +100,11 @@ fn row(suffix: &str, quote: &str, about: &[&str]) -> EvidenceSearchRow {
         // below test nothing. The probe word must live in exactly one column.
         title: Some("Phillips admissions extract".to_string()),
         quote: quote.to_string(),
+        // Same discipline as `title` and `significance`: no probe word here
+        // either. `question` joined the row on 2026-09-04 and feeds both
+        // generated columns, so a probe word placed here would make the
+        // "old terms are gone" assertion pass for the wrong reason.
+        question: Some("Admit that the extract is accurate.".to_string()),
         // Same discipline as `title`: no probe word here either.
         significance: Some("why it matters".to_string()),
         // i64 all the way down: BIGINT column, Option<i64> field, no conversion.
@@ -184,6 +189,62 @@ async fn the_upsert_is_idempotent_and_refreshes_synced_at() -> TestResult<()> {
         "orphan is about none — empty, not NULL"
     );
 
+    clear(&pool).await?;
+    Ok(())
+}
+
+/// An answer-only card is findable by the request it answers — through BOTH
+/// halves of the lexical surface.
+///
+/// ## Domain note: the 86 cards this exists for
+///
+/// 86 of the 1,209 Evidence nodes have a `verbatim_quote` that is nothing but
+/// the answer: `Admitted.`, `Denied as untrue.`, `No.` Against quote/title/
+/// significance alone there is no retrievable text on those cards at all — the
+/// vector for "Admitted." is the vector for every other "Admitted."
+///
+/// ## Why this test is separate from the one below
+///
+/// `row()` deliberately keeps probe words OUT of `question`, because the
+/// quote-staleness test needs the probe word to live in exactly one column. That
+/// discipline is right, and it means none of the other database tests would
+/// notice if `question` were missing from the generated columns: they all probe
+/// with words that come from the quote. This row inverts it — a generic quote
+/// nobody would search for, and the only distinctive words in the request. If
+/// the migration's `probe_text` or `search_vector` ever stops reading
+/// `question`, this fails and the others do not.
+#[tokio::test]
+#[ignore = "requires EVIDENCE_SEARCH_TEST_DATABASE_URL pointing at a throwaway database"]
+async fn an_answer_only_card_is_findable_by_its_request() -> TestResult<()> {
+    let pool = guarded_pool().await?;
+    clear(&pool).await?;
+
+    let mut answer_only = row("answeronly", "Admitted.", &["person-emil-awad"]);
+    answer_only.question =
+        Some("Admit that the promissory note was never recorded with the register.".to_string());
+    upsert_evidence_search_rows(&pool, &[answer_only]).await?;
+
+    let found = sqlx::query(
+        "SELECT search_vector @@ websearch_to_tsquery('english', 'promissory') AS full_text, \
+                probe_text ILIKE '%promissory note%'                           AS trigram_surface, \
+                quote                                                          AS quote \
+         FROM evidence_search WHERE evidence_id = $1",
+    )
+    .bind(format!("{TEST_ID_PREFIX}answeronly"))
+    .fetch_one(&pool)
+    .await?;
+
+    assert!(
+        found.get::<bool, _>("full_text"),
+        "the full-text half must reach a word that appears only in the request \
+         (search_vector weights question at D)"
+    );
+    assert!(
+        found.get::<bool, _>("trigram_surface"),
+        "the trigram half must reach it too (probe_text concatenates question first)"
+    );
+    // And the card still says what the witness said, unchanged.
+    assert_eq!(found.get::<String, _>("quote"), "Admitted.");
     clear(&pool).await?;
     Ok(())
 }

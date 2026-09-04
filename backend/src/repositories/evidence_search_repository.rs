@@ -93,6 +93,7 @@ fn page_cypher() -> String {
                 d.id AS document_id, \
                 e.title AS title, \
                 e.verbatim_quote AS quote, \
+                e.question AS question, \
                 e.significance AS significance, \
                 e.page_number AS page, \
                 about_ids AS about \
@@ -155,6 +156,11 @@ pub struct MirrorCandidate {
     pub document_id: Option<String>,
     pub title: Option<String>,
     pub quote: Option<String>,
+    /// The request this Evidence answers, if the node carried one. It does NOT
+    /// participate in the mirrorable/unmirrorable decision below: a card with a
+    /// question and no quote is still unmirrorable, because `quote` is NOT NULL
+    /// and the reranker cannot score a row that has nothing to score.
+    pub question: Option<String>,
     pub significance: Option<String>,
     pub page: Option<i64>,
     pub about: Vec<String>,
@@ -182,6 +188,7 @@ pub fn mirror_row(candidate: MirrorCandidate) -> Result<EvidenceSearchRow, Strin
             document_id,
             title: candidate.title,
             quote,
+            question: candidate.question,
             significance: candidate.significance,
             page: candidate.page,
             about: candidate.about,
@@ -244,6 +251,7 @@ pub async fn read_evidence_page(
             document_id: row.get("document_id").map_err(decode)?,
             title: row.get("title").map_err(decode)?,
             quote: row.get("quote").map_err(decode)?,
+            question: row.get("question").map_err(decode)?,
             significance: row.get("significance").map_err(decode)?,
             page: row.get("page").map_err(decode)?,
             about: row.get("about").map_err(decode)?,
@@ -309,6 +317,7 @@ mod tests {
             document_id: document_id.map(str::to_string),
             title: Some("a title".to_string()),
             quote: quote.map(str::to_string),
+            question: Some("Admit that it matters.".to_string()),
             significance: Some("why it matters".to_string()),
             page: Some(22),
             about: vec!["org-catholic-family-services".to_string()],
@@ -329,6 +338,11 @@ mod tests {
         // i64 straight through: BIGINT column, no narrowing (ruling R1).
         assert_eq!(row.page, Some(22));
         assert_eq!(row.about.len(), 1);
+        // The pass-through this whole change exists for. `question:
+        // candidate.question` and `question: None` are indistinguishable to
+        // every other test here — the projections still name the column, the
+        // INSERT still lists it, and the mirror fills with NULLs.
+        assert_eq!(row.question, Some("Admit that it matters.".to_string()));
     }
 
     /// No document id: the mirror's column is NOT NULL and the node is named.
@@ -369,7 +383,13 @@ mod tests {
         assert!(row.about.is_empty());
     }
 
-    /// The projection carries exactly the seven fields the mirror stores.
+    /// The projection carries exactly the eight fields the mirror stores.
+    ///
+    /// `question` joined them on 2026-09-04. It is the one the backfill would
+    /// silently leave NULL if this test did not name it: the column exists, the
+    /// upsert writes it, and a projection that never returns it would fill the
+    /// mirror with rows whose generated `probe_text` and `search_vector` are the
+    /// same as before — a correct-looking backfill of a blind index.
     #[test]
     fn the_projection_matches_the_mirror_columns() {
         let cypher = page_cypher();
@@ -378,6 +398,7 @@ mod tests {
             "AS document_id",
             "AS title",
             "AS quote",
+            "AS question",
             "AS significance",
             "AS page",
             "AS about",
