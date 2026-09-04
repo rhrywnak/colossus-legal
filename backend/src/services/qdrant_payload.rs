@@ -85,9 +85,23 @@ fn title_of(node: &EmbeddableNode) -> String {
 
 /// Build the payload for one node's Qdrant point.
 ///
-/// `document_id` is the document being indexed; it is written to two keys,
-/// `document_id` and `source_document`, because `search_points` reads them
-/// separately and points already stored carry both.
+/// `document_id` is the document this node belongs to. `Some` writes it to two
+/// keys — `document_id` and `source_document` — because `search_points` reads
+/// them separately and points already stored carry both.
+///
+/// ## Domain note: `None` omits both keys, and the caller must complain
+///
+/// `None` means the node carries no document linkage at all. The two keys are
+/// then OMITTED rather than written as `""`, and this is the important half:
+/// `qdrant_service::delete_points_by_filter` filters on `document_id`, so a
+/// point stored with an empty-string id would match a filter for `""` and be
+/// undeletable by its real document for ever. Omitting leaves it equally
+/// undeletable but at least honest, and the caller is expected to log which node
+/// it was — see `services::embedding_pipeline`.
+///
+/// The two per-document index paths always pass `Some`: they are indexing a
+/// named document and cannot not know its id. Only the corpus re-embed, which
+/// walks every node in the graph, can meet a node with no linkage.
 ///
 /// ## Domain note: `page_number` is OMITTED, never null
 ///
@@ -108,13 +122,15 @@ fn title_of(node: &EmbeddableNode) -> String {
 /// knew was an object. Building the map directly removes that impossible branch
 /// entirely: there is no `Option` to unwrap and no path where the insert could
 /// silently not happen.
-pub fn build_point_payload(node: &EmbeddableNode, document_id: &str) -> Value {
+pub fn build_point_payload(node: &EmbeddableNode, document_id: Option<&str>) -> Value {
     let mut payload = Map::new();
     payload.insert(QDRANT_NODE_ID_FIELD.to_string(), json!(node.id));
     payload.insert(QDRANT_NODE_TYPE_FIELD.to_string(), json!(node.node_type));
     payload.insert(QDRANT_TITLE_FIELD.to_string(), json!(title_of(node)));
-    payload.insert(QDRANT_DOCUMENT_ID_FIELD.to_string(), json!(document_id));
-    payload.insert(QDRANT_SOURCE_DOCUMENT_FIELD.to_string(), json!(document_id));
+    if let Some(document_id) = document_id {
+        payload.insert(QDRANT_DOCUMENT_ID_FIELD.to_string(), json!(document_id));
+        payload.insert(QDRANT_SOURCE_DOCUMENT_FIELD.to_string(), json!(document_id));
+    }
 
     // Present only when the node has one. See the doc comment: absent, not null.
     if let Some(page) = node.properties.get(PAGE_NUMBER_PROP) {
@@ -148,7 +164,7 @@ mod tests {
                 "Evidence",
                 &[("title", "Phillips admits"), ("page_number", "22")],
             ),
-            "doc-x",
+            Some("doc-x"),
         );
         assert_eq!(payload["node_id"], json!("doc-x:evidence:abc"));
         assert_eq!(payload["node_type"], json!("Evidence"));
@@ -166,7 +182,10 @@ mod tests {
     /// check either way. `get()` is the only assertion that can tell them apart.
     #[test]
     fn a_node_without_a_page_omits_the_key_rather_than_nulling_it() {
-        let payload = build_point_payload(&node("Evidence", &[("title", "No page here")]), "doc-x");
+        let payload = build_point_payload(
+            &node("Evidence", &[("title", "No page here")]),
+            Some("doc-x"),
+        );
         let object = payload.as_object().expect("an object");
         assert!(
             object.get("page_number").is_none(),
@@ -179,7 +198,10 @@ mod tests {
     /// labels get a title, and one builder has to serve them all.
     #[test]
     fn a_node_with_only_a_name_titles_itself_from_it() {
-        let payload = build_point_payload(&node("Person", &[("name", "George Phillips")]), "doc-x");
+        let payload = build_point_payload(
+            &node("Person", &[("name", "George Phillips")]),
+            Some("doc-x"),
+        );
         assert_eq!(payload["title"], json!("George Phillips"));
     }
 
@@ -189,7 +211,7 @@ mod tests {
     /// written today must still compare equal.
     #[test]
     fn a_node_with_neither_title_nor_name_gets_an_empty_title() {
-        let payload = build_point_payload(&node("Chunk", &[]), "doc-x");
+        let payload = build_point_payload(&node("Chunk", &[]), Some("doc-x"));
         assert_eq!(payload["title"], json!(""));
         assert!(payload
             .as_object()
@@ -202,9 +224,32 @@ mod tests {
     fn title_wins_over_name() {
         let payload = build_point_payload(
             &node("Evidence", &[("title", "the title"), ("name", "the name")]),
-            "doc-x",
+            Some("doc-x"),
         );
         assert_eq!(payload["title"], json!("the title"));
+    }
+
+    /// No document linkage: BOTH keys are omitted, never written as "".
+    ///
+    /// The whole point of the Option. `delete_points_by_filter` filters on
+    /// `document_id`, so a point stored with `""` would match a filter for the
+    /// empty string and be undeletable by its real document for ever. Asserted
+    /// on absence via `get()`, because indexing a missing key yields
+    /// `Value::Null` and would pass a comparison either way.
+    #[test]
+    fn a_node_with_no_document_omits_both_keys_rather_than_writing_empty() {
+        let payload = build_point_payload(&node("Person", &[("name", "Someone")]), None);
+        let object = payload.as_object().expect("an object");
+        assert!(object.get("document_id").is_none());
+        assert!(object.get("source_document").is_none());
+        assert_ne!(
+            object.get("document_id"),
+            Some(&json!("")),
+            "an empty string here would be undeletable by the real document id"
+        );
+        // The node is still indexed and still searchable — three keys remain.
+        assert_eq!(object.len(), 3);
+        assert_eq!(payload["node_id"], json!("doc-x:evidence:abc"));
     }
 
     /// Every key in the payload is one of the declared constants.
@@ -215,7 +260,7 @@ mod tests {
     fn every_key_comes_from_a_constant() {
         let payload = build_point_payload(
             &node("Evidence", &[("title", "t"), ("page_number", "9")]),
-            "doc-x",
+            Some("doc-x"),
         );
         let declared = [
             QDRANT_NODE_ID_FIELD,

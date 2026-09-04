@@ -296,6 +296,23 @@ pub async fn cleanup_qdrant(
         doc_id: document_id.to_string(),
         source,
     })?;
+    // A zero is AMBIGUOUS and therefore a warning, not a silent success and not
+    // an error. It legitimately means "this document was never indexed" — which
+    // is why it must not fail a delete. It also means "no point in the whole
+    // collection carries this filter key", which is what a payload written
+    // without `document_id` looks like, and that condition is otherwise
+    // completely invisible: the delete reports success and removes nothing. A
+    // warning is the only level that makes the second case findable without
+    // breaking the first.
+    if count == 0 {
+        tracing::warn!(
+            doc_id = %document_id,
+            collection = QDRANT_COLLECTION_NAME,
+            filter_key = QDRANT_DOCUMENT_ID_FIELD,
+            "cleanup_qdrant removed NO vectors — either this document was never \
+             indexed, or no point carries the filter key at all"
+        );
+    }
     tracing::debug!(
         doc_id = %document_id,
         collection = QDRANT_COLLECTION_NAME,
