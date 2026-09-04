@@ -144,6 +144,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // so like its two neighbours it is seeded here rather than borrowed
             // from a `for_test_values` block.
             ("theme_scan_default_model", "claude-opus-5".to_string()),
+            ("gather_subject_filter", "widened".to_string()),
             // Task 396 P1: three TEXT rows that are not wording — they carry
             // extraction vocabulary rather than sentences — so like their four
             // neighbours above they are seeded here. The values are the six pairs
@@ -281,6 +282,36 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(0.0),
             Some(50.0),
+        ),
+        // L2b after review: how deep each half of a ranked gather reads before
+        // fusion. Bounds mirror the migration — 20 is the smallest depth at
+        // which AT-2's top-20 bar is expressible, 2000 is above the whole
+        // corpus, so "retrieve everything" is permitted and "unbounded" is not.
+        // L2b probe selectivity: the share above which a trigram probe is
+        // dropped as saying nothing. A ratio so `1/3` survives exactly.
+        // The companion floor: how many probes survive when every one is over
+        // the share. Bounded at 1 so the "never zero" guard cannot be switched
+        // off from the settings page.
+        row(
+            KEY_GATHER_PROBE_FLOOR,
+            "3",
+            ValueKind::Count,
+            Some(1.0),
+            Some(25.0),
+        ),
+        row(
+            KEY_GATHER_PROBE_MAX_SHARE,
+            "1/3",
+            ValueKind::Ratio,
+            None,
+            None,
+        ),
+        row(
+            KEY_GATHER_READ_DEPTH,
+            "200",
+            ValueKind::Count,
+            Some(20.0),
+            Some(2000.0),
         ),
         // Task 2.11 B2: distinct dates needed before the rehearsal timeline is
         // drawn. Minimum 2 — a threshold of one draws a timeline from one point.
@@ -603,7 +634,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        34,
+        38,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -1259,6 +1290,18 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260825150938_chronology_wording_and_phase_window.sql",
         // Phase C's write words and the document picker's cap.
         "pipeline_migrations/20260826104928_chronology_write_wording.sql",
+        // L2b: which parties a ranked gather may reach.
+        "pipeline_migrations/20260901134610_gather_subject_filter_setting.sql",
+        // L2b after review: the read depth, moved out of a compiled constant.
+        "pipeline_migrations/20260901141104_gather_read_depth_setting.sql",
+        // L2b probe selectivity.
+        "pipeline_migrations/20260901154038_gather_probe_max_share.sql",
+        "pipeline_migrations/20260901155817_gather_probe_floor.sql",
+        // R1: the share dropped from a third to a sixth. A CORRECTION of the
+        // row above, so `corrected_value_in` is what finds 1/6 here.
+        "pipeline_migrations/20260901162435_gather_probe_max_share_to_one_sixth.sql",
+        // ...and reverted, after measurement disproved the ruling behind it.
+        "pipeline_migrations/20260901193521_gather_probe_max_share_back_to_one_third.sql",
     ]
     .iter()
     .map(|relative| {
@@ -1660,4 +1703,51 @@ fn every_app_settings_insert_names_real_columns() {
         checked > 0,
         "no app_settings INSERT was examined — the scan read nothing"
     );
+}
+
+/// ⚑ The share ships as the migrations leave it, and an illegal one still
+/// refuses the boot.
+///
+/// The value went 1/3 -> 1/6 -> 1/3 across three migrations. The NAME does not
+/// say which, deliberately: a test named for a value has to be renamed every
+/// time the value moves, and the one time somebody forgets, the name lies to
+/// the next person reading a failure. What must not move with it is
+/// the refusal: a share the reader cannot parse has to stop the process with
+/// the key named, not fall back to a default and search a pool nobody chose.
+#[test]
+fn the_probe_share_ships_at_the_seeded_value_and_refuses_an_illegal_one() {
+    let good = build_settings(&seeded()).expect("the seeded store builds");
+    assert_eq!(
+        good.gather_probe_max_share.to_string(),
+        "1/3",
+        "reverted to a third; the 1/6 ruling was disproved by measurement"
+    );
+
+    for (illegal, why) in [
+        ("1/0", "a zero denominator would divide by nothing"),
+        ("3", "a bare number is not a ratio"),
+        ("one sixth", "words are not a ratio"),
+        ("", "and neither is nothing"),
+    ] {
+        let mut rows = seeded();
+        rows.insert(
+            KEY_GATHER_PROBE_MAX_SHARE.to_string(),
+            row(
+                KEY_GATHER_PROBE_MAX_SHARE,
+                illegal,
+                ValueKind::Ratio,
+                None,
+                None,
+            ),
+        );
+
+        let Err(error) = build_settings(&rows) else {
+            panic!("'{illegal}' must refuse the boot: {why}");
+        };
+        assert!(
+            error.to_string().contains(KEY_GATHER_PROBE_MAX_SHARE)
+                || error.to_string().contains("ratio"),
+            "the refusal must be findable by the operator who has to fix it: {error}"
+        );
+    }
 }

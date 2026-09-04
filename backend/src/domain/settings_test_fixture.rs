@@ -31,6 +31,18 @@ use super::*;
 impl Settings {
     pub fn for_test() -> Self {
         Settings {
+            // The shipped default, so a fixture-built snapshot behaves like a
+            // freshly migrated store rather than like today's narrower gather.
+            // The shipped default. Built literally, as `card_test_ratio` above
+            // is: `parse_ratio` is the boundary that rejects a zero
+            // denominator, and a fixture is not crossing that boundary.
+            gather_probe_floor: 3,
+            gather_probe_max_share: Ratio {
+                numerator: 1,
+                denominator: 3,
+            },
+            gather_read_depth: 200,
+            gather_subject_filter: crate::domain::gather_filter::GatherSubjectFilter::Widened,
             confidence_band_high: 0.80,
             confidence_band_medium: 0.50,
             quote_context_window_chars: 240,

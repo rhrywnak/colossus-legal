@@ -79,6 +79,26 @@ const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
 // `THEME_SCAN_MAX_TOKENS` comment in `services::theme_scan` for the full story.
 const KEY_SCAN_MAX_TOKENS: &str = "theme_scan_max_tokens";
 const KEY_SCAN_DEFAULT_MODEL: &str = "theme_scan_default_model";
+// L2b (2026-09-01). Which parties a ranked gather may reach — strict, widened
+// or off. A row rather than a constant because when a card is missing from a
+// gather the first question is "filter problem or ranking problem?", and only a
+// human who can flip this to `off` and look can answer it. The vocabulary is
+// validated in `domain::gather_filter`, so an illegal value is a boot refusal.
+pub(crate) const KEY_GATHER_SUBJECT_FILTER: &str = "gather_subject_filter";
+// L2b, after review (2026-09-01). How deep each half of a ranked gather reads
+// before fusion. It shipped as a compiled 200 and was flagged: a retrieval
+// limit is per-deployment by Rule 13's own list, and no STRUCTURAL claim about
+// it would have been true — L3 exists partly to find out whether 200 is right.
+pub(crate) const KEY_GATHER_READ_DEPTH: &str = "gather_read_depth";
+// L2b probe selectivity (2026-09-01). The share of a scenario's admitted set
+// above which a trigram probe is dropped before it is read. Measured cause:
+// `Court` matched 534 of S-11's 1030 admitted cards and agreed with everything.
+pub(crate) const KEY_GATHER_PROBE_MAX_SHARE: &str = "gather_probe_max_share";
+// The companion floor: how many probes survive when every one of them is over
+// the share. A row and not a constant for the reason Rule 13 gives — the guard
+// ("never zero") is an invariant, but the NUMBER above zero is a judgement with
+// no external anchor.
+pub(crate) const KEY_GATHER_PROBE_FLOOR: &str = "gather_probe_floor";
 // ONE_CARD_GRAMMAR (2026-08-09). Both decide how much of a card's content is
 // SHOWN before it folds — the question's visible length, and how many element
 // chips stand before "+N more". They are §2b tunables rather than presentational
@@ -133,6 +153,10 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CHRONOLOGY_PICKER_MAX,
     KEY_TIMELINE_MIN_DATES,
     KEY_ROWS_EXPAND_MAX,
+    KEY_GATHER_PROBE_FLOOR,
+    KEY_GATHER_PROBE_MAX_SHARE,
+    KEY_GATHER_READ_DEPTH,
+    KEY_GATHER_SUBJECT_FILTER,
     KEY_THEME_SCAN_PROMPT_FILE,
     KEY_PREFILTER_MIN_CHARS,
     KEY_SCAN_MAX_TOKENS,
@@ -239,7 +263,9 @@ impl From<SettingError> for SettingsError {
 // module reached the 300-line limit (2026-08-09). They answer "what does this ONE
 // row say?"; what stays here answers "does the whole store make a usable
 // snapshot?" — which is why the cross-row band invariant is below and not there.
-use super::settings_row_readers::{count_of, float_of, ratio_of, token_count_of, token_list_of};
+use super::settings_row_readers::{
+    count_of, float_of, gather_filter_of, ratio_of, token_count_of, token_list_of,
+};
 // Re-exported, not re-implemented: `settings_wording` imports both from THIS
 // module's path, and the split is an internal reorganisation that has no business
 // changing a sibling's import line.
@@ -289,6 +315,10 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         rehearsal_chrome_wording: words.chrome,
         authoring_wording: words.authoring,
         scenario_authoring_wording: words.scenario_authoring,
+        gather_probe_floor: count_of(require(rows, KEY_GATHER_PROBE_FLOOR)?)?,
+        gather_probe_max_share: ratio_of(require(rows, KEY_GATHER_PROBE_MAX_SHARE)?)?,
+        gather_read_depth: count_of(require(rows, KEY_GATHER_READ_DEPTH)?)?,
+        gather_subject_filter: gather_filter_of(require(rows, KEY_GATHER_SUBJECT_FILTER)?)?,
         theme_scan_prompt_file: text_of(require(rows, KEY_THEME_SCAN_PROMPT_FILE)?)?,
         theme_scan_prefilter_min_chars: count_of(require(rows, KEY_PREFILTER_MIN_CHARS)?)?,
         theme_scan_max_tokens: token_count_of(require(rows, KEY_SCAN_MAX_TOKENS)?)?,

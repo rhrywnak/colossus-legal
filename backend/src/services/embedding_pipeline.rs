@@ -20,9 +20,11 @@ use std::time::Instant;
 
 use neo4rs::Graph;
 
+use crate::pipeline::constants::QDRANT_DOCUMENT_ID_FIELD;
 use crate::repositories::embedding_repository::{self, EmbeddingRepoError};
 use crate::services::embedding_service::{EmbeddingError, EmbeddingService};
 use crate::services::embedding_text::build_embedding_text;
+use crate::services::qdrant_payload;
 use crate::services::qdrant_service::{self, QdrantError, QdrantPoint};
 
 // ---------------------------------------------------------------------------
@@ -209,22 +211,38 @@ pub async fn run_embedding_pipeline(
             continue;
         };
 
-        let title = node
-            .properties
-            .get("title")
-            .or_else(|| node.properties.get("name"))
-            .cloned()
-            .unwrap_or_default();
-
-        let mut payload = serde_json::json!({
-            "node_id": node.id,
-            "node_type": node.node_type,
-            "title": title,
-        });
+        // The required keys come from the SHARED builder — the same one the two
+        // per-document index paths use — so a point written by this corpus
+        // re-embed carries `document_id` and is deletable by exactly the filter
+        // `qdrant_service::delete_points_by_filter` uses. Before this, it wrote
+        // no `document_id` at all and one run would have left every point in the
+        // collection undeletable by document.
+        //
+        // This path's own behaviour — copying the node's other properties in
+        // wholesale — LAYERS ON TOP. It is what makes the re-embed's payload a
+        // superset of the per-document one, and it stays.
+        let document_id = node.properties.get(QDRANT_DOCUMENT_ID_FIELD);
+        if document_id.is_none() {
+            // Never an empty string: a point stored with `document_id: ""` would
+            // match a filter for the empty string and be undeletable by its real
+            // document for ever. Omitted and named instead.
+            tracing::warn!(
+                node_id = %node.id,
+                node_type = %node.node_type,
+                "embedding: node has no document linkage — its point will carry no \
+                 document_id and will not be removed when its document is deleted"
+            );
+        }
+        let mut payload =
+            qdrant_payload::build_point_payload(node, document_id.map(String::as_str));
 
         if let Some(obj) = payload.as_object_mut() {
             for (key, value) in &node.properties {
-                if key == "title" || key == "name" {
+                // `title`/`name` feed the builder's title; `document_id` is a key
+                // the builder owns. Re-inserting them here would let this loop
+                // silently overrule the shared builder, which is the divergence
+                // this whole change exists to end.
+                if key == "title" || key == "name" || key == QDRANT_DOCUMENT_ID_FIELD {
                     continue;
                 }
                 obj.insert(key.clone(), serde_json::Value::String(value.clone()));
