@@ -32,19 +32,16 @@ pub enum EmbeddingRepoError {
 ///
 /// Returns a single flat vector. Each node has its type tag and a property
 /// bag containing whatever fields the Cypher query returned.
-pub async fn fetch_all_embeddable_nodes(
-    graph: &Graph,
-) -> Result<Vec<EmbeddableNode>, EmbeddingRepoError> {
-    let mut all_nodes = Vec::new();
-
-    // Each tuple: (Cypher query, node_type label, list of property columns)
-    let queries = vec![
-        // Evidence: 1-hop join to get speaker name via STATED_BY relationship
-        (
-            "MATCH (e:Evidence)
+// STRUCTURAL: Cypher is wire vocabulary for the Neo4j protocol, not a
+// deployment-variable setting. Held at module scope, with its property-key list
+// beside it, so `embedding_repository_tests` asserts against THE TEXT THAT RUNS
+// rather than a copy — the two have to agree or the property is silently absent
+// from the map and the builder that reads it becomes dead code.
+const Q_ALL_EVIDENCE: &str = "MATCH (e:Evidence)
              OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
              RETURN e.id AS id, 'Evidence' AS node_type,
                     e.title AS title,
+                    e.question AS question,
                     e.verbatim_quote AS verbatim_quote,
                     e.significance AS significance,
                     e.page_number AS page_number,
@@ -53,20 +50,69 @@ pub async fn fetch_all_embeddable_nodes(
                     e.statement_date AS statement_date,
                     e.exhibit_number AS exhibit_number,
                     e.kind AS kind,
-                    COALESCE(speaker.name, '') AS stated_by",
-            vec![
-                "title",
-                "verbatim_quote",
-                "significance",
-                "page_number",
-                "document_id",
-                "statement_type",
-                "statement_date",
-                "exhibit_number",
-                "kind",
-                "stated_by",
-            ],
-        ),
+                    COALESCE(speaker.name, '') AS stated_by";
+
+/// The columns [`Q_ALL_EVIDENCE`] returns that become properties.
+///
+/// `question` is the interrogatory or request for admission the card answers.
+/// Without it `build_embedding_text` never sees one and its Request/Answer
+/// composition is dead code — 367 cards, 99 of them with an answer-only quote,
+/// would keep embedding as "Admitted." and nothing would fail.
+const EVIDENCE_PROP_KEYS: [&str; 11] = [
+    "title",
+    "question",
+    "verbatim_quote",
+    "significance",
+    "page_number",
+    "document_id",
+    "statement_type",
+    "statement_date",
+    "exhibit_number",
+    "kind",
+    "stated_by",
+];
+
+/// The label-agnostic per-document read. `question` is Evidence-only in
+/// practice; any other label returns null for it and `run_node_query_with_param`
+/// drops empty values before they reach the map, so no other node type sees it.
+const Q_DOCUMENT_ENTITIES: &str = "MATCH (n)-[:CONTAINED_IN]->(d:Document)
+         WHERE d.source_document_id = $doc_id AND NOT n:Document
+         RETURN n.id AS id,
+                labels(n)[0] AS node_type,
+                n.title AS title,
+                n.name AS name,
+                n.question AS question,
+                COALESCE(n.verbatim_quote, n.verbatim, '') AS verbatim_quote,
+                n.description AS description,
+                n.role AS role,
+                n.significance AS significance,
+                n.allegation AS allegation,
+                n.claim_text AS claim_text,
+                n.source_document AS source_document";
+
+/// The columns [`Q_DOCUMENT_ENTITIES`] returns that become properties.
+const ENTITY_PROP_KEYS: [&str; 10] = [
+    "title",
+    "name",
+    "question",
+    "verbatim_quote",
+    "description",
+    "role",
+    "significance",
+    "allegation",
+    "claim_text",
+    "source_document",
+];
+
+pub async fn fetch_all_embeddable_nodes(
+    graph: &Graph,
+) -> Result<Vec<EmbeddableNode>, EmbeddingRepoError> {
+    let mut all_nodes = Vec::new();
+
+    // Each tuple: (Cypher query, node_type label, list of property columns)
+    let queries = vec![
+        // Evidence: 1-hop join to get speaker name via STATED_BY relationship
+        (Q_ALL_EVIDENCE, EVIDENCE_PROP_KEYS.to_vec()),
         (
             // v5.1 migration:
             //   - Label `:ComplaintAllegation` → `:Allegation`.
@@ -277,9 +323,11 @@ async fn run_node_query_with_param(
 /// `labels(n)[0]` extracts the node's primary label as `node_type`. The
 /// RETURN is a union of every string-valued property the
 /// `build_embedding_text` builder reads for any existing type
-/// (`title`, `name`, `verbatim_quote`, `description`, `role`,
+/// (`title`, `name`, `question`, `verbatim_quote`, `description`, `role`,
 /// `significance`, `allegation`, `claim_text`, `document_type`,
-/// `source_document`). Missing properties for a given label become empty
+/// `source_document`). `question` was added 2026-09-04: the Evidence arm of
+/// the builder composes it with the quote, and a column that is not SELECTed
+/// here is a property the builder can never see. Missing properties for a given label become empty
 /// strings and are omitted by `run_node_query_with_param`. The
 /// `verbatim_quote`/`verbatim` COALESCE preserves backward compatibility
 /// with older ComplaintAllegation writes.
@@ -304,35 +352,11 @@ pub async fn fetch_nodes_for_document(
 
     // 2. Every non-Document entity contained in that Document. Works for
     //    any entity label — current or future.
-    let entity_cypher = "MATCH (n)-[:CONTAINED_IN]->(d:Document)
-         WHERE d.source_document_id = $doc_id AND NOT n:Document
-         RETURN n.id AS id,
-                labels(n)[0] AS node_type,
-                n.title AS title,
-                n.name AS name,
-                COALESCE(n.verbatim_quote, n.verbatim, '') AS verbatim_quote,
-                n.description AS description,
-                n.role AS role,
-                n.significance AS significance,
-                n.allegation AS allegation,
-                n.claim_text AS claim_text,
-                n.source_document AS source_document";
-    let entity_prop_keys = vec![
-        "title",
-        "name",
-        "verbatim_quote",
-        "description",
-        "role",
-        "significance",
-        "allegation",
-        "claim_text",
-        "source_document",
-    ];
     all_nodes.extend(
         run_node_query_with_param(
             graph,
-            entity_cypher,
-            &entity_prop_keys,
+            Q_DOCUMENT_ENTITIES,
+            &ENTITY_PROP_KEYS,
             "doc_id",
             document_id,
         )
@@ -341,3 +365,7 @@ pub async fn fetch_nodes_for_document(
 
     Ok(all_nodes)
 }
+
+#[cfg(test)]
+#[path = "embedding_repository_tests.rs"]
+mod tests;

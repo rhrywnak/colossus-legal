@@ -15,6 +15,7 @@
 //!
 //! All texts built here use "search_document:" since they're going into Qdrant.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 /// Build the embedding text for a node based on its type and properties.
@@ -24,12 +25,7 @@ use std::collections::HashMap;
 /// "search_document: {node_type}" so we never produce an empty embedding.
 pub fn build_embedding_text(node_type: &str, props: &HashMap<String, String>) -> String {
     let text = match node_type {
-        "Evidence" => format!(
-            "search_document: {}. {}. Significance: {}",
-            get_prop(props, "title"),
-            get_prop(props, "verbatim_quote"),
-            get_prop(props, "significance"),
-        ),
+        "Evidence" => evidence_text(props),
 
         "ComplaintAllegation" => format!(
             "search_document: {}. {}. {}",
@@ -82,6 +78,63 @@ pub fn build_embedding_text(node_type: &str, props: &HashMap<String, String>) ->
         format!("search_document: {node_type}")
     } else {
         trimmed
+    }
+}
+
+/// The Evidence arm, lifted out of the match.
+///
+/// It is the only arm with a rule rather than a format string, and lifting it
+/// keeps that rule beside [`compose_request_and_answer`] where its reasoning
+/// lives — the other six arms stay one line each and say everything they do.
+fn evidence_text(props: &HashMap<String, String>) -> String {
+    format!(
+        "search_document: {}. {}. Significance: {}",
+        get_prop(props, "title"),
+        compose_request_and_answer(
+            get_prop(props, "question"),
+            get_prop(props, "verbatim_quote"),
+        ),
+        get_prop(props, "significance"),
+    )
+}
+
+/// Put a discovery response back together with the request it answers.
+///
+/// ## Domain note: why "Admitted." is not a searchable sentence
+///
+/// 367 Evidence cards carry a `question` — the interrogatory or request for
+/// admission the card answers — and 99 of those have an answer-only
+/// `verbatim_quote`: `Admitted.`, `Denied as untrue.`, `No.` Standing alone
+/// that is a correct extraction of a sworn discovery response and completely
+/// unretrievable: the vector for "Admitted." is the vector for every other
+/// "Admitted.", and it carries nothing about the $50,000 check the request
+/// actually named. Measured 2026-09-01: six of the seven $50,000 admissions were
+/// reachable only through their `title`.
+///
+/// The card DTO and the scan judge already show the two together. This is the
+/// same pairing, for the text that gets embedded.
+///
+/// ## The rule
+///
+/// A non-blank `question` yields `Request: {question} Answer: {quote}`. A blank
+/// or absent one yields the quote unchanged — byte for byte, which
+/// `pinned_evidence_text_without_a_question_2026_09_04` exists to hold, because
+/// every vector already in Qdrant was built from that exact text.
+///
+/// ## Rust Learning: `Cow<str>` — borrow when you can, own when you must
+///
+/// The no-question path has nothing to build: the answer is the string that was
+/// passed in, and copying it to satisfy a `String` return type would allocate
+/// once per card on the commonest path (842 of 1,209 cards have no question).
+/// `Cow` — "clone on write" — lets the two arms return different things through
+/// one type: `Cow::Borrowed` hands back the caller's own `&str` with no
+/// allocation, `Cow::Owned` hands back the `format!`ed one. Both deref to `&str`,
+/// so `format!` at the call site cannot tell them apart.
+pub fn compose_request_and_answer<'a>(question: &str, quote: &'a str) -> Cow<'a, str> {
+    if question.trim().is_empty() {
+        Cow::Borrowed(quote)
+    } else {
+        Cow::Owned(format!("Request: {question} Answer: {quote}"))
     }
 }
 
@@ -166,6 +219,135 @@ mod tests {
                 "{node_type}"
             );
         }
+    }
+
+    /// The defect this task fixes, in one assertion: an answer-only card whose
+    /// request names the $50,000 check must carry the figure into its vector.
+    #[test]
+    fn an_answer_only_card_carries_its_request_into_the_embedding() {
+        let mut props = HashMap::new();
+        props.insert("title".into(), "Phillips RFA 12".into());
+        props.insert(
+            "question".into(),
+            "Admit that the $50,000 check was an asset of the estate.".into(),
+        );
+        props.insert("verbatim_quote".into(), "Admitted.".into());
+        props.insert("significance".into(), "Concedes the check.".into());
+
+        let text = build_embedding_text("Evidence", &props);
+        assert_eq!(
+            text,
+            concat!(
+                "search_document: Phillips RFA 12. ",
+                "Request: Admit that the $50,000 check was an asset of the estate. ",
+                "Answer: Admitted.. Significance: Concedes the check."
+            )
+        );
+        // The two things a reader of the vector store actually needs to be true.
+        assert!(text.contains("$50,000"));
+        assert!(text.contains("Admitted."));
+    }
+
+    /// The guard on the pinned path: adding a `question` key must be the ONLY
+    /// thing that changes the Evidence text. Same props with and without it.
+    #[test]
+    fn the_question_is_the_only_difference_from_the_pinned_text() {
+        let mut without = HashMap::new();
+        without.insert("title".into(), "Phillips Q73".into());
+        without.insert("verbatim_quote".into(), "I took the money.".into());
+        without.insert("significance".into(), "Admission of conversion.".into());
+
+        let mut with = without.clone();
+        with.insert("question".into(), "Where did the money go?".into());
+
+        let plain = build_embedding_text("Evidence", &without);
+        let composed = build_embedding_text("Evidence", &with);
+        assert_ne!(plain, composed);
+        assert_eq!(
+            plain,
+            "search_document: Phillips Q73. I took the money.. Significance: Admission of conversion."
+        );
+        assert_eq!(
+            composed,
+            "search_document: Phillips Q73. Request: Where did the money go? Answer: I took the \
+             money.. Significance: Admission of conversion."
+        );
+    }
+
+    /// A blank or whitespace-only question is the same as no question at all.
+    /// It matters because the graph read omits empty properties but a future
+    /// caller building the map by hand may not.
+    #[test]
+    fn a_blank_question_leaves_the_text_exactly_as_it_was() {
+        let mut base = HashMap::new();
+        base.insert("title".into(), "Phillips Q73".into());
+        base.insert("verbatim_quote".into(), "I took the money.".into());
+        base.insert("significance".into(), "Admission of conversion.".into());
+        let pinned = build_embedding_text("Evidence", &base);
+
+        for blank in ["", "   ", "\n\t "] {
+            let mut props = base.clone();
+            props.insert("question".into(), blank.into());
+            assert_eq!(
+                build_embedding_text("Evidence", &props),
+                pinned,
+                "a {blank:?} question must not change the text"
+            );
+        }
+    }
+
+    /// `question` reaches ONLY the Evidence arm. An Allegation or a Person that
+    /// happened to carry the property must embed exactly as it does today.
+    #[test]
+    fn the_question_does_not_leak_into_other_node_types() {
+        let mut props = HashMap::new();
+        props.insert("title".into(), "T".into());
+        props.insert("allegation".into(), "A".into());
+        props.insert("verbatim_quote".into(), "Q".into());
+        props.insert("claim_text".into(), "C".into());
+        props.insert("significance".into(), "S".into());
+        props.insert("description".into(), "D".into());
+        props.insert("name".into(), "N".into());
+        props.insert("role".into(), "R".into());
+        props.insert("question".into(), "Should not appear.".into());
+
+        for node_type in [
+            "ComplaintAllegation",
+            "MotionClaim",
+            "Harm",
+            "Document",
+            "Person",
+            "Organization",
+            "Whatever",
+        ] {
+            assert!(
+                !build_embedding_text(node_type, &props).contains("Should not appear"),
+                "{node_type} leaked the question"
+            );
+        }
+    }
+
+    /// The pure rule, on its own, including the borrow/own split.
+    #[test]
+    fn compose_borrows_when_there_is_no_question_and_owns_when_there_is() {
+        assert!(matches!(
+            compose_request_and_answer("", "Admitted."),
+            Cow::Borrowed("Admitted.")
+        ));
+        assert!(matches!(
+            compose_request_and_answer("   ", "Admitted."),
+            Cow::Borrowed("Admitted.")
+        ));
+        assert_eq!(
+            compose_request_and_answer("Admit the check.", "Admitted."),
+            "Request: Admit the check. Answer: Admitted."
+        );
+        // An empty quote with a real question is still worth composing: the
+        // request is the only retrievable text such a card has.
+        assert_eq!(
+            compose_request_and_answer("Admit the check.", ""),
+            "Request: Admit the check. Answer: "
+        );
     }
 
     #[test]
