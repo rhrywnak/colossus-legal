@@ -15,6 +15,7 @@ pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;
 pub mod evidence_mirror;
+pub mod gate_fixture;
 pub mod gather_fusion;
 pub mod gather_probes;
 pub mod gather_query;
