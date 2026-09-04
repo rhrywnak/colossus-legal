@@ -186,8 +186,8 @@ pub fn preview(quote: &str) -> String {
 fn print_lines(lines: &[graph::Line]) {
     for line in lines {
         println!(
-            "{} · p{} · {}\n    old  {}\n    new  {}",
-            line.id, line.page, line.how, line.old_preview, line.new_preview
+            "{} · p{} · {} · {}\n    old  {}\n    new  {}",
+            line.id, line.page, line.how, line.original_action, line.old_preview, line.new_preview
         );
     }
     let mut by_how: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
@@ -200,21 +200,54 @@ fn print_lines(lines: &[graph::Line]) {
     }
 }
 
-/// The four read-only checks the instruction asks for after a commit.
+/// The read-only checks after a commit.
+///
+/// ## Why the gate is per-id and the corpus totals are only printed
+///
+/// A repair round can correct a card an earlier round already corrected, so the
+/// corpus-wide stamp count does NOT move by the size of the round — after the
+/// 16-card v1a pass it is still 76. Asserting on it would mean re-deriving the
+/// right number for every round, which is a gate that gets got wrong. The gate is
+/// therefore this run's own ids, read straight back: all of them present, all
+/// stamped, all carrying an original. The corpus totals are printed beside it
+/// because the operator's instruction is written in those terms — and the one
+/// corpus invariant that holds in every round IS asserted.
 async fn verify(g: &neo4rs::Graph, file: &RepairFile) -> Result<()> {
     println!("\n--- verification (read-only) ---");
+    let ids: Vec<String> = file.apply.iter().map(|r| r.id.clone()).collect();
+    let expect = ids.len();
+    let (matched, stamped_here, originals_here) = graph::verify_this_run(g, ids).await?;
+    println!("this run's {expect} cards, read back: matched {matched} · stamped {stamped_here} · with an original {originals_here}");
+    count_matches(matched, expect).context("some of this run's cards are no longer findable")?;
+    count_matches(stamped_here, expect).context("some of this run's cards are not stamped")?;
+    count_matches(originals_here, expect)
+        .context("some of this run's cards carry no pre-repair original")?;
+
     let stamped =
         graph::count(g, graph::Q_COUNT_BY_SOURCE, Some(("source", REPAIR_SOURCE))).await?;
-    println!("cards with ocr_repair_source = '{REPAIR_SOURCE}': {stamped}");
-    count_matches(stamped, file.apply.len()).context("the stamp count is not the repair count")?;
-
     let originals = graph::count(g, graph::Q_COUNT_ORIGINALS, None).await?;
-    println!("cards with verbatim_quote_ocr_original set:      {originals}");
-    count_matches(originals, file.apply.len())
-        .context("the kept-original count is not the repair count")?;
+    println!("corpus-wide: ocr_repair_source = '{REPAIR_SOURCE}' {stamped} · verbatim_quote_ocr_original set {originals}");
+    // The invariant that holds in EVERY round, whatever the counts: an original
+    // is stored only by this bin, and this bin always stamps when it stores one.
+    // A drift between the two means somebody wrote one of these properties by
+    // hand, which is worth stopping for even though the write is already done.
+    count_matches(originals, stamped as usize).context(
+        "corpus drift: the number of cards keeping a pre-repair original is not the \
+         number carrying the repair stamp — one of the two was written outside this bin",
+    )?;
 
+    report_b8(g, file).await
+}
+
+/// The B8 re-count, printed with the false-alarm cross-check when the input file
+/// carries one to cross-check against.
+async fn report_b8(g: &neo4rs::Graph, file: &RepairFile) -> Result<()> {
     let (flagged, still) = graph::recount_b8(g, &file.false_alarm_dash_only).await?;
     println!("\nB8 (the audit's three OCR signatures) over the whole corpus: {flagged}");
+    if file.false_alarm_dash_only.is_empty() {
+        println!("  (this input file lists no false_alarm_dash_only cards to cross-check)");
+        return Ok(());
+    }
     println!(
         "  of the {} false_alarm_dash_only cards, {} still match",
         file.false_alarm_dash_only.len(),

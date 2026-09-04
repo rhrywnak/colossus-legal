@@ -25,6 +25,7 @@ fn node_holding(quote: &str) -> Vec<NodeState> {
         source_document: "doc-hearing-10-14-2010".to_string(),
         page_number: Some(5),
         quote: quote.to_string(),
+        existing_original: None,
     }]
 }
 
@@ -125,6 +126,7 @@ fn the_wrong_document_stops_before_the_quote_is_compared() {
         source_document: "doc-some-other-transcript".to_string(),
         page_number: Some(5),
         quote: repair.old_quote.clone(),
+        existing_original: None,
     }];
     let error = guard(&repair, &elsewhere).expect_err("the wrong document must STOP");
     assert_eq!(
@@ -150,6 +152,7 @@ fn the_wrong_page_stops_before_the_quote_is_compared() {
         source_document: repair.document.clone(),
         page_number: Some(6),
         quote: repair.old_quote.clone(),
+        existing_original: None,
     }];
     let error = guard(&repair, &wrong_page).expect_err("the wrong page must STOP");
     assert_eq!(
@@ -175,6 +178,7 @@ fn a_card_with_no_page_at_all_stops_and_says_so() {
         source_document: repair.document.clone(),
         page_number: None,
         quote: repair.old_quote.clone(),
+        existing_original: None,
     }];
     let error = guard(&repair, &no_page).expect_err("a null page must STOP");
     assert_eq!(

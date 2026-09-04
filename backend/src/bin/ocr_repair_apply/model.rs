@@ -69,6 +69,10 @@ pub struct NodeState {
     pub source_document: String,
     pub page_number: Option<i64>,
     pub quote: String,
+    /// `verbatim_quote_ocr_original`, if an earlier repair round already stored
+    /// it. `None` means this card has never been repaired, so THIS round's write
+    /// is the one that preserves its pre-repair text.
+    pub existing_original: Option<String>,
 }
 
 /// Every way one card can refuse to be repaired.

@@ -15,13 +15,28 @@ use crate::model::{guard, NodeState, Repair, Untouched};
 /// facts — the guard, not this function, decides that only one is acceptable.
 pub const Q_READ: &str = "MATCH (e:Evidence {id: $id}) \
      RETURN e.source_document AS source_document, e.page_number AS page_number, \
-            e.verbatim_quote AS quote";
+            e.verbatim_quote AS quote, \
+            e.verbatim_quote_ocr_original AS existing_original";
 
 /// The only write in this repository's one-off bin family that touches
-/// `verbatim_quote`. Five properties, named literally, and `set_only_five_named_properties`
-/// in the tests reads this string to prove no sixth ever creeps in.
+/// `verbatim_quote`. Five properties, named literally, and
+/// `the_write_sets_only_the_five_authorised_properties` in the tests reads this
+/// string to prove no sixth ever creeps in.
+///
+/// ## Why `coalesce` on the original, and only there
+///
+/// A repair round can correct a card the PREVIOUS round already corrected — v1a
+/// fixes sixteen of v1's own 76. On that second write the "current" quote is not
+/// the OCR text any more, it is v1's output, and storing it would overwrite the
+/// only surviving copy of what Surya actually produced. `coalesce` keeps the
+/// first value ever written and ignores every later one, so
+/// `verbatim_quote_ocr_original` means "the text before ANY repair" no matter how
+/// many rounds run. The other four are unconditional on purpose: the quote, the
+/// status, the stamp and the timestamp all describe the LATEST round, and that is
+/// what they should say.
 pub const Q_WRITE: &str = "MATCH (e:Evidence {id: $id}) \
-     SET e.verbatim_quote_ocr_original = $original, \
+     SET e.verbatim_quote_ocr_original = \
+             coalesce(e.verbatim_quote_ocr_original, $original), \
          e.verbatim_quote = $new_quote, \
          e.grounding_status = $status, \
          e.ocr_repaired_at = datetime(), \
@@ -44,6 +59,16 @@ pub const Q_COUNT_BY_SOURCE: &str =
 pub const Q_COUNT_ORIGINALS: &str =
     "MATCH (e:Evidence) WHERE e.verbatim_quote_ocr_original IS NOT NULL RETURN count(e) AS n";
 
+/// Verification read: THIS run's cards, by id. Asked instead of a corpus-wide
+/// count because a corpus count cannot tell a second repair round from a first —
+/// after v1a the stamp count is still 76 while the round wrote 16 — and a gate
+/// that has to be re-derived per round is a gate that will be got wrong.
+pub const Q_VERIFY_THIS_RUN: &str = "MATCH (e:Evidence) WHERE e.id IN $ids \
+     RETURN count(e) AS matched, \
+            count(CASE WHEN e.ocr_repair_source = $source THEN 1 END) AS stamped, \
+            count(CASE WHEN e.verbatim_quote_ocr_original IS NOT NULL THEN 1 END) \
+                AS originals";
+
 /// Verification read three: every quote, for the B8 re-count.
 pub const Q_ALL_QUOTES: &str =
     "MATCH (e:Evidence) RETURN e.id AS id, e.verbatim_quote AS quote ORDER BY id";
@@ -53,6 +78,8 @@ pub struct Line {
     pub id: String,
     pub page: i64,
     pub how: String,
+    /// Whether this write STORED the pre-repair text or kept an earlier round's.
+    pub original_action: &'static str,
     pub old_preview: String,
     pub new_preview: String,
 }
@@ -89,6 +116,9 @@ pub async fn read_node(txn: &mut Txn, id: &str) -> Result<Vec<NodeState>> {
             quote: row
                 .get("quote")
                 .with_context(|| format!("node {id} carried no verbatim_quote"))?,
+            // best-effort: absent is the NORMAL case — it means no earlier round
+            // has touched this card — and it is reported per card, not swallowed.
+            existing_original: row.get::<String>("existing_original").ok(),
         });
     }
     Ok(out)
@@ -129,11 +159,19 @@ async fn write_all(txn: &mut Txn, repairs: &[Repair], expect: usize) -> Result<V
         // `guard` proved there is exactly one row, so indexing is safe here and
         // this is the one place the invariant is relied on rather than re-tested.
         let current = found[0].quote.clone();
+        // Domain note: what `coalesce` will do is decided by what is already on
+        // the node, so the decision is reported per card rather than left for the
+        // operator to infer from a count at the end.
+        let original_action = match found[0].existing_original {
+            None => "orig SET (first repair of this card)",
+            Some(_) => "orig KEPT (an earlier round already stored it)",
+        };
         touched += write_node(txn, repair, &current).await?;
         lines.push(Line {
             id: repair.id.clone(),
             page: repair.page,
             how: repair.how.clone(),
+            original_action,
             old_preview: crate::preview(&repair.old_quote),
             new_preview: crate::preview(&repair.new_quote),
         });
@@ -205,6 +243,32 @@ pub async fn count(graph: &Graph, cypher: &str, param: Option<(&str, &str)>) -> 
         .with_context(|| format!("verification query returned no row: {cypher}"))?;
     row.get("n")
         .with_context(|| format!("verification query returned no `n`: {cypher}"))
+}
+
+/// Read back exactly the cards this run wrote. Returns
+/// `(matched, stamped, originals)`; all three must equal the run's card count.
+pub async fn verify_this_run(graph: &Graph, ids: Vec<String>) -> Result<(i64, i64, i64)> {
+    let mut stream = graph
+        .execute(
+            query(Q_VERIFY_THIS_RUN)
+                .param("ids", ids)
+                .param("source", crate::REPAIR_SOURCE),
+        )
+        .await
+        .context("reading back the cards this run wrote")?;
+    let row = stream
+        .next()
+        .await
+        .context("reading the read-back row")?
+        .context("the read-back query returned no row")?;
+    Ok((
+        row.get("matched")
+            .context("read-back returned no matched")?,
+        row.get("stamped")
+            .context("read-back returned no stamped")?,
+        row.get("originals")
+            .context("read-back returned no originals")?,
+    ))
 }
 
 /// Print the properties of one existing hand-grounded card.
