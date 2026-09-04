@@ -100,6 +100,7 @@ pub async fn read_document_evidence(
             document_id: Some(entry.document_id.clone()),
             title: row.get("title").map_err(decode)?,
             quote: row.get("quote").map_err(decode)?,
+            question: row.get("question").map_err(decode)?,
             significance: row.get("significance").map_err(decode)?,
             page: row.get("page").map_err(decode)?,
             about: row.get("about").map_err(decode)?,
@@ -131,6 +132,7 @@ pub(super) fn document_cypher() -> String {
                 e.id AS evidence_id, \
                 e.title AS title, \
                 e.verbatim_quote AS quote, \
+                e.question AS question, \
                 e.significance AS significance, \
                 e.page_number AS page, \
                 about_ids AS about \
@@ -163,6 +165,7 @@ mod tests {
 
     /// The Evidence match is OPTIONAL, which is what lets a document with no
     /// Evidence still report that it exists — the case that clears ghost rows.
+
     #[test]
     fn a_document_with_no_evidence_still_returns_its_id() {
         let cypher = document_cypher();
@@ -176,5 +179,31 @@ mod tests {
             doc_match < optional,
             "the Document is matched first and unconditionally; the Evidence optionally"
         );
+    }
+
+    /// The per-document read must project every column the mirror row holds.
+    ///
+    /// `question` is the one that would go missing silently: the column exists,
+    /// the upsert writes it, and a sync whose projection omits it would rewrite
+    /// every row for the document with a NULL question — turning both generated
+    /// columns back into what they were before the migration, on a code path
+    /// that reports success.
+    #[test]
+    fn the_document_read_projects_every_mirror_column() {
+        let cypher = document_cypher();
+        for column in [
+            "AS evidence_id",
+            "AS title",
+            "AS quote",
+            "AS question",
+            "AS significance",
+            "AS page",
+            "AS about",
+        ] {
+            assert!(
+                cypher.contains(column),
+                "the sync read must project {column}"
+            );
+        }
     }
 }

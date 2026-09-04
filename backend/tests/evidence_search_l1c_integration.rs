@@ -82,6 +82,9 @@ fn row(document_id: &str, suffix: &str, quote: &str) -> EvidenceSearchRow {
         document_id: document_id.to_string(),
         title: Some("Phillips admissions extract".to_string()),
         quote: quote.to_string(),
+        // No probe word here: `question` feeds both generated columns, so a
+        // probe word in it would keep matching after the quote changed.
+        question: Some("Admit that the extract is accurate.".to_string()),
         significance: Some("why it matters".to_string()),
         page: Some(22),
         about: vec!["org-catholic-family-services".to_string()],

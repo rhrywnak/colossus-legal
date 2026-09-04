@@ -49,6 +49,18 @@ pub struct EvidenceSearchRow {
     /// denominator of every recall number computed off this table.
     pub quote: String,
     pub significance: Option<String>,
+    /// The interrogatory or request for admission this Evidence answers.
+    ///
+    /// Domain note: 367 of the 1,209 Evidence nodes carry one, and 86 of those
+    /// have a quote that is nothing but the answer — `Admitted.`,
+    /// `Denied as untrue.`, `No.` Against quote/title/significance alone the
+    /// lexical half was searching a column that says "Admitted." for those
+    /// cards; the request is the only retrievable text they have.
+    ///
+    /// `Option`, like `title` and `significance`: `None` means the graph node
+    /// carried no question, which stays distinct from an empty string somebody
+    /// typed. The generated columns `coalesce` both to nothing.
+    pub question: Option<String>,
     pub page: Option<i64>,
     /// Party ids the Evidence is ABOUT. An empty vector is a real state (a node
     /// with no ABOUT edges), and it is stored as an empty array, never NULL.
@@ -78,22 +90,26 @@ pub struct EvidenceSearchRow {
 // `jsonb_array_elements_text` turns back into a real `text[]` of the row's own
 // length. One bound value, one statement text, correct arrays.
 //
-// `search_vector` appears nowhere: it is GENERATED and Postgres rejects a write.
+// `search_vector` appears nowhere, and neither does `probe_text`: both are
+// GENERATED and Postgres rejects a write to either. `question` DOES appear —
+// it is a plain column that the two generated ones read, so the mirror can only
+// summarise a request it was actually given.
 const UPSERT_SQL: &str = "\
     INSERT INTO evidence_search \
-        (evidence_id, document_id, title, quote, significance, page, about, synced_at) \
-    SELECT r.evidence_id, r.document_id, r.title, r.quote, r.significance, r.page, \
+        (evidence_id, document_id, title, quote, significance, question, page, about, synced_at) \
+    SELECT r.evidence_id, r.document_id, r.title, r.quote, r.significance, r.question, r.page, \
            coalesce(ARRAY(SELECT jsonb_array_elements_text(r.about)), '{}'::text[]), \
            now() \
     FROM jsonb_to_recordset($1::jsonb) AS r( \
         evidence_id text, document_id text, title text, quote text, \
-        significance text, page bigint, about jsonb \
+        significance text, question text, page bigint, about jsonb \
     ) \
     ON CONFLICT (evidence_id) DO UPDATE SET \
         document_id  = EXCLUDED.document_id, \
         title        = EXCLUDED.title, \
         quote        = EXCLUDED.quote, \
         significance = EXCLUDED.significance, \
+        question     = EXCLUDED.question, \
         page         = EXCLUDED.page, \
         about        = EXCLUDED.about, \
         synced_at    = now()";
@@ -308,13 +324,14 @@ mod tests {
                 "title",
                 "quote",
                 "significance",
+                "question",
                 "page",
                 "about",
                 "synced_at",
             ],
             "the INSERT list must be exactly the writable columns, in order — a column \
-             missing from it is NULL on every row forever, and search_vector must never \
-             be in it because Postgres refuses a write to a generated column"
+             missing from it is NULL on every row forever, and neither search_vector nor \
+             probe_text may be in it because Postgres refuses a write to a generated column"
         );
     }
 
@@ -401,6 +418,53 @@ mod tests {
     ///
     /// This is the join between the two halves: the derive produces the keys and
     /// the SQL names the columns, and nothing else checks that they agree.
+    /// Every column the INSERT writes must also be re-written on conflict.
+    ///
+    /// ## Why `contains` was not enough
+    ///
+    /// The serialization test below asks `UPSERT_SQL.contains("question")`, and
+    /// the word appears in FOUR places in this statement — the INSERT list, the
+    /// SELECT, the recordset type and the SET clause. Deleting
+    /// `question = EXCLUDED.question` from the SET leaves that assertion green
+    /// while the column silently freezes: the first INSERT writes it, and every
+    /// later re-sync leaves whatever was written first. A question edited in the
+    /// graph would never reach the mirror, and no count or log would differ.
+    ///
+    /// So this parses both lists and compares them, rather than looking for a
+    /// word. `evidence_id` is excluded because it is the conflict TARGET — it is
+    /// what identifies the row, so it is the one column that must not be in the
+    /// SET clause.
+    #[test]
+    fn every_written_column_is_also_updated_on_conflict() {
+        let open = UPSERT_SQL
+            .find("INSERT INTO evidence_search (")
+            .expect("the statement inserts into the mirror")
+            + "INSERT INTO evidence_search (".len();
+        let close = UPSERT_SQL[open..]
+            .find(')')
+            .expect("the column list is parenthesised")
+            + open;
+        let set_clause = &UPSERT_SQL[UPSERT_SQL
+            .find("DO UPDATE SET")
+            .expect("the statement upserts")..];
+
+        for column in UPSERT_SQL[open..close].split(',').map(str::trim) {
+            if column.is_empty() || column == "evidence_id" {
+                continue;
+            }
+            assert!(
+                set_clause.contains(&format!("{column} "))
+                    || set_clause.contains(&format!("{column}=")),
+                "`{column}` is INSERTed but never updated on conflict — it would \
+                 freeze at whatever the first insert wrote"
+            );
+        }
+        assert!(
+            !set_clause.contains("evidence_id ="),
+            "the conflict target must not be assigned in the SET clause"
+        );
+    }
+
     #[test]
     fn a_row_serializes_to_the_column_names_the_sql_expects() {
         let row = EvidenceSearchRow {
@@ -408,6 +472,7 @@ mod tests {
             document_id: "doc-x".to_string(),
             title: None,
             quote: "the check was never deposited".to_string(),
+            question: Some("Admit the check was never deposited.".to_string()),
             significance: None,
             page: Some(22),
             about: vec!["org-catholic-family-services".to_string()],
@@ -420,6 +485,7 @@ mod tests {
             "title",
             "quote",
             "significance",
+            "question",
             "page",
             "about",
         ] {

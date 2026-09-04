@@ -183,10 +183,20 @@ pub async fn sync_document(
                 source,
             })?;
 
+    // See the note in backfill_evidence_search::fill: a sync whose projection
+    // lost `question` writes NULLs and reports exactly these same numbers, so
+    // the count of rows that actually carried one is the only thing in this log
+    // that can tell the two apart.
+    let with_question = document
+        .rows
+        .iter()
+        .filter(|r| r.question.is_some())
+        .count();
     info!(
         doc_id = %source_document_id,
         mirror_document_id = %document.document_id,
         rows_written,
+        with_question,
         ghosts_removed,
         skipped = document.skipped.len(),
         "evidence mirror synced"
