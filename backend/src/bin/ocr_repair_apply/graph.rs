@@ -108,16 +108,18 @@ pub async fn read_node(txn: &mut Txn, id: &str) -> Result<Vec<NodeState>> {
             source_document: row
                 .get("source_document")
                 .with_context(|| format!("node {id} carried no source_document"))?,
-            // best-effort: `page_number` is an OPTIONAL property — absent and
-            // wrong-typed both mean "no usable page here", which is exactly the
-            // `None` the guard then compares against the audit's page and STOPs
-            // on. Nothing is swallowed: `Stop::WrongPage` carries the `None`.
+            // `page_number` is an OPTIONAL property — absent and wrong-typed both
+            // mean "no usable page here", which is exactly the `None` the guard
+            // then compares against the audit's page and STOPs on.
+            // best-effort: nothing is swallowed — `Stop::WrongPage` carries the `None`.
             page_number: row.get::<i64>("page_number").ok(),
             quote: row
                 .get("quote")
                 .with_context(|| format!("node {id} carried no verbatim_quote"))?,
-            // best-effort: absent is the NORMAL case — it means no earlier round
-            // has touched this card — and it is reported per card, not swallowed.
+            // Absent is the NORMAL case here — it means no earlier round has
+            // touched this card — and it decides the `orig SET` / `orig KEPT`
+            // line printed for the card, so it is reported, not swallowed.
+            // best-effort: absence and a wrong type both mean "no earlier original".
             existing_original: row.get::<String>("existing_original").ok(),
         });
     }
@@ -296,10 +298,10 @@ pub async fn probe_manual(graph: &Graph) -> Result<()> {
         ),
         Some(row) => {
             let id: String = row.get("id").context("the probe row carried no id")?;
-            // best-effort: the probe is a PRINT, not a decision. Its job is to
-            // show the operator a real hand-grounded card before any write; the
-            // decision it feeds is `grounding_status`, read with `?` below. A
-            // blank document line here degrades the display, never the write.
+            // The probe is a PRINT, not a decision. Its job is to show the
+            // operator a real hand-grounded card before any write; the decision it
+            // feeds is `grounding_status`, which is read with `?` below.
+            // best-effort: a blank document line degrades the display, never the write.
             let document: String = row.get("source_document").unwrap_or_default();
             // best-effort: same — display only. See the note above.
             let page = row.get::<i64>("page_number").ok();
