@@ -139,6 +139,19 @@ pub struct Settings {
     /// `scan_runs.resolved_params`.
     ///
     /// A filename only; it resolves against the registry's template directory.
+    /// Which parties a ranked gather may reach (L2b). `widened` by default —
+    /// the value AT-2 turns on, since four of the seven $50,000 admissions
+    /// S-11 must reach are filed ABOUT Emil Awad alone.
+    /// How many trigram probes survive when every one is over the share (L2b).
+    /// The guard is "never zero"; this is how many above it. Default 3.
+    pub gather_probe_floor: usize,
+    /// The share of a scenario's admitted evidence above which a trigram probe
+    /// is dropped as saying nothing (L2b). Default 1/3.
+    pub gather_probe_max_share: Ratio,
+    /// How many candidates each half of a ranked gather returns before fusion
+    /// (L2b). Both reads go to the same depth.
+    pub gather_read_depth: usize,
+    pub gather_subject_filter: crate::domain::gather_filter::GatherSubjectFilter,
     pub theme_scan_prompt_file: String,
     /// Shortest quote (with NO paired question) that still reaches the judge.
     /// `0` disables the rule.

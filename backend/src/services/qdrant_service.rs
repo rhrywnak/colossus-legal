@@ -17,7 +17,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 /// The Qdrant collection where all evidence embeddings are stored.
-const COLLECTION_NAME: &str = "colossus_evidence";
+pub(crate) const COLLECTION_NAME: &str = "colossus_evidence";
 
 /// A point to upsert into Qdrant.
 #[derive(Debug, Serialize)]
