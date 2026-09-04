@@ -98,6 +98,76 @@ fn get_prop<'a>(props: &'a HashMap<String, String>, key: &str) -> &'a str {
 mod tests {
     use super::*;
 
+    /// The Evidence text this builder produced on 2026-09-04, byte for byte.
+    ///
+    /// ## Why an `assert_eq!` on a whole string and not a set of `contains`
+    ///
+    /// Everything already in Qdrant was embedded from THIS text. A change to it
+    /// that nobody notices does not fail anything — it silently makes the stored
+    /// vectors and the newly-built ones incomparable, and the only symptom is
+    /// retrieval quietly getting worse. So the exact bytes are pinned here BEFORE
+    /// the `question` composition is added, and the no-question path has to keep
+    /// producing them afterwards. The doubled full stop is real: `verbatim_quote`
+    /// ends in one and the format string adds another. It is pinned as-is
+    /// deliberately — tidying it would be a re-embed, not a test fix.
+    #[test]
+    fn pinned_evidence_text_without_a_question_2026_09_04() {
+        let mut props = HashMap::new();
+        props.insert("title".into(), "Phillips Q73".into());
+        props.insert("verbatim_quote".into(), "I took the money.".into());
+        props.insert("significance".into(), "Admission of conversion.".into());
+
+        assert_eq!(
+            build_embedding_text("Evidence", &props),
+            "search_document: Phillips Q73. I took the money.. Significance: Admission of conversion."
+        );
+    }
+
+    /// The empty-props Evidence text, also pinned. It is not pretty — three
+    /// separators around nothing — but it is what is in the index, and the point
+    /// of a pin is to record what IS, not what ought to be.
+    #[test]
+    fn pinned_evidence_text_with_no_properties_at_all_2026_09_04() {
+        let props = HashMap::new();
+        assert_eq!(
+            build_embedding_text("Evidence", &props),
+            "search_document: . . Significance:"
+        );
+    }
+
+    /// The other six node types, pinned in one place. This task touches only the
+    /// Evidence arm; if a later edit reaches sideways into another arm, the
+    /// vectors for that type go stale too, and this is what says so.
+    #[test]
+    fn pinned_non_evidence_texts_2026_09_04() {
+        let mut props = HashMap::new();
+        props.insert("title".into(), "T".into());
+        props.insert("allegation".into(), "A".into());
+        props.insert("verbatim_quote".into(), "Q".into());
+        props.insert("claim_text".into(), "C".into());
+        props.insert("significance".into(), "S".into());
+        props.insert("description".into(), "D".into());
+        props.insert("document_type".into(), "DT".into());
+        props.insert("name".into(), "N".into());
+        props.insert("role".into(), "R".into());
+
+        for (node_type, expected) in [
+            ("ComplaintAllegation", "search_document: T. A. Q"),
+            ("MotionClaim", "search_document: T. C. Significance: S"),
+            ("Harm", "search_document: T. D"),
+            ("Document", "search_document: T (DT)"),
+            ("Person", "search_document: N (R). D"),
+            ("Organization", "search_document: N (R). D"),
+            ("Whatever", "search_document: T"),
+        ] {
+            assert_eq!(
+                build_embedding_text(node_type, &props),
+                expected,
+                "{node_type}"
+            );
+        }
+    }
+
     #[test]
     fn test_evidence_text() {
         let mut props = HashMap::new();
