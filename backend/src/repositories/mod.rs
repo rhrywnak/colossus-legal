@@ -28,6 +28,7 @@ pub mod element_strength_repository;
 pub mod embedding_repository;
 pub mod evidence_chain_repository;
 pub mod evidence_repository;
+pub mod evidence_search_repository;
 pub mod graph_helpers;
 pub mod graph_repository;
 pub mod harm_repository;
