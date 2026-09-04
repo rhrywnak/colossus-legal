@@ -40,6 +40,7 @@ pub mod practice_read_payload;
 pub mod practice_read_setup;
 pub mod practice_sheet;
 pub mod practice_status;
+pub mod qdrant_payload;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
 pub mod rehearsal_count;
