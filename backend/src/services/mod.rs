@@ -15,6 +15,7 @@ pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;
 pub mod evidence_mirror;
+pub mod gather_query;
 pub mod graph_expander;
 pub mod graph_expansion_cypher;
 pub mod graph_expansion_minor;
