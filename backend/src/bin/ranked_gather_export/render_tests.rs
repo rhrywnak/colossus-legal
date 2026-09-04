@@ -76,3 +76,56 @@ fn a_subject_with_no_pool_of_its_own_is_named() {
     assert!(words.contains("no evidence of its own"), "{words}");
     assert!(words.contains("40"), "{words}");
 }
+
+/// ⚑ The answer-only card, which is the whole reason this exists.
+///
+/// 86 cards answer a request for admission with `Admitted.` and nothing else.
+/// Since the mirror started indexing `question` they rank — 35 of them were in
+/// the v2 export — and the block showed the answer alone, which tells a reader
+/// that something was admitted without saying what.
+#[test]
+fn a_card_with_a_request_prints_the_request_above_the_answer() {
+    let body = quote_body(
+        Some("Admit that the $50,000 personal check was an asset belonging to Emil Awad."),
+        "Admitted.",
+    );
+    assert_eq!(
+        body,
+        "Request: Admit that the $50,000 personal check was an asset belonging to Emil Awad.\nAnswer: Admitted."
+    );
+    // The figure the card is about has to survive into the page, not just into
+    // the index that found it.
+    assert!(body.contains("$50,000"));
+}
+
+/// The path every other card takes, pinned byte for byte.
+///
+/// Ten of the eleven lists are mostly cards with no request. If this changed,
+/// every one of those blocks would change with it, and the diff against the v2
+/// export would stop being readable.
+#[test]
+fn a_card_without_a_question_renders_exactly_as_before() {
+    let quote = "The court ordered the $50,000 returned to the estate.";
+    assert_eq!(quote_body(None, quote), quote);
+    // A question that is present but empty, or only whitespace, is the same as
+    // no question — the mirror stores NULL for "the graph had none" but a
+    // hand-edited row could hold either.
+    for blank in ["", "   ", "\n\t "] {
+        assert_eq!(quote_body(Some(blank), quote), quote, "{blank:?}");
+    }
+}
+
+/// A multi-line request and a multi-line answer both survive; the caller turns
+/// the newlines into blockquote continuations, so the body must keep them.
+#[test]
+fn newlines_are_preserved_for_the_blockquote_prefixer() {
+    let body = quote_body(
+        Some("Admit the following:\n(a) the check existed."),
+        "Admitted.\nIn part.",
+    );
+    assert_eq!(
+        body,
+        "Request: Admit the following:\n(a) the check existed.\nAnswer: Admitted.\nIn part."
+    );
+    assert_eq!(body.matches('\n').count(), 3);
+}
