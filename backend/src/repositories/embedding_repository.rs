@@ -7,6 +7,8 @@
 use neo4rs::{query, Graph};
 use std::collections::HashMap;
 
+use crate::neo4j::schema;
+
 /// A node fetched from Neo4j, ready for embedding.
 ///
 /// We use `HashMap<String, String>` instead of per-type structs because
@@ -32,13 +34,22 @@ pub enum EmbeddingRepoError {
 ///
 /// Returns a single flat vector. Each node has its type tag and a property
 /// bag containing whatever fields the Cypher query returned.
-// STRUCTURAL: Cypher is wire vocabulary for the Neo4j protocol, not a
-// deployment-variable setting. Held at module scope, with its property-key list
-// beside it, so `embedding_repository_tests` asserts against THE TEXT THAT RUNS
-// rather than a copy — the two have to agree or the property is silently absent
-// from the map and the builder that reads it becomes dead code.
-const Q_ALL_EVIDENCE: &str = "MATCH (e:Evidence)
-             OPTIONAL MATCH (e)-[:STATED_BY]->(speaker)
+/// The embed-all Evidence read.
+///
+/// ## Why this is built rather than written out
+///
+/// The relationship type comes from [`schema::STATED_BY`] rather than being
+/// typed here (Rule 12), so a rename in `schema.rs` reaches this query with no
+/// edit — the same shape `evidence_search_repository::document_cypher` uses.
+///
+/// It lives at module scope, beside its property-key list, so
+/// `embedding_repository_tests` asserts against THE TEXT THAT RUNS rather than a
+/// copy: the two have to agree or the property is silently absent from the map
+/// and the builder that reads it becomes dead code.
+fn q_all_evidence() -> String {
+    format!(
+        "MATCH (e:Evidence)
+             OPTIONAL MATCH (e)-[:{stated_by}]->(speaker)
              RETURN e.id AS id, 'Evidence' AS node_type,
                     e.title AS title,
                     e.question AS question,
@@ -50,9 +61,12 @@ const Q_ALL_EVIDENCE: &str = "MATCH (e:Evidence)
                     e.statement_date AS statement_date,
                     e.exhibit_number AS exhibit_number,
                     e.kind AS kind,
-                    COALESCE(speaker.name, '') AS stated_by";
+                    COALESCE(speaker.name, '') AS stated_by",
+        stated_by = schema::STATED_BY,
+    )
+}
 
-/// The columns [`Q_ALL_EVIDENCE`] returns that become properties.
+/// The columns [`q_all_evidence`] returns that become properties.
 ///
 /// `question` is the interrogatory or request for admission the card answers.
 /// Without it `build_embedding_text` never sees one and its Request/Answer
@@ -75,7 +89,9 @@ const EVIDENCE_PROP_KEYS: [&str; 11] = [
 /// The label-agnostic per-document read. `question` is Evidence-only in
 /// practice; any other label returns null for it and `run_node_query_with_param`
 /// drops empty values before they reach the map, so no other node type sees it.
-const Q_DOCUMENT_ENTITIES: &str = "MATCH (n)-[:CONTAINED_IN]->(d:Document)
+fn q_document_entities() -> String {
+    format!(
+        "MATCH (n)-[:{contained_in}]->(d:Document)
          WHERE d.source_document_id = $doc_id AND NOT n:Document
          RETURN n.id AS id,
                 labels(n)[0] AS node_type,
@@ -88,9 +104,12 @@ const Q_DOCUMENT_ENTITIES: &str = "MATCH (n)-[:CONTAINED_IN]->(d:Document)
                 n.significance AS significance,
                 n.allegation AS allegation,
                 n.claim_text AS claim_text,
-                n.source_document AS source_document";
+                n.source_document AS source_document",
+        contained_in = schema::CONTAINED_IN,
+    )
+}
 
-/// The columns [`Q_DOCUMENT_ENTITIES`] returns that become properties.
+/// The columns [`q_document_entities`] returns that become properties.
 const ENTITY_PROP_KEYS: [&str; 10] = [
     "title",
     "name",
@@ -112,7 +131,7 @@ pub async fn fetch_all_embeddable_nodes(
     // Each tuple: (Cypher query, node_type label, list of property columns)
     let queries = vec![
         // Evidence: 1-hop join to get speaker name via STATED_BY relationship
-        (Q_ALL_EVIDENCE, EVIDENCE_PROP_KEYS.to_vec()),
+        (q_all_evidence(), EVIDENCE_PROP_KEYS.to_vec()),
         (
             // v5.1 migration:
             //   - Label `:ComplaintAllegation` → `:Allegation`.
@@ -135,7 +154,8 @@ pub async fn fetch_all_embeddable_nodes(
                     NULL AS evidence_status,
                     a.category AS category,
                     a.severity AS severity,
-                    a.paragraph_number AS paragraph",
+                    a.paragraph_number AS paragraph"
+                .to_string(),
             vec![
                 "title",
                 "allegation",
@@ -153,7 +173,8 @@ pub async fn fetch_all_embeddable_nodes(
                     m.claim_text AS claim_text,
                     m.significance AS significance,
                     m.source_document_id AS source_document_id,
-                    m.category AS category",
+                    m.category AS category"
+                .to_string(),
             vec![
                 "title",
                 "claim_text",
@@ -171,7 +192,8 @@ pub async fn fetch_all_embeddable_nodes(
                     h.subcategory AS subcategory,
                     h.amount AS amount,
                     h.date AS date,
-                    h.source_reference AS source_reference",
+                    h.source_reference AS source_reference"
+                .to_string(),
             vec![
                 "title",
                 "description",
@@ -189,7 +211,8 @@ pub async fn fetch_all_embeddable_nodes(
                     d.doc_type AS document_type,
                     d.date AS date,
                     d.page_count AS page_count,
-                    d.file_path AS file_path",
+                    d.file_path AS file_path"
+                .to_string(),
             vec!["title", "document_type", "date", "page_count", "file_path"],
         ),
         (
@@ -198,7 +221,8 @@ pub async fn fetch_all_embeddable_nodes(
                     p.name AS name,
                     p.role AS role,
                     p.roles AS roles,
-                    p.description AS description",
+                    p.description AS description"
+                .to_string(),
             vec!["name", "role", "roles", "description"],
         ),
         (
@@ -206,13 +230,14 @@ pub async fn fetch_all_embeddable_nodes(
              RETURN o.id AS id, 'Organization' AS node_type,
                     o.name AS name,
                     o.role AS role,
-                    o.description AS description",
+                    o.description AS description"
+                .to_string(),
             vec!["name", "role", "description"],
         ),
     ];
 
     for (cypher, prop_keys) in queries {
-        let nodes = run_node_query(graph, cypher, &prop_keys).await?;
+        let nodes = run_node_query(graph, &cypher, &prop_keys).await?;
         all_nodes.extend(nodes);
     }
 
@@ -355,7 +380,7 @@ pub async fn fetch_nodes_for_document(
     all_nodes.extend(
         run_node_query_with_param(
             graph,
-            Q_DOCUMENT_ENTITIES,
+            &q_document_entities(),
             &ENTITY_PROP_KEYS,
             "doc_id",
             document_id,

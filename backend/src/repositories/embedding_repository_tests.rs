@@ -28,15 +28,15 @@ fn assert_keys_are_returned(cypher: &str, keys: &[&str], name: &str) {
 
 #[test]
 fn the_embed_all_evidence_read_returns_every_property_it_lists() {
-    assert_keys_are_returned(Q_ALL_EVIDENCE, &EVIDENCE_PROP_KEYS, "Q_ALL_EVIDENCE");
+    assert_keys_are_returned(&q_all_evidence(), &EVIDENCE_PROP_KEYS, "q_all_evidence");
 }
 
 #[test]
 fn the_per_document_read_returns_every_property_it_lists() {
     assert_keys_are_returned(
-        Q_DOCUMENT_ENTITIES,
+        &q_document_entities(),
         &ENTITY_PROP_KEYS,
-        "Q_DOCUMENT_ENTITIES",
+        "q_document_entities",
     );
 }
 
@@ -49,17 +49,17 @@ fn the_per_document_read_returns_every_property_it_lists() {
 /// these two queries return it.
 #[test]
 fn both_reads_carry_question_to_the_embedding_builder() {
-    assert!(Q_ALL_EVIDENCE.contains("e.question AS question"));
+    assert!(q_all_evidence().contains("e.question AS question"));
     assert!(EVIDENCE_PROP_KEYS.contains(&"question"));
-    assert!(Q_DOCUMENT_ENTITIES.contains("n.question AS question"));
+    assert!(q_document_entities().contains("n.question AS question"));
     assert!(ENTITY_PROP_KEYS.contains(&"question"));
 }
 
 #[test]
 fn both_reads_are_reads() {
     for (name, cypher) in [
-        ("Q_ALL_EVIDENCE", Q_ALL_EVIDENCE),
-        ("Q_DOCUMENT_ENTITIES", Q_DOCUMENT_ENTITIES),
+        ("q_all_evidence", q_all_evidence()),
+        ("q_document_entities", q_document_entities()),
     ] {
         let upper = cypher.to_uppercase();
         for forbidden in [

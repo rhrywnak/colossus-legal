@@ -134,6 +134,13 @@ pub fn compose_request_and_answer<'a>(question: &str, quote: &'a str) -> Cow<'a,
     if question.trim().is_empty() {
         Cow::Borrowed(quote)
     } else {
+        // STRUCTURAL: this is the embedding's retrieval protocol, not a setting.
+        // Changing the two labels or the spacing changes the text every Evidence
+        // vector is built from, which makes the stored vectors and the newly
+        // built ones incomparable — the exact failure the pinned tests in this
+        // file exist to catch. It varies by a deliberate re-embed decision, never
+        // by deployment, so a config knob here would be a way to break retrieval
+        // by editing YAML.
         Cow::Owned(format!("Request: {question} Answer: {quote}"))
     }
 }
