@@ -92,6 +92,22 @@ fn classify_index_error(doc_id: &str, e: &IndexError) -> HandlerError {
             "step_index: transient helper failure for '{doc_id}': {e}. \
              Will retry."
         )),
+        // RETRYABLE, and the retry is the point. Qdrant has already accepted
+        // this document's points but the lexical mirror has not been written, so
+        // the document is half-searchable until the step runs again. The mirror
+        // sync is idempotent and scoped to one document, so a retry simply
+        // completes it — nothing has to be undone first.
+        // `source`, not `e`. `HandlerError::from(String)` flattens whatever it is
+        // given into text, so the `#[source]` chain does not survive into the
+        // Restate log — and the chain is where the Read/Write split lives.
+        // Rendering the SOURCE puts "could not READ … from the graph" or "could
+        // not WRITE … to evidence_search" in the message itself, which is the
+        // difference between an operator checking Neo4j and checking Postgres.
+        E::Mirror { source, .. } => HandlerError::from(format!(
+            "step_index: evidence mirror failed for '{doc_id}': {source}. \
+             Qdrant already holds this document, so it is searchable by vector \
+             but NOT by lexical search until this succeeds. Will retry."
+        )),
     }
 }
 
@@ -149,6 +165,43 @@ mod tests {
         assert!(!is_terminal(&c));
         let msg = display_message(&c);
         assert!(msg.contains("Will retry"));
+    }
+
+    /// A mirror failure is RETRYABLE, and the message says what is broken.
+    ///
+    /// Terminal would be wrong: Qdrant already holds the document, the mirror
+    /// sync is idempotent, and a retry simply completes the half-indexed state
+    /// rather than repeating work that must first be undone. The message must
+    /// also carry the SOURCE, because that is the only thing that says whether
+    /// the graph or Postgres is the system to look at.
+    #[test]
+    fn classify_mirror_is_retryable_and_names_the_failing_system() {
+        use crate::services::evidence_mirror::MirrorSyncError;
+        let err = IndexError::Mirror {
+            doc_id: "doc-x".into(),
+            source: MirrorSyncError::Write {
+                doc_id: "doc-x".into(),
+                source: crate::repositories::pipeline_repository::PipelineRepoError::Database(
+                    "connection reset".into(),
+                ),
+            },
+        };
+        let c = classify_index_error("doc-x", &err);
+        assert!(
+            !is_terminal(&c),
+            "a retry completes the sync — it must not be terminal"
+        );
+        let msg = display_message(&c);
+        assert!(msg.contains("doc-x"));
+        assert!(msg.contains("Will retry"));
+        assert!(
+            msg.contains("NOT by lexical search"),
+            "the half-indexed state must be named: {msg}"
+        );
+        assert!(
+            msg.contains("WRITE") && msg.contains("evidence_search"),
+            "the source must reach the log so the operator knows which system failed: {msg}"
+        );
     }
 
     #[test]

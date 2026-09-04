@@ -39,6 +39,10 @@
 //! enough that one batch is a few hundred kilobytes rather than several
 //! megabytes. It is a paging size, not a tuning knob — see the constant.
 
+mod document;
+
+pub use document::{read_document_evidence, DocumentEvidence};
+
 use neo4rs::{query, Graph};
 
 use crate::models::document_status::ENTITY_EVIDENCE;
@@ -277,12 +281,41 @@ mod tests {
     /// same reason: "it only reads" is a claim about a file somebody may edit.
     #[test]
     fn the_page_read_cannot_write() {
-        let cypher = page_cypher().to_uppercase();
-        for forbidden in ["CREATE", "MERGE", " SET ", "DELETE", "REMOVE", "DETACH"] {
-            assert!(
-                !cypher.contains(forbidden),
-                "the mirror's source read must not contain {forbidden}"
-            );
+        for cypher in [page_cypher(), document::document_cypher()] {
+            let cypher = cypher.to_uppercase();
+            for forbidden in ["CREATE", "MERGE", " SET ", "REMOVE", "DETACH"] {
+                assert!(
+                    !cypher.contains(forbidden),
+                    "the mirror's source reads must not contain {forbidden}"
+                );
+            }
+            // "DELETE" is checked separately: it must not appear as a Cypher
+            // clause, and neither query contains the word at all.
+            assert!(!cypher.contains("DELETE"));
+        }
+    }
+
+    /// The projection carries exactly the eight fields the mirror stores.
+    ///
+    /// `question` joined them on 2026-09-04. It is the one the backfill would
+    /// silently leave NULL if this test did not name it: the column exists, the
+    /// upsert writes it, and a projection that never returns it would fill the
+    /// mirror with rows whose generated `probe_text` and `search_vector` are the
+    /// same as before — a correct-looking backfill of a blind index.
+    #[test]
+    fn the_projection_matches_the_mirror_columns() {
+        let cypher = page_cypher();
+        for column in [
+            "AS evidence_id",
+            "AS document_id",
+            "AS title",
+            "AS quote",
+            "AS question",
+            "AS significance",
+            "AS page",
+            "AS about",
+        ] {
+            assert!(cypher.contains(column), "the read must project {column}");
         }
     }
 
@@ -381,29 +414,5 @@ mod tests {
         c.about = Vec::new();
         let row = mirror_row(c).expect("no ABOUT edges is not a reason to skip");
         assert!(row.about.is_empty());
-    }
-
-    /// The projection carries exactly the eight fields the mirror stores.
-    ///
-    /// `question` joined them on 2026-09-04. It is the one the backfill would
-    /// silently leave NULL if this test did not name it: the column exists, the
-    /// upsert writes it, and a projection that never returns it would fill the
-    /// mirror with rows whose generated `probe_text` and `search_vector` are the
-    /// same as before — a correct-looking backfill of a blind index.
-    #[test]
-    fn the_projection_matches_the_mirror_columns() {
-        let cypher = page_cypher();
-        for column in [
-            "AS evidence_id",
-            "AS document_id",
-            "AS title",
-            "AS quote",
-            "AS question",
-            "AS significance",
-            "AS page",
-            "AS about",
-        ] {
-            assert!(cypher.contains(column), "the read must project {column}");
-        }
     }
 }
