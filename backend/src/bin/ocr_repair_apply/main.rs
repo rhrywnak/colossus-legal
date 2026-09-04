@@ -97,21 +97,7 @@ async fn main() -> ExitCode {
 async fn run() -> Result<()> {
     let args = Args::parse();
     let file = load(&args.input)?;
-    println!(
-        "input {}\n  apply {} · false_alarm_dash_only {} · pending_missing_pdf {}",
-        args.input.display(),
-        file.apply.len(),
-        file.false_alarm_dash_only.len(),
-        file.pending_missing_pdf.len()
-    );
-    println!(
-        "mode  {}\n",
-        if args.apply {
-            "--apply — the transaction WILL be committed"
-        } else {
-            "DRY RUN — every statement runs, nothing is committed"
-        }
-    );
+    print_header(&args, &file);
     count_matches(file.apply.len() as i64, args.expect_count)
         .context("the input file's `apply` array is not the size the operator declared")?;
 
@@ -130,7 +116,14 @@ async fn run() -> Result<()> {
     graph::probe_manual(&graph).await?;
     println!();
 
-    let lines = graph::run_transaction(&graph, &file.apply, args.expect_count, args.apply).await?;
+    let lines = graph::run_transaction(
+        &graph,
+        &file.apply,
+        args.expect_count,
+        args.apply,
+        &file.written,
+    )
+    .await?;
     print_lines(&lines);
     if args.apply {
         verify(&graph, &file).await?;
@@ -138,6 +131,30 @@ async fn run() -> Result<()> {
         println!("\nDRY RUN — the transaction was rolled back. Re-run with --apply to commit.");
     }
     Ok(())
+}
+
+/// What this run is about to do, printed before anything is opened.
+///
+/// The mode line is unambiguous on purpose: a terminal transcript of a `--apply`
+/// run and of a dry run are otherwise near-identical, and the difference between
+/// them is the difference between DEV changed and DEV untouched.
+fn print_header(args: &Args, file: &RepairFile) {
+    println!(
+        "input {} (written {})\n  apply {} · false_alarm_dash_only {} · pending_missing_pdf {}",
+        args.input.display(),
+        file.written,
+        file.apply.len(),
+        file.false_alarm_dash_only.len(),
+        file.pending_missing_pdf.len()
+    );
+    println!(
+        "mode  {}\n",
+        if args.apply {
+            "--apply — the transaction WILL be committed"
+        } else {
+            "DRY RUN — every statement runs, nothing is committed"
+        }
+    );
 }
 
 /// Read and parse the audit file.
@@ -191,12 +208,21 @@ fn print_lines(lines: &[graph::Line]) {
         );
     }
     let mut by_how: std::collections::BTreeMap<&str, usize> = std::collections::BTreeMap::new();
+    // The round's aggregate answer to "was this a first repair or a re-repair".
+    // Per-card lines already say it, but on a 76-card round the summary is the
+    // only place an operator will actually read it.
+    let mut by_original: std::collections::BTreeMap<&str, usize> =
+        std::collections::BTreeMap::new();
     for line in lines {
         *by_how.entry(line.how.as_str()).or_insert(0) += 1;
+        *by_original.entry(line.original_action).or_insert(0) += 1;
     }
     println!("\ncards verified and written: {}", lines.len());
     for (how, n) in &by_how {
         println!("  {how:<12} {n}");
+    }
+    for (action, n) in &by_original {
+        println!("  {n:<3} {action}");
     }
 }
 

@@ -148,12 +148,17 @@ pub async fn write_node(txn: &mut Txn, repair: &Repair, original: &str) -> Resul
 
 /// Read-verify-write every card, and check the total. Called inside the
 /// transaction; any `Err` here means the caller rolls back.
-async fn write_all(txn: &mut Txn, repairs: &[Repair], expect: usize) -> Result<Vec<Line>> {
+async fn write_all(
+    txn: &mut Txn,
+    repairs: &[Repair],
+    expect: usize,
+    audit_date: &str,
+) -> Result<Vec<Line>> {
     let mut lines = Vec::with_capacity(repairs.len());
     let mut touched: i64 = 0;
     for repair in repairs {
         let found = read_node(txn, &repair.id).await?;
-        if let Err(stop) = guard(repair, &found) {
+        if let Err(stop) = guard(repair, &found, audit_date) {
             bail!(stop);
         }
         // `guard` proved there is exactly one row, so indexing is safe here and
@@ -193,12 +198,13 @@ pub async fn run_transaction(
     repairs: &[Repair],
     expect: usize,
     apply: bool,
+    audit_date: &str,
 ) -> Result<Vec<Line>> {
     let mut txn = graph
         .start_txn()
         .await
         .context("opening the repair transaction")?;
-    match write_all(&mut txn, repairs, expect).await {
+    match write_all(&mut txn, repairs, expect, audit_date).await {
         Err(error) => {
             // Print the STOP BEFORE attempting the rollback. If the rollback
             // itself fails, its `?` would carry the rollback error away and the

@@ -55,6 +55,10 @@ pub struct Untouched {
 // and a later audit may add more of the same.
 #[derive(Debug, Deserialize)]
 pub struct RepairFile {
+    /// The date the file was authored. Required: a repair file whose provenance
+    /// is unknown is one whose `old_quote` values cannot be dated, and the
+    /// guard's STOP message is only actionable if it can name that date.
+    pub written: String,
     pub apply: Vec<Repair>,
     #[serde(default)]
     pub false_alarm_dash_only: Vec<Untouched>,
@@ -106,12 +110,19 @@ pub enum Stop {
     },
 
     #[error(
-        "id {id} no longer holds the quote the audit read — somebody changed it since 2026-09-04.\n\
+        "id {id} no longer holds the quote the audit read — somebody changed it since \
+         {audit_date}, the date this repair file was written.\n\
          audit old_quote (normalised): {expected}\n\
          node  verbatim_quote (normalised): {actual}"
     )]
     QuoteChanged {
         id: String,
+        /// The input file's own `written` date. Carried on the variant rather
+        /// than written into the message, because each repair round has its own:
+        /// v1a's cards were last read on v1a's date, not v1's, and telling the
+        /// operator to look for changes since the wrong date sends them to the
+        /// wrong place in the history.
+        audit_date: String,
         expected: String,
         actual: String,
     },
@@ -144,7 +155,7 @@ pub fn normalise(quote: &str) -> String {
 /// "two nodes" are different STOPs rather than one collapsed "not exactly one" —
 /// standing Rule 1's "operationally distinct states produce different
 /// observables", applied to a query result.
-pub fn guard(repair: &Repair, found: &[NodeState]) -> Result<(), Stop> {
+pub fn guard(repair: &Repair, found: &[NodeState], audit_date: &str) -> Result<(), Stop> {
     let node = match found {
         [] => {
             return Err(Stop::NotFound {
@@ -177,6 +188,7 @@ pub fn guard(repair: &Repair, found: &[NodeState]) -> Result<(), Stop> {
     if expected != actual {
         return Err(Stop::QuoteChanged {
             id: repair.id.clone(),
+            audit_date: audit_date.to_string(),
             expected,
             actual,
         });

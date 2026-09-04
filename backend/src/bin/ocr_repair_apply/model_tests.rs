@@ -9,6 +9,9 @@ use super::*;
 /// The real first entry of `OCR_REPAIR_v1.json`'s `apply` array, used as the
 /// fixture so the tests exercise the actual text — curly apostrophe, the `--`
 /// interruption, the blank line Surya left mid-quote — and not a tidy invention.
+/// The `written` date the fixture's repair file would carry.
+const AUDIT_DATE: &str = "2026-09-04";
+
 fn fixture() -> Repair {
     Repair {
         id: "doc-hearing-10-14-2010:evidence:2f1758b8".to_string(),
@@ -32,7 +35,10 @@ fn node_holding(quote: &str) -> Vec<NodeState> {
 #[test]
 fn the_untouched_node_passes() {
     let repair = fixture();
-    assert_eq!(guard(&repair, &node_holding(&repair.old_quote)), Ok(()));
+    assert_eq!(
+        guard(&repair, &node_holding(&repair.old_quote), AUDIT_DATE),
+        Ok(())
+    );
 }
 
 #[test]
@@ -43,19 +49,24 @@ fn whitespace_differences_alone_do_not_stop_the_write() {
     // guard normalises before comparing — and ONLY whitespace is forgiven.
     let repair = fixture();
     let mangled = repair.old_quote.replace("\n\n", "  \r\n \t ");
-    assert_eq!(guard(&repair, &node_holding(&mangled)), Ok(()));
+    assert_eq!(guard(&repair, &node_holding(&mangled), AUDIT_DATE), Ok(()));
 }
 
 #[test]
 fn a_wrong_old_quote_stops_and_prints_both_texts() {
     let repair = fixture();
-    let error = guard(&repair, &node_holding("Somebody retyped this card."))
-        .expect_err("a changed quote must STOP");
+    let error = guard(
+        &repair,
+        &node_holding("Somebody retyped this card."),
+        AUDIT_DATE,
+    )
+    .expect_err("a changed quote must STOP");
     match &error {
         Stop::QuoteChanged {
             id,
             expected,
             actual,
+            ..
         } => {
             assert_eq!(id, &repair.id);
             assert_eq!(actual, "Somebody retyped this card.");
@@ -78,15 +89,31 @@ fn one_changed_character_is_enough_to_stop() {
     let recased = repair.old_quote.replace("COURT", "Court");
     assert_ne!(recased, repair.old_quote);
     assert!(matches!(
-        guard(&repair, &node_holding(&recased)),
+        guard(&repair, &node_holding(&recased), AUDIT_DATE),
         Err(Stop::QuoteChanged { .. })
     ));
 }
 
 #[test]
+fn the_changed_quote_stop_names_the_repair_file_s_own_date() {
+    // Each round has its own `written` date: v1a's cards were last read on v1a's
+    // date, not v1's. A STOP that names the wrong one sends the operator looking
+    // for a change in the wrong stretch of history.
+    let repair = fixture();
+    let error = guard(&repair, &node_holding("changed"), "2026-11-30")
+        .expect_err("a changed quote must STOP");
+    let rendered = error.to_string();
+    assert!(rendered.contains("2026-11-30"), "{rendered}");
+    assert!(
+        !rendered.contains(AUDIT_DATE),
+        "the date must not be compiled in"
+    );
+}
+
+#[test]
 fn a_missing_node_stops_and_names_the_id() {
     let repair = fixture();
-    let error = guard(&repair, &[]).expect_err("a missing node must STOP");
+    let error = guard(&repair, &[], AUDIT_DATE).expect_err("a missing node must STOP");
     assert_eq!(
         error,
         Stop::NotFound {
@@ -101,7 +128,7 @@ fn two_nodes_on_one_id_stop_separately_from_none() {
     let repair = fixture();
     let mut two = node_holding(&repair.old_quote);
     two.push(two[0].clone());
-    let error = guard(&repair, &two).expect_err("a duplicated id must STOP");
+    let error = guard(&repair, &two, AUDIT_DATE).expect_err("a duplicated id must STOP");
     assert_eq!(
         error,
         Stop::NotUnique {
@@ -128,7 +155,7 @@ fn the_wrong_document_stops_before_the_quote_is_compared() {
         quote: repair.old_quote.clone(),
         existing_original: None,
     }];
-    let error = guard(&repair, &elsewhere).expect_err("the wrong document must STOP");
+    let error = guard(&repair, &elsewhere, AUDIT_DATE).expect_err("the wrong document must STOP");
     assert_eq!(
         error,
         Stop::WrongDocument {
@@ -154,7 +181,7 @@ fn the_wrong_page_stops_before_the_quote_is_compared() {
         quote: repair.old_quote.clone(),
         existing_original: None,
     }];
-    let error = guard(&repair, &wrong_page).expect_err("the wrong page must STOP");
+    let error = guard(&repair, &wrong_page, AUDIT_DATE).expect_err("the wrong page must STOP");
     assert_eq!(
         error,
         Stop::WrongPage {
@@ -180,7 +207,7 @@ fn a_card_with_no_page_at_all_stops_and_says_so() {
         quote: repair.old_quote.clone(),
         existing_original: None,
     }];
-    let error = guard(&repair, &no_page).expect_err("a null page must STOP");
+    let error = guard(&repair, &no_page, AUDIT_DATE).expect_err("a null page must STOP");
     assert_eq!(
         error,
         Stop::WrongPage {
