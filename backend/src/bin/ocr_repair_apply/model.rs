@@ -16,6 +16,11 @@ use serde::Deserialize;
 /// them, so no `#[serde(rename)]` is needed — and an audit file that grows a
 /// sixth key deserialises fine, because serde ignores unknown fields by default.
 /// That is the forward-compatibility CLAUDE.md §7 asks for.
+//
+// serde: allows unknown fields because the audit file is authored by hand and a
+// later repair round may add keys (a confidence score, a page-image reference)
+// that this bin has no business rejecting. The fields it DOES need are all
+// required, so a missing one is still a parse error naming the file.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Repair {
     pub id: String,
@@ -29,6 +34,10 @@ pub struct Repair {
 /// A card the audit named but did NOT correct. These two arrays carry only the
 /// locating keys — no `how`, no quotes — so they get their own, narrower struct
 /// rather than a `Repair` with three fields that would always be absent.
+//
+// serde: allows unknown fields because `pending_missing_pdf` already carries an
+// `old_quote` this struct does not read, and will carry `how`/`new_quote` once
+// the three PDFs arrive. Rejecting them would break on the next audit revision.
 #[derive(Debug, Clone, Deserialize, PartialEq, Eq)]
 pub struct Untouched {
     pub id: String,
@@ -40,6 +49,10 @@ pub struct Untouched {
 /// so the run can PROVE it left them alone — `false_alarm_dash_only`'s ids are
 /// what the B8 re-count is checked against afterwards — and so a reader of this
 /// struct can see they were deliberately skipped rather than forgotten.
+//
+// serde: allows unknown fields because the file's top level carries `written` and
+// `method` — provenance this bin prints nothing about and must not choke on —
+// and a later audit may add more of the same.
 #[derive(Debug, Deserialize)]
 pub struct RepairFile {
     pub apply: Vec<Repair>,

@@ -100,50 +100,98 @@ fn two_nodes_on_one_id_stop_separately_from_none() {
     let repair = fixture();
     let mut two = node_holding(&repair.old_quote);
     two.push(two[0].clone());
+    let error = guard(&repair, &two).expect_err("a duplicated id must STOP");
     assert_eq!(
-        guard(&repair, &two),
-        Err(Stop::NotUnique {
+        error,
+        Stop::NotUnique {
             id: repair.id.clone(),
             found: 2
-        })
+        }
+    );
+    // Rule 1: the count has to survive into the text, or the operator cannot
+    // tell "two nodes" from "eleven nodes" without re-running the query.
+    let rendered = error.to_string();
+    assert!(rendered.contains(&repair.id));
+    assert!(
+        rendered.contains('2'),
+        "the duplicate count is missing: {rendered}"
     );
 }
 
 #[test]
-fn the_wrong_document_or_page_stops_before_the_quote_is_compared() {
+fn the_wrong_document_stops_before_the_quote_is_compared() {
     let repair = fixture();
     let elsewhere = vec![NodeState {
         source_document: "doc-some-other-transcript".to_string(),
         page_number: Some(5),
         quote: repair.old_quote.clone(),
     }];
-    assert!(matches!(
-        guard(&repair, &elsewhere),
-        Err(Stop::WrongDocument { .. })
-    ));
+    let error = guard(&repair, &elsewhere).expect_err("the wrong document must STOP");
+    assert_eq!(
+        error,
+        Stop::WrongDocument {
+            id: repair.id.clone(),
+            expected: repair.document.clone(),
+            actual: "doc-some-other-transcript".to_string(),
+        }
+    );
+    // Both document names have to reach the terminal: which one the audit meant
+    // and which one the node actually sits on are different next actions.
+    let rendered = error.to_string();
+    assert!(rendered.contains(&repair.id));
+    assert!(rendered.contains("doc-some-other-transcript"));
+    assert!(rendered.contains(&repair.document));
+}
 
+#[test]
+fn the_wrong_page_stops_before_the_quote_is_compared() {
+    let repair = fixture();
     let wrong_page = vec![NodeState {
         source_document: repair.document.clone(),
         page_number: Some(6),
         quote: repair.old_quote.clone(),
     }];
-    assert!(matches!(
-        guard(&repair, &wrong_page),
-        Err(Stop::WrongPage {
+    let error = guard(&repair, &wrong_page).expect_err("the wrong page must STOP");
+    assert_eq!(
+        error,
+        Stop::WrongPage {
+            id: repair.id.clone(),
+            expected: 5,
             actual: Some(6),
-            ..
-        })
-    ));
+        }
+    );
+    let rendered = error.to_string();
+    assert!(rendered.contains(&repair.id));
+    assert!(
+        rendered.contains('5') && rendered.contains('6'),
+        "{rendered}"
+    );
+}
 
+#[test]
+fn a_card_with_no_page_at_all_stops_and_says_so() {
+    let repair = fixture();
     let no_page = vec![NodeState {
         source_document: repair.document.clone(),
         page_number: None,
         quote: repair.old_quote.clone(),
     }];
-    assert!(matches!(
-        guard(&repair, &no_page),
-        Err(Stop::WrongPage { actual: None, .. })
-    ));
+    let error = guard(&repair, &no_page).expect_err("a null page must STOP");
+    assert_eq!(
+        error,
+        Stop::WrongPage {
+            id: repair.id.clone(),
+            expected: 5,
+            actual: None,
+        }
+    );
+    // A card with no page must not render as though it were on page 0.
+    let rendered = error.to_string();
+    assert!(
+        rendered.contains("None"),
+        "a null page must say so: {rendered}"
+    );
+    assert!(rendered.contains('5'));
 }
 
 #[test]

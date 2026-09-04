@@ -81,6 +81,10 @@ pub async fn read_node(txn: &mut Txn, id: &str) -> Result<Vec<NodeState>> {
             source_document: row
                 .get("source_document")
                 .with_context(|| format!("node {id} carried no source_document"))?,
+            // best-effort: `page_number` is an OPTIONAL property — absent and
+            // wrong-typed both mean "no usable page here", which is exactly the
+            // `None` the guard then compares against the audit's page and STOPs
+            // on. Nothing is swallowed: `Stop::WrongPage` carries the `None`.
             page_number: row.get::<i64>("page_number").ok(),
             quote: row
                 .get("quote")
@@ -158,9 +162,17 @@ pub async fn run_transaction(
         .context("opening the repair transaction")?;
     match write_all(&mut txn, repairs, expect).await {
         Err(error) => {
-            txn.rollback()
-                .await
-                .context("rolling back after a STOP — the transaction may still be open")?;
+            // Print the STOP BEFORE attempting the rollback. If the rollback
+            // itself fails, its `?` would carry the rollback error away and the
+            // guard failure — the card id, the two texts, the reason — would be
+            // lost, leaving the operator a message they cannot act on. This is
+            // the one place two errors can race, so the first one is emitted
+            // where nothing can drop it.
+            eprintln!("\nSTOP: {error:#}");
+            txn.rollback().await.context(
+                "the STOP above fired AND the rollback failed — the transaction may \
+                 still be open. Check Neo4j for a hanging transaction before re-running",
+            )?;
             Err(error)
         }
         Ok(lines) => {
@@ -204,16 +216,27 @@ pub async fn probe_manual(graph: &Graph) -> Result<()> {
     match stream.next().await.context("reading the probe row")? {
         None => bail!(
             "no Evidence node carries grounding_status = '{}'. The value this run \
-             would write is unverified, so nothing was written.",
+             would write is unverified, so nothing was written. Check, in this order: \
+             (1) NEO4J_URI points at the graph you meant — DEV, not PROD or an empty \
+             local container; (2) the vocabulary still uses this word — run \
+             `MATCH (e:Evidence) WHERE e.grounding_status IS NOT NULL \
+             RETURN DISTINCT e.grounding_status` to see what the graph actually holds; \
+             (3) something on this database has been hand-grounded at all.",
             crate::GROUNDING_STATUS
         ),
         Some(row) => {
             let id: String = row.get("id").context("the probe row carried no id")?;
+            // best-effort: the probe is a PRINT, not a decision. Its job is to
+            // show the operator a real hand-grounded card before any write; the
+            // decision it feeds is `grounding_status`, read with `?` below. A
+            // blank document line here degrades the display, never the write.
             let document: String = row.get("source_document").unwrap_or_default();
+            // best-effort: same — display only. See the note above.
             let page = row.get::<i64>("page_number").ok();
             let status: String = row
                 .get("grounding_status")
                 .context("the probe row carried no grounding_status")?;
+            // best-effort: display only. See the note above.
             let keys: Vec<String> = row.get("keys").unwrap_or_default();
             println!("probe — an existing hand-grounded card:");
             println!("  id               {id}");
@@ -240,9 +263,20 @@ pub async fn recount_b8(graph: &Graph, false_alarms: &[Untouched]) -> Result<(us
     let expected: std::collections::HashSet<&str> =
         false_alarms.iter().map(|c| c.id.as_str()).collect();
     let (mut flagged, mut still) = (0usize, Vec::new());
+    let mut quoteless = Vec::new();
     while let Some(row) = stream.next().await.context("reading the next quote")? {
         let id: String = row.get("id").context("a quote row carried no id")?;
-        let quote: String = row.get("quote").unwrap_or_default();
+        // A node with no `verbatim_quote` at all and a node with an empty one are
+        // different facts, and B8 cannot fire on either. Collapsing them into
+        // "not damaged" would let a card with NO quote pass a verification read
+        // silently — so they are collected and named instead.
+        let quote: String = match row.get::<String>("quote") {
+            Ok(text) => text,
+            Err(_) => {
+                quoteless.push(id);
+                continue;
+            }
+        };
         if crate::model::has_ocr_damage(&quote) {
             flagged += 1;
             if expected.contains(id.as_str()) {
@@ -251,6 +285,17 @@ pub async fn recount_b8(graph: &Graph, false_alarms: &[Untouched]) -> Result<(us
         }
     }
     still.sort();
+    if !quoteless.is_empty() {
+        eprintln!(
+            "WARNING: {} Evidence node(s) carry no readable verbatim_quote and could \
+             not be tested for B8 damage. STOP 0 of EVIDENCE_CORPUS_READ_v1 found the \
+             property on all 1,209 nodes, so this is new:",
+            quoteless.len()
+        );
+        for id in &quoteless {
+            eprintln!("    {id}");
+        }
+    }
     Ok((flagged, still))
 }
 

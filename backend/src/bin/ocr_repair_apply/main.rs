@@ -115,9 +115,18 @@ async fn run() -> Result<()> {
     count_matches(file.apply.len() as i64, args.expect_count)
         .context("the input file's `apply` array is not the size the operator declared")?;
 
-    let graph = connect_graph()
-        .await
-        .map_err(|code| anyhow::anyhow!("could not connect to Neo4j (exit {code:?})"))?;
+    // `connect_graph` reports the precise cause through `tracing::error!`, and
+    // this bin starts no subscriber — so that text never reaches the terminal.
+    // Rather than pull a subscriber into a one-off tool, the wrapper says what
+    // the operator has to check, since there are only three possibilities.
+    let graph = connect_graph().await.map_err(|code| {
+        anyhow::anyhow!(
+            "could not connect to Neo4j (exit {code:?}). This bin does NOT read .env: \
+             export NEO4J_URI (bolt://HOST:7687), NEO4J_PASSWORD, and NEO4J_USER if it \
+             is not `neo4j`, in the shell that runs it. Exit 2 means the connection \
+             itself failed — check the URI's host and port are reachable."
+        )
+    })?;
     graph::probe_manual(&graph).await?;
     println!();
 
