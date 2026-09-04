@@ -27,6 +27,65 @@ use crate::services::embedding_text::build_embedding_text;
 use crate::services::qdrant_payload;
 use crate::services::qdrant_service::{self, QdrantError, QdrantPoint};
 
+// STRUCTURAL: a memory bound, not a throughput setting.
+//
+// ## The 137 / 7.1G event, 2026-09-04
+//
+// A full admin reindex died on the DEV VM at 16:31 — `status=137/n/a`, which is
+// SIGKILL, with a `7.1G memory peak` in the same journal line. It had deleted
+// the Qdrant collection at 16:29, fetched 1,429 nodes, logged
+// "Embedding 1429 texts..." and never logged again. The collection has been
+// EMPTY since, so every gather has been blind.
+//
+// ## Why a batch of 50 became fatal when nothing about the batching changed
+//
+// Transformer attention is O(batch x length^2), and fastembed 4.9.1 pads every
+// batch to its LONGEST member — `PaddingStrategy::BatchLongest` in
+// `fastembed-4.9.1/src/common.rs:101`, not to the configured max. So the cost of
+// a batch is set by its longest text, and 49 short texts do not make it cheaper.
+//
+// Before `.421`, `MAX_INPUT_TOKENS` was 512 and the tokenizer TRUNCATED there,
+// so every batch was padded to at most 512 tokens no matter what it held —
+// a ceiling nobody had to think about. `.421` raised it to 8192 (correct for
+// L2a's queries), which removed the ceiling, and the padded length became
+// whatever the corpus actually contains. Measured on DEV the same day: the
+// longest built text is 2,345 characters, and 16 exceed 1,500.
+//
+// A batch of ONE cannot be padded to anything but its own length, so the peak
+// becomes the cost of the single longest text rather than fifty times it. That
+// is the whole of the fix: it removes the multiplier, and leaves the length
+// alone. `MAX_INPUT_TOKENS` stays 8192 deliberately — truncating the corpus
+// again to save memory would silently shorten what is searchable, which is the
+// bug this project spent the day removing from the other half of retrieval.
+//
+// ## What 1 costs, stated honestly
+//
+// It is NOT free. ONNX Runtime parallelises within a batch, so a batch of 8
+// really is faster than eight batches of 1 — what a larger batch multiplies is
+// MEMORY, not time. 1 is the memory-safe FLOOR, not a universally optimal
+// value: it is the only size that is safe without knowing both the host's spare
+// RAM and the corpus's longest text, and this code knows neither.
+//
+// So this is a constant because the instruction that ordered the fix asked for
+// one, and because an urgent fix to a step that currently cannot complete at
+// all is the wrong moment to add an env var and the Ansible change it obliges.
+// A deployment that knows its headroom and its text lengths could safely run 4
+// or 8 and finish sooner. That is recorded as a ruling in
+// CC_REPORT_EMBED_BATCH_OOM_v1, not decided here.
+const EMBED_BATCH_SIZE: usize = 1;
+
+// A liveness cadence for a human reading `journalctl`: 14 lines across the 1,429
+// nodes on DEV — often enough to show the run is alive, rare enough not to bury
+// the log.
+//
+// Deliberately NOT claimed as structural. A bigger corpus or a quieter journal
+// could reasonably want a different number, so the honest position is that this
+// is a config-shaped value carrying a compiled default, kept compiled because
+// the instruction specified "every 100 texts" and this is an urgent fix. Raised
+// as a ruling in CC_REPORT_EMBED_BATCH_OOM_v1 together with EMBED_BATCH_SIZE,
+// since both are the same question.
+const EMBED_PROGRESS_EVERY: usize = 100;
+
 // ---------------------------------------------------------------------------
 // Result and error types
 // ---------------------------------------------------------------------------
@@ -188,14 +247,27 @@ pub async fn run_embedding_pipeline(
     // Step 6: Embed all texts via spawn_blocking
     // TextEmbedding is NOT Send, so we create it inside the blocking closure.
     tracing::info!("Embedding {} texts...", texts.len());
+    let total_texts = texts.len();
     let cache_path = fastembed_cache_path.to_string();
     let vectors = tokio::task::spawn_blocking(move || {
         let mut service = EmbeddingService::new(&cache_path)?;
         let mut all_vectors = Vec::new();
-        for chunk in texts.chunks(50) {
+        for (done, chunk) in texts.chunks(EMBED_BATCH_SIZE).enumerate() {
             let batch = chunk.to_vec();
             let embeddings = service.embed_batch(batch)?;
             all_vectors.extend(embeddings);
+
+            // Liveness. A full corpus embed is minutes of silence otherwise, and
+            // the last time it died the journal's final line was "Embedding 1429
+            // texts..." followed by the kill — nothing to say how far it got.
+            let embedded = (done + 1) * EMBED_BATCH_SIZE;
+            if embedded.is_multiple_of(EMBED_PROGRESS_EVERY) {
+                tracing::info!(
+                    embedded = embedded.min(total_texts),
+                    total = total_texts,
+                    "embedding progress"
+                );
+            }
         }
         Ok::<Vec<Vec<f32>>, EmbeddingError>(all_vectors)
     })
