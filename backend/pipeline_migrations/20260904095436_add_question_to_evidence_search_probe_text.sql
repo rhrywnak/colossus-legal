@@ -41,15 +41,31 @@
 -- right then tells the story of the card: the request, then the answer, then our
 -- own commentary on it.
 --
--- ## What this migration deliberately does NOT touch
+-- ## BOTH halves, not one — Roman's ruling, 2026-09-04
 --
--- `search_vector`, the FULL-TEXT half, is still generated from quote/title/
--- significance and remains blind to `question`. That is not an oversight and it
--- is not fixed here: adding a fourth field to a weighted tsvector is a ranking
--- change (it needs a weight letter, and 'D' is the only one left), and ranking
--- is a decision, not a mechanical edit. Recorded in
--- CC_REPORT_QUESTION_IN_RETRIEVAL_v1 as a ruling for Roman with the exact
--- one-line change ready.
+-- An earlier draft of this file changed `probe_text` only and left
+-- `search_vector`, the FULL-TEXT half, generated from quote/title/significance
+-- and blind to `question`. That was deliberate, and it was raised as a ruling
+-- rather than decided here, because adding a fourth field to a WEIGHTED tsvector
+-- is a ranking change. The measured consequence of leaving it: the trigram half
+-- could reach the request and the full-text half could not — proved on a
+-- throwaway database, where `search_vector @@ to_tsquery('english', 'emil')` was
+-- FALSE for a card whose question named Emil Awad.
+--
+-- Roman ruled weight **D**, so `search_vector` is dropped and re-created here
+-- too, with `setweight(to_tsvector('english', coalesce(question,'')), 'D')`
+-- appended to the existing three.
+--
+-- ## Why D, and what D buys
+--
+-- `ts_rank`'s default weight vector is {D,C,B,A} = {0.1, 0.2, 0.4, 1.0}. L1a
+-- already spent A on the quote (what the witness actually said), B on the title
+-- (our summary of it) and C on the significance (our argument about it). D is
+-- the only letter left, and it is also the right one: the request is not
+-- evidence, it is the QUESTION somebody was asked. A match there says "this card
+-- is about the thing you searched for", which should surface the card — and must
+-- never outrank a card whose sworn answer contains the words. At 0.1 it cannot:
+-- it takes ten question matches to equal one quote match.
 --
 -- ## MERGE ORDER — this file REQUIRES L1a
 --
@@ -80,13 +96,22 @@
 -- migration is corrected by a further forward migration. The manual undo is:
 --
 --     DROP INDEX IF EXISTS idx_evidence_search_probe_trgm;
+--     DROP INDEX IF EXISTS idx_evidence_search_vector;
 --     ALTER TABLE evidence_search DROP COLUMN probe_text;
+--     ALTER TABLE evidence_search DROP COLUMN search_vector;
 --     ALTER TABLE evidence_search ADD COLUMN probe_text TEXT GENERATED ALWAYS AS (
 --         coalesce(quote, '') || ' ' || coalesce(title, '') || ' ' ||
 --         coalesce(significance, '')
 --     ) STORED;
+--     ALTER TABLE evidence_search ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (
+--         setweight(to_tsvector('english', coalesce(quote, '')), 'A') ||
+--         setweight(to_tsvector('english', coalesce(title, '')), 'B') ||
+--         setweight(to_tsvector('english', coalesce(significance, '')), 'C')
+--     ) STORED;
 --     CREATE INDEX idx_evidence_search_probe_trgm
 --         ON evidence_search USING GIN (probe_text gin_trgm_ops);
+--     CREATE INDEX idx_evidence_search_vector
+--         ON evidence_search USING GIN (search_vector);
 --     ALTER TABLE evidence_search DROP COLUMN question;
 
 -- Preflight. See "MERGE ORDER" above for why this raises rather than skips.
@@ -131,13 +156,38 @@ ALTER TABLE evidence_search ADD COLUMN probe_text TEXT GENERATED ALWAYS AS (
 ) STORED;
 
 COMMENT ON COLUMN evidence_search.probe_text IS
-    'Generated (never triggered, so it cannot drift): question, quote, title and significance concatenated flat, space-separated. The trigram matching surface. Flat and unweighted because trigram has no weighting to give. `question` was added 2026-09-04: 99 of 1209 cards have an answer-only quote ("Admitted.", "Denied as untrue.") and were unreachable by the trigram half without the request text. NOTE: search_vector, the full-text half, does NOT yet carry question.';
+    'Generated (never triggered, so it cannot drift): question, quote, title and significance concatenated flat, space-separated. The trigram matching surface. Flat and unweighted because trigram has no weighting to give. `question` was added 2026-09-04: 99 of 1209 cards have an answer-only quote ("Admitted.", "Denied as untrue.") and were unreachable by the trigram half without the request text. The full-text half, search_vector, carries it too, at weight D.';
 
 CREATE INDEX IF NOT EXISTS idx_evidence_search_probe_trgm
     ON evidence_search USING GIN (probe_text gin_trgm_ops);
 
 COMMENT ON INDEX idx_evidence_search_probe_trgm IS
     'Trigram half of the lexical gather. Covers probe_text = question + quote + title + significance. Everything L1a measured about what this index can and cannot do still holds: it separates "$50,000" from a bare "50,000", it does NOT separate "$50,000" from "$500,000.00", it reaches substrings ("Milste" -> "Milster"), and it does not reach OCR transpositions at Postgres''s default word_similarity threshold.';
+
+-- The FULL-TEXT half. Same drop-and-recreate, same reason: a STORED generated
+-- expression cannot be altered in place before PG 18, and the GIN index is built
+-- on the column so it goes and comes back with it. Both statements sit in the
+-- transaction the migrator wraps this file in, so the table is never left with
+-- only one half of its lexical surface.
+DROP INDEX IF EXISTS idx_evidence_search_vector;
+
+ALTER TABLE evidence_search DROP COLUMN IF EXISTS search_vector;
+
+ALTER TABLE evidence_search ADD COLUMN search_vector tsvector GENERATED ALWAYS AS (
+    setweight(to_tsvector('english', coalesce(quote, '')), 'A') ||
+    setweight(to_tsvector('english', coalesce(title, '')), 'B') ||
+    setweight(to_tsvector('english', coalesce(significance, '')), 'C') ||
+    setweight(to_tsvector('english', coalesce(question, '')), 'D')
+) STORED;
+
+COMMENT ON COLUMN evidence_search.search_vector IS
+    'Generated (never triggered, so it cannot drift): setweight quote A, title B, significance C, question D over to_tsvector(''english'', …). The literal config is required — one-argument to_tsvector is only STABLE and a generated column demands IMMUTABLE. `question` was added at weight D on 2026-09-04 (Roman''s ruling): a match in the request says the card is ABOUT what you searched for, which should surface it but must never outrank a card whose sworn answer contains the words. ts_rank''s default {D,C,B,A} = {0.1,0.2,0.4,1.0}, so it takes ten question matches to equal one quote match.';
+
+CREATE INDEX IF NOT EXISTS idx_evidence_search_vector
+    ON evidence_search USING GIN (search_vector);
+
+COMMENT ON INDEX idx_evidence_search_vector IS
+    'Full-text half of the lexical gather. GIN because this table is written once per document and read on every gather. Covers quote (A), title (B), significance (C) and question (D).';
 
 -- This migration seeds no rows, so Rule 25a's row-count assertion does not
 -- apply. What needs asserting is the SHAPE, for the reason L1a's own block gives:
@@ -151,6 +201,7 @@ DECLARE
     generation_expr  TEXT;
     question_type    TEXT;
     index_count      INTEGER;
+    derived_column   TEXT;
 BEGIN
     SELECT data_type INTO question_type
       FROM information_schema.columns
@@ -161,32 +212,52 @@ BEGIN
             coalesce(question_type, '<absent>');
     END IF;
 
-    SELECT is_generated, generation_expression
-      INTO generated_kind, generation_expr
+    -- BOTH derived columns, checked identically. The assertion this whole
+    -- migration exists for is the `position('question' …)` one: a column that is
+    -- generated but does not read `question` is exactly the state the answer-only
+    -- cards were already in, and it looks perfectly healthy from outside.
+    FOR derived_column IN SELECT unnest(ARRAY['probe_text', 'search_vector'])
+    LOOP
+        SELECT is_generated, generation_expression
+          INTO generated_kind, generation_expr
+          FROM information_schema.columns
+         WHERE table_name = 'evidence_search' AND column_name = derived_column;
+
+        IF generated_kind IS DISTINCT FROM 'ALWAYS' THEN
+            RAISE EXCEPTION
+                'evidence_search.% is not a generated column (is_generated = %) — it could drift from the row it summarises',
+                derived_column, coalesce(generated_kind, '<absent>');
+        END IF;
+
+        IF generation_expr IS NULL OR position('question' IN generation_expr) = 0 THEN
+            RAISE EXCEPTION
+                'evidence_search.% does not read `question` (expression: %) — the answer-only cards would stay unreachable through that half of the gather',
+                derived_column, coalesce(generation_expr, '<null>');
+        END IF;
+    END LOOP;
+
+    -- And the weight letter, specifically. A `search_vector` that read `question`
+    -- at the WRONG weight would pass the loop above and quietly change the
+    -- ranking of every gather: at 'A' a request match would tie with a sworn
+    -- answer. Postgres renders the letter as `'D'::"char"` in the stored
+    -- expression, so that is what is matched.
+    SELECT generation_expression INTO generation_expr
       FROM information_schema.columns
-     WHERE table_name = 'evidence_search' AND column_name = 'probe_text';
-
-    IF generated_kind IS DISTINCT FROM 'ALWAYS' THEN
+     WHERE table_name = 'evidence_search' AND column_name = 'search_vector';
+    IF position('coalesce(question' IN lower(generation_expr)) = 0
+       OR position('''D''::"char"' IN generation_expr) = 0 THEN
         RAISE EXCEPTION
-            'evidence_search.probe_text is not a generated column (is_generated = %) — it could drift from the row it summarises',
-            coalesce(generated_kind, '<absent>');
-    END IF;
-
-    -- The assertion this whole migration exists for. A `probe_text` that is
-    -- generated but does not read `question` is exactly the state the 99
-    -- answer-only cards were already in, and it would look healthy.
-    IF generation_expr IS NULL OR position('question' IN generation_expr) = 0 THEN
-        RAISE EXCEPTION
-            'evidence_search.probe_text does not read `question` (expression: %) — the 99 answer-only cards would stay unreachable',
-            coalesce(generation_expr, '<null>');
+            'evidence_search.search_vector does not weight `question` at D (expression: %) — Roman ruled D on 2026-09-04, so a request match cannot outrank a sworn answer',
+            generation_expr;
     END IF;
 
     SELECT count(*) INTO index_count
       FROM pg_indexes
      WHERE tablename = 'evidence_search'
-       AND indexname = 'idx_evidence_search_probe_trgm';
-    IF index_count <> 1 THEN
+       AND indexname IN ('idx_evidence_search_probe_trgm', 'idx_evidence_search_vector');
+    IF index_count <> 2 THEN
         RAISE EXCEPTION
-            'the trigram index over probe_text is missing after the rebuild — the trigram half of the gather would silently return nothing';
+            'evidence_search carries % of its 2 search indexes after the rebuild — one half of the lexical gather would silently return nothing',
+            index_count;
     END IF;
 END $$;
