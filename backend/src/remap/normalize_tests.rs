@@ -55,12 +55,44 @@ fn a_real_compound_word_is_never_joined() {
 }
 
 #[test]
-fn a_hyphen_followed_by_a_space_but_no_newline_is_left_alone() {
-    // Measured: this is the OLD damage class (`objec- tions`), and the two
-    // patterns this module implements both require a line break. Pinned as a
-    // TEST rather than left implicit, because it is the difference between
-    // tier 2 and tier 3 on the transcripts and it must not change by accident.
-    assert_eq!(loose_normalize("objec- tions"), "objec- tions");
+fn a_hyphen_followed_by_a_space_is_joined_too() {
+    // The inverse of what this test used to pin. `objec- tions` is Surya's OWN
+    // damage class — it is what the snapshots carry, with no line break in
+    // sight — and until ruling 2 (2026-09-05) the join required a newline and
+    // sailed straight past it.
+    assert_eq!(loose_normalize("objec- tions"), "objections");
+}
+
+#[test]
+fn objec_tions_and_objections_reach_the_same_loose_form() {
+    // Stated as the equality that actually matters: the two spellings have to be
+    // one key, or the old node and the new node do not meet at tier 2.
+    assert_eq!(
+        loose_normalize("Awad's objec- tions."),
+        loose_normalize("Awad's objections")
+    );
+}
+
+#[test]
+fn rul_ings_and_rulings_reach_the_same_loose_form() {
+    // Measured on document 1: `90f68cc0` carried `prior rul- ings` and its new
+    // counterpart `ed48b111` carries `prior rulings`. Before ruling 2 that pair
+    // matched only at tier 3, on a score; now it is exact.
+    assert_eq!(
+        loose_normalize("this Court's prior rul- ings"),
+        loose_normalize("this Court's prior rulings")
+    );
+}
+
+#[test]
+fn a_dash_with_a_space_on_both_sides_is_punctuation_not_a_split() {
+    // The boundary ruling 2 moved right up against. A space BEFORE the hyphen
+    // licenses a join only when a newline follows it — otherwise this is a dash
+    // between two words and joining it would invent one.
+    assert_eq!(
+        loose_normalize("the estate - the heirs"),
+        "the estate - the heirs"
+    );
 }
 
 #[test]

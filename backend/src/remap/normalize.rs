@@ -24,7 +24,7 @@
 //! | dropped | why it is layout, not content |
 //! |---|---|
 //! | case | the OCR pass re-cased nothing, but a template change could |
-//! | `word-` + newline + `rest` | justified-text hyphenation at a line break |
+//! | `word-` + a gap + `rest` | a word split across a line, or Surya's `objec- tions` |
 //! | whitespace runs | the new quotes carry hard line breaks the old ones did not |
 //! | a trailing `.` or `,` | an extraction that stops one character earlier is the same statement |
 
@@ -118,14 +118,34 @@ pub fn loose_normalize(text: &str) -> String {
         .to_string()
 }
 
-/// Join `word-` + line break + `rest` into `wordrest`.
+/// Join a hyphen-split word back together: `word-` + a gap + `rest` → `wordrest`.
 ///
-/// Covers both shapes the transcripts produce: `[a-z]-\s*\n\s*[a-z]` (the hyphen
-/// hard against the word) and `[a-z] -\n[a-z]` (a space before the hyphen, which
-/// the OCR emits when the gutter numeral was stripped). A hyphen NOT followed by
-/// a line break is left alone — that is a real compound word, and joining
-/// `two-fold` into `twofold` would make two genuinely different quotes look the
-/// same.
+/// Three shapes, all of them measured in the transcripts (the third added by
+/// ruling 2, 2026-09-05):
+///
+/// | pattern | example | where it comes from |
+/// |---|---|---|
+/// | `[a-z]-\s*\n\s*[a-z]` | `reason-`⏎`ableness` | justified text broken at a line end |
+/// | `[a-z] -\n[a-z]` | `rul -`⏎`ings` | the same, after a gutter numeral was stripped |
+/// | `[a-z]-\s+[a-z]` | `objec- tions` | Surya's own output, the OLD damage class |
+///
+/// Two shapes are deliberately NOT joined:
+///
+/// - **`two-fold`** — no gap at all after the hyphen. That is a compound word,
+///   and joining it would make two genuinely different quotes look the same.
+/// - **`word - word`** — a space on BOTH sides and no line break. That is a dash
+///   used as punctuation, not a split word. A space before the hyphen only
+///   licenses a join when a newline follows, which is the second row above.
+///
+/// ## Domain note: a false join here cannot cause a false MISS
+///
+/// This is a comparison form, applied to both sides of every comparison. If it
+/// wrongly joins `pre- and` into `preand`, it does so to the old quote and the
+/// new quote alike, so the two still agree — the failure mode is a false match
+/// between two strings that differ only in that spot, which is why the `two-fold`
+/// and `word - word` guards above are the ones that matter. Ruled 2026-09-05:
+/// worth it, because `objec- tions` is the damage class the snapshots actually
+/// carry and it was going unjoined.
 ///
 /// ## Rust Learning: why `Vec<char>` and an index, not an iterator
 ///
@@ -157,18 +177,23 @@ fn join_hyphen_line_breaks(text: &str) -> String {
     out
 }
 
-/// If the hyphen at `hyphen` is a line-break split, where the word resumes.
+/// If the hyphen at `hyphen` is a split word, where the word resumes.
 ///
-/// Returns `None` — leaving the hyphen intact — unless all three hold: the text
-/// already emitted ends in a letter (ignoring spaces), the run after the hyphen
-/// contains a newline, and a letter follows it.
+/// Returns `None` — leaving the hyphen intact — unless all four hold: the text
+/// already emitted ends in a letter (ignoring spaces), there is at least one
+/// whitespace character after the hyphen, a letter follows that run, and — when
+/// the hyphen had a space BEFORE it — the run after it contains a newline.
+///
+/// That last condition is the whole difference between `rul -`⏎`ings`, which is
+/// one word broken across a line, and `word - word`, which is punctuation.
 fn word_resumes_after(chars: &[char], hyphen: usize, out: &str) -> Option<usize> {
-    let ends_in_letter = out
-        .trim_end_matches([' ', '\t'])
-        .ends_with(|c: char| c.is_ascii_alphabetic());
-    if !ends_in_letter {
+    let before_hyphen = out.trim_end_matches([' ', '\t']);
+    if !before_hyphen.ends_with(|c: char| c.is_ascii_alphabetic()) {
         return None;
     }
+    // A space between the word and the hyphen. Cheap to test as a length change
+    // because `trim_end_matches` returns a slice of the same string.
+    let spaced_before_hyphen = before_hyphen.len() != out.len();
 
     let mut index = hyphen + 1;
     let mut saw_newline = false;
@@ -176,7 +201,13 @@ fn word_resumes_after(chars: &[char], hyphen: usize, out: &str) -> Option<usize>
         saw_newline |= chars[index] == '\n';
         index += 1;
     }
-    if !saw_newline {
+
+    // No gap at all: `two-fold`, a compound word.
+    if index == hyphen + 1 {
+        return None;
+    }
+    // Spaces on both sides and no line break: `word - word`, punctuation.
+    if spaced_before_hyphen && !saw_newline {
         return None;
     }
     chars
