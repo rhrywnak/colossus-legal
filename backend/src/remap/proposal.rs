@@ -8,9 +8,21 @@
 //! #
 //! # APPROVED <your name>
 //!
+//! # tier1-exact · score 1.000 · page 4 · 9 curated row(s)
 //! MAP doc:evidence:old1 doc:evidence:new1
+//! # tier3-near · score 0.955 · page 13 · 4 curated row(s)
 //! MAP doc:evidence:old2 doc:evidence:new2
 //! ```
+//!
+//! ## Why the tier is a comment ABOVE the MAP line, not a field on it
+//!
+//! `apply` is deliberately unchanged: `parse` still requires a `MAP` line to be
+//! exactly two ids, so a proposal written by an older build and a proposal
+//! written by this one are read identically, and a trailing field could never be
+//! mistaken for an id. Putting the evidence on its own comment line gets it in
+//! front of the human — which is the whole point of it — without touching the
+//! only format that has ever been executed. Deleting the `MAP` line still rejects
+//! the move; the orphaned comment above it is inert.
 //!
 //! Two rules do all the work:
 //!
@@ -27,7 +39,7 @@
 
 use std::fmt::Write as _;
 
-use super::plan::{Match, RemapPlan};
+use super::plan::{AutoMove, Match, MatchedNode, RemapPlan};
 
 /// A parsed proposal, ready to apply.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -83,6 +95,11 @@ pub fn render(plan: &RemapPlan) -> String {
         t.yield_percent(),
         t.curated_rows_at_risk
     );
+    let _ = writeln!(
+        out,
+        "# Of the {} unambiguous: {} tier1-exact · {} tier2-normalized · {} tier3-near\n#",
+        t.unambiguous, t.unambiguous_exact, t.unambiguous_normalized, t.unambiguous_near
+    );
     out.push_str(
         "# Every MAP line below moves that old node's curated rows onto the new\n\
          # node. Delete any line you do not want applied.\n\
@@ -93,9 +110,27 @@ pub fn render(plan: &RemapPlan) -> String {
          # APPROVED your-name-here\n\n",
     );
     _ = writeln!(out, "DOCUMENT {}", plan.document_id);
-    for (old, new) in plan.auto_moves() {
-        let _ = writeln!(out, "MAP {old} {new}");
+    for entry in plan.auto_moves() {
+        out.push_str(&render_move(&entry));
     }
+    out
+}
+
+/// One approved-by-default move: its evidence on a comment line, then the move.
+fn render_move(entry: &AutoMove) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "# {} · score {:.3} · page {} · {} curated row(s)",
+        entry.tier.label(),
+        entry.score,
+        entry
+            .page
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "—".to_string()),
+        entry.curated_rows
+    );
+    let _ = writeln!(out, "MAP {} {}", entry.old_id, entry.new_id);
     out
 }
 
@@ -119,43 +154,71 @@ pub fn render_queue(plan: &RemapPlan) -> String {
         queue.len()
     );
     for node in queue {
-        let _ = writeln!(
-            out,
-            "── {}  ({} curated row(s))",
-            node.old.id, node.old.curated_rows
-        );
-        let _ = writeln!(
-            out,
-            "   page    : {}",
-            node.old
-                .page
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| "—".to_string())
-        );
-        if let Some(question) = &node.old.question {
-            let _ = writeln!(out, "   question: {question}");
+        out.push_str(&render_queue_entry(node));
+    }
+    out
+}
+
+/// One queue entry: the node, what it costs, and why it needs a human.
+///
+/// Extracted from `render_queue` so both stay under the 50-line rule and the
+/// outcome arms can be read on their own.
+fn render_queue_entry(node: &MatchedNode) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "── {}  ({} curated row(s))",
+        node.old.id, node.old.curated_rows
+    );
+    let _ = writeln!(
+        out,
+        "   page    : {}",
+        node.old
+            .page
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "—".to_string())
+    );
+    if let Some(question) = &node.old.question {
+        let _ = writeln!(out, "   question: {question}");
+    }
+    let _ = writeln!(out, "   quote   : {}", node.old.verbatim_quote);
+    out.push_str(&render_outcome(&node.outcome));
+    out.push('\n');
+    out
+}
+
+/// Why this node needs a human, in the words the human will read.
+fn render_outcome(outcome: &Match) -> String {
+    let mut out = String::new();
+    match outcome {
+        Match::Ambiguous { candidates, tier } => {
+            // Domain note: ONE candidate is not a weaker version of two — it is
+            // the other kind of ambiguity. It means the doubt is on the OLD
+            // side: a twin carrying the same key, or another old node that
+            // already owns this new node. "Pick one of these two" and "two of
+            // your nodes want this one" are different decisions, so the queue
+            // says which it is asking for.
+            let shape = if candidates.len() == 1 {
+                "one candidate, but another old node also claims it:"
+            } else {
+                "candidates:"
+            };
+            let _ = writeln!(out, "   AMBIGUOUS at {} — {shape}", tier.label());
+            for candidate in candidates {
+                let _ = writeln!(out, "     {candidate}");
+            }
         }
-        let _ = writeln!(out, "   quote   : {}", node.old.verbatim_quote);
-        match &node.outcome {
-            Match::Ambiguous { candidates } => {
-                let _ = writeln!(out, "   AMBIGUOUS — candidates:");
-                for candidate in candidates {
-                    let _ = writeln!(out, "     {candidate}");
-                }
-            }
-            Match::Unmatched => {
-                let _ = writeln!(
-                    out,
-                    "   UNMATCHED — no new node carries this page + quote + question"
-                );
-            }
-            // `queue()` yields only the two arms above; handled rather than
-            // unwrapped so a future outcome cannot panic here.
-            other => {
-                let _ = writeln!(out, "   {other:?}");
-            }
+        Match::Unmatched => {
+            let _ = writeln!(
+                out,
+                "   UNMATCHED — no new node on this page matched at any tier"
+            );
         }
-        out.push('\n');
+        // `queue()` yields only the two arms above; handled rather than
+        // unwrapped so a future outcome cannot panic here.
+        other => {
+            let _ = writeln!(out, "   {other:?}");
+        }
     }
     out
 }
@@ -270,3 +333,7 @@ fn one_value<'a>(line: usize, keyword: &str, rest: &[&'a str]) -> Result<&'a str
 #[cfg(test)]
 #[path = "proposal_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "proposal_queue_tests.rs"]
+mod queue_tests;

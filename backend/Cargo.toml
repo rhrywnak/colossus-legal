@@ -25,6 +25,13 @@ serde_yaml = "0.9"
 # directly and a key that depends on a transitive crate is a key that can vanish
 # in a `cargo update`.
 unicode-normalization = "0.1"
+# String similarity for the remap's tier-3 near match (REMAP_NORMALIZED_MATCH).
+# Already in the lock at 0.11.1 as a transitive dep of clap, so this adds no new
+# code to the build — but the matcher calls `normalized_levenshtein` directly and
+# a measure that decides where Roman's curated rows land must not be able to
+# vanish in a `cargo update` of somebody else's dependency. Same reasoning as
+# unicode-normalization above.
+strsim = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 # Already in the lockfile via neo4rs; named directly because the practice pages
 # render every timestamp in the CASE's timezone (build .403 bundle, §D) and a
