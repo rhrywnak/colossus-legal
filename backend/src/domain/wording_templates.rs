@@ -33,6 +33,7 @@ use crate::domain::settings::{parse_text, SettingError};
 use crate::domain::wording as curation;
 use crate::domain::wording_accusation as accusation;
 use crate::domain::wording_authoring as authoring;
+use crate::domain::wording_matrix as matrix;
 use crate::domain::wording_rehearsal as rehearsal;
 use crate::domain::wording_rehearsal_chrome as chrome;
 use crate::domain::wording_scan as scan;
@@ -217,6 +218,40 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // A failure that names neither the card nor the cause sends the reader to the
     // logs, which is the silent-failure shape Rule 1 exists to prevent.
     (curation::KEY_CARD_RULING_FAILED, &["{code}", "{detail}"]),
+    // ── PROOF_MATRIX_v2: the reader-facing matrix ────────────────────────────
+    //
+    // Listed here for the same one-table reason stated above: a key absent from
+    // this lookup is silently unconstrained.
+    //
+    // "more" without its number hides how much is behind the control, which is
+    // the only reason the control exists.
+    (matrix::KEY_MORE_TEMPLATE, &["{count}"]),
+    // A toggle that will not say how much it is hiding reads as decoration — and
+    // on this page what it hides is evidence somebody put aside.
+    (matrix::KEY_SHOW_HIDDEN_TEMPLATE, &["{count}"]),
+    // An unattributed confirmation is not a confirmation. This is also the mark
+    // the Word export prints its tick from, so an edit that dropped {actor} would
+    // put an anonymous tick into a document bound for a hearing.
+    (matrix::KEY_KEPT_TEMPLATE, &["{actor}"]),
+    // A request with no answer is not evidence of anything, and an answer with no
+    // request is a bare "Admitted."
+    (
+        matrix::KEY_RFA_TEMPLATE,
+        &["{number}", "{request}", "{answer}"],
+    ),
+    (
+        matrix::KEY_RFA_UNNUMBERED_TEMPLATE,
+        &["{request}", "{answer}"],
+    ),
+    // A document headed "Count 3" with no cause of action named is not usable at
+    // a hearing.
+    (matrix::KEY_EXPORT_TITLE_TEMPLATE, &["{number}", "{name}"]),
+    // A printed proof summary with no generation date cannot be told apart from
+    // last month's.
+    (matrix::KEY_EXPORT_FOOTER_TEMPLATE, &["{date}"]),
+    // The row updates optimistically. Without {detail} the reader is left looking
+    // at a screen that disagrees with the database and cannot tell why.
+    (matrix::KEY_RULING_FAILED_TEMPLATE, &["{detail}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

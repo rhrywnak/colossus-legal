@@ -371,10 +371,11 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
             {detail.allegation_count} allegations mapped ({detail.common_count}{" "}
             common · {detail.dedicated_count} dedicated)
           </span>
-          {/* The supporting evidence under each allegation arrives ranked
-              strongest-first. Said once, from the store, because an order that
-              is a CLAIM about strength and reads as arbitrary is worse than no
-              order at all. */}
+          {/* The evidence under each allegation arrives in one order, decided
+              by the backend (§3: confirmed first, then the linking pass's rank,
+              its confidence, and the document's date). Said once, from the
+              store, because an order that IS a claim and reads as arbitrary is
+              worse than no order at all. */}
           <span>{matrixWording.ranked_list_note}</span>
         </div>
       </div>
@@ -393,6 +394,8 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg={SECTION_BG_COMMON}
               accentColor={SECTION_COLOR_COMMON}
               allegations={common}
+              caseSlug={caseSlug}
+              visibleItems={detail.visible_items}
               wording={matrixWording}
             />
           )}
@@ -407,6 +410,8 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg={SECTION_BG_DEDICATED}
               accentColor={SECTION_COLOR_DEDICATED}
               allegations={dedicated}
+              caseSlug={caseSlug}
+              visibleItems={detail.visible_items}
               wording={matrixWording}
             />
           )}
@@ -417,6 +422,8 @@ const ElementDetailContent: React.FC<ElementDetailContentProps> = ({
               labelBg="var(--bg-page)"
               accentColor="var(--text-muted)"
               allegations={unknown}
+              caseSlug={caseSlug}
+              visibleItems={detail.visible_items}
               wording={matrixWording}
             />
           )}

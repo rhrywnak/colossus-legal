@@ -118,13 +118,20 @@ export type CausesOfActionResponse = {
 };
 
 /**
- * The eight strings the Proof Matrix speaks, served from the settings store.
+ * The thirty-four strings the Proof Matrix speaks, served from the settings store.
  *
- * `raw_approved_template` and `duplicate_template` carry `{count}`; the two
- * fillers live in `components/matrixStrength.ts` beside the rest of the matrix's
- * pure helpers. The frontend composes nothing else here.
+ * Mirrors the backend `MatrixWordingDto` field for field. Templates carrying
+ * `{placeholders}` are filled by the pure helpers in
+ * `components/matrixStrength.ts`; nothing in this app COMPOSES a sentence, and
+ * the RFA line — the one place a sentence really is assembled — is composed by
+ * the backend and served finished on each item.
+ *
+ * There is deliberately no fallback vocabulary anywhere in the frontend: a
+ * Matrix that could not read its words renders the page's error state rather
+ * than inventing a label (the language law, and Standing Rule 1).
  */
 export type MatrixWording = {
+  // ── Task 396 P1: the strength column and its drill-down ──────────────────
   strong_column_label: string;
   raw_approved_template: string;
   strong_hint: string;
@@ -133,6 +140,44 @@ export type MatrixWording = {
   tier_other_chip: string;
   duplicate_template: string;
   ranked_list_note: string;
+  // ── PROOF_MATRIX_v2: the reader-facing page ──────────────────────────────
+  /** Carries `{count}` — the control opening the items past the short list. */
+  more_template: string;
+  /** Carries `{count}` — the toggle revealing put-aside and removed items. */
+  show_hidden_template: string;
+  hide_hidden_label: string;
+  keep_label: string;
+  remove_label: string;
+  undo_label: string;
+  machine_label: string;
+  /** Carries `{actor}` — the green mark on an item a human confirmed. */
+  kept_template: string;
+  conflict_label: string;
+  confidence_high_label: string;
+  confidence_medium_label: string;
+  /** No edge carries `low` yet — the word exists before a pass emits one. */
+  confidence_low_label: string;
+  confidence_unrated_label: string;
+  /** Filled server-side; present here because the Settings page edits it. */
+  rfa_template: string;
+  rfa_unnumbered_template: string;
+  legend_line: string;
+  export_button_label: string;
+  export_title_template: string;
+  export_supporting_heading: string;
+  export_disputing_heading: string;
+  /** The ✓ the export's footer explains. Stored so the two cannot drift; the
+   *  backend supplies the space that joins it to the quote. */
+  export_confirmed_mark: string;
+  export_empty_line: string;
+  export_footer_template: string;
+  /** Carries `{detail}` — shown when a Keep, Remove or Undo could not save. */
+  ruling_failed_template: string;
+  /** Shown under a paragraph with no supporting evidence. */
+  no_supporting_line: string;
+  /** Shown under a paragraph with no disputing evidence. Different words from
+   *  its twin: our missing proof and theirs are different findings. */
+  no_disputing_line: string;
 };
 
 /**

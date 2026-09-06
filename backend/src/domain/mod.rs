@@ -39,6 +39,12 @@ pub mod link_cut;
 pub mod llm_effort;
 pub mod llm_params;
 pub mod llm_provider_ext;
+/// The role and confidence the linking pass wrote onto an Evidence→Allegation
+/// edge, and the order §3 sorts them in (PROOF_MATRIX_v2 §1).
+pub mod matrix_edge;
+/// A human's keep/remove verdict on one ranked Evidence→Allegation item, and
+/// the ledger vocabulary beside it (PROOF_MATRIX_v2 §2).
+pub mod matrix_ruling;
 pub mod practice_params;
 /// The verifier's second-chance matcher — numeral stripping and one-gap
 /// matching, for quotes the contiguous matcher cannot find. Split from

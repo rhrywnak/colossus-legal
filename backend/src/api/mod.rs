@@ -50,6 +50,8 @@ pub mod practice_one_page;
 pub mod practice_reorder;
 pub mod practice_sessions;
 pub mod proof_matrix;
+pub mod proof_matrix_export;
+pub mod proof_matrix_rulings;
 pub mod proof_review;
 pub mod qa;
 pub mod queries;

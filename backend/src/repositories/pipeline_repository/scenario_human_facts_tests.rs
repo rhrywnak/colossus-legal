@@ -182,6 +182,15 @@ const HUMAN_AUTHORED_TABLES: &[&str] = &[
     // to the ledger could manufacture an attribution for a decision nobody made.
     "evidence_allegation_links",
     "evidence_allegation_link_events",
+    // PROOF_MATRIX_v2 §2: a human's keep/remove verdict on a machine-ranked item,
+    // and the ledger of every such act. The argument is the sharpest yet, because
+    // the machine's own claim is ALREADY on the edge: a scan able to write here
+    // could restore its own ranking over a human's correction of it, and the
+    // Matrix would go on saying "kept · Roman" over a row Roman had struck. A
+    // scan able to append to the ledger could manufacture that attribution
+    // outright — and the Word export prints a confirmed tick from it.
+    "evidence_allegation_rulings",
+    "evidence_allegation_ruling_events",
 ];
 
 fn read_source(relative: &str) -> Option<String> {
