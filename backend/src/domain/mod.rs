@@ -28,6 +28,9 @@ pub mod chronology;
 pub mod confidence_band;
 pub mod date_precision;
 pub mod evidence_tier;
+/// The five sentences a witness's card carries, and who wrote each of them
+/// (FACT_CARD_v2 §1).
+pub mod fact_card;
 pub mod fact_role;
 pub mod fact_status;
 pub mod fact_tier;
@@ -50,6 +53,7 @@ pub mod ruling_anchor;
 pub mod scenario_code;
 pub mod sentence_bounds;
 pub mod settings;
+pub mod text;
 pub mod wording;
 pub mod wording_accusation;
 pub mod wording_authoring;
@@ -58,6 +62,8 @@ pub mod wording_chronology;
 // The stored KEYS the block above reads. Split out for Rule 17 when T1.2
 // declared the subsets words — see that module's header.
 pub mod wording_chronology_keys;
+/// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2 §2, §3).
+pub mod wording_fact_card;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;

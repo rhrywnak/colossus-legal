@@ -233,6 +233,12 @@ describe("P3 · the add-fact form renders at the control that opens it", () => {
         addForm={addForm}
         onRemoveHumanFact={() => {}}
         onRemoveFact={() => {}}
+        // FACT_CARD_v2 §2: a card edit is written against a (case, scenario)
+        // pair. This suite asserts where the ADD FORM lands and never edits a
+        // card, so the two ids are literals and the refresh is a no-op.
+        slug="awad_v_catholic_family_service"
+        scenarioId="scenario-1"
+        onCardEdited={() => {}}
         wording={workingWording}
         options={options}
         onSetTier={() => Promise.resolve()}

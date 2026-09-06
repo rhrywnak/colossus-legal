@@ -439,6 +439,12 @@ const ScenarioFactsSection: React.FC<Props> = ({
         <WorkingView
           cards={cards}
           humanFacts={humanFacts}
+          // FACT_CARD_v2 §2: a card is SCENARIO-scoped, so an edit is written
+          // against this pair. `onChanged` re-reads the deck, which is what makes
+          // the screen match the store after a field is stored.
+          slug={slug}
+          scenarioId={scenarioId}
+          onCardEdited={onChanged}
           onAdd={() => setAdding(true)}
           // P3: the form renders AT its button, inside the view that owns the
           // button's position — not after a scroll region holding forty-six

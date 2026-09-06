@@ -229,40 +229,40 @@ describe("the controls do not scroll away (Piece 3)", () => {
   });
 });
 
-// ── Piece 5a: the weight PICKER, not a cycling star ──────────────────────────
+// ── FACT_CARD_v2 §2: the weight picker is GONE from this surface ────────────
 
-describe("the weight control names all three tiers before you choose", () => {
-  it("offers every tier by its stored name", () => {
-    // The star that cycled is gone. Its defence was that the CURRENT tier was
-    // written out beside the glyph — true, and not the problem: a cycling control
-    // discloses where you are and never where a click takes you, so the only way
-    // to learn that one more click buries the card was to bury it. Roman was
-    // moved to the background pile by a control he had signed off three days
-    // earlier.
-    const html = markup(row());
+describe("the fact card carries a position, not a weight", () => {
+  it("offers no weight control at all", () => {
+    // §2: "position number (replaces weight; weight control removed)".
+    //
+    // The three tests that stood here asserted the OPPOSITE — that the picker
+    // offered all three tiers without a click, and marked the current one
+    // selected. They were right for the surface they were written for: a curator
+    // triaging a queue needs to see where a click takes them, which is why the
+    // cycling star was replaced by a picker in the first place (Roman was moved
+    // to the background pile by a control he had signed off three days earlier).
+    //
+    // This deck is read by a WITNESS. A three-way weight is a judgment she is not
+    // making, and the number she needs is which card she is on. So the control is
+    // removed from here and the tier itself is untouched — `sort_ordinal` and
+    // `tier` still ride the payload and still order the list.
+    const html = markup(row({ tier: "carries" }));
 
     for (const label of [
       wording.fact_tier_carries_label,
       wording.fact_tier_backup_label,
       wording.fact_tier_background_label,
     ]) {
-      expect(html, `the picker must offer "${label}" without a click`).toContain(label);
+      expect(html, `"${label}" must not appear on a witness's card`).not.toContain(
+        label,
+      );
     }
   });
 
-  it("shows the tier this fact currently carries as the selected one", () => {
-    const html = markup(row({ tier: "carries" }));
-    // `renderToStaticMarkup` renders a controlled <select>'s value as `selected`
-    // on the matching option, which is the one property that says which of the
-    // three names is this card's rather than merely offered by it.
-    const at = html.indexOf(wording.fact_tier_carries_label);
-    const tagStart = html.lastIndexOf("<option", at);
-    expect(html.slice(tagStart, at)).toContain("selected");
-  });
-
-  it("gives a human fact no weight control at all", () => {
+  it("gives a human fact no weight control either", () => {
     // §8: a human-authored fact is not evidence and carries no weight in the
-    // scenario. A disabled picker would imply it could have one.
+    // scenario. It never had one, and the removal above does not change that —
+    // the assertion is kept so the two reasons stay separately recorded.
     const html = markup(
       row({ isHuman: true, code: null, tier: null, card: null }),
     );

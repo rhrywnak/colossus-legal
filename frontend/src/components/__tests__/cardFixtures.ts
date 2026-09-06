@@ -15,6 +15,7 @@
  */
 
 import type { AllegationOptions } from "../../services/evidenceLinks";
+import { FACT_CARD_WORDING_FIXTURE } from "../../testFixtures/factCardWording";
 import type { CardBearsOn, ScenarioCard } from "../../services/scenarioCards";
 
 /** What a caller may vary about the card under test. */
@@ -87,6 +88,12 @@ export function cardFixture(over: CardOverrides = {}): ScenarioCard {
  */
 export function optionsFixture(): AllegationOptions {
   return {
+    // FACT_CARD_v2: the witness's own words, from the shared fixture that is
+    // pinned to the migration. Not re-typed here — two copies of twenty-three
+    // strings drift, and the drift is invisible to a test that compares one
+    // literal against itself.
+    fact_card: FACT_CARD_WORDING_FIXTURE,
+    fact_card_visible_count: 10,
     wording: {
       fact_tier_carries_label: "Carries the scenario",
       fact_tier_backup_label: "Backup",

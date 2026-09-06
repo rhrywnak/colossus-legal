@@ -161,8 +161,12 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// 288 at the T1.0 split. 301 since T1.3, which added thirteen lines: the nine
 /// timeline-subset routes, plus the `HEAD` axum pairs with each of the three
 /// `GET`s and the `PUT`/`DELETE`/`POST` that share their paths.
+///
+/// 302 since FACT_CARD_v2, which added one: `PUT
+/// /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/card`, the edit of
+/// ONE field of a witness's card.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 301;
+const EXPECTED_ROUTE_LINES: usize = 302;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

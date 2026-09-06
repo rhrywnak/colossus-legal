@@ -182,6 +182,15 @@ const HUMAN_AUTHORED_TABLES: &[&str] = &[
     // to the ledger could manufacture an attribution for a decision nobody made.
     "evidence_allegation_links",
     "evidence_allegation_link_events",
+    // FACT_CARD_v2 §1: the five sentences a witness's card carries, and the
+    // ledger of every field ever written on one. Machine DRAFTS live here too,
+    // and that is exactly why the table is off-limits: the moment Chuck edits a
+    // field it becomes his words, and a scan that could rewrite the row would
+    // restore a draft over an edit — silently, on a deck Marie reads from on the
+    // stand. A scan able to append to the ledger could manufacture the record of
+    // a human having written it.
+    "scenario_fact_cards",
+    "scenario_fact_card_events",
 ];
 
 fn read_source(relative: &str) -> Option<String> {

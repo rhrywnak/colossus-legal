@@ -33,6 +33,7 @@ use crate::domain::settings::{parse_text, SettingError};
 use crate::domain::wording as curation;
 use crate::domain::wording_accusation as accusation;
 use crate::domain::wording_authoring as authoring;
+use crate::domain::wording_fact_card as fact_card;
 use crate::domain::wording_rehearsal as rehearsal;
 use crate::domain::wording_rehearsal_chrome as chrome;
 use crate::domain::wording_scan as scan;
@@ -217,6 +218,40 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // A failure that names neither the card nor the cause sends the reader to the
     // logs, which is the silent-failure shape Rule 1 exists to prevent.
     (curation::KEY_CARD_RULING_FAILED, &["{code}", "{detail}"]),
+    // ── FACT_CARD_v2: the card a witness reads ───────────────────────────────
+    //
+    // Listed here for the same one-table reason stated above: a key absent from
+    // this lookup is silently unconstrained.
+    //
+    // "Point  — " sends the reader to another page to find out which point;
+    // "Point 2" with no words cannot be matched to the point it backs.
+    (fact_card::KEY_BACKS_TEMPLATE, &["{position}", "{text}"]),
+    // The verb says which way it cuts, the code is what a lawyer cites, and the
+    // text is what the accusation actually says. Drop any one and the line reads
+    // as a complete sentence with a fact removed.
+    (
+        fact_card::KEY_SUPPORTS_TEMPLATE,
+        &["{verb}", "{code}", "{text}"],
+    ),
+    // A request with no answer is not evidence of anything; an answer with no
+    // request is a bare "Admitted."
+    (
+        fact_card::KEY_RFA_TEMPLATE,
+        &["{number}", "{request}", "{answer}"],
+    ),
+    (
+        fact_card::KEY_RFA_UNNUMBERED_TEMPLATE,
+        &["{request}", "{answer}"],
+    ),
+    // A deck that says how many are shown without saying how many EXIST is the
+    // shape that let 148 borrowed cards read as a queue on 2026-08-07.
+    (
+        fact_card::KEY_DECK_TEMPLATE,
+        &["{shown}", "{total}", "{collapsed}"],
+    ),
+    // The field closes on save. Without the reason the reader is left looking at
+    // a sentence the database does not hold.
+    (fact_card::KEY_SAVE_FAILED_TEMPLATE, &["{detail}"]),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

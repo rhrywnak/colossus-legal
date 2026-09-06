@@ -482,6 +482,30 @@ pub struct ScenarioCard {
     /// placeholder — the absent-not-fake law.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scan_reason: Option<String>,
+    /// When the statement was made, or when its document is dated — the date the
+    /// card's source line leads with (FACT_CARD_v2 §2).
+    ///
+    /// `YYYY-MM-DD` or `YYYY-MM`, formatted by the browser in the reader's
+    /// locale — the same division of labour [`ProposalSource::started_at`]
+    /// already makes for a date, and the one exception to this payload composing
+    /// everything it sends.
+    ///
+    /// `None` when neither the statement nor its document is dated. The source
+    /// line then carries no date rather than an invented one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source_date: Option<String>,
+    /// The five sentences a witness's card carries in THIS scenario
+    /// (FACT_CARD_v2 §2), or `None` when nobody has drafted one.
+    ///
+    /// ## Domain note: absent and empty are different, and both occur
+    ///
+    /// `None` means no row exists — the loader has not reached this statement and
+    /// nobody has written a word about it. A PRESENT block with five empty fields
+    /// means somebody started and stopped. The first is the ordinary state of a
+    /// raw candidate; the second is work in progress, and the deck should be able
+    /// to tell them apart.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub card: Option<crate::dto::fact_card::FactCardBlock>,
     /// What the human did, in their own terms — "You linked this to ¶41 · they'll
     /// use it against us." Present exactly when `human_links` is non-empty.
     ///

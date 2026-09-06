@@ -29,7 +29,7 @@
 use neo4rs::{query, Graph, Row};
 
 use crate::domain::case_state::partition::ConnectionTier;
-use crate::models::document_status::ENTITY_ALLEGATION;
+use crate::models::document_status::{ENTITY_ALLEGATION, ENTITY_DOCUMENT};
 use crate::neo4j::schema;
 
 /// Errors from the card-extras read.
@@ -60,6 +60,16 @@ pub enum ScenarioCardRepoError {
 pub(crate) struct CardExtrasRow {
     pub evidence_id: String,
     pub statement_type: Option<String>,
+    /// The statement's own date, `YYYY-MM-DD` or `YYYY-MM` (FACT_CARD_v2 §2).
+    ///
+    /// Domain note: the card's source line leads with a DATE, and the statement's
+    /// own is the truer one — a transcript page is dated by the hearing, not by
+    /// when the PDF was filed. `None` on 512 of 1,291 Evidence nodes, measured,
+    /// which is why `document_date` rides beside it as the fallback.
+    pub event_date: Option<String>,
+    /// The SOURCE DOCUMENT's date. The fallback when the statement carries none.
+    /// Empty string on four DEV documents, which the composer treats as absent.
+    pub document_date: Option<String>,
     pub grounding_status: Option<String>,
     /// The relationship type of the Evidence→Allegation edge, or `None` when the
     /// item links to no allegation.
@@ -100,8 +110,11 @@ fn card_extras_query() -> String {
            WHERE labels(a)[0] = $allegation_label AND type(r) IN $stance_edge_types \
          OPTIONAL MATCH (a)-[:{bears_on}]->(el) \
          OPTIONAL MATCH (lc)-[:{has_element}]->(el) \
+         OPTIONAL MATCH (e)-[:{contained_in}]->(d) WHERE labels(d)[0] = $document_label \
          RETURN e.id                AS evidence_id, \
                 e.statement_type    AS statement_type, \
+                e.event_date        AS event_date, \
+                d.document_date     AS document_date, \
                 e.grounding_status  AS grounding_status, \
                 type(r)             AS edge_class, \
                 a.id                AS allegation_id, \
@@ -114,6 +127,7 @@ fn card_extras_query() -> String {
          ORDER BY evidence_id, count_number, allegation_id",
         bears_on = schema::BEARS_ON,
         has_element = schema::HAS_ELEMENT,
+        contained_in = schema::CONTAINED_IN,
     )
 }
 
@@ -149,6 +163,7 @@ pub(crate) async fn fetch_card_extras(
     let q = query(&card_extras_query())
         .param("ids", ids.to_vec())
         .param("allegation_label", ENTITY_ALLEGATION)
+        .param("document_label", ENTITY_DOCUMENT)
         .param("stance_edge_types", stance_edge_types);
 
     let mut stream = graph
@@ -192,6 +207,8 @@ fn decode_row(row: &Row) -> Result<CardExtrasRow, ScenarioCardRepoError> {
     Ok(CardExtrasRow {
         evidence_id: row.get("evidence_id").map_err(decode)?,
         statement_type: row.get("statement_type").map_err(decode)?,
+        event_date: row.get("event_date").map_err(decode)?,
+        document_date: row.get("document_date").map_err(decode)?,
         grounding_status: row.get("grounding_status").map_err(decode)?,
         edge_class: row.get("edge_class").map_err(decode)?,
         allegation_id: row.get("allegation_id").map_err(decode)?,
@@ -232,15 +249,48 @@ mod tests {
         );
     }
 
-    /// The whole bears-on chain is optional too.
+    /// The whole bears-on chain is optional too — and so is the source document.
+    ///
+    /// FOUR since FACT_CARD_v2 added the `CONTAINED_IN` hop for the document's
+    /// date. A mandatory hop on ANY of them would silently drop rows: an item
+    /// linked to nothing, an accusation wired to no element, a count that does not
+    /// exist yet, or — the new one — a statement whose source document was never
+    /// authored, which is a real state on 158 nodes.
     #[test]
-    fn the_bears_on_chain_is_optional_at_every_hop() {
+    fn the_bears_on_chain_and_the_document_are_optional_at_every_hop() {
         let q = card_extras_query();
         assert_eq!(
             q.matches("OPTIONAL MATCH").count(),
-            3,
-            "allegation, element and count must each be optional: {q}"
+            4,
+            "allegation, element, count and the source document must each be \
+             optional: {q}"
         );
+        assert!(
+            q.contains(&format!(
+                "OPTIONAL MATCH (e)-[:{}]->(d)",
+                schema::CONTAINED_IN
+            )),
+            "the document hop must be optional: {q}"
+        );
+    }
+
+    /// Both date sources are projected.
+    ///
+    /// The card's source line leads with a date and prefers the STATEMENT's over
+    /// its document's — a transcript page is dated by the hearing, not by when the
+    /// PDF was filed. A query that projected only one would make that preference
+    /// unexpressible.
+    #[test]
+    fn both_date_sources_are_projected() {
+        let q = card_extras_query();
+        assert!(q.contains("e.event_date        AS event_date"), "{q}");
+        assert!(q.contains("d.document_date     AS document_date"), "{q}");
+    }
+
+    /// The document node is label-gated by a PARAMETER, like every other binding.
+    #[test]
+    fn the_document_binding_is_gated_by_a_parameter() {
+        assert!(card_extras_query().contains("labels(d)[0] = $document_label"));
     }
 
     /// The edge classes are parameterized, never written into the Cypher.

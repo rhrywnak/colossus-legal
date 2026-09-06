@@ -57,10 +57,10 @@ fn every_key_with_required_placeholders_is_a_real_key() {
     // guarding anything, because `missing_placeholders` returns empty for a key
     // it does not find.
     //
-    // All SEVEN stored-string lists count (2.10, 2.11 B1/B2, 2.11 C, the
-    // 2026-08-07 scenario-authoring block, and 2.15's scan block): this table is
-    // the one place the write path looks, so it carries every surface's templates
-    // as well as this module's own.
+    // All EIGHT stored-string lists count (2.10, 2.11 B1/B2, 2.11 C, the
+    // 2026-08-07 scenario-authoring block, 2.15's scan block, and FACT_CARD_v2's):
+    // this table is the one place the write path looks, so it carries every
+    // surface's templates as well as this module's own.
     for (key, required) in REQUIRED_PLACEHOLDERS {
         assert!(
             WORDING_KEYS.contains(key)
@@ -70,7 +70,9 @@ fn every_key_with_required_placeholders_is_a_real_key() {
                 || authoring::AUTHORING_WORDING_KEYS.contains(key)
                 || crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS
                     .contains(key)
-                || crate::domain::wording_scan::SCAN_WORDING_KEYS.contains(key),
+                || crate::domain::wording_scan::SCAN_WORDING_KEYS.contains(key)
+                // FACT_CARD_v2 brought this table its eighth list.
+                || crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -94,6 +96,7 @@ fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
         crate::domain::wording_scenario_authoring::ScenarioAuthoringWording::for_test_values(),
     );
     values.extend(crate::domain::wording_scan::ScanWording::for_test_values());
+    values.extend(crate::domain::wording_fact_card::FactCardWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(
