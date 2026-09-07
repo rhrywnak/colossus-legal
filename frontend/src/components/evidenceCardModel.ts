@@ -144,7 +144,10 @@ export type CardLimits = {
  * quotations use "..." to mean text was omitted from the RECORD, and this is a
  * display fold that omits nothing.
  */
-function foldQuestion(text: string, limit: number): { short: string; truncated: boolean } {
+// EXPORTED since v2.1: `FactCardBody` renders the same folded `Q:` line, and a
+// second copy of this rule is how the two surfaces come to fold the same question
+// at two different lengths.
+export function foldQuestion(text: string, limit: number): { short: string; truncated: boolean } {
   const trimmed = text.trim();
   if (trimmed.length <= limit) return { short: trimmed, truncated: false };
 

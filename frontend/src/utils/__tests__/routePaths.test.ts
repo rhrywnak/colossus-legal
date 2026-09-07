@@ -60,10 +60,8 @@ import {
   practiceAnswersPath,
   practiceQuestionPath,
   practiceSessionPath,
-  rehearsalPath,
   proofMatrixPath,
   proofReviewTabPath,
-  rehearsalScenarioPath,
   scenarioPagePath,
   subsetPopoutPath,
   timelineEventPath,
@@ -144,18 +142,8 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/trial-prep/:scenarioId",
     emit: () => scenarioPagePath("awad v cfs", "id/with/slashes"),
   },
-  { name: "rehearsalPath", route: "/cases/:slug/rehearsal", emit: () => rehearsalPath("awad-v-cfs") },
-  { name: "rehearsalPath (slug needs escaping)", route: "/cases/:slug/rehearsal", emit: () => rehearsalPath("awad v cfs/2") },
-  {
-    name: "rehearsalScenarioPath",
-    route: "/cases/:slug/rehearsal/:code",
-    emit: () => rehearsalScenarioPath("awad-v-cfs", "S-1"),
-  },
-  {
-    name: "rehearsalScenarioPath (code needs escaping)",
-    route: "/cases/:slug/rehearsal/:code",
-    emit: () => rehearsalScenarioPath("awad v cfs", "S/1 draft"),
-  },
+  // The two rehearsal cases are gone with their builders and their routes
+  // (v2.1, ruling R35). Nothing composes `/cases/:slug/rehearsal` any more.
   {
     name: "practicePrintPath",
     route: "/cases/:slug/trial-prep/practice/:scenarioId/print",
@@ -347,7 +335,11 @@ describe("the guard can fail", () => {
     expect(routes).toContain(
       "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     );
-    expect(routes).toContain("/cases/:slug/rehearsal/:code");
+    // Was `/cases/:slug/rehearsal/:code` until v2.1 retired it. The sanity
+    // check needs a route with a PARAMETER on a case-scoped path — that is the
+    // shape a broken regex would drop first — so the proof matrix takes its
+    // place rather than the check being weakened to bare literals.
+    expect(routes).toContain("/cases/:slug/proof-matrix");
     expect(routes).toContain("/documents/:id");
   });
 

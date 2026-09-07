@@ -269,3 +269,8 @@ describe("the fact card carries a position, not a weight", () => {
     expect(html).not.toContain(wording.fact_tier_carries_label);
   });
 });
+
+// The v2.1 suites — the card cut down to evidence, the Q&A proof and the Backs
+// picker — live in `factCardV21.test.tsx`. They mount a DIFFERENT component (the
+// witness card rather than the curator's) and this file was over the 300-line
+// limit with them in it.

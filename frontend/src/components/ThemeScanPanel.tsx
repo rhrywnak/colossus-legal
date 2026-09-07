@@ -95,9 +95,62 @@ const ELAPSED_TICK_MS = 1000;
 // that remembers "folded" through a run the human then cannot find is a silent
 // failure wearing a preference's clothes. Nothing here changed.
 
+/**
+ * What this panel hands a caller that wants to draw the scan controls itself.
+ *
+ * ## Why the panel STAYS MOUNTED and lends out its controls (v2.1, change D)
+ *
+ * The scenario page has no scan CARD any more: the mockup puts the last-run
+ * sentence, `Scan again` and the history link on the Scenario facts header row.
+ * The obvious implementation — draw them in `ScenarioFactsSection` and delete
+ * this panel's chrome — would have to re-fetch the model catalogue and the run
+ * history to know what to draw, which is two readers of one payload and the
+ * exact way two surfaces come to disagree about which run was last.
+ *
+ * Worse, it would UNMOUNT this component, and architect ruling R3 is explicit
+ * about what that costs: the mount effect below calls `gatherCandidates`, and
+ * gather is the ONE place candidate ordinals are minted — every card's `C-14`
+ * handle. A proposed card would arrive with `code: null`, which §2a forbids
+ * ("pull up C-14" must be speakable).
+ *
+ * So the panel keeps its state, its fetches and its mount effect, and lends the
+ * three controls out through this shape. Nothing is derived by the caller.
+ */
+export type ScanHeaderApi = {
+  /**
+   * The stored sentence naming the last settled run, or `null`.
+   *
+   * Already composed from the settings store and already carrying the date in
+   * the reader's locale. A FAILED run gets its own sentence — see
+   * `collapsedFailedSummary` — so this never describes a scan that did not work
+   * as though it had.
+   */
+  summary: string | null;
+  /** A run is in flight. The caller withholds `Scan again` rather than queueing. */
+  running: boolean;
+  /** A model is selected and a run can start. False while the catalogue loads. */
+  canRun: boolean;
+  /** Start a scan with the selected model — what `ScanControlLine`'s Run fires. */
+  onRun: () => void;
+  /** The run-history disclosure, ready to mount wherever the caller puts it. */
+  history: React.ReactNode;
+};
+
 interface Props {
   slug: string;
   scenarioId: string;
+  /**
+   * Draw the scan controls in the CALLER's chrome instead of this panel's card.
+   *
+   * Present ⇒ no collapsed row, no `ScanControlLine`, no card background: this
+   * component becomes the scan's ENGINE and the caller becomes its face. See
+   * `ScanHeaderApi` for why the engine may not simply be unmounted.
+   *
+   * Absent ⇒ the 1.7D card, unchanged. `ScanSection` still renders it that way;
+   * that section is no longer mounted by the scenario page (change D) but the
+   * component and its behaviour are kept, exactly as `AccusationSection` is.
+   */
+  header?: (api: ScanHeaderApi) => React.ReactNode;
   /** Which completed run is proposing candidates below, or `null` (2026-08-08).
    *  Served with the cards; the panel uses it for the collapsed one-liner and to
    *  decide which history row may show a proposed count. */
@@ -130,6 +183,7 @@ const ThemeScanPanel: React.FC<Props> = ({
   scenarioId,
   onFactsChanged,
   proposalSource,
+  header,
 }) => {
   const [models, setModels] = useState<ScanModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -507,8 +561,30 @@ const ThemeScanPanel: React.FC<Props> = ({
   // cannot find is a silent failure wearing a preference's clothes.
   const expanded = expandOverride ?? collapsedSummary === null;
 
+  // ── The lent-out controls (v2.1, change D) ─────────────────────────────────
+  //
+  // Built here because every value in them is this component's own state. The
+  // caller renders them and DERIVES nothing — see `ScanHeaderApi`.
+  const historySlot = (
+    <ScanHistoryTable
+      runs={runs}
+      wording={historyWording}
+      selectedRunIds={selectedRunIds}
+      onToggle={onSelectRun}
+      onRequestDelete={setPendingDelete}
+      modelName={modelName}
+      proposingRunId={proposalSource?.run_id ?? null}
+      proposedCount={proposalSource?.proposed_count ?? null}
+    />
+  );
+
   return (
-    <section style={S.card}>
+    // `display: contents` when the caller owns the chrome: this component's own
+    // box disappears from layout so the header it returns becomes a child of the
+    // caller's header ROW, rather than a block sitting inside a wrapper in it.
+    // Everything else the panel draws is wrapped below in a full-width line, so
+    // a running scan's progress bar cannot squeeze into that row.
+    <section style={header ? S.chromeless : S.card}>
       {/* Keyframes for the "Scanning" pulse dot — inlined like ProcessingPanel's
           colossus-spin, so the animation ships with the component. */}
       <style>{`@keyframes colossus-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }`}</style>
@@ -523,7 +599,7 @@ const ThemeScanPanel: React.FC<Props> = ({
           (the run history and the scan wording it fetched), and lifting it would
           mean a second fetch of both. What must NOT move is the component itself —
           see the module header on why unmounting breaks candidate codes. */}
-      {collapsedSummary !== null && (
+      {header === undefined && collapsedSummary !== null && (
         <button
           type="button"
           style={S.collapseRow}
@@ -535,10 +611,36 @@ const ThemeScanPanel: React.FC<Props> = ({
         </button>
       )}
 
+      {/* THE CALLER'S HEADER (v2.1). It renders in the caller's own row and this
+          component's box is `display: contents`, so nothing wraps it. */}
+      {header?.({
+        summary: collapsedSummary,
+        running,
+        // A model is chosen by the catalogue's own `is_default` — the scan row's
+        // picker is gone with the card, so `Scan again` runs the deployment's
+        // default rather than a choice this header no longer offers. Which
+        // models cost money is a deployment fact (`billing_class`) and the
+        // ordering that keeps a billed model off the default is the SERVER's.
+        canRun: selectedModel !== null && !running,
+        onRun: () => void onRun(),
+        history: historySlot,
+      })}
+
+      {/* Everything else the lent-out panel draws — the running view, the
+          refusals, the run report — in its own block BELOW whatever the caller's
+          header returned, never inside it. `S.lentBody` is what keeps a progress
+          bar from being laid out as part of the header row if a caller ever
+          returns a flex container as its header. */}
+      <div style={header ? S.lentBody : undefined}>
       {expanded && (
         <>
           {running ? (
             <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
+          ) : header !== undefined ? (
+            // The caller drew Run, the model and the history itself. Nothing
+            // here — an empty control row under a header that already carries
+            // the same three controls would be the card this change removed.
+            null
           ) : (
             <ScanControlLine
               models={models}
@@ -548,19 +650,9 @@ const ThemeScanPanel: React.FC<Props> = ({
               lastRun={lastRunSummary(runs, modelName)}
               candidateCount={candidateCount}
               countError={countError}
-              historySlot={
-                /* Run history from the DB, inline on the control line (v3). */
-                <ScanHistoryTable
-                  runs={runs}
-                  wording={historyWording}
-                  selectedRunIds={selectedRunIds}
-                  onToggle={onSelectRun}
-                  onRequestDelete={setPendingDelete}
-                  modelName={modelName}
-                  proposingRunId={proposalSource?.run_id ?? null}
-                  proposedCount={proposalSource?.proposed_count ?? null}
-                />
-              }
+              /* Run history from the DB, inline on the control line (v3). The
+                 SAME element the header borrows — one table, one selection. */
+              historySlot={historySlot}
               onSelect={setSelectedModel}
               onRun={onRun}
             />
@@ -611,6 +703,7 @@ const ThemeScanPanel: React.FC<Props> = ({
           )}
         </>
       )}
+      </div>
 
       {/* The run-delete confirmation (task R1 Piece 10c), replacing the native
           `window.confirm` that froze the browser walk on 2026-08-09.
@@ -879,6 +972,29 @@ const S: Record<string, React.CSSProperties> = {
     cursor: "not-allowed",
     boxShadow: "none",
   },
+  /**
+   * The panel's box when the CALLER owns the chrome (v2.1, change D).
+   *
+   * `display: contents` removes this element from layout entirely while keeping
+   * its children — so the header it returns becomes a direct child of the
+   * caller's flex row instead of a block nested inside it. Supported everywhere
+   * this app targets, and the alternative (a `React.Fragment` root) is not
+   * available: the panel needs a single element to hang the delete dialog and
+   * the running view off.
+   */
+  chromeless: { display: "contents" },
+  /**
+   * The lent-out panel's non-header output — the running view, the refusals and
+   * the run report.
+   *
+   * `display: contents` on the root means these become siblings of whatever the
+   * caller's `header` returned, in the caller's own container. `flexBasis: 100%`
+   * costs nothing in the block layout `ScenarioFactsSection` gives it and keeps
+   * a progress bar on its own line for any caller that lays its header out as a
+   * wrapping flex row. The font is restated because the card's `fontFamily` went
+   * with the card.
+   */
+  lentBody: { flexBasis: "100%", fontFamily: "var(--font-sans)" },
   card: {
     fontFamily: "var(--font-sans)",
     background: "var(--bg-surface)",

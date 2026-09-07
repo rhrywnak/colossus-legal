@@ -27,13 +27,29 @@ export const TITLE_BAR_STYLE: React.CSSProperties = {
 };
 
 // Tabular numerals so a column of positions lines up down the deck.
-export const POSITION_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "13px",
-  color: "var(--text-muted)",
-  fontVariantNumeric: "tabular-nums",
-  minWidth: "1.6em",
-  flexShrink: 0,
+// RETIRED IN v2.1 (ruling R37): `POSITION_STYLE`. It dressed the raw
+// `display_ordinal` in the title bar — a sparse sort key running to five digits
+// on live data — which §2 put there for a witness working a deck in sequence.
+// Nobody reads this list in sequence. Deleted rather than left unused: an unused
+// style is an invitation to put the number back without re-arguing it.
+
+/**
+ * The Backs picker's `<select>` (v2.1).
+ *
+ * Borderless on the chrome fill, like every other v3 control on this page, and
+ * sized to the card's own row scale rather than the browser's default — an
+ * unstyled select is a 13px system widget in the middle of a 14.5px card, which
+ * reads as a form that leaked in from somewhere else.
+ */
+export const SELECT_STYLE: React.CSSProperties = {
+  fontFamily: "inherit",
+  fontSize: "14px",
+  padding: "2px 6px",
+  border: "none",
+  borderRadius: "6px",
+  background: "var(--v3-chrome)",
+  color: "var(--text-primary)",
+  cursor: "pointer",
 };
 
 export const TITLE_STYLE: React.CSSProperties = {

@@ -11,21 +11,21 @@
 // chaotic." Five surfaces each owned a piece of it —
 //
 //   detail      ScenarioHeaderTiers   two tiers, six controls, and a sentence
-//   rehearsal   RehearsalPageHeader   its own, used by that page alone
 //   practice    PracticeTitleRow      a bare <h1> off the deck payload
 //   dashboard   ScenarioCard          no per-scenario header at all
 //   questions   —                     nothing
 //
 // — and each grew its own controls, its own spacing and its own idea of where
-// Delete goes. This is the one strip. Four surfaces render it: the dashboard
-// row, the detail page, practice and rehearsal. The questions page is
-// deliberately NOT one of them (Roman, ruling 6): a full strip above a single
-// cross-examination question is noise on a surface kept empty on purpose.
+// Delete goes. This is the one strip. THREE surfaces render it now: the
+// dashboard row, the detail page and practice — rehearsal was the fourth until
+// v2.1 retired it. The questions page is deliberately NOT one of them (Roman,
+// ruling 6): a full strip above a single cross-examination question is noise on
+// a surface kept empty on purpose.
 //
 // ## ⚑ IT FETCHES ITS OWN DATA, AND THAT IS THE ONLY SHAPE THAT WORKS
 //
 // A props-only strip is impossible here, and the evidence is in the payloads:
-// `PracticeDeck` and `RehearsalScenario` carry NO status and no direction;
+// `PracticeDeck` carries NO status and no direction;
 // `ScenarioSummary` carries no direction. Passing the fields in would have meant
 // widening three DTOs and teaching four pages about this component — which is
 // exactly the shape `ScenarioTimelineDock` rejected, and recorded in its own
@@ -40,10 +40,10 @@
 // `onEdit` / `onDelete` / `onStatusChanged` are callbacks because the DIALOGS
 // are the page's (the detail page owns the identity modal and the delete
 // confirm, and re-reads itself after either). `children` is the slot for the
-// two genuinely page-owned control groups the mockup does not draw: rehearsal's
-// ‹ Previous / position / Next ›, and practice's print trio. Those are derived
-// from page state — an index into a payload, a lock computed from a question
-// list — and cannot come from `(slug, scenarioId)`.
+// one genuinely page-owned control group the mockup does not draw: practice's
+// print trio. It is derived from page state — a lock computed from a question
+// list — and cannot come from `(slug, scenarioId)`. Rehearsal's
+// ‹ Previous / position / Next › was the other, and went with that page in v2.1.
 
 import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
@@ -56,7 +56,7 @@ import {
   type ScenarioIdentityWording,
 } from "../../services/scenarioAugmentation";
 import type { ScenarioStatus } from "../../pages/trialPrepData";
-import { practicePath, rehearsalScenarioPath } from "../../utils/routePaths";
+import { practicePath } from "../../utils/routePaths";
 import { directionChip } from "../scenarioHeader";
 import { isKnownDirection, stripControls } from "./headerStripRules";
 import * as ss from "./stripStyles";
@@ -66,7 +66,6 @@ type Props = {
   scenarioId: string;
   /** Surfaces where the action is meaningless hide it. Each hide is reported. */
   hidePractice?: boolean;
-  hideRehearsal?: boolean;
   hideEdit?: boolean;
   hideDelete?: boolean;
   hideStatus?: boolean;
@@ -76,7 +75,7 @@ type Props = {
   onDelete?: () => void;
   /** Called after the status control writes, so the page can re-read itself. */
   onStatusChanged?: () => void;
-  /** Page-owned controls the mockup does not draw — rehearsal's nav, practice's print trio. */
+  /** Page-owned controls the mockup does not draw — practice's print trio. */
   children?: React.ReactNode;
 };
 
@@ -84,7 +83,6 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
   slug,
   scenarioId,
   hidePractice = false,
-  hideRehearsal = false,
   hideEdit = false,
   hideDelete = false,
   hideStatus = false,
@@ -181,7 +179,7 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
         </span>
       </div>
 
-      {/* Row 2 — Edit · Rehearsal view · … · Delete. */}
+      {/* Row 2 — Edit · … · Delete. */}
       <div style={ss.row2}>
         {!hideEdit && onEdit !== undefined && (
           <button type="button" style={ss.quietButton} onClick={onEdit}>
@@ -191,30 +189,22 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
           </button>
         )}
 
-        {/* ⚑ THE SENTENCE IS GONE; THE TOOLTIP REMAINS.
-            `ScenarioHeaderTiers` rendered the long blocked-reason TWICE — as
-            this control's `title` and again as a visible line beside it. Screen
-            1 keeps the tooltip and removes the line, and the tooltip is now the
-            short stored row rather than the {status}-filled sentence: a control
-            disabled for being Draft need not say "Draft" when the segmented
-            control an inch to its left already does.
+        {/* ⚑ THE REHEARSAL VIEW CONTROL IS GONE (v2.1, ruling R35).
 
-            Still a <span> and not a disabled <button> when inert, for the reason
-            .390 recorded: it is not a control that failed, it is a destination
-            that does not exist yet. */}
-        {!hideRehearsal &&
-          (controls.rehearsalEnabled ? (
-            <Link
-              to={rehearsalScenarioPath(slug, identity.code)}
-              style={ss.quietButton}
-            >
-              {wording.header_rehearsal_view_label}
-            </Link>
-          ) : (
-            <span style={ss.quietDisabled} title={wording.rehearsal_disabled_tooltip}>
-              {wording.header_rehearsal_view_label}
-            </span>
-          ))}
+            It was the only link into the retired rehearsal page, and it was
+            rendered here rather than on each page precisely so there would be
+            ONE place to remove it — which is what happened: this deletion takes
+            the control off the scenario page AND off Practice in one edit,
+            because both mount this strip.
+
+            The two stored rows it spoke — `header_rehearsal_view_label` and
+            `rehearsal_disabled_tooltip` — stay in the settings store, unread.
+            Deleting a row is a migration against a table Roman edits by hand,
+            and an unread row costs nothing; a MISSING row that some other
+            surface still asks for costs a blank control. Same discipline as the
+            `points_no_exhibit_notice` key in `TalkingPointsSection`.
+
+            `controls.rehearsalEnabled` goes with it — see `headerStripRules`. */}
 
         {children}
 

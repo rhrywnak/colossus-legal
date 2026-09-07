@@ -11,7 +11,6 @@ import AllegationDetailPage from "./pages/AllegationDetailPage";
 import CaseHealthPage from "./pages/CaseHealthPage";
 import CountDetailPage from "./pages/CountDetailPage";
 import ProofMatrixPage from "./pages/ProofMatrixPage";
-import RehearsalPage from "./pages/RehearsalPage";
 import SettingsPage from "./pages/SettingsPage";
 import SubsetPopoutPage from "./pages/SubsetPopoutPage";
 import TrialPrepDashboardPage from "./pages/TrialPrepDashboardPage";
@@ -165,11 +164,12 @@ const AppShell: React.FC = () => {
               `<Navigate>` because the target is case-scoped: the slug has to
               be read off the matched route before it can be re-composed. */}
           <Route path="/cases/:slug/proof-review" element={<ProofReviewTabRedirect />} />
-          <Route path="/cases/:slug/rehearsal" element={<RehearsalPage />} />
-          {/* Task 2.11 B2: the per-scenario rehearsal address. Selects within
-              the payload the page already loaded; a code nobody declared
-              ready gets the stored not-ready sentence, never a 404. */}
-          <Route path="/cases/:slug/rehearsal/:code" element={<RehearsalPage />} />
+          {/* RETIRED IN v2.1 (rulings R35-R37): the two rehearsal addresses and
+              the page behind them. Marie's surface is Practice; the scenario
+              page is the working file Roman and Chuck read. The BACKEND
+              rehearsal endpoints and the Ready switch stay — the switch is
+              still a human declaration about a scenario, and the payload is
+              still served; nothing in this app renders it any more. */}
           <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
           <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
           {/* PRACTICE v0: Marie's drill for one scenario. A longer path than
