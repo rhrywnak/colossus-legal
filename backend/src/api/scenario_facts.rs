@@ -47,10 +47,11 @@
 //! reference whose node has since disappeared is returned with `content: null`
 //! rather than dropped, so a stale reference stays observable (Standing Rule 1).
 
+use crate::domain::fact_card::CardStance;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
-    routing::{delete, get, post},
+    routing::{delete, get, post, put},
     Json, Router,
 };
 use chrono::Utc;
@@ -112,6 +113,14 @@ pub fn routes() -> Router<AppState> {
         .route(
             "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/action",
             post(apply_fact_action),
+        )
+        // FACT_CARD_v2 §2: ONE field of the witness's card. Another static child
+        // under the `:graph_node_id` param, beside `action`. PUT rather than
+        // PATCH because the field is replaced whole — there is no partial edit of
+        // a sentence — and edit-gated inside the handler like its sibling.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/card",
+            put(super::scenario_card_edit::put_card_field),
         )
         // Candidate-workbench gather (Phase 1a.2): read-only pool of every
         // Evidence node ABOUT the scenario's subject, each tagged with its
@@ -205,6 +214,7 @@ pub(crate) async fn ensure_scenario_in_case(
 // The pure mapping helpers (`join_facts`, the two verb translations, and the
 // error→HTTP mapping) live in the sibling `scenario_facts_mapping` module — they
 // are pure, and moving them kept this module inside the 300-line limit.
+use super::scenario_fact_include::{include_link, link_included_fact};
 use super::scenario_facts_mapping::{
     action_to_ruling_kind, action_to_status, join_facts, ruling_error_to_app_error,
 };
@@ -434,23 +444,60 @@ pub async fn apply_fact_action(
         );
     }
 
-    for target in &targets {
-        rule_one(
-            &state,
-            id,
-            target,
-            RulingFields {
-                kind,
-                status,
-                ruled_by: &user.username,
-                defer_reason: payload.reason.as_deref(),
-                source_run_id,
-            },
-        )
-        .await?;
-    }
+    // FACT_CARD_v2 §2: an include is ALSO the link, so it needs the link's two
+    // facts. Validated before anything is written — a ruling stored without its
+    // link would leave the Matrix unaware that a human had judged the statement,
+    // which is the duplicate work this fold exists to end.
+    let link = include_link(&payload)?;
+
+    rule_targets(
+        &state,
+        id,
+        &targets,
+        RulingFields {
+            kind,
+            status,
+            ruled_by: &user.username,
+            defer_reason: payload.reason.as_deref(),
+            source_run_id,
+        },
+        link,
+    )
+    .await?;
 
     Ok(StatusCode::OK)
+}
+
+/// Rule every target the one action settles, and link each included one.
+///
+/// Split out of [`apply_fact_action`] for the function-size limit (Rule 18).
+///
+/// ## Domain note: one ruling, several statements
+///
+/// `targets` is usually the single card the human clicked. It is longer only when
+/// the projecting run found byte-identical twins — one judgment settles the whole
+/// set, because asking a human to rule the same sentence twice is the duplicate
+/// work the proposal machinery exists to remove.
+///
+/// The loop is SEQUENTIAL and stops at the first error rather than pressing on:
+/// a half-ruled twin set is recoverable by re-clicking, whereas a partial write
+/// whose failure was swallowed would leave the reader believing all of them were
+/// judged (Rule 1).
+async fn rule_targets(
+    state: &AppState,
+    id: uuid::Uuid,
+    targets: &[String],
+    fields: RulingFields<'_>,
+    link: Option<(&str, CardStance)>,
+) -> Result<(), AppError> {
+    for target in targets {
+        rule_one(state, id, target, fields).await?;
+
+        if let Some((allegation_id, stance)) = link {
+            link_included_fact(state, target, allegation_id, stance, fields.ruled_by).await?;
+        }
+    }
+    Ok(())
 }
 
 /// `GET /cases/:slug/scenarios/:scenario_id/facts` — list saved facts with content.

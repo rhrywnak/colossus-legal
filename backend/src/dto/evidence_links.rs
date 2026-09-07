@@ -22,6 +22,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::domain::link_cut::LinkCut;
 use crate::dto::card_grammar_wording::CardGrammarWordingDto;
+use crate::dto::fact_card_wording::FactCardWordingDto;
 
 /// One accusation a human may tick.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -201,6 +202,22 @@ pub struct AllegationOptionsResponse {
     /// vocabularies move independently: `wording` is the curation surface's, and
     /// this is the shape a piece of evidence takes wherever it appears.
     pub card_grammar: CardGrammarWordingDto,
+    /// The twenty-three words a WITNESS reads on a fact card (FACT_CARD_v2).
+    ///
+    /// A third block on this payload, for the same reason as the second: the page
+    /// reads it once and hands it to every surface that renders a card. A
+    /// separate block from `card_grammar` because that one speaks to a CURATOR
+    /// triaging a queue and this one speaks to Marie preparing to answer under
+    /// oath — the two move independently.
+    pub fact_card: FactCardWordingDto,
+    /// How many fact cards open in full before the rest collapse to their title
+    /// and source line (FACT_CARD_v2 §2).
+    ///
+    /// The NUMBER crosses the wire for the same reason the truncation length
+    /// below does: every card has to be on the page anyway — one click opens a
+    /// collapsed one — so what the browser applies is a fold, which is
+    /// presentation mechanics. The number itself stays a stored judgment.
+    pub fact_card_visible_count: usize,
     /// How much of a discovery question a card shows before ellipsizing it (§2b).
     ///
     /// ## Why the NUMBER crosses the wire and not a pre-truncated string

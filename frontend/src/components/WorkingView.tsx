@@ -29,6 +29,7 @@ import {
   includedRows,
   orderedRows,
   splitBackground,
+  type WorkingRow,
 } from "./factsTable";
 import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
@@ -43,6 +44,7 @@ import { tierLabels } from "./WeightPicker";
 import type { ChipFilter } from "./evidenceCardModel";
 import { matchesChip } from "./evidenceCardModel";
 import { CARD_GAP_PX } from "./FactRow";
+import { opensInFull } from "./factCard";
 import FactStack from "./FactStack";
 import { useDragAutoScroll } from "./dragAutoScroll";
 
@@ -147,6 +149,11 @@ interface Props {
   wording: LinkPanelWording | null;
   /** The card's own words and fold thresholds (ONE_CARD_GRAMMAR). */
   options: AllegationOptions | null;
+  /** The case and scenario a card-field edit is written against (FACT_CARD_v2). */
+  slug: string;
+  scenarioId: string;
+  /** Re-read the deck after a field edit, so the screen matches the store. */
+  onCardEdited: () => void;
   /** Record a fact's weight (task 2.13). */
   /** Record a fact's weight. RESOLVES when stored and REJECTS when refused —
    *  the rejection is what retracts an optimistic move notice. */
@@ -168,6 +175,9 @@ const WorkingView: React.FC<Props> = ({
   onRemoveFact,
   wording,
   options,
+  slug,
+  scenarioId,
+  onCardEdited,
   onSetTier,
   onMoveFact,
 }) => {
@@ -210,6 +220,31 @@ const WorkingView: React.FC<Props> = ({
   // Ordered ONCE, here: weight first, then the human's own placement. An
   // untouched scenario comes out exactly as the server sent it (see
   // `orderedRows`), so this is a no-op until somebody drags something.
+  // FACT_CARD_v2 §2: ten open, the rest collapsed to their title and source
+  // line. A FOLD, never a filter — every card is on the page and one click opens
+  // a collapsed one, which is what makes it safe on a surface where a hidden fact
+  // is a lost one.
+  //
+  // The set holds the cards a human has TOGGLED, not the ones that are open: a
+  // deck whose default came from state would re-open ten different cards every
+  // time the list re-ordered. `cardIsOpen` reads the default from the served
+  // count and flips it for anything in this set.
+  const [toggled, setToggled] = useState<Set<string>>(new Set());
+  const toggleCard = (graphNodeId: string) =>
+    setToggled((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(graphNodeId)) next.add(graphNodeId);
+      return next;
+    });
+  const cardIsOpen = (row: WorkingRow, index: number) => {
+    // `null` options means the served count has not loaded. Everything opens —
+    // a deck that collapsed itself while waiting would flicker shut and back
+    // open, and an open card is never the wrong answer.
+    const limit = options?.fact_card_visible_count ?? Number.MAX_SAFE_INTEGER;
+    const openByDefault = opensInFull(index, limit);
+    return toggled.has(row.graphNodeId) ? !openByDefault : openByDefault;
+  };
+
   const rows = useMemo(
     () => orderedRows([...includedRows(cards), ...humanFactRows(humanFacts)]),
     [cards, humanFacts],
@@ -452,6 +487,11 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           onNoticeCleared={() => setWeightNotice(null)}
           options={options}
           onFilterChip={setChipFilter}
+          slug={slug}
+          scenarioId={scenarioId}
+          onCardEdited={onCardEdited}
+          isOpen={cardIsOpen}
+          onToggleCard={toggleCard}
           shown={shown}
           background={background}
           showBackground={showBackground}

@@ -18,6 +18,10 @@ pub mod document;
 pub mod evidence;
 pub mod evidence_chain;
 pub mod evidence_links;
+/// The five sentences a witness's card carries (FACT_CARD_v2 §2).
+pub mod fact_card;
+/// The wire mirror of the fact card's words (FACT_CARD_v2).
+pub mod fact_card_wording;
 pub mod graph;
 pub mod harm;
 pub mod hearing;

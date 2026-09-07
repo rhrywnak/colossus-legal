@@ -15,6 +15,8 @@ pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;
 pub mod evidence_mirror;
+/// A stored fact card composed into the lines a witness reads (FACT_CARD_v2 §2).
+pub mod fact_card_render;
 pub mod gate_fixture;
 pub mod gather_fusion;
 pub mod gather_probes;
@@ -60,6 +62,11 @@ pub mod practice_status;
 pub mod qdrant_payload;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
+/// The rehearsal page's three sections, read off the scenario's fact cards
+/// (FACT_CARD_v2 §3).
+/// The prep page's card-backed sections, gathered (FACT_CARD_v2 §3).
+pub mod rehearsal_card_sections;
+pub mod rehearsal_cards;
 pub mod rehearsal_count;
 pub mod rehearsal_instances;
 pub mod rehearsal_phase;
@@ -76,6 +83,7 @@ pub mod scenario_card;
 pub mod scenario_card_assembly;
 pub mod scenario_card_context;
 pub mod scenario_card_projection;
+pub mod scenario_card_quote;
 pub mod scenario_cards_scan_state;
 pub mod scenario_dashboard;
 pub mod scenario_fact_order;

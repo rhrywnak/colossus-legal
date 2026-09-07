@@ -143,6 +143,10 @@ pub(crate) fn build_options(
         // the one template this payload fills is `show_all_label`, and it is
         // filled above because only this function knows the accusation count.
         card_grammar: (&settings.card_grammar_wording).into(),
+        // FACT_CARD_v2: the witness's own words and the deck's fold, on the page's
+        // one stored-words read.
+        fact_card: (&settings.fact_card_wording).into(),
+        fact_card_visible_count: settings.fact_card_visible_count,
         card_question_truncate_chars: settings.card_question_truncate_chars,
         card_element_chips_visible_k: settings.card_element_chips_visible_k,
         serving,

@@ -376,6 +376,17 @@ export type AllegationOptions = {
    * surfaces cannot hold two copies of one catalogue and disagree mid-session.
    */
   card_grammar: CardGrammarWording;
+  /**
+   * The twenty-three words a WITNESS reads on a fact card (FACT_CARD_v2).
+   *
+   * A third block on this payload for the same reason as the second: the page
+   * reads it once and hands it to every surface that renders a card. Separate
+   * from `card_grammar` because that one speaks to a curator triaging a queue and
+   * this one speaks to Marie preparing to answer under oath.
+   */
+  fact_card: FactCardWording;
+  /** How many cards open in full before the rest collapse (FACT_CARD_v2 §2). */
+  fact_card_visible_count: number;
   /** The accusations this scenario already serves — anchor first. */
   serving: AllegationOption[];
   /** Everything else in the complaint, in paragraph order. */
@@ -393,6 +404,39 @@ export type AllegationOptions = {
   card_question_truncate_chars: number;
   /** How many element chips stand before the rest fold behind "+N more" (§2b). */
   card_element_chips_visible_k: number;
+};
+
+/**
+ * The fact card's stored words. Mirrors `dto::fact_card_wording` field for field.
+ *
+ * There is deliberately no fallback vocabulary: a card that could not read its
+ * labels renders the page's error state rather than inventing a row heading (the
+ * language law, and Standing Rule 1).
+ */
+export type FactCardWording = {
+  proof_label: string;
+  backs_label: string;
+  supports_label: string;
+  watch_out_label: string;
+  answer_label: string;
+  empty_value: string;
+  draft_mark: string;
+  context_label: string;
+  context_hide_label: string;
+  backs_template: string;
+  supports_template: string;
+  stance_supports_verb: string;
+  stance_rebuts_verb: string;
+  rfa_template: string;
+  rfa_unnumbered_template: string;
+  deck_template: string;
+  edit_label: string;
+  save_label: string;
+  cancel_label: string;
+  save_failed_template: string;
+  no_answer_notice: string;
+  accusation_heading: string;
+  no_cards_notice: string;
 };
 
 export type SaveLinksResult = {

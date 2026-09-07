@@ -95,6 +95,7 @@ pub mod scan_run_projection;
 pub mod scan_run_verdicts;
 pub mod scan_runs;
 pub mod scenario_candidate_ordinals;
+pub mod scenario_fact_cards;
 pub mod scenario_fact_curation;
 pub mod scenario_human_facts;
 pub mod scenario_responses;

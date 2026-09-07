@@ -31,6 +31,7 @@ use crate::domain::wording_accusation::AccusationWording;
 use crate::domain::wording_authoring::AuthoringWording;
 use crate::domain::wording_card_grammar::CardGrammarWording;
 use crate::domain::wording_chronology::ChronologyWording;
+use crate::domain::wording_fact_card::FactCardWording;
 use crate::domain::wording_matrix::MatrixWording;
 use crate::domain::wording_model_params::ModelParamsWording;
 use crate::domain::wording_practice::PracticeWording;
@@ -83,6 +84,25 @@ pub struct Settings {
     /// reader takes away from it must not disagree about what the top of a list
     /// is.
     pub matrix_visible_items: usize,
+    /// How many fact cards open in full before the rest collapse to their title
+    /// and source line (FACT_CARD_v2 §2).
+    ///
+    /// Every card is still present and one click opens it; this is how much a
+    /// reader sees without scrolling past twelve full cards.
+    pub fact_card_visible_count: usize,
+    /// The speakers whose statements are OURS (FACT_CARD_v2 §3).
+    ///
+    /// §3's Accusation section holds the other side's statements, and "Phillips,
+    /// CFS, court" are case-specific names — Rule 2 keeps person aliases out of
+    /// code. The stored list is the INVERSE for two reasons: it is one name here
+    /// against a hundred opposing speakers, unnormalised in the graph; and it
+    /// fails safe, because a name nobody listed reads as the other side and shows
+    /// an extra card rather than hiding one she has to answer.
+    /// Stored LOWERCASED — `token_list_of` folds case on every token list — so
+    /// the comparison folds the graph's speaker too. The graph holds "George
+    /// Phillips" and "George R. Phillips" as two rows, and a case-sensitive test
+    /// would have been a third way for one man to be two people.
+    pub rehearsal_our_side_speakers: Vec<String>,
     /// How many accusations the link panel's short list offers before "Show all"
     /// (task 2.10). The full complaint is always one click behind it.
     pub link_short_list_max: usize,
@@ -225,6 +245,14 @@ pub struct Settings {
     /// belong to the card GRAMMAR — the shape a piece of evidence takes under
     /// either wrapper — which the one-card task made independent of both.
     pub card_grammar_wording: CardGrammarWording,
+    /// The twenty-three strings a WITNESS reads on a scenario fact card
+    /// (FACT_CARD_v2 §2, §3).
+    ///
+    /// A block of its own rather than more keys on `card_grammar_wording` for the
+    /// house reason: `card_grammar` speaks to a curator triaging a queue, these
+    /// speak to Marie preparing to answer under oath, and the two move
+    /// independently.
+    pub fact_card_wording: FactCardWording,
     /// The words Admin → Models speaks about a model's temperature capability
     /// (ruling R5, 2026-08-09).
     ///

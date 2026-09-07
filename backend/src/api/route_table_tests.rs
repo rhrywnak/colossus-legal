@@ -166,8 +166,14 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// `/cases/:slug/proof-matrix/rulings` (one address, two verbs — set a verdict
 /// and take it back), and `GET` plus its axum `HEAD` pair on
 /// `/cases/:slug/proof-matrix/export.docx`.
+///
+/// 306 since FACT_CARD_v2, which added one more: `PUT
+/// /cases/:slug/scenarios/:scenario_id/facts/:graph_node_id/card`, the edit of
+/// ONE field of a witness's card. The two features were built on separate
+/// branches off 301 and integrated here, so this number is 301 + 4 + 1 — not
+/// either branch's own figure.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 305;
+const EXPECTED_ROUTE_LINES: usize = 306;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

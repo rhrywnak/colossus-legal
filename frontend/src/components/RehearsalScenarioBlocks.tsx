@@ -39,6 +39,69 @@ import type { RehearsalScenario, RehearsalWording } from "../services/rehearsal"
 
 const sectionStyle: React.CSSProperties = { marginTop: "34px" };
 
+// ─── FACT_CARD_v2 §3 styles (tokens only) ────────────────────────────────────
+
+const cardRowStyle: React.CSSProperties = {
+  padding: "12px 0",
+  borderTop: "1px solid var(--border-default)",
+};
+
+// The source line, small and muted: on this page the WORDS lead and the
+// provenance follows, which is the reverse of the working surface.
+const cardHeadStyle: React.CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  flexWrap: "wrap",
+  gap: "8px",
+  fontSize: "12.5px",
+  color: "var(--text-muted)",
+};
+
+const cardCodeStyle: React.CSSProperties = {
+  fontFamily: "var(--font-mono)",
+  fontSize: "11.5px",
+  color: "var(--text-muted)",
+};
+
+const cardTitleStyle: React.CSSProperties = {
+  marginTop: "4px",
+  fontSize: "16px",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};
+
+const cardQuoteStyle: React.CSSProperties = {
+  marginTop: "4px",
+  fontSize: "14.5px",
+  lineHeight: 1.45,
+  color: "var(--text-secondary)",
+};
+
+// Her reply is the one line on this page she says out loud, so it is the one
+// thing given a panel of its own.
+const cardAnswerStyle: React.CSSProperties = {
+  marginTop: "8px",
+  padding: "10px 12px",
+  borderRadius: "6px",
+  backgroundColor: "var(--bg-page)",
+  fontSize: "15px",
+  lineHeight: 1.5,
+  color: "var(--text-primary)",
+};
+
+const proofStyle: React.CSSProperties = {
+  marginTop: "8px",
+  paddingLeft: "12px",
+  borderLeft: "2px solid var(--state-success-strong)",
+};
+
+const proofTitleStyle: React.CSSProperties = {
+  fontSize: "14px",
+  fontWeight: 600,
+  color: "var(--text-primary)",
+};
+
+
 const sectionHeadStyle: React.CSSProperties = {
   display: "flex",
   alignItems: "baseline",
@@ -192,6 +255,34 @@ const RehearsalScenarioBlocks: React.FC<Props> = ({ scenario, wording }) => {
             ))}
           </ul>
         )}
+
+        {/* FACT_CARD_v2 §3: the other side's own statements, oldest first, each
+            with her Answer. Read off the scenario's CARDS rather than off the
+            marked instances — a card is written for every statement in the deck,
+            and the instance list only ever held the ones somebody had paired.
+
+            A card with no Answer is SHOWN, with the stored gap sentence beneath
+            it. That is the one thing this section must never do quietly: an
+            unanswered accusation is the most important thing on the page, and
+            hiding it would hide the work rather than the gap. */}
+        {scenario.accusation_cards.length > 0 && (
+          <ul style={listStyle}>
+            {scenario.accusation_cards.map((card) => (
+              <li key={card.code ?? card.quote ?? card.title} style={cardRowStyle}>
+                <div style={cardHeadStyle}>
+                  {card.when && <span>{card.when}</span>}
+                  {card.who && <span>{card.who}</span>}
+                  {card.code && <span style={cardCodeStyle}>{card.code}</span>}
+                </div>
+                {card.title && <div style={cardTitleStyle}>{card.title}</div>}
+                {card.quote && <div style={cardQuoteStyle}>{card.quote}</div>}
+                <div style={card.answer ? cardAnswerStyle : gapTextStyle}>
+                  {card.answer ?? card.answer_gap}
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
 
       {/* HER POINTS. Each one large, with the exhibit its pairing already
@@ -227,6 +318,22 @@ const RehearsalScenarioBlocks: React.FC<Props> = ({ scenario, wording }) => {
                     Nothing renders when there is nothing — not a blank line, not
                     a dash. */}
                 {point.exhibit && <div style={backedByStyle}>{point.exhibit}</div>}
+                {/* FACT_CARD_v2 §3: the Proof of every card that backs this
+                    point — the 3.9 pairing, read off `backs_position` rather
+                    than authored. Nothing renders when nothing backs it, on the
+                    same rule as the exhibit line above: a note about work that
+                    did not happen belongs on the page where it can be done. */}
+                {point.backing.map((proof) => (
+                  <div key={proof.code ?? proof.quote ?? proof.title} style={proofStyle}>
+                    {proof.title && <div style={proofTitleStyle}>{proof.title}</div>}
+                    {proof.quote && <div style={cardQuoteStyle}>{proof.quote}</div>}
+                    <div style={cardHeadStyle}>
+                      {proof.when && <span>{proof.when}</span>}
+                      {proof.who && <span>{proof.who}</span>}
+                      {proof.code && <span style={cardCodeStyle}>{proof.code}</span>}
+                    </div>
+                  </div>
+                ))}
               </li>
             ))}
           </ul>
@@ -238,8 +345,28 @@ const RehearsalScenarioBlocks: React.FC<Props> = ({ scenario, wording }) => {
         <div style={sectionHeadStyle}>
           <h2 style={sectionTitleStyle}>{wording.block_watch_heading}</h2>
         </div>
+        {/* FACT_CARD_v2 §3: every card's warning, with its C-code, BEFORE the
+            free-form items. A warning tied to a statement she can cite leads —
+            "they will say the judge approved it, and that is C-116" is something
+            she can answer; a standing note is something to remember. */}
+        {scenario.card_watch_for.length > 0 && (
+          <ul style={listStyle}>
+            {scenario.card_watch_for.map((item) => (
+              <li key={item.code ?? item.text} style={watchStyle}>
+                {item.code && <span style={cardCodeStyle}>{item.code}</span>}
+                {item.text}
+              </li>
+            ))}
+          </ul>
+        )}
+
         {scenario.watch_for.length === 0 ? (
-          <p style={gapTextStyle}>{scenario.watch_for_gap}</p>
+          // The gap is shown only when BOTH halves are empty: a section carrying
+          // ten card warnings and no standing notes is not an empty section, and
+          // saying so would report a gap that is not there.
+          scenario.card_watch_for.length === 0 && (
+            <p style={gapTextStyle}>{scenario.watch_for_gap}</p>
+          )
         ) : (
           <ul style={listStyle}>
             {scenario.watch_for.map((item) => (

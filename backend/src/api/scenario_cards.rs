@@ -56,6 +56,7 @@ use crate::{
     state::AppState,
 };
 
+use super::scenario_card_fact_cards::attach_scenario_fact_cards;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 use super::scenario_gather::resolve_gather_subject;
 
@@ -257,6 +258,11 @@ pub async fn get_scenario_cards(
                 started_at: run.started_at,
                 proposed_count,
             });
+
+    // FACT_CARD_v2 §2: the five sentences a witness reads, laid over the cards
+    // the assembler just built. After assembly rather than inside it — the stored
+    // cards are a SCENARIO-wide read and `assemble` is per-candidate.
+    attach_scenario_fact_cards(&state, id, &subject_id, &settings, &mut response).await?;
 
     // Task 2.15 piece 3: the cards are still served in full — this only says
     // whether anything has ever JUDGED them, which is what the page needs before

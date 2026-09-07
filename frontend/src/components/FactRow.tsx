@@ -32,8 +32,8 @@ import React, { useState } from "react";
 
 import RemoveControl from "./FactRemoveControl";
 import EvidenceCardBody from "./EvidenceCardBody";
+import FactCardBody from "./FactCardBody";
 import { evidenceCardView, type ChipFilter } from "./evidenceCardModel";
-import WeightPicker from "./WeightPicker";
 import type { WorkingRow } from "./factsTable";
 import type { AllegationOptions, LinkPanelWording } from "../services/evidenceLinks";
 import type { FactTier } from "../services/scenarioCards";
@@ -101,10 +101,8 @@ const spineStyle = (isHuman: boolean): React.CSSProperties => ({
 const HeaderRow: React.FC<{
   row: WorkingRow;
   wording: LinkPanelWording;
-  cardWording: AllegationOptions["card_grammar"] | null;
-  onSetTier?: (tier: FactTier) => void;
   draggable: boolean;
-}> = ({ row, wording, cardWording, onSetTier, draggable }) => (
+}> = ({ row, wording, draggable }) => (
   <div
     style={{
       display: "flex",
@@ -147,23 +145,17 @@ const HeaderRow: React.FC<{
       </span>
     )}
 
-    <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.4rem" }}>
-      {/* A human fact carries no weight tier (§8 — it is not evidence), so it
-          gets no control rather than a disabled one.
-
-          Guarded on the ROW as well as on the callback. `WorkingView` already
-          withholds `onSetTier` for a human fact, but that is a caller convention
-          and this is a law: a second caller that passed one would silently offer
-          a weight on a fact that cannot have one. */}
-      {onSetTier && cardWording && !row.isHuman && (
-        <WeightPicker
-          current={row.tier ?? "backup"}
-          wording={wording}
-          cardWording={cardWording}
-          onSetTier={onSetTier}
-        />
-      )}
-    </span>
+    {/* THE WEIGHT PICKER IS GONE (FACT_CARD_v2 §2).
+        
+        "Position number (replaces weight; weight control removed)". A three-way
+        weight is a curator's control, and this deck is read by a witness — the
+        number she needs is which card she is on, and it stands in the card's own
+        title bar where the picker used to be.
+        
+        The weight itself is NOT retired: `sort_ordinal` and `tier` still ride the
+        payload and still order the list. What is removed is the control on this
+        surface. `onSetTier` stays on the props so the caller's wiring is
+        undisturbed and a future curator surface can mount one again. */}
   </div>
 );
 
@@ -175,23 +167,42 @@ const FactRow: React.FC<{
   /** The card's own words and fold thresholds. `null` until they load. */
   options?: AllegationOptions | null;
   onRemove?: () => void;
+  /** Fired by the weight picker with the chosen tier.
+   *
+   *  UNRENDERED since FACT_CARD_v2 §2 removed the control from this surface — a
+   *  three-way weight is a curator's judgment and this deck is read by a witness.
+   *  The prop stays so `FactStack`'s wiring is undisturbed and a curator surface
+   *  can mount a picker again without re-threading it through three components. */
   onSetTier?: (tier: FactTier) => void;
   onDragStart?: () => void;
   onDropOn?: () => void;
   confirm?: LinkPanelWording | null;
   /** Narrow the facts list to a chip's value (Piece 7). */
   onFilterChip?: (filter: ChipFilter) => void;
+  // ── FACT_CARD_v2 §2 ───────────────────────────────────────────────────────
+  /** The case and scenario a field edit is written against. */
+  slug?: string;
+  scenarioId?: string;
+  /** Collapsed cards show the title bar and source line only. */
+  collapsed?: boolean;
+  onToggleCard?: () => void;
+  /** Re-read the deck after a field edit. */
+  onCardEdited?: () => void;
 }> = ({
   row,
   justArrived = false,
   wording,
   options = null,
   onRemove,
-  onSetTier,
   onDragStart,
   onDropOn,
   confirm = null,
   onFilterChip,
+  slug,
+  scenarioId,
+  collapsed = false,
+  onToggleCard,
+  onCardEdited,
 }) => {
   const [dragOver, setDragOver] = useState(false);
 
@@ -248,16 +259,25 @@ const FactRow: React.FC<{
         }}
       >
         {wording && (
-          <HeaderRow
-            row={row}
-            wording={wording}
-            cardWording={options?.card_grammar ?? null}
-            onSetTier={onSetTier}
-            draggable={draggable}
-          />
+          <HeaderRow row={row} wording={wording} draggable={draggable} />
         )}
 
-        {view && options ? (
+        {row.card && options && slug && scenarioId ? (
+          // FACT_CARD_v2 §2: what a WITNESS reads. The curator's `EvidenceCardBody`
+          // is still below for a row this surface cannot write a card against —
+          // it has no scenario to key one by — and for a human fact, which has no
+          // card at all.
+          <FactCardBody
+            card={row.card}
+            wording={options.fact_card}
+            slug={slug}
+            scenarioId={scenarioId}
+            position={row.card.display_ordinal ?? null}
+            collapsed={collapsed}
+            onToggle={() => onToggleCard?.()}
+            onEdited={() => onCardEdited?.()}
+          />
+        ) : view && options ? (
           <EvidenceCardBody
             view={view}
             wording={options.card_grammar}

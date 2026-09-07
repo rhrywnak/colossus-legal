@@ -268,6 +268,28 @@ pub struct FactActionRequest {
     /// database CHECK. Both refuse loudly; neither defaults.
     #[serde(default)]
     pub reason: Option<String>,
+
+    /// The accusation this fact bears on. REQUIRED when `action` is `include`
+    /// (FACT_CARD_v2 §2), and ignored by every other action.
+    ///
+    /// ## Domain note: why an include now needs one
+    ///
+    /// Including a fact used to write a `scenario_fact_refs` row and nothing
+    /// else, which left the Proof Matrix unaware that a human had judged the
+    /// statement — the same person then had to make the same judgment again on
+    /// another page. §2 makes the two ONE act: the include writes the link, and
+    /// the link needs an object. The browser prefills it from the card's
+    /// `supports[0]`, so in the ordinary case nobody types anything.
+    #[serde(default)]
+    pub allegation_id: Option<String>,
+
+    /// Which way this fact cuts against that accusation. REQUIRED with
+    /// `allegation_id`, for the reason `LinkCut` documents: a link with no cut
+    /// feeds a readiness verdict that cannot tell ammunition from a hazard.
+    ///
+    /// A typed enum, so an unknown token is a 400 at the parse boundary.
+    #[serde(default)]
+    pub stance: Option<crate::domain::fact_card::CardStance>,
 }
 
 #[cfg(test)]
@@ -331,6 +353,51 @@ mod tests {
                 serde_json::from_value(json!({ "action": token }));
             assert!(parsed.is_ok(), "{token} must still parse with no reason");
         }
+    }
+
+    #[test]
+    fn an_include_carries_its_accusation_and_stance() {
+        // FACT_CARD_v2 §2: the include is now also the link, so it carries the
+        // link's two facts. Prefilled by the browser from the card's supports[0].
+        let parsed: FactActionRequest = serde_json::from_value(json!({
+            "action": "include",
+            "allegation_id": "doc-x:allegation:45984d77",
+            "stance": "supports"
+        }))
+        .expect("an include with its link parses");
+        assert!(matches!(parsed.action, FactAction::Include));
+        assert_eq!(
+            parsed.allegation_id.as_deref(),
+            Some("doc-x:allegation:45984d77")
+        );
+        assert_eq!(
+            parsed.stance,
+            Some(crate::domain::fact_card::CardStance::Supports)
+        );
+    }
+
+    #[test]
+    fn an_unknown_stance_token_is_a_loud_parse_error() {
+        // The closed enum makes an undefined stance a 400 before the handler runs
+        // — so no code path exists in which one reaches the links table, where it
+        // would decide whether a statement is ammunition or a hazard.
+        let result: Result<FactActionRequest, _> = serde_json::from_value(
+            json!({ "action": "include", "allegation_id": "a", "stance": "mentions" }),
+        );
+        assert!(result.is_err(), "an unknown stance must not parse");
+    }
+
+    #[test]
+    fn the_link_fields_are_optional_at_the_parse_layer() {
+        // They are REQUIRED for include and refused for the others, and neither
+        // rule is expressible in the type (action and the two are siblings, not a
+        // tagged union). So a bare include must PARSE and then be refused by the
+        // handler, which can name the missing field precisely — the same shape
+        // `defer`'s reason takes.
+        let parsed: FactActionRequest =
+            serde_json::from_value(json!({ "action": "include" })).expect("parses");
+        assert_eq!(parsed.allegation_id, None);
+        assert_eq!(parsed.stance, None);
     }
 
     #[test]

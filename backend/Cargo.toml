@@ -113,3 +113,10 @@ tokio = { version = "1", features = ["full", "test-util"] }
 # *string* — runtime compilation lives in colossus-extract — so `regex`
 # is a test-only dependency here.
 regex = "1"
+
+# FACT_CARD_v2 §1: the one-off loader for Job B's and Job D's drafts. A
+# directory-shaped binary like `ocr_repair_apply`, so its pure planning half can
+# be tested without a database.
+[[bin]]
+name = "load_fact_cards"
+path = "src/bin/load_fact_cards/main.rs"

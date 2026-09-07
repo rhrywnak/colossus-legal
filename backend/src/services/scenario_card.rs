@@ -31,14 +31,14 @@ use crate::domain::confidence_band::{band_for_score, ConfidenceBand};
 use crate::domain::fact_status::FactStatus;
 use crate::domain::fact_tier::FactTier;
 use crate::domain::settings::Settings;
+use crate::domain::text::non_blank;
 use crate::dto::scenario_card::{
-    CardBearsOn, CardConfidence, CardGrounding, CardPinpoint, CardQuote, CardSpeaker, CardStance,
-    ScenarioCard,
+    CardBearsOn, CardConfidence, CardGrounding, CardStance, ScenarioCard,
 };
-use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
 use crate::repositories::scenario_card_repository::CardExtrasRow;
-use crate::services::scenario_card_context::{assemble as assemble_context, QuoteContext};
-use crate::services::scenario_human_links::{link_summary, resolve_question, HumanTouches};
+use crate::services::scenario_card_context::assemble as assemble_context;
+use crate::services::scenario_card_quote::{build_pinpoint, build_quote, build_speaker};
+use crate::services::scenario_human_links::{link_summary, HumanTouches};
 
 // The quote-in-context window is a STORED parameter (task 1.6, v2 §2b).
 //
@@ -129,6 +129,9 @@ pub(crate) fn collapse_extras(rows: Vec<CardExtrasRow>) -> HashMap<String, Colla
             .entry(row.evidence_id.clone())
             .or_insert_with(|| CollapsedExtras {
                 statement_type: row.statement_type.clone(),
+                // The statement's own date first; the document's when it has none
+                // — see `source_date_of`.
+                source_date: source_date_of(&row),
                 grounding_status: row.grounding_status.clone(),
                 links: Vec::new(),
             });
@@ -169,8 +172,36 @@ pub(crate) fn collapse_extras(rows: Vec<CardExtrasRow>) -> HashMap<String, Colla
 #[derive(Debug, Clone)]
 pub(crate) struct CollapsedExtras {
     pub statement_type: Option<String>,
+    /// When the statement was made, or when its document is dated — the date the
+    /// card's source line leads with (FACT_CARD_v2 §2).
+    ///
+    /// Domain note: the statement's own date is preferred, and it is the truer
+    /// one — a transcript page is dated by the HEARING, not by when the PDF was
+    /// filed. `None` when neither is recorded, which the source line renders by
+    /// carrying no date rather than an invented one.
+    pub source_date: Option<String>,
     pub grounding_status: Option<String>,
     pub links: Vec<ExtrasLink>,
+}
+
+/// The date a card's source line leads with (FACT_CARD_v2 §2).
+///
+/// The STATEMENT's own date first, the document's when it has none. That order is
+/// the truer one: a transcript page is dated by the hearing, not by when the PDF
+/// was filed.
+///
+/// An EMPTY string is treated as absent — four DEV documents carry
+/// `document_date = ''`, and `""` renders and sorts as a date that is not there.
+fn source_date_of(row: &CardExtrasRow) -> Option<String> {
+    // ## Rust Learning: `find_map` over an array of `Option`s
+    //
+    // The array IS the priority order, read top to bottom. `find_map` runs
+    // `non_blank` on each in turn and stops at the first `Some`, so "the
+    // statement's date, else the document's, else nothing" is one line that
+    // cannot fall out of order the way a chain of `or_else` can.
+    [row.event_date.as_deref(), row.document_date.as_deref()]
+        .into_iter()
+        .find_map(non_blank)
 }
 
 /// One Evidence→Allegation link with its bears-on chain.
@@ -295,17 +326,6 @@ fn build_bears_on(links: &[ExtrasLink]) -> Vec<CardBearsOn> {
     out
 }
 
-/// The pinpoint line as the card shows it, composed server-side.
-///
-/// A page-less item reads as the document alone rather than "… at null" — the
-/// absence is rendered by omission, never by a placeholder.
-fn pinpoint_label(document_title: &str, page: Option<i64>) -> String {
-    match page {
-        Some(page) => format!("{document_title} at {page}"),
-        None => document_title.to_string(),
-    }
-}
-
 /// Why this card cannot be ruled on as it stands, or `None` if it can.
 ///
 /// ## Domain note: the two unrulable classes
@@ -404,91 +424,6 @@ fn build_grounding(extras: Option<&CollapsedExtras>) -> Option<CardGrounding> {
         })
 }
 
-/// The §7.2 pinpoint: where the quote is, and how to get there.
-///
-/// Split out of [`build_card`] for the function-size limit (Rule 18). The document
-/// title is read twice — once composed into `label`, once on its own — because the
-/// card renders the composed line but a client filtering or grouping by document
-/// needs the bare title, and re-deriving it by parsing `label` would be the browser
-/// taking a display string apart to recover data.
-///
-/// A document-less instance yields empty strings rather than `None`: these fields
-/// are always present on the wire so the card's layout is stable, and an absent
-/// title renders as omission (see [`pinpoint_label`]).
-fn build_pinpoint(instance: &BiasInstance) -> CardPinpoint {
-    let document_title = instance
-        .document
-        .as_ref()
-        .map(|d| d.title.clone())
-        .unwrap_or_default();
-    let document_id = instance
-        .document
-        .as_ref()
-        .map(|d| d.id.clone())
-        .unwrap_or_default();
-
-    CardPinpoint {
-        label: pinpoint_label(&document_title, instance.page_number),
-        document_title,
-        page: instance.page_number,
-        viewer_href: crate::domain::card_language::viewer_href(&document_id, instance.page_number),
-        document_id,
-    }
-}
-
-/// The §7.3 speaker: who said it, and on what authority we say so.
-///
-/// Split out of [`build_card`] for the function-size limit (Rule 18).
-fn build_speaker(instance: &BiasInstance, extracted_label: &str) -> CardSpeaker {
-    CardSpeaker {
-        // An empty speaker name IS absent — `evidence_by_ids` decodes a missing
-        // STATED_BY edge to `coalesce(…, '')`. Filtering the blank keeps "nobody is
-        // recorded as saying this" distinct from "somebody said it and their name is
-        // the empty string", which is the distinction a documentary exhibit needs.
-        name: instance
-            .stated_by
-            .as_ref()
-            .map(|a| a.name.clone())
-            .filter(|n| !n.trim().is_empty()),
-        attribution: extracted_label.to_string(),
-    }
-}
-
-/// The §7.1 quote block: the anchor, its two flanks, and how each flank ended.
-///
-/// Split out of [`build_card`] for the function-size limit (Rule 18) — task 1.7C
-/// added four fields to this struct literal and `build_card` was already over.
-///
-/// It earns the split beyond arithmetic: this is the one place the CONTEXT LAW's
-/// output is shaped for the wire, and the pairing it establishes is not obvious.
-/// Each flank contributes THREE things — the text, a boolean saying whether that
-/// text ended at a real sentence boundary, and (only when it did not) a
-/// server-composed notice naming the page edge. The boolean is the state a client
-/// branches on; the notice is the words, because the language law puts every display
-/// decision on this side of the wire. Keeping them adjacent here makes a future
-/// change that sets one and forgets the other visible.
-fn build_quote(
-    text: String,
-    context: QuoteContext,
-    question: Option<String>,
-    override_row: Option<&EvidenceSummaryOverrideRecord>,
-    machine_authorship_label: &str,
-) -> CardQuote {
-    let (question, question_authorship) =
-        resolve_question(question, override_row, machine_authorship_label);
-    CardQuote {
-        text,
-        context_before: context.before.text,
-        context_after: context.after.text,
-        context_before_complete: context.before.complete,
-        context_after_complete: context.after.complete,
-        context_before_notice: context.before.notice,
-        context_after_notice: context.after.notice,
-        question,
-        question_authorship,
-    }
-}
-
 /// Build one complete card. Pure — no I/O.
 ///
 /// This function IS the §7 contract: every element is assembled here, and the
@@ -561,6 +496,12 @@ pub(crate) fn build_card(
         statement_kind: extras
             .and_then(|e| e.statement_type.as_deref())
             .map(statement_kind_label),
+        // FACT_CARD_v2 §2: the date the source line leads with, folded from the
+        // statement's own date and its document's in `collapse_extras`.
+        source_date: extras.and_then(|e| e.source_date.clone()),
+        // Attached by the assembler, which holds the stored cards for the whole
+        // scenario. `build_card` is per-candidate and has no scenario-wide read.
+        card: None,
         // Task 2.13: both come straight off the reference row. The card does not
         // invent a tier for a candidate with no row — "not in the scenario" and
         // "in it, unweighed" are different states and stay so on the wire.

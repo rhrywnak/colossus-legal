@@ -250,6 +250,10 @@ fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
     ScenarioCard {
         code: None,
         graph_node_id: node.to_string(),
+        // FACT_CARD_v2: `link_progress` reads neither of these either — an
+        // undrafted, undated candidate is the honest fixture.
+        source_date: None,
+        card: None,
         // Task 2.13: link_progress reads neither, so the honest fixture is an
         // unruled candidate — no weight, no place.
         tier: None,
