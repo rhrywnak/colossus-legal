@@ -13,7 +13,7 @@
 
 import React from "react";
 
-import { pdfHref } from "./ElementAllegationList";
+import { pdfHref } from "./evidenceLocator";
 import { pillStyle } from "./trialPrepCardStyles";
 import type {
   ExchangeTurn,

@@ -93,6 +93,11 @@ sqlx = { version = "0.8", features = [
     "chrono",
     "migrate",
 ] }
+# Word (.docx) generation for the Proof Matrix export (PROOF_MATRIX_v2 §4).
+# Pinned to an exact version, and `default-features = false` to leave out the
+# `image` feature — the export prints text only, and an image decoder is a
+# dependency surface this build has no use for.
+docx-rs = { version = "0.4.22", default-features = false }
 
 [dev-dependencies]
 # `test-util` is NOT part of tokio's `full`. It enables the VIRTUAL clock

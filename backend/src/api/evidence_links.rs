@@ -39,7 +39,11 @@ use crate::{
     error::AppError,
     repositories::{
         allegation_options_repository::fetch_allegation_options,
-        pipeline_repository::{delete_link, get_scenario, save_link, LinkWrite},
+        pipeline_repository::{
+            delete_link,
+            evidence_allegation_rulings::{save_ruling, RulingWrite},
+            get_scenario, save_link, LinkWrite,
+        },
     },
     services::scenario_link_options::build_options,
     state::AppState,
@@ -200,34 +204,15 @@ pub async fn save_links(
     let mut recut = 0usize;
 
     for allegation_id in &ids {
-        let action = save_link(
-            &state.pipeline_pool,
-            &LinkWrite {
-                graph_node_id: &graph_node_id,
-                allegation_id,
-                cut: payload.cut,
-                authored_by: &user.username,
-                written_at,
-            },
+        let action = save_one_link(
+            &state,
+            &graph_node_id,
+            allegation_id,
+            payload.cut,
+            &user.username,
+            written_at,
         )
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                slug = %slug,
-                graph_node_id = %graph_node_id,
-                %allegation_id,
-                author = %user.username,
-                // Named because the loop is not atomic across accusations: an
-                // earlier one may already be stored, and an operator reading this
-                // needs to know which one stopped.
-                "failed to save an accusation link; earlier links in this request \
-                 are already committed"
-            );
-            AppError::Internal {
-                message: "failed to save the link".to_string(),
-            }
-        })?;
+        .await?;
 
         match action {
             crate::domain::link_cut::LinkAction::Recut => recut += 1,
@@ -249,6 +234,116 @@ pub async fn save_links(
         linked,
         recut,
     }))
+}
+
+/// Save one accusation link and mirror it onto the Proof Matrix, in that order.
+///
+/// Split from [`save_links`] so that handler reads as the loop and the tally it
+/// is, and so the two writes one accusation needs sit together, where the failure
+/// message can say which of them stopped.
+///
+/// # Errors
+/// Returns [`AppError::Internal`] with the failing half named in the operator
+/// log. The enclosing loop is NOT atomic across accusations — an earlier one may
+/// already be committed — which is why the message says so.
+async fn save_one_link(
+    state: &AppState,
+    graph_node_id: &str,
+    allegation_id: &str,
+    cut: crate::domain::link_cut::LinkCut,
+    author: &str,
+    written_at: chrono::DateTime<Utc>,
+) -> Result<crate::domain::link_cut::LinkAction, AppError> {
+    let action = save_link(
+        &state.pipeline_pool,
+        &LinkWrite {
+            graph_node_id,
+            allegation_id,
+            cut,
+            authored_by: author,
+            written_at,
+        },
+    )
+    .await
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            %graph_node_id,
+            %allegation_id,
+            %author,
+            // Named because the loop is not atomic across accusations: an earlier
+            // one may already be stored, and an operator reading this needs to
+            // know which one stopped.
+            "failed to save an accusation link; earlier links in this request \
+             are already committed"
+        );
+        AppError::Internal {
+            message: "failed to save the link".to_string(),
+        }
+    })?;
+
+    mirror_as_matrix_keep(state, graph_node_id, allegation_id, author, written_at).await?;
+    Ok(action)
+}
+
+/// Mirror a human link onto the Proof Matrix as a `keep` ruling (v2 §2).
+///
+/// ## Why one act writes two tables
+///
+/// Including a statement in a scenario with a stance and an accusation IS the
+/// judgment the Matrix's Keep button records: a human said this statement bears
+/// on that accusation and belongs there. Leaving the Matrix unaware of it would
+/// mean the same person, having done the work once, is asked to do it again on
+/// another page — and, worse, that the Matrix goes on marking the item `machine`
+/// after a human has been through it. §2 states it as one human act on two
+/// surfaces, and this is where that becomes true.
+///
+/// ## Why this is a second transaction and not one
+///
+/// The two tables live in the same database, so a single transaction is possible
+/// — and the two writes are NOT equals. The link is what makes a card rulable;
+/// the mirrored keep is a convenience on another page. Widening the link's
+/// transaction to hold both would make a Matrix failure roll back a link the
+/// human is waiting on. Instead both are attempted, both are propagated, and the
+/// log below says exactly which half is stored — the same honesty the enclosing
+/// loop already applies across accusations.
+///
+/// The write is an UPSERT, so a statement linked, unlinked and linked again does
+/// not accumulate rulings; it re-affirms the one row.
+async fn mirror_as_matrix_keep(
+    state: &AppState,
+    evidence_id: &str,
+    allegation_id: &str,
+    author: &str,
+    written_at: chrono::DateTime<Utc>,
+) -> Result<(), AppError> {
+    save_ruling(
+        &state.pipeline_pool,
+        &RulingWrite {
+            evidence_id,
+            allegation_id,
+            ruling: crate::domain::matrix_ruling::MatrixRuling::Keep,
+            ruled_by: author,
+            note: None,
+            written_at,
+        },
+    )
+    .await
+    .map(|_| ())
+    .map_err(|e| {
+        tracing::error!(
+            error = %e,
+            graph_node_id = %evidence_id,
+            %allegation_id,
+            %author,
+            "the accusation link WAS saved but its Proof Matrix keep was not — the \
+             card is linked and rulable, and the Matrix will still show this item \
+             as unread machine output until the link is saved again"
+        );
+        AppError::Internal {
+            message: "failed to record the link on the Proof Matrix".to_string(),
+        }
+    })
 }
 
 /// The one validation rule on the save path, extracted so it can be tested.

@@ -1,19 +1,29 @@
 // =============================================================================
-// matrixStrength.ts — the Proof Matrix's pure display helpers (task 396, P1)
+// matrixStrength.ts — the Proof Matrix ROW's pure display helpers (task 396, P1)
 // =============================================================================
 //
-// Two template fillers and one chip lookup. Nothing here computes a number and
-// nothing here writes a sentence: the counts arrive from the backend already
-// collapsed and tiered (`services::matrix_strength`), and every word comes from
-// the served `MatrixWording`.
+// Two template fillers. Nothing here computes a number and nothing here writes a
+// sentence: the counts arrive from the backend already collapsed and tiered
+// (`services::matrix_strength`), and every word comes from the served
+// `MatrixWording`.
+//
+// ## What used to be here: `tierChipLabel`
+//
+// PROOF_MATRIX_v2 §3 removed the Strong/Hedged/Other chip from the drill-down —
+// the tier was a claim about how hard an item is to dispute, and the reader-
+// facing page now leads with what the linking pass and a human said instead. The
+// lookup went with its only caller rather than staying as a function nothing
+// reaches, which is the state a component in this repo has already been found in
+// once. The three chip WORDS are still stored and still served: they label the
+// matrix row's headline column, which is unchanged.
 //
 // ## Why these are pure functions in their own module
 //
 // CLAUDE.md §30: there is no component-test infrastructure in this repo, so
-// anything worth asserting has to be reachable without React. The chip lookup in
-// particular is worth asserting — it maps a backend token to a stored label, and
-// a token this build does not know about must render NOTHING rather than the
-// token itself, which is the sort of thing that only shows up on screen.
+// anything worth asserting has to be reachable without React. The "×N" rule in
+// particular is worth asserting — a marker that appeared on every row would be
+// noise, and one that never appeared would hide that a statement was recorded
+// more than once; neither shows up anywhere but on screen.
 //
 // ## The frontend composes nothing
 //
@@ -26,16 +36,6 @@
 import type { MatrixWording } from "../services/causesOfAction";
 
 /**
- * The strength tiers the backend can stamp on a drill-down row.
- *
- * Mirrors `domain::evidence_tier::EvidenceTier::code()`. `null` is a real value
- * on the wire, not an absence: it means the stored tier map does not name that
- * item's `(statement_type, evidence_strength)` pair. Such a row is still
- * approved, still counted and still rendered — it simply carries no chip.
- */
-export type EvidenceTierToken = "strong" | "hedged" | "other";
-
-/**
  * Put a served count into a served template.
  *
  * @param template a stored string carrying `{count}`
@@ -44,51 +44,6 @@ export type EvidenceTierToken = "strong" | "hedged" | "other";
  */
 export function fillCount(template: string, count: number): string {
   return template.replace("{count}", String(count));
-}
-
-/**
- * The stored label for one tier token, or `null` when there is nothing to show.
- *
- * Returns `null` for BOTH a `null` token (an unmapped pair — the backend's own
- * "I have no claim about this one") and an unrecognized token (a tier a newer
- * backend defines and this build does not). The two are the same on screen for a
- * good reason: in neither case does this build have a word it is entitled to
- * print, and printing the raw token — `"hedged"` — would put the database's
- * vocabulary in front of Chuck.
- *
- * An unknown token IS worth an operator observable, so it is warned once at the
- * call site's expense rather than swallowed.
- */
-export function tierChipLabel(
-  tier: string | null,
-  wording: MatrixWording,
-): string | null {
-  switch (tier) {
-    case null:
-      return null;
-    case "strong":
-      return wording.tier_strong_chip;
-    case "hedged":
-      return wording.tier_hedged_chip;
-    case "other":
-      return wording.tier_other_chip;
-    default:
-      // NOT the Rule 1 storage carve-out — that one is scoped to cosmetic
-      // browser-storage preferences, and this is neither storage nor a
-      // preference. It degrades for its own reason: a tier this build cannot
-      // name renders as a row with NO CHIP, which is exactly how a legitimately
-      // unmapped pair renders. No item is hidden and no count moves, so nothing
-      // a reader acts on is affected — only a label is absent. A banner over a
-      // missing label would be disproportionate; the console warning is the
-      // observable, and it carries the offending token so an operator can see
-      // the frontend is behind the backend's vocabulary.
-      console.warn(
-        `Proof Matrix: unknown evidence tier "${tier}" — the row renders without a ` +
-          `strength chip. This build knows strong/hedged/other; the backend has sent ` +
-          `something newer.`,
-      );
-      return null;
-  }
 }
 
 /**

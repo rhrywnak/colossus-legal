@@ -46,19 +46,57 @@ export type AllegationEvidence = {
   speaker: string | null;
   /** The interrogatory this answers, or `null` for documentary evidence. */
   question: string | null;
+  /** The answer half of a Q&A card. Feeds the backend-composed `rfa_line`. */
+  answer: string | null;
+
+  // ── What the linking pass wrote on the edge (PROOF_MATRIX_v2 §1) ───────────
+  //
+  // Raw tokens, never labels: every word a reader sees comes from the served
+  // `MatrixWording`. `null` on all of them is a real state — 286 edges predate
+  // the pass and carry nothing.
+
+  /** The pass's position within a stance, 1..N. */
+  rank: number | null;
+  /** `direct_proof` / `their_own_words` / `context` / `duplicate_of` /
+   *  `does_not_belong`, or `null` when absent or unreadable by the backend. */
+  role: string | null;
+  /** `high` / `medium` / `low`, or `null` for an older edge. */
+  confidence: string | null;
+  /** The pass's one line about why this item ranks here. */
+  rank_reason: string | null;
+  /** The older pass's reason, shown when there is no `rank_reason`. */
+  why: string | null;
+  /** The item both supports and disputes this Allegation — 28 edges do. */
+  conflict: boolean;
+  /** The item this one restates, when the pass called it a duplicate. */
+  duplicate_of_card_id: string | null;
+  /** The SOURCE DOCUMENT's date, `YYYY-MM-DD`, or `null`/`""` when it has none. */
+  document_date: string | null;
+
+  // ── What a human said, and what the backend worked out (§2, §3) ────────────
+
+  /** `keep` / `remove`, or `null` when nobody has ruled on this item. */
+  ruling: string | null;
+  /** Who ruled. `null` exactly when `ruling` is `null`. */
+  ruled_by: string | null;
   /**
-   * How hard this item is to dispute: `"strong"` / `"hedged"` / `"other"`, or
-   * `null` when the stored tier map does not name its pair.
+   * Why this item is not in the default list: `does_not_belong` / `removed`, or
+   * `null` for a visible one.
    *
-   * Domain note: `null` is a real answer, NOT a gap. Such a row is still counted
-   * as approved and still rendered — it carries no chip. The disputing leg is
-   * always `null`: a tier is a claim about how hard SUPPORT is to dispute, and
-   * ranking rebuttals by the same scale would be a verdict nobody has made.
+   * Domain note: SERVED, not derived here. The page and the Word export apply
+   * one set of hide rules, and that set lives in the backend.
    */
-  tier: string | null;
+  hidden_reason: string | null;
   /**
-   * How many near-identical statements collapsed into this row — the "×N".
-   * `1` means no duplicates, which is most rows.
+   * The finished one-line rendering of a Q&A card, composed by the backend from
+   * the stored templates. `null` for anything that is not one — the row then
+   * renders `verbatim_quote` as usual.
+   */
+  rfa_line: string | null;
+  /**
+   * How many items this row stands for: itself, plus every `duplicate_of` the
+   * backend folded into it — the "×N". `1` means nothing folded, which is most
+   * rows.
    */
   occurrences: number;
 };
@@ -112,6 +150,13 @@ export type ElementDetailResponse = {
   allegation_count: number;
   common_count: number;
   dedicated_count: number;
+  /**
+   * How many items each paragraph shows before "N more" — the stored
+   * `matrix_visible_items`, served rather than compiled in (Rule 2). The Word
+   * export prints the same number per list, so the page and the document a
+   * reader takes away from it cannot disagree.
+   */
+  visible_items: number;
 };
 
 // ─── GET /detail ────────────────────────────────────────────────────────────

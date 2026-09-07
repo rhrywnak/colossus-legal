@@ -3,27 +3,16 @@
  *
  * No DOM / RTL — pure functions only (CLAUDE.md §30), mirroring
  * trialPrepHelpers.test.ts. What is worth locking here is the behaviour that
- * only shows up on screen: which tokens produce a chip, which produce nothing,
- * and when the "×N" marker appears at all.
+ * only shows up on screen: when the "×N" marker appears at all, and that an
+ * unfilled template shows verbatim rather than being repaired.
+ *
+ * The `tierChipLabel` suite went with the function itself — PROOF_MATRIX_v2 §3
+ * removed the tier chip from the drill-down, and the lookup left with its only
+ * caller rather than staying as code nothing reaches.
  */
-import { describe, expect, it, vi } from "vitest";
-import {
-  duplicateMarker,
-  fillCount,
-  tierChipLabel,
-} from "../matrixStrength";
-import type { MatrixWording } from "../../services/causesOfAction";
-
-const wording: MatrixWording = {
-  strong_column_label: "Strong support",
-  raw_approved_template: "· {count} approved",
-  strong_hint: "Sworn admissions by the other side, and the court's own findings.",
-  tier_strong_chip: "Their own words",
-  tier_hedged_chip: "Qualified",
-  tier_other_chip: "Our sworn word",
-  duplicate_template: "×{count}",
-  ranked_list_note: "Strongest first",
-};
+import { describe, expect, it } from "vitest";
+import { duplicateMarker, fillCount } from "../matrixStrength";
+import { MATRIX_WORDING_FIXTURE as wording } from "../../testFixtures/matrixWording";
 
 describe("fillCount", () => {
   it("puts the served number into the served template", () => {
@@ -40,35 +29,6 @@ describe("fillCount", () => {
 
   it("fills zero, which is a real reading and not an empty one", () => {
     expect(fillCount(wording.raw_approved_template, 0)).toBe("· 0 approved");
-  });
-});
-
-describe("tierChipLabel", () => {
-  it("maps each known token to its stored label", () => {
-    expect(tierChipLabel("strong", wording)).toBe("Their own words");
-    expect(tierChipLabel("hedged", wording)).toBe("Qualified");
-    expect(tierChipLabel("other", wording)).toBe("Our sworn word");
-  });
-
-  it("returns nothing for an unmapped pair, silently", () => {
-    // `null` is the backend saying "the stored tier map makes no claim about
-    // this one". That is a normal state, not a fault: the row still renders and
-    // is still counted, it just carries no chip. No warning.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(tierChipLabel(null, wording)).toBeNull();
-    expect(warn).not.toHaveBeenCalled();
-    warn.mockRestore();
-  });
-
-  it("returns nothing for an unknown token, and says so in the console", () => {
-    // A tier a newer backend defines and this build does not. The row must not
-    // print the raw token — that would put the database's vocabulary in front of
-    // Chuck — but an operator should be able to see the frontend is behind.
-    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    expect(tierChipLabel("devastating", wording)).toBeNull();
-    expect(warn).toHaveBeenCalledTimes(1);
-    expect(warn.mock.calls[0][0]).toContain("devastating");
-    warn.mockRestore();
   });
 });
 

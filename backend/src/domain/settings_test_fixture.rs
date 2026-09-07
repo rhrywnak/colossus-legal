@@ -54,6 +54,7 @@ impl Settings {
             },
             reanchor_close_match_tolerance: 0.85,
             link_short_list_max: 8,
+            matrix_visible_items: 5,
             wording: Wording::for_test(),
             accusation_wording: AccusationWording::for_test(),
             rehearsal_wording: RehearsalWording::for_test(),

@@ -264,6 +264,17 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             Some(1.0),
             None,
         ),
+        // PROOF_MATRIX_v2 §3: how many items one paragraph shows before "N more",
+        // and how many the Word export prints per list. Floor of 1, mirroring the
+        // migration's — a list that shows nothing before its "more" control is a
+        // paragraph with its evidence hidden by configuration.
+        row(
+            KEY_MATRIX_VISIBLE_ITEMS,
+            "5",
+            ValueKind::Count,
+            Some(1.0),
+            None,
+        ),
         // ONE_CARD_GRAMMAR: how much of a question shows, and how many element
         // chips stand before the fold. Bounds mirror the migration's — the
         // question needs at least one visible character to be ellipsizable at
@@ -634,7 +645,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        38,
+        39,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -649,7 +660,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          deck row (hotfix, 2026-08-19) — and the chronology scroll window, how \
          many events one phase shows before it scrolls (Phase B, design R6), \
          and the chronology document picker's short list, how many documents \
-         one search offers (Phase C, design R9)"
+         one search offers (Phase C, design R9) — and PROOF_MATRIX_v2's short \
+         list, how many items one paragraph shows before \"N more\" and how many \
+         the Word export prints per list, which are ONE number so the page and \
+         the document a reader takes away from it cannot disagree"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -719,9 +733,19 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         MATRIX_WORDING_KEYS.len(),
-        8,
-        "task 396 P1: the strong column's label and hint, the depth line, the \
-         three tier chips, the duplicate marker, and the ranked-list note"
+        34,
+        "task 396 P1's eight — the strong column's label and hint, the depth \
+         line, the three tier chips, the duplicate marker and the ranked-list \
+         note — plus PROOF_MATRIX_v2's twenty-six, which are what turned this \
+         page from a working surface into one Chuck reads: the short list's two \
+         controls and the hidden group's, the Keep/Remove/Undo buttons, the four \
+         marks under a quote (machine, kept, conflicts, and the four confidence \
+         words — including `low`, which no edge carries YET), the two RFA line \
+         templates, the colour legend, and the Word export's button, title, two \
+         headings, confirmed mark, empty sentence and footer, the \
+         two on-screen empty-leg sentences (worded apart, because our missing \
+         proof and theirs are different findings) — and the sentence shown when \
+         a decision does not save"
     );
     assert_eq!(
         WAR_ROOM_WORDING_KEYS.len(),
@@ -1302,6 +1326,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260901162435_gather_probe_max_share_to_one_sixth.sql",
         // ...and reverted, after measurement disproved the ruling behind it.
         "pipeline_migrations/20260901193521_gather_probe_max_share_back_to_one_third.sql",
+        // PROOF_MATRIX_v2: the matrix short list, one number for the page and the
+        // Word export.
+        "pipeline_migrations/20260906141743_proof_matrix_v2_rulings_and_reader_wording.sql",
     ]
     .iter()
     .map(|relative| {

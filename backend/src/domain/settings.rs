@@ -76,6 +76,13 @@ pub struct Settings {
     /// How close a re-found quote must be to count as the same quote (§12.1).
     /// Provisional; no consumer until 2.5.
     pub reanchor_close_match_tolerance: f32,
+    /// How many items each Proof Matrix paragraph shows before "N more", and how
+    /// many the Word export prints per list (PROOF_MATRIX_v2 §3, §4).
+    ///
+    /// ONE number for both surfaces on purpose: the page and the document a
+    /// reader takes away from it must not disagree about what the top of a list
+    /// is.
+    pub matrix_visible_items: usize,
     /// How many accusations the link panel's short list offers before "Show all"
     /// (task 2.10). The full complaint is always one click behind it.
     pub link_short_list_max: usize,

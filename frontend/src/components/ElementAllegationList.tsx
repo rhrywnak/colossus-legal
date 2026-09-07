@@ -1,164 +1,208 @@
 // =============================================================================
 // ElementAllegationList.tsx — one labeled section of mapped Allegations, each
-// with its corroborating Evidence (Proof Matrix expand, Part 2)
+// with the evidence under it (PROOF_MATRIX_v2 §3)
 // -----------------------------------------------------------------------------
-// Extracted from ElementDetailContent.tsx: that file was already over the
-// 300-line module limit before Part 2, and nesting per-allegation evidence under
-// each card would push it further. This sibling owns the allegation-card +
-// evidence rendering and its styles; ElementDetailContent keeps the fetch, the
-// notes editor, and the Common/Dedicated grouping.
+// The paragraph, then its two stance lists: the top few, a "N more" control, and
+// a "show hidden (N)" toggle at the foot. Each row is a `MatrixEvidenceRow`,
+// which owns everything about one item; this file owns the LIST — the folds, the
+// optimistic update, and the error line when a write does not land.
 //
-// Per allegation we render BOTH evidence legs the backend provides: its
-// `supporting_evidence` (CORROBORATES) and its `disputing_evidence` (REBUTS).
-// Each item shows its verbatim quote, interrogatory id, and a source locator.
+// ## What §3 removed, and why
 //
-// An EMPTY array renders an explicit, muted "No … evidence" row — the
-// per-allegation gap made visible (Rule 1). The two empties say different
-// things, so they are worded separately rather than sharing one message.
-// Disputes carry a distinct accent so a rebuttal can never be mistaken for
-// corroboration at a glance — the one misreading that would actively mislead on
-// a proof surface. All of this is rendering conditional on backend-provided
-// arrays, NOT status derivation (Rule 19).
+// The machine `summary` line above the paragraph is gone: it was a model's
+// précis of words the complaint states exactly, printed above those very words.
+// The Strong/Hedged/Other tier chip is gone with it — the reader-facing page
+// leads with what the linking pass and a human said, not with a claim about how
+// hard an item is to dispute. What is left above the quote is `¶n` and the
+// complaint's own sentence.
 //
-// Source-PDF click-through reuses the app's existing document-file pattern
-// (`/api/documents/:id/file#page=N`, as in AnswerDisplay / GraphPage). When an
-// Evidence node has no source document (`source_document_id` null — a gap the
-// backend warn-logs), the locator renders as text with no link.
+// ## Why the update is optimistic
+//
+// A reader goes through a paragraph of five items in a few seconds. A round trip
+// between each click would make the page feel broken, so the row moves at once
+// and the write follows. That makes a silent failure the worst outcome available
+// — so a failed write puts the served refusal sentence on screen AND rolls the
+// row back, which is the only pair of behaviours that leaves the screen agreeing
+// with the database.
 // =============================================================================
 
-import React from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import {
   AllegationSummary,
   AllegationEvidence,
 } from "../services/elementDetailService";
-import { API_BASE_URL } from "../services/api";
 import type { MatrixWording } from "../services/causesOfAction";
-import { duplicateMarker, tierChipLabel } from "./matrixStrength";
+import {
+  saveRuling,
+  withdrawRuling,
+  type MatrixRulingToken,
+} from "../services/matrixRulings";
+import MatrixEvidenceRow from "./MatrixEvidenceRow";
+import {
+  hiddenToggleLabel,
+  moreLabel,
+  splitEvidence,
+} from "./matrixRow";
 
-// ─── Source-PDF locator helpers (pure) ───────────────────────────────────────
-
-/**
- * Build the existing document-file URL with an optional `#page=N` fragment —
- * the same pattern AnswerDisplay/GraphPage use. We do not invent a viewer.
- */
-export function pdfHref(documentId: string, page: number | null): string {
-  const fragment = page !== null ? `#page=${page}` : "";
-  return `${API_BASE_URL}/api/documents/${encodeURIComponent(documentId)}/file${fragment}`;
-}
-
-/** Human locator text: "{title} · p. {n}" (title alone when no page). */
-export function locatorLabel(ev: AllegationEvidence): string {
-  const title = ev.source_document_title ?? "Source document";
-  return ev.page_number !== null ? `${title} · p. ${ev.page_number}` : title;
-}
-
-// ─── Evidence rendering ──────────────────────────────────────────────────────
+/** How a ruling changes one item, applied locally before the write returns. */
+type LocalRuling = {
+  ruling: string | null;
+  ruled_by: string | null;
+  hidden_reason: string | null;
+};
 
 /**
- * The strength chip and the duplicate marker for one supporting row.
+ * The item as it will look once the write lands.
  *
- * Renders nothing at all when this build has no word for the tier — an unmapped
- * pair, or a tier a newer backend defines. The row itself is never hidden and no
- * count changes; it simply carries no label, which is the honest rendering of
- * "the stored map makes no claim about this one".
+ * ## Why the frontend computes this at all, given Rule 19
+ *
+ * It is not deriving state — it is PREDICTING the state the backend will return,
+ * for the moment between the click and the reply, and it is thrown away the
+ * instant the parent re-fetches. The rules it predicts are the backend's own,
+ * stated once here: a `keep` shows the item (overruling a machine retraction), a
+ * `remove` hides it, and an undo returns it to whatever the machine said.
  */
-const TierChip: React.FC<{
-  tier: string | null;
-  occurrences: number;
-  wording: MatrixWording;
-}> = ({ tier, occurrences, wording }) => {
-  const label = tierChipLabel(tier, wording);
-  const marker = duplicateMarker(occurrences, wording);
-  if (!label && !marker) return null;
-  return (
-    <>
-      {label && (
-        <span style={tier === "strong" ? STRONG_CHIP_STYLE : TIER_CHIP_STYLE}>{label}</span>
-      )}
-      {/* "×2" sits beside the chip rather than in the quote, because it is a fact
-          about how many times the statement was RECORDED, not about the words. */}
-      {marker && <span style={DUPLICATE_MARKER_STYLE}>{marker}</span>}
-    </>
-  );
-};
-
-/**
- * The source locator for one Evidence item: a click-through link to the source
- * PDF page when the document id is known, or plain text when it is null (the
- * data-gap state — no dead link).
- */
-const EvidenceLocator: React.FC<{ ev: AllegationEvidence }> = ({ ev }) => {
-  const label = locatorLabel(ev);
-  if (ev.source_document_id) {
-    return (
-      <a
-        href={pdfHref(ev.source_document_id, ev.page_number)}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={LOCATOR_LINK_STYLE}
-      >
-        {label}
-      </a>
-    );
+function optimistic(
+  item: AllegationEvidence,
+  ruling: MatrixRulingToken | null,
+  actor: string,
+): LocalRuling {
+  if (ruling === null) {
+    // Withdrawn: back to the machine's own claim, whatever that was.
+    return {
+      ruling: null,
+      ruled_by: null,
+      hidden_reason: item.role === "does_not_belong" ? "does_not_belong" : null,
+    };
   }
-  return (
-    <span style={LOCATOR_TEXT_STYLE} title="Source document unavailable">
-      {label}
-    </span>
-  );
-};
+  return {
+    ruling,
+    ruled_by: actor,
+    hidden_reason: ruling === "remove" ? "removed" : null,
+  };
+}
 
-/**
- * An allegation's supporting evidence, or the explicit empty-gap row. An empty
- * array is the visible gap and must be obvious, not blank.
- */
-const EvidenceLegList: React.FC<{
+interface EvidenceLegProps {
+  caseSlug: string;
+  allegationId: string;
   evidence: AllegationEvidence[];
+  /** The served `visible_items` — how many show before "N more". */
+  limit: number;
   /** Empty-state wording; the two legs mean different things when empty. */
   emptyLabel: string;
-  /** Left rule color, so disputes read as distinct from corroboration. */
-  accent?: string;
-  /**
-   * The matrix's served words. Present on the SUPPORTING leg only: since task
-   * 396 that leg arrives collapsed and ranked strongest-first, and each row can
-   * carry a strength chip and a "×N" marker. The disputing leg is deliberately
-   * neither ranked nor collapsed and passes nothing.
-   */
-  wording?: MatrixWording;
-}> = ({ evidence, emptyLabel, accent, wording }) => {
-  if (evidence.length === 0) {
+  /** Left rule colour, so a rebuttal can never read as corroboration. */
+  accent: string;
+  wording: MatrixWording;
+}
+
+/**
+ * One stance list under one accusation: the short list, the overflow, the hidden
+ * group, and the two controls that open them.
+ */
+const EvidenceLeg: React.FC<EvidenceLegProps> = ({
+  caseSlug,
+  allegationId,
+  evidence,
+  limit,
+  emptyLabel,
+  accent,
+  wording,
+}) => {
+  const [showAll, setShowAll] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  // Rulings this session has applied but not yet re-fetched, keyed by item id.
+  const [local, setLocal] = useState<Record<string, LocalRuling>>({});
+
+  // The served list with any local rulings laid over it. `useMemo` because the
+  // overlay walks every item and the leg re-renders on every hover of a control.
+  const items = useMemo(
+    () =>
+      evidence.map((item) =>
+        local[item.id] ? { ...item, ...local[item.id] } : item,
+      ),
+    [evidence, local],
+  );
+
+  const write = useCallback(
+    async (item: AllegationEvidence, ruling: MatrixRulingToken | null) => {
+      setPendingId(item.id);
+      setError(null);
+      // "you" rather than a username: the browser does not know the
+      // authenticated name, and the next read replaces this with the one the
+      // backend recorded. Guessing a name would put a wrong attribution on a
+      // proof surface, briefly, which is worse than a vague true one.
+      setLocal((prev) => ({ ...prev, [item.id]: optimistic(item, ruling, "you") }));
+      try {
+        if (ruling === null) {
+          await withdrawRuling(caseSlug, item.id, allegationId);
+        } else {
+          await saveRuling(caseSlug, item.id, allegationId, ruling);
+        }
+      } catch (err: unknown) {
+        const detail = err instanceof Error ? err.message : "unknown error";
+        setError(wording.ruling_failed_template.replace("{detail}", detail));
+        // Roll the row back. The screen and the database disagree until this
+        // line runs, and the message above is what says so.
+        setLocal((prev) => {
+          const next = { ...prev };
+          delete next[item.id];
+          return next;
+        });
+      } finally {
+        setPendingId(null);
+      }
+    },
+    [caseSlug, allegationId, wording.ruling_failed_template],
+  );
+
+  if (items.length === 0) {
     return <div style={NO_EVIDENCE_STYLE}>{emptyLabel}</div>;
   }
+
+  const { shown, behindMore, hidden } = splitEvidence(items, limit);
+  const visible = showAll ? [...shown, ...behindMore] : shown;
+  const more = moreLabel(behindMore, wording);
+  const hiddenLabel = hiddenToggleLabel(hidden, showHidden, wording);
+
+  const row = (item: AllegationEvidence) => (
+    <MatrixEvidenceRow
+      key={item.id}
+      item={item}
+      accent={accent}
+      wording={wording}
+      pending={pendingId === item.id}
+      onRule={(id, ruling) => {
+        const target = items.find((e) => e.id === id);
+        if (target) void write(target, ruling);
+      }}
+      onUndo={(id) => {
+        const target = items.find((e) => e.id === id);
+        if (target) void write(target, null);
+      }}
+    />
+  );
+
   return (
-    <div style={EVIDENCE_LIST_STYLE}>
-      {evidence.map((ev) => (
-        <div
-          key={ev.id}
-          style={
-            accent
-              ? { ...EVIDENCE_ITEM_STYLE, borderLeft: `2px solid ${accent}` }
-              : EVIDENCE_ITEM_STYLE
-          }
+    <div style={LEG_STYLE}>
+      {visible.map(row)}
+      {error && <div style={ERROR_LINE_STYLE}>{error}</div>}
+      {more && !showAll && (
+        <button type="button" style={FOLD_BUTTON_STYLE} onClick={() => setShowAll(true)}>
+          {more}
+        </button>
+      )}
+      {hiddenLabel && (
+        <button
+          type="button"
+          style={FOLD_BUTTON_STYLE}
+          onClick={() => setShowHidden((v) => !v)}
         >
-          {ev.verbatim_quote && (
-            <div className="proof-text" style={EVIDENCE_QUOTE_STYLE}>
-              “{ev.verbatim_quote}”
-            </div>
-          )}
-          <div style={EVIDENCE_META_STYLE}>
-            {/* The strength chip leads the meta row: it is the claim this whole
-                ranking exists to make, and a reader scanning the list should be
-                able to tell an opponent's admission from our own affidavit
-                without reading either quote. Absent on an unmapped pair and on
-                every disputing row — see `tierChipLabel`. */}
-            {wording && <TierChip tier={ev.tier} occurrences={ev.occurrences} wording={wording} />}
-            {ev.paragraph && (
-              <span style={EVIDENCE_PARA_STYLE}>{ev.paragraph}</span>
-            )}
-            <EvidenceLocator ev={ev} />
-          </div>
-        </div>
-      ))}
+          {hiddenLabel}
+        </button>
+      )}
+      {showHidden && hidden.map(row)}
     </div>
   );
 };
@@ -171,18 +215,18 @@ export interface AllegationSectionProps {
   labelBg: string;
   accentColor: string;
   allegations: AllegationSummary[];
-  /**
-   * The Proof Matrix's served words, for the strength chips and the "×N" marker
-   * on the supporting leg (task 396, P1). Threaded from the page's gating fetch
-   * rather than read here — every row on the page speaks one snapshot.
-   */
+  caseSlug: string;
+  /** The served `visible_items`, threaded from the Element detail payload. */
+  visibleItems: number;
+  /** The Proof Matrix's served words. Every visible word on the page. */
   wording: MatrixWording;
 }
 
 /**
- * One labeled group of allegation cards (Common / Count-specific / Other). Moved
- * verbatim from ElementDetailContent and extended with the nested
- * `AllegationEvidenceList` under each card.
+ * One labeled group of allegation cards (Common / Count-specific / Other).
+ *
+ * The card is now `¶n` + the complaint's own words, and nothing else above the
+ * evidence — see the module header on what §3 removed.
  */
 const AllegationSection: React.FC<AllegationSectionProps> = ({
   label,
@@ -190,6 +234,8 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
   labelBg,
   accentColor,
   allegations,
+  caseSlug,
+  visibleItems,
   wording,
 }) => (
   <div>
@@ -210,7 +256,6 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
       <div key={a.allegation_id} style={ALLEGATION_CARD_STYLE}>
         <div>
           <span style={PARAGRAPH_LABEL_STYLE}>¶{a.paragraph_number}</span>
-          {a.summary && <span style={SUMMARY_TEXT_STYLE}>{a.summary}</span>}
         </div>
         {a.verbatim_quote && (
           <div
@@ -220,15 +265,23 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
             {a.verbatim_quote}
           </div>
         )}
-        <EvidenceLegList
+        <EvidenceLeg
+          caseSlug={caseSlug}
+          allegationId={a.allegation_id}
           evidence={a.supporting_evidence}
+          limit={visibleItems}
           wording={wording}
-          emptyLabel="No supporting evidence"
+          accent="var(--state-success-strong)"
+          emptyLabel={wording.no_supporting_line}
         />
-        <EvidenceLegList
+        <EvidenceLeg
+          caseSlug={caseSlug}
+          allegationId={a.allegation_id}
           evidence={a.disputing_evidence}
-          emptyLabel="No disputing evidence"
+          limit={visibleItems}
+          wording={wording}
           accent="var(--state-danger-strong)"
+          emptyLabel={wording.no_disputing_line}
         />
       </div>
     ))}
@@ -237,7 +290,7 @@ const AllegationSection: React.FC<AllegationSectionProps> = ({
 
 export default AllegationSection;
 
-// ─── Styles (allegation card — moved from ElementDetailContent) ──────────────
+// ─── Styles (tokens only) ────────────────────────────────────────────────────
 
 const SECTION_DIVIDER_STYLE_BASE: React.CSSProperties = {
   display: "flex",
@@ -272,13 +325,6 @@ const PARAGRAPH_LABEL_STYLE: React.CSSProperties = {
   color: "var(--text-primary)",
 };
 
-const SUMMARY_TEXT_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: "13px",
-  color: "var(--text-secondary)",
-  marginLeft: "8px",
-};
-
 // Layout-only; typography comes from the `.proof-text` utility class in
 // tokens.css (the canonical proof/body treatment).
 const QUOTE_TEXT_STYLE_BASE: React.CSSProperties = {
@@ -287,54 +333,16 @@ const QUOTE_TEXT_STYLE_BASE: React.CSSProperties = {
   lineHeight: 1.45,
 };
 
-// ─── Styles (supporting evidence — new) ──────────────────────────────────────
-
 // Evidence nests under the allegation, set off by a top rule so it reads as
 // "what backs this allegation" rather than part of the allegation text.
-const EVIDENCE_LIST_STYLE: React.CSSProperties = {
+const LEG_STYLE: React.CSSProperties = {
   marginTop: "8px",
   paddingTop: "8px",
   borderTop: "1px dashed var(--border-default)",
   display: "flex",
   flexDirection: "column",
   gap: "8px",
-};
-
-const EVIDENCE_ITEM_STYLE: React.CSSProperties = {
-  paddingLeft: "8px",
-  borderLeft: "3px solid var(--state-success-strong)",
-};
-
-const EVIDENCE_QUOTE_STYLE: React.CSSProperties = {
-  lineHeight: 1.45,
-};
-
-const EVIDENCE_META_STYLE: React.CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  flexWrap: "wrap",
-  gap: "8px",
-  marginTop: "4px",
-};
-
-const EVIDENCE_PARA_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-mono)",
-  fontSize: "12px",
-  fontWeight: 700,
-  color: "var(--text-secondary)",
-};
-
-const LOCATOR_LINK_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: "12px",
-  color: "var(--accent-primary)",
-  textDecoration: "none",
-};
-
-const LOCATOR_TEXT_STYLE: React.CSSProperties = {
-  fontFamily: "var(--font-sans)",
-  fontSize: "12px",
-  color: "var(--text-muted)",
+  alignItems: "flex-start",
 };
 
 // The explicit per-allegation gap — muted but obviously present, never blank.
@@ -348,38 +356,28 @@ const NO_EVIDENCE_STYLE: React.CSSProperties = {
   color: "var(--text-muted)",
 };
 
-// ─── Strength-chip styles (task 396, P1) ─────────────────────────────────────
-
-// A tier chip is a label, not a control: no border-radius pill treatment that
-// would read as clickable, and the same hairline vocabulary the rest of the
-// panel uses.
-const TIER_CHIP_STYLE: React.CSSProperties = {
-  display: "inline-block",
-  padding: "1px 6px",
-  borderRadius: "4px",
-  border: "1px solid var(--border-default)",
-  backgroundColor: "var(--bg-page)",
-  color: "var(--text-secondary)",
-  fontFamily: "var(--font-sans)",
-  fontSize: "10.5px",
-  fontWeight: 600,
-  letterSpacing: "0.02em",
-};
-
-// The strong tier is the one claim the page is built to make, so it carries the
-// single accent — the visual language's "one accent" rule spent where it earns
-// the most (§2c).
-const STRONG_CHIP_STYLE: React.CSSProperties = {
-  ...TIER_CHIP_STYLE,
-  borderColor: "var(--accent-primary)",
-  backgroundColor: "var(--accent-bg-soft)",
+// A text control, not a button-shaped one: these open more of the same list, and
+// a filled button beside five quotes would read as the action on the paragraph.
+const FOLD_BUTTON_STYLE: React.CSSProperties = {
+  padding: "2px 0",
+  border: "none",
+  background: "none",
   color: "var(--accent-primary)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "12px",
+  fontWeight: 600,
+  cursor: "pointer",
 };
 
-// "×2" is a quiet fact about how many times a statement was recorded. Muted, and
-// deliberately NOT chip-shaped: it is not a category, it is a count.
-const DUPLICATE_MARKER_STYLE: React.CSSProperties = {
+// A failed write is a banner, not a console line: the row already moved, and
+// this sentence is the only thing that says the screen and the database
+// disagreed (Standing Rule 1).
+const ERROR_LINE_STYLE: React.CSSProperties = {
+  padding: "6px 10px",
+  border: "1px solid var(--state-danger-border)",
+  backgroundColor: "var(--state-danger-bg-soft)",
+  borderRadius: "6px",
+  color: "var(--state-danger-strong)",
   fontFamily: "var(--font-sans)",
-  fontSize: "10.5px",
-  color: "var(--text-muted)",
+  fontSize: "12px",
 };

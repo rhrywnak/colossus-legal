@@ -29,10 +29,11 @@ use tracing::{error, info, instrument};
 
 use crate::auth::AuthUser;
 use crate::repositories::element_detail_repository::{
-    fetch_element_with_allegations, rank_supporting_evidence, ElementDetailRepoError,
-    ElementDetailResponse,
+    fetch_element_with_allegations, ElementDetailRepoError, ElementDetailResponse,
 };
+use crate::repositories::pipeline_repository::evidence_allegation_rulings::list_rulings_for_allegations;
 use crate::repositories::pipeline_repository::{authored_entities, PipelineRepoError};
+use crate::services::matrix_detail::apply_rulings_and_order;
 use crate::state::AppState;
 
 // ── Error mapping ─────────────────────────────────────────────────
@@ -111,13 +112,12 @@ pub async fn get_element_detail(
 
     match fetch_element_with_allegations(&state.graph, &state.pipeline_pool, &element_id).await {
         Ok(mut detail) => {
-            // Task 396 P1: collapse near-identical statements, tier what survives,
-            // and rank strongest first — using the SAME function that produces the
-            // matrix row's two numbers, so the row and the list it opens cannot
-            // disagree. One settings snapshot for the whole response: a payload
-            // whose tier map changed halfway through would rank two Allegations by
-            // two different rules.
-            rank_supporting_evidence(&mut detail, &state.settings.current().evidence_tier_map);
+            // PROOF_MATRIX_v2 §3. ONE settings snapshot for the whole response: a
+            // payload whose wording changed halfway through would render two
+            // Allegations in two vocabularies.
+            let settings = state.settings.current();
+            detail.visible_items = settings.matrix_visible_items;
+            overlay_human_rulings(&state, &mut detail, &settings.matrix_wording).await?;
             Ok(Json(detail))
         }
         Err(ElementDetailRepoError::NotFound { element_id }) => {
@@ -141,6 +141,46 @@ pub async fn get_element_detail(
             Err(ElementDetailEndpointError::Internal)
         }
     }
+}
+
+/// Read this Element's human rulings and apply them, with §3's ordering.
+///
+/// ## Why a ruling read failure is a 500 and not a degradation
+///
+/// Every other read on this path degrades: a missing source document renders as
+/// plain text, an unreadable role renders as no mark. This one does not. If the
+/// rulings cannot be read, EVERY item renders as unruled — the machine's order,
+/// with no confirmation marks — which is indistinguishable on screen from a
+/// paragraph nobody has been through. That is the one false claim this page must
+/// never make, and there is no way to show it as a gap in the list itself, so the
+/// request fails and the panel says so.
+async fn overlay_human_rulings(
+    state: &AppState,
+    detail: &mut ElementDetailResponse,
+    wording: &crate::domain::wording_matrix::MatrixWording,
+) -> Result<(), ElementDetailEndpointError> {
+    let allegation_ids: Vec<String> = detail
+        .allegations
+        .iter()
+        .map(|a| a.allegation_id.clone())
+        .collect();
+
+    let rulings = list_rulings_for_allegations(&state.pipeline_pool, &allegation_ids)
+        .await
+        .map_err(|e| {
+            error!(
+                error = %e,
+                element_id = %detail.element_id,
+                allegations = allegation_ids.len(),
+                "could not read the human rulings for this Element — the panel is \
+                 refused rather than rendered, because a list with every ruling \
+                 missing looks exactly like a list nobody has read"
+            );
+            ElementDetailEndpointError::Internal
+        })?;
+
+    apply_rulings_and_order(detail, &rulings, wording);
+    Ok(())
 }
 
 // ── PATCH handler ─────────────────────────────────────────────────
