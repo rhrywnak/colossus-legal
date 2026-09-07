@@ -210,7 +210,11 @@ const ScenarioHeaderStrip: React.FC<Props> = ({
 
         {!hideDelete && onDelete !== undefined && (
           <span style={ss.row2Right}>
-            <button type="button" style={ss.dangerButton} onClick={onDelete}>
+            {/* Solid, in the danger colour, and the same shape as Practice
+                (Roman, 2026-09-07). The CONFIRM behaviour is untouched: this
+                still only opens the page's dialog, which is Delete's real guard
+                (2026-08-07) — the button got heavier, not more dangerous. */}
+            <button type="button" style={ss.solidDangerButton} onClick={onDelete}>
               {wording.header_delete_label}
             </button>
           </span>

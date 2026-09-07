@@ -209,6 +209,41 @@ export const dangerButton: CSSProperties = {
   padding: "0.5rem 0.5rem",
 };
 
+/**
+ * Delete, as a SOLID button in the danger colour (Roman's ruling, 2026-09-07).
+ *
+ * ## Why the "distance is the guard" reasoning above no longer decides this
+ *
+ * `dangerButton` is text on nothing, and its own doc says why: distance from the
+ * other controls was the guard. Roman ruled the opposite trade today — Delete
+ * should read as a button of the same weight as Practice, because a text link at
+ * the far end of a row reads as an afterthought rather than as the destructive
+ * act it is. `dangerButton` is kept, unchanged, because three other surfaces
+ * still render it; only this strip's Delete moves.
+ *
+ * ## What it is derived from, and what that buys
+ *
+ * `solidButton` — so the shape, the radius, the padding, the weight and the size
+ * are Practice's, by construction rather than by transcription. Two buttons that
+ * must match are one spread and one overridden property, not two lists of values
+ * that drift the next time the mockup moves.
+ *
+ * The ONE override is the fill, and it is `--state-danger-strong`: the same token
+ * `dangerButton` already reaches for, and for the reason recorded there —
+ * `--v3-red-text` is scoped to `[data-surface="v3"]` and is undefined on three of
+ * this strip's four surfaces.
+ *
+ * `color` is inherited from `solidButton` and is therefore `#ffffff`. That is not
+ * a new literal — it is the one `solidButton` has always carried, and it is a
+ * literal there rather than `--v3-on-fill` for exactly the scoping reason above.
+ * White on `--state-danger-strong` is the same contrast pairing the app's other
+ * solid danger surfaces use.
+ */
+export const solidDangerButton: CSSProperties = {
+  ...solidButton,
+  background: "var(--state-danger-strong)",
+};
+
 // ─── Screen 4: the Timeline subsets section (mockup `.editsec`) ─────────────
 
 /** Mockup `.editsec`: the section's own card. */

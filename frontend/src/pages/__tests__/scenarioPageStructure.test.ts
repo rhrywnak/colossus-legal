@@ -219,16 +219,64 @@ describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-0
     // status in row 1 with the identity, Delete at the far end of row 2 behind
     // `row2Right`'s auto margin. That is more distance than the separator ever
     // bought, and this asserts the order rather than the spacer.
+    //
+    // 2026-09-07: Delete wears `ss.solidDangerButton` now — Roman ruled it should
+    // read as a button of Practice's weight rather than as text. The DISTANCE
+    // property this test exists for is untouched by that; only the style name it
+    // looks for moved, and it is matched exactly so a revert to the text-only
+    // `ss.dangerButton` fails here rather than passing on a substring.
     const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
     const statusAt = header.indexOf("<ScenarioStatusControl");
     const row2At = header.indexOf("style={ss.row2}");
-    const deleteAt = header.indexOf("ss.dangerButton");
+    const deleteAt = header.indexOf("ss.solidDangerButton");
     expect(statusAt, "the status control is still on the header").toBeGreaterThan(-1);
     expect(deleteAt, "Delete is still on the header").toBeGreaterThan(-1);
     expect(row2At, "row 2 exists").toBeGreaterThan(-1);
     expect(statusAt, "status is in row 1").toBeLessThan(row2At);
     expect(deleteAt, "Delete is in row 2").toBeGreaterThan(row2At);
     expect(header, "and pushed to the far end of it").toContain("ss.row2Right");
+  });
+
+  it("Delete is SOLID and danger-coloured, derived from the Practice button", () => {
+    // Roman, 2026-09-07. `dangerButton` — text on nothing — read as an
+    // afterthought at the far end of the row rather than as the destructive act
+    // it is. Delete now has Practice's weight and the danger fill.
+    //
+    // Derived, not transcribed: two buttons that must match are one spread and
+    // one overridden property. A hand-copied list of padding/radius/size values
+    // is what drifts the next time the mockup moves, and that is the whole
+    // property this asserts.
+    const styles = read("components", "scenario", "stripStyles.ts");
+    const solidDanger = styles.slice(
+      styles.indexOf("export const solidDangerButton"),
+    );
+    expect(solidDanger, "shape and size come FROM Practice's button").toContain(
+      "...solidButton",
+    );
+    expect(solidDanger, "the fill is the token dangerButton already uses").toContain(
+      "background: \"var(--state-danger-strong)\"",
+    );
+
+    // NO NEW HEX. The `#ffffff` it inherits from `solidButton` is that style's
+    // own, and is a literal there rather than `--v3-on-fill` because that token
+    // is scoped to `[data-surface="v3"]` and undefined on three of this strip's
+    // four surfaces — the same reason `dangerButton` avoids `--v3-red-text`.
+    const declaration = solidDanger.slice(0, solidDanger.indexOf("};") + 2);
+    expect(declaration, "no hex literal introduced here").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+
+    // The text-only style STAYS: three other surfaces still render it.
+    expect(styles).toContain("export const dangerButton");
+  });
+
+  it("the confirm dialog is still what guards Delete, unchanged", () => {
+    // The button got heavier, not more dangerous. Roman's 2026-08-07 overrule of
+    // D7 rested on the dialog being the real guard, and a restyle must not be
+    // mistaken for a change to that — this is the assertion that says so.
+    const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
+    expect(header, "Delete still only ASKS the page").toContain("onClick={onDelete}");
+    expect(header, "the strip owns no dialog of its own").not.toContain(
+      "ScenarioDeleteConfirm",
+    );
   });
 
   it("the kebab is deleted from the tree, not merely unmounted", () => {
