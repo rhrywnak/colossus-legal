@@ -253,3 +253,146 @@ describe("the redirect's antecedent, on both sheets", () => {
   });
 });
 
+
+// ── v2.1.1: one header on this page, not two (Roman, 2026-09-07) ─────────────
+//
+// ⚑ Written because NOTHING fenced the strip on this page. It rendered above the
+// Practice Session card saying the same code and the same title an inch higher,
+// and no test could notice — the same gap that let "Open scenario →" survive two
+// releases on the Trial Prep card.
+
+describe("the scenario header strip is off the Practice page", () => {
+  it("the page mounts no strip and imports none", () => {
+    const page = read(PAGES, "PracticePage.tsx");
+    expect(page).not.toContain("<ScenarioHeaderStrip");
+    expect(page, "the import goes with the render").not.toMatch(
+      /^import ScenarioHeaderStrip/m,
+    );
+  });
+
+  it("the strip itself is untouched and still serves the scenario page", () => {
+    // A removal from ONE surface, not a deletion. The detail page still renders
+    // it, and this is what stops somebody "cleaning up" a component that three
+    // other things depend on.
+    const detail = readFileSync(join(PAGES, "ScenarioDetailPage.tsx"), "utf8");
+    expect(detail).toContain("<ScenarioHeaderStrip");
+  });
+});
+
+describe("the strip's three live pieces are on the card's title line", () => {
+  const titleRow = () => read(HERE, "PracticeTitleRow.tsx");
+
+  it("carries the chip, the switch and the timeline dock", () => {
+    // Exactly the components the strip mounted — not re-implementations. The
+    // status control keeps its tooltip and its write path by being the SAME
+    // component, which is the only way that claim stays true.
+    const row = titleRow();
+    expect(row).toContain("<ScenarioIdentityControls");
+    expect(row).toContain("<ScenarioTimelineDock");
+  });
+
+  it("puts the dock at the RIGHT END of that line", () => {
+    // `ss.actions` is the strip's own `margin-left: auto` slot — the dock sat in
+    // it there and sits in it here, so "the right end" is the same rule and not
+    // a second one.
+    const row = titleRow();
+    const dockAt = row.indexOf("<ScenarioTimelineDock");
+    const actionsAt = row.indexOf("ss.actions");
+    expect(actionsAt, "the dock is inside the pushed-right slot").toBeGreaterThan(-1);
+    expect(actionsAt).toBeLessThan(dockAt);
+  });
+
+  it("orders them title · chip+switch · dock", () => {
+    const row = titleRow();
+    const h1 = row.indexOf("<h1");
+    const controls = row.indexOf("<ScenarioIdentityControls");
+    const dock = row.indexOf("<ScenarioTimelineDock");
+    expect(h1).toBeLessThan(controls);
+    expect(controls).toBeLessThan(dock);
+  });
+
+  it("wears the STRIP's title style, not the practice card's old 28px h1", () => {
+    // The card spoke in a different voice from every other scenario surface,
+    // which is part of why two headers on one page read as two different things
+    // rather than one thing twice.
+    const row = titleRow();
+    // The h1 wears `titleFlex`, which SPREADS `ss.title` and adds the flex
+    // sizing that stops it collapsing — so the assertion is on the derivation,
+    // not on a literal style reference that a necessary wrapper would break.
+    expect(row).toContain("...ss.title");
+    expect(row).toContain("style={titleFlex}");
+    // Matched as a USAGE, not as a bare token: the comment above the `<h1>`
+    // quotes `s.h1` to explain what it replaced, and an assertion that could not
+    // tell the two apart would fail against its own documentation. (It did, on
+    // the first run of this suite.)
+    expect(row, "the old h1 style is gone, not merely unused").not.toContain(
+      "style={s.h1}",
+    );
+
+    const strip = readFileSync(
+      join(__dirname, "..", "..", "scenario", "stripStyles.ts"),
+      "utf8",
+    );
+    const title = strip.slice(
+      strip.indexOf("export const title"),
+      strip.indexOf("export function roleChip"),
+    );
+    expect(title).toContain('fontSize: "1.5rem"');
+    expect(title).toContain("fontWeight: 800");
+  });
+
+  it("keeps the S-11 · prefix", () => {
+    expect(titleRow()).toContain("{code} · {title}");
+  });
+
+  it("leaves the eyebrow and the Print / Edit row alone", () => {
+    // The task's explicit "keep as they are". The eyebrow is a served row on the
+    // card; the three controls kept their own line under the title.
+    const start = read(HERE, "PracticeStart.tsx");
+    expect(start).toContain('w("kicker")');
+    expect(titleRow()).toContain("e.titleActions");
+  });
+});
+
+describe("the moved controls still read the scenario for themselves", () => {
+  it("the chip and the switch fetch the identity, as the strip did", () => {
+    // The practice deck payload carries neither `direction` nor `status` — the
+    // reason the strip was self-fetching in the first place. Threading identity
+    // down instead would teach three presentational components about a payload
+    // none of them otherwise reads.
+    const controls = readFileSync(
+      join(__dirname, "..", "..", "scenario", "ScenarioIdentityControls.tsx"),
+      "utf8",
+    );
+    expect(controls).toContain("fetchAugmentationPanel(slug, scenarioId)");
+    expect(controls).toContain("<ScenarioStatusControl");
+  });
+
+  it("re-reads after a status write, so the switch cannot lie", () => {
+    // Carried from the strip unchanged. Without it the control would write
+    // "ready" to the server and go on rendering "draft" — the screen disagreeing
+    // with the database about a human's own act.
+    const controls = readFileSync(
+      join(__dirname, "..", "..", "scenario", "ScenarioIdentityControls.tsx"),
+      "utf8",
+    );
+    const changed = controls.slice(controls.indexOf("const statusChanged"));
+    expect(changed.slice(0, changed.indexOf("}, ["))).toContain("load();");
+    expect(controls, "and a caller's own handler still runs after it").toContain(
+      "onStatusChanged?.()",
+    );
+  });
+
+  it("surfaces a failed identity read rather than dropping two controls", () => {
+    // Standing Rule 1. Two controls silently missing from a title line is
+    // indistinguishable from a scenario that has no status, which is not a state
+    // this app has.
+    const controls = readFileSync(
+      join(__dirname, "..", "..", "scenario", "ScenarioIdentityControls.tsx"),
+      "utf8",
+    );
+    expect(controls).toContain(".catch(");
+    expect(controls).toContain("setError(");
+    expect(controls).toContain("if (error !== null) return");
+  });
+});
