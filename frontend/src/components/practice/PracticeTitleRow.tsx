@@ -14,16 +14,26 @@
 
 import React from "react";
 
+import ScenarioIdentityControls from "../scenario/ScenarioIdentityControls";
+import ScenarioTimelineDock from "../scenario-timeline/ScenarioTimelineDock";
+import * as ss from "../scenario/stripStyles";
 import {
   wordingOf,
   type PracticeQuestion,
   type PracticeWording,
 } from "../../services/practice";
 import * as e from "./practiceEditorStyles";
-import * as s from "./practiceStyles";
 import { printLockReason } from "./printSheetPlan";
 
 type Props = {
+  /** The scenario this card is about — what the three moved controls read.
+   *
+   *  Two scalars rather than the identity payload itself: the chip and the
+   *  switch fetch it (see `ScenarioIdentityControls`), and the dock fetches its
+   *  own subsets. Passing the payload down instead would teach this component
+   *  and its parent about a DTO neither otherwise reads. */
+  slug: string;
+  scenarioId: string;
   /** `S-5` — the handle a human reads aloud. */
   code: string;
   /** The accusation, as the page titles itself. */
@@ -70,7 +80,38 @@ type Props = {
  * and Mixed is a dealing order rather than a thing anyone reviews — printing it
  * would give a shuffle of two sides under headings that promise one.
  */
+/**
+ * The title and the three controls that came off the strip, on one line.
+ *
+ * ## ⚑ Why the title is `flex: 1` and why this wraps
+ *
+ * `ss.title` carries `overflow: hidden` + `text-overflow: ellipsis`, which in a
+ * flex row makes the `h1` the ONLY item that can shrink — the chip, the switch
+ * and the dock are all `nowrap` and refuse. Left at `flex: 0 1 auto` the title
+ * therefore absorbs every pixel of shortfall and collapses to ZERO WIDTH before
+ * any of them gives: measured in a narrow viewport, "S-11 · The $50,000"
+ * disappeared entirely while the three controls sat there intact.
+ *
+ * `flex: 1` with `minWidth: 0` makes it take the slack and ellipsise instead,
+ * which is what the strip's own title does. `flexWrap` is the backstop for a
+ * viewport too narrow even for that: the controls drop to a second line rather
+ * than the title being destroyed to keep them on one. At any normal width
+ * nothing wraps and the line reads exactly as drawn.
+ */
+const titleLine: React.CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "0.5rem",
+  flexWrap: "wrap",
+  minWidth: 0,
+};
+
+/** The title's share of that line: all the slack, and the first to give it up. */
+const titleFlex: React.CSSProperties = { ...ss.title, flex: "1 1 auto", minWidth: 0 };
+
 const PracticeTitleRow: React.FC<Props> = ({
+  slug,
+  scenarioId,
   code,
   title,
   printHref,
@@ -92,9 +133,37 @@ const PracticeTitleRow: React.FC<Props> = ({
   );
   return (
     <div style={e.titleRow}>
-      <h1 style={s.h1}>
-        {code} · {title}
-      </h1>
+      {/* ⚑ THE TITLE LINE NOW CARRIES THE STRIP'S THREE LIVE PIECES.
+          Roman, 2026-09-07, from a screenshot: `ScenarioHeaderStrip` sat above
+          this card saying the same code and the same title an inch higher. The
+          strip came off the page; what was LIVE on it moved here.
+
+          `titleRow` is still a column — the Print / Edit row below is untouched
+          — so this inner row is the title's own line, and the dock's `auto`
+          margin pushes View Timeline to the far end of it. */}
+      <div style={titleLine}>
+        {/* The strip's own `title` style: 1.5rem / 800. The 28px `s.h1` this
+            replaces was the practice card speaking in a different voice from
+            every other scenario surface, which is what made two headers on one
+            page read as two different things rather than one thing twice. */}
+        <h1 style={titleFlex}>
+          {code} · {title}
+        </h1>
+
+        {/* The chip and the Draft/Ready switch — the same components the strip
+            mounted, with the tooltip and the write path untouched. They fetch
+            the identity themselves because the practice deck payload carries
+            neither `direction` nor `status`; see that component's header. */}
+        <ScenarioIdentityControls slug={slug} scenarioId={scenarioId} />
+
+        {/* View Timeline, at the right end of the same line, exactly as it sat
+            in the strip's action slot. The dock hides its own button when the
+            scenario carries no subset — "simply absent, nothing else shifts" —
+            so this does not second-guess it with a count of its own. */}
+        <span style={ss.actions}>
+          <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
+        </span>
+      </div>
       <div style={e.titleActions}>
         <a
           // No `href` at all when locked: an anchor without one is not focusable and

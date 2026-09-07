@@ -58,7 +58,6 @@ const SCENARIO_TREE = [
   "components/PointFactRows.tsx",
   "components/WatchListSection.tsx",
   "components/WatchListBlock.tsx",
-  "components/ScenarioOrphanStrip.tsx",
   "components/ScenarioIdentityModal.tsx",
   "components/Modal.tsx",
 ];
@@ -571,11 +570,22 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     expect(page, "a confirmed ruling re-reads the cards alone").toContain(
       "onRulingSaved={refreshCards}",
     );
+    // v2.1.1: the bare `externalRefresh={pageRefreshKey}` this asserted belonged
+    // to the ORPHAN STRIP, whose render is retired. The property it was really
+    // protecting is the queue's, and the queue takes the SUM — a merge
+    // (page-level) or a removal (queue-level) reloads its pool, and both only
+    // ever increment, so a bump to either is a change to the sum. What must
+    // never happen is the queue keying off the CARDS refresh, which a ruling
+    // bumps: that would reload the pool mid-triage on every include, which is
+    // the disturbance the split exists to avoid.
     expect(
       page,
-      "the queue's externalRefresh must stay on the PAGE key — pointing it at the " +
-        "cards key would reload the queue on every ruling, which is what the split avoids",
-    ).toContain("externalRefresh={pageRefreshKey}");
+      "the queue's externalRefresh is the summed key, never the cards key",
+    ).toContain("externalRefresh={pageRefreshKey + queueRefreshKey}");
+    expect(
+      page,
+      "a ruling must not reload the queue's pool under the human",
+    ).not.toContain("externalRefresh={cardsRefreshKey}");
   });
 
   it("the cards-only re-read goes through a key-bumped effect", () => {
@@ -1256,6 +1266,142 @@ describe("the fact card is evidence only (ruling R37)", () => {
     expect(body).toContain('field: "backs_position"');
     expect(body, "the picker goes through the same typed update").toContain(
       "onPick={(value) => void save({ field: \"backs_position\", value })}",
+    );
+  });
+});
+
+// ── v2.1.1: Roman's three corrections after probing v2.1.0 on DEV ────────────
+
+describe("the sections read in the ruled order (v2.1.1)", () => {
+  /** Where each section is mounted, in source order. */
+  function order(): string[] {
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    const marks: [string, number][] = [
+      ["identity", page.indexOf("<ScenarioIdentityBlock")],
+      ["talking points", page.indexOf("<TalkingPointsSection")],
+      ["scenario facts", page.indexOf("<ScenarioFactsSection")],
+      ["watch-list", page.indexOf("<WatchListSection")],
+      ["timeline subsets", page.indexOf("<ScenarioSubsetsSection")],
+    ];
+    for (const [name, at] of marks) {
+      expect(at, `${name} must be mounted on the page`).toBeGreaterThan(-1);
+    }
+    return marks.sort((a, b) => a[1] - b[1]).map(([name]) => name);
+  }
+
+  it("puts Marie's argument above the evidence that backs it", () => {
+    // MOCKUP_S7_v2.1_3. The reader meets the point, then the facts under it,
+    // then what the other side will wave around.
+    expect(order()).toEqual([
+      "identity",
+      "talking points",
+      "scenario facts",
+      "watch-list",
+      "timeline subsets",
+    ]);
+  });
+
+  it("⚑ keeps the facts section OUTSIDE the augmentation gate", () => {
+    // The reason this reorder is three siblings and not a reordered fragment,
+    // and the STOP condition the task named. Talking points and Watch-list
+    // withdraw while the augmentation payload is unloaded; the facts section
+    // must NOT, because it mounts `ThemeScanPanel`, whose mount effect calls
+    // `gatherCandidates` — the one place candidate ordinals are minted
+    // (architect ruling R3). Folding it into that fragment to get this order
+    // would delay every card's `C-14` handle until a second, unrelated payload
+    // landed.
+    // Asserted by NESTING DEPTH, which is the property itself rather than a
+    // proxy for it: a section rendered unconditionally is a direct child of the
+    // page container (6 spaces), and one inside `{augmentation && (…)}` is
+    // indented one level further (8). Counting braces was the first draft and it
+    // was too loose — the page has other `)}` closers that are not gates.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    const indentOf = (tag: string): number => {
+      const line = page.split("\n").find((l) => l.includes(tag))!;
+      return line.length - line.trimStart().length;
+    };
+
+    const facts = indentOf("<ScenarioFactsSection");
+    const talking = indentOf("<TalkingPointsSection");
+    const watch = indentOf("<WatchListSection");
+
+    expect(facts, "the facts section is a direct child of the page").toBe(6);
+    expect(talking, "talking points ARE gated — they withdraw without words").toBe(8);
+    expect(watch, "so is the watch-list, for the same reason").toBe(8);
+    expect(
+      facts,
+      "the facts section must mount before the augmentation payload lands",
+    ).toBeLessThan(talking);
+  });
+
+  it("still mounts the candidate-minting panel unconditionally", () => {
+    // The other half of the same guarantee, at the far end of the chain.
+    expect(read("components", "ScenarioFactsSection.tsx")).toContain("<ThemeScanPanel");
+    expect(read("components", "ThemeScanPanel.tsx")).toContain(
+      "gatherCandidates(slug, scenarioId)",
+    );
+  });
+});
+
+describe("the orphan strip's render is retired (v2.1.1)", () => {
+  it("no longer draws the saved-references line on this page", () => {
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).not.toContain("<ScenarioOrphanStrip");
+    expect(page, "the import goes with the render").not.toMatch(
+      /^import ScenarioOrphanStrip/m,
+    );
+  });
+
+  it("keeps the component and its read on disk, unmounted", () => {
+    // An unmount, not a deletion — the same treatment `ScanSection` and
+    // `AccusationSection` got in v2.1, and nothing was removed from the DB. The
+    // strip is the only thing that knows how to ask this question, so deleting
+    // it would take the answer with it.
+    const strip = read("components", "ScenarioOrphanStrip.tsx");
+    expect(strip).toContain("saved reference");
+  });
+});
+
+describe("Practice and Delete are the same size (v2.1.1)", () => {
+  it("are held to ONE shared min-width, so the shorter word cannot shrink one", () => {
+    // Their labels are served rows of different lengths ("Practice", "Delete"),
+    // and padding cannot fix that — padding is symmetrical, so a shorter word
+    // gives a shorter box however much you add. The shared min-width is also the
+    // only mechanism that survives Roman editing either row.
+    const styles = read("components", "scenario", "stripStyles.ts");
+    expect(styles).toContain("const SOLID_BUTTON_MIN_WIDTH");
+
+    const solid = styles.slice(
+      styles.indexOf("export const solidButton"),
+      styles.indexOf("export const ghostButton"),
+    );
+    expect(solid).toContain("minWidth: SOLID_BUTTON_MIN_WIDTH");
+    // An `<a>` does not centre its text the way a `<button>` does, so without
+    // this the two labels sit at different positions inside two boxes that are
+    // finally the same width.
+    expect(solid).toContain('textAlign: "center"');
+    // ⚑ The one that a source-only review would never think to ask for. A
+    // `<button>` gets `border-box` from the UA stylesheet and an `<a>` gets
+    // `content-box`, so without this the SAME min-width sizes Delete's whole box
+    // and Practice's content box — measured 104px against 132px before the fix.
+    expect(
+      solid,
+      "the two elements must interpret the shared min-width identically",
+    ).toContain('boxSizing: "border-box"');
+
+    // Delete inherits every one of those through the spread — there is no second
+    // list of values to drift.
+    const danger = styles.slice(styles.indexOf("export const solidDangerButton"));
+    expect(danger.slice(0, danger.indexOf("};") + 2)).toContain("...solidButton");
+  });
+
+  it("is a rem, so the pair survives a zoom or a root font-size change", () => {
+    const styles = read("components", "scenario", "stripStyles.ts");
+    const line = styles
+      .split("\n")
+      .find((l) => l.includes("const SOLID_BUTTON_MIN_WIDTH ="))!;
+    expect(line, "a px width stops matching its own padding at another zoom").toMatch(
+      /"\d+(\.\d+)?rem"/,
     );
   });
 });

@@ -157,12 +157,53 @@ const buttonBase: CSSProperties = {
   display: "inline-block",
 };
 
+/**
+ * STRUCTURAL: the width both solid buttons are held to (v2.1.1, Roman's ruling).
+ *
+ * Practice and Delete sit side by side and must be the SAME SIZE. Everything else
+ * about them already matched — `solidDangerButton` is `solidButton` plus one fill
+ * — but their labels are served rows of different lengths ("Practice",
+ * "Delete"), so the shorter word produced a visibly narrower button. Padding
+ * cannot fix that: padding is symmetrical around the text, so a shorter word
+ * gives a shorter box however much you add.
+ *
+ * A shared `min-width` does fix it, and it is the only mechanism that survives
+ * the words changing — both labels are settings rows Roman can edit, so a width
+ * derived from today's strings would be wrong the day either one does. Comfortably
+ * wider than both at 0.84rem/600, so BOTH buttons render at exactly this width
+ * and neither is the one being stretched.
+ *
+ * In rem, not px: it must track the root font size, or the buttons stop matching
+ * their own padding at a different browser zoom. It cannot vary by deployment —
+ * it exists to make two boxes equal — so it is a layout constant, not a setting.
+ */
+const SOLID_BUTTON_MIN_WIDTH = "6.5rem";
+
 /** Mockup `.btn`: the ONE solid primary on the strip. */
 export const solidButton: CSSProperties = {
   ...buttonBase,
   background: "var(--accent-primary)",
   color: "#ffffff",
   border: "none",
+  minWidth: SOLID_BUTTON_MIN_WIDTH,
+  // ⚑ WITHOUT THIS THE SHARED MIN-WIDTH MEANS TWO DIFFERENT THINGS.
+  //
+  // Practice is an `<a>` and Delete is a `<button>`, and the UA stylesheet gives
+  // buttons `box-sizing: border-box` while an anchor inherits `content-box`. So
+  // the same `min-width: 6.5rem` sized Delete's whole box to 104px and Practice's
+  // CONTENT box to 104px — plus 28px of padding — and the pair rendered 104 and
+  // 132. Measured in the browser on S-7, which is the only place a difference
+  // between two UA defaults shows up: every style value was already identical.
+  //
+  // `border-box` makes the constant mean "the button is this wide" for both. It
+  // is a no-op for the other three roles here — box-sizing only bites when an
+  // explicit width is set, and they have none.
+  boxSizing: "border-box",
+  // `buttonBase` is `inline-block`, and an `<a>` does NOT centre its text the way
+  // a `<button>` does. Without this the two labels would sit at different
+  // horizontal positions inside two boxes that are finally the same width —
+  // which is the mismatch this change exists to remove, moved half an inch.
+  textAlign: "center",
 };
 
 /**
@@ -243,6 +284,12 @@ export const solidDangerButton: CSSProperties = {
   ...solidButton,
   background: "var(--state-danger-strong)",
 };
+
+// The two are the same size BY CONSTRUCTION: `solidDangerButton` spreads
+// `solidButton`, so the shared `min-width`, the padding, the radius, the font
+// size and the weight all arrive together and there is no second list of values
+// to drift. The fence in `scenarioPageStructure.test.ts` asserts the spread for
+// exactly that reason.
 
 // ─── Screen 4: the Timeline subsets section (mockup `.editsec`) ─────────────
 

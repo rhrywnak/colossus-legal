@@ -43,7 +43,6 @@ import {
   practiceQuestionPath,
   practiceWalkPath,
 } from "../utils/routePaths";
-import ScenarioHeaderStrip from "../components/scenario/ScenarioHeaderStrip";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { usePracticeDeckControls } from "./usePracticeDeckControls";
 import { usePracticeEditor } from "./usePracticeEditor";
@@ -198,19 +197,25 @@ const PracticePage: React.FC = () => {
       <style>{f.LINK_CSS}</style>
       {crumb}
 
-      {/* ⚑ THE STRIP (T5, Screen 1). It renders the View Timeline button in its
-          own action slot by mounting the dock there, so this page no longer
-          mounts one separately.
+      {/* ⚑ THE STRIP IS GONE FROM THIS PAGE (Roman, 2026-09-07, from a
+          screenshot). It rendered above the card below and the two said the same
+          thing: the same code, the same title, an inch apart.
 
-          `hidePractice` — this IS the practice page; a button back to where the
-          reader already is would be furniture. `hideEdit` / `hideDelete` — the
-          identity modal and the delete confirm are the detail page's dialogs
-          and this page owns neither, and the strip does not draw a control it
-          has no handler for. Status and Rehearsal view stay: both are true
-          statements about the scenario wherever it is read. */}
-      <ScenarioHeaderStrip slug={slug} scenarioId={scenarioId} hidePractice />
+          Its three LIVE pieces moved onto that card's own title line — the
+          direction chip and the Draft/Ready switch (`ScenarioIdentityControls`)
+          and the View Timeline dock. Nothing else on it was live here: Practice
+          was hidden (`hidePractice` — this IS the practice page), and Edit and
+          Delete were never drawn, because this page passed no handler for either
+          and the strip draws no control it cannot operate. No `onStatusChanged`
+          was passed either, so there is no page-level refresh to re-wire; the
+          switch's own re-read moved with it.
+
+          `ScenarioHeaderStrip` itself is untouched and still renders on the
+          scenario detail page. */}
 
       <PracticeStart
+        slug={slug}
+        scenarioId={scenarioId}
         code={deck.code}
         title={deck.title}
         printHref={practicePrintPath(slug, scenarioId)}

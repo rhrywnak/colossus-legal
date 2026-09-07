@@ -10,11 +10,14 @@
 //
 //   1. The scenario header strip     §11 item 1 — `ScenarioHeaderStrip`
 //   2. Identity block, read-only      §2.2 (D8) — `ScenarioIdentityBlock`
-//   3. Scan & candidates              §2.3 (D10) — `ScanSection`
+//   3. Marie's talking points         §2.5 (C5) — `TalkingPointsSection`
 //   4. Scenario facts                 §2.4 — `ScenarioFactsSection`
-//   5. Marie's talking points         §2.5 (C5) — `TalkingPointsSection`
-//   6. Watch-list                     §2.6 (C6) — `WatchListSection`
-//   7. Orphan strip, collapsed        §2.8 (D9) — `ScenarioOrphanStrip`
+//   5. Watch-list                     §2.6 (C6) — `WatchListSection`
+//   6. Timeline subsets               Screen 4 — `ScenarioSubsetsSection`
+//
+// v2.1 retired `ScanSection` (its controls are on the facts header) and
+// `AccusationSection`; v2.1.1 put talking points above the facts and retired the
+// orphan strip's render. All four components are kept on disk, unmounted.
 //
 // ## This file is composition and fetching, nothing else
 //
@@ -52,7 +55,6 @@ import ScenarioSubsetsSection from "../components/scenario/ScenarioSubsetsSectio
 import { ghostButtonStyle } from "../components/scenarioSectionStyles";
 import ScenarioIdentityBlock from "../components/ScenarioIdentityBlock";
 import ScenarioIdentityModal from "../components/ScenarioIdentityModal";
-import ScenarioOrphanStrip from "../components/ScenarioOrphanStrip";
 import TalkingPointsSection from "../components/TalkingPointsSection";
 import WatchListSection from "../components/WatchListSection";
 import { EmptyState } from "../components/TrialPrepViews";
@@ -468,7 +470,56 @@ const ScenarioDetailPage: React.FC = () => {
         </ScenarioNotice>
       )}
 
-      {/* 4 — §2.4 */}
+      {/* ⚑ SECTION ORDER (v2.1.1, Roman's DEV probe of v2.1.0).
+          Talking points · Scenario facts · Watch-list — the order
+          MOCKUP_S7_v2.1_3 draws, and the order the page now reads in: Marie's
+          argument first, then the evidence under it, then what the other side
+          will wave around.
+
+          ## Why this is THREE siblings and not a reordered fragment
+
+          Talking points and Watch-list both withdraw while the augmentation
+          payload is unloaded — their words are stored rows (ruling C4b), and a
+          section of unlabelled controls is worse than an absent one. The facts
+          section does NOT withdraw, and must not start: it mounts
+          `ThemeScanPanel`, whose mount effect calls `gatherCandidates` — the one
+          place candidate ordinals are minted (architect ruling R3).
+
+          Moving the facts section INSIDE that `{augmentation && …}` fragment to
+          get this order would have delayed every candidate's `C-14` handle until
+          a second, unrelated payload landed. So the fragment is split around it
+          and the facts section keeps the mount condition it had: the first
+          render, before augmentation resolves. Sibling order in JSX does not
+          change that — all three mount in one commit.
+
+          The page's own 32px gap between sections is `sectionHeaderStyle`'s
+          `marginTop`, which each section carries itself, so it survives the
+          move untouched. */}
+
+      {/* 4 — §2.5 (C5) */}
+      {augmentation && (
+        <TalkingPointsSection
+          slug={slug}
+          scenarioId={scenarioId}
+          points={augmentation.talking_points}
+          cap={augmentation.talking_points_cap}
+          wording={augmentation.wording}
+          onChanged={refresh}
+          // v2.1 (F): each point renders the included facts that back it. The
+          // POOL is passed, not a filtered list — the filter is the pure rule
+          // in `talkingPointFacts`, and pre-filtering here would put it back
+          // on the page where no test reaches it.
+          cards={cards}
+          options={linkOptions}
+          // The LIGHT re-read, deliberately: an edit to a card under a point
+          // changes the cards and nothing else, and the page-level refresh
+          // would disturb the candidate queue's selection mid-triage — the
+          // class of defect task 1.7G spent two builds fixing.
+          onCardEdited={refreshCards}
+        />
+      )}
+
+      {/* 5 — §2.4 */}
       <ScenarioFactsSection
         slug={slug}
         scenarioId={scenarioId}
@@ -503,54 +554,26 @@ const ScenarioDetailPage: React.FC = () => {
         points={augmentation?.talking_points ?? []}
       />
 
-      {/* 5 and 6 — §2.5 and §2.6.
-          Both withdraw entirely while the panel is unloaded, rather than
-          rendering with empty lists as they did before task 2.11 C. Their words
-          are stored rows now (ruling C4b), so an unloaded payload leaves no
-          headings, no button labels and no empty-state sentence — and a section
-          of unlabelled controls is worse than an absent one. Same rule, and same
-          reason, as `AccusationSection`'s `if (!panel) return null`. The page's
-          own failure notice is what says why. */}
+      {/* 6 — §2.6 (C6). The backend splits watch-list notes from human facts;
+          a client that re-filtered them would eventually show a note as a fact. */}
       {augmentation && (
-        <>
-          <TalkingPointsSection
-            slug={slug}
-            scenarioId={scenarioId}
-            points={augmentation.talking_points}
-            cap={augmentation.talking_points_cap}
-            wording={augmentation.wording}
-            onChanged={refresh}
-            // v2.1 (F): each point renders the included facts that back it. The
-            // POOL is passed, not a filtered list — the filter is the pure rule
-            // in `talkingPointFacts`, and pre-filtering here would put it back
-            // on the page where no test reaches it.
-            cards={cards}
-            options={linkOptions}
-            // The LIGHT re-read, deliberately: an edit to a card under a point
-            // changes the cards and nothing else, and the page-level refresh
-            // would disturb the candidate queue's selection mid-triage — the
-            // class of defect task 1.7G spent two builds fixing.
-            onCardEdited={refreshCards}
-          />
-
-          {/* The backend splits watch-list notes from human facts; a client that
-              re-filtered them would eventually show a note as a fact. */}
-          <WatchListSection
-            slug={slug}
-            scenarioId={scenarioId}
-            notes={augmentation.watch_list}
-            wording={augmentation.wording}
-            onChanged={refresh}
-          />
-        </>
+        <WatchListSection
+          slug={slug}
+          scenarioId={scenarioId}
+          notes={augmentation.watch_list}
+          wording={augmentation.wording}
+          onChanged={refresh}
+        />
       )}
 
-      {/* 7 — §2.8 */}
-      <ScenarioOrphanStrip
-        slug={slug}
-        scenarioId={scenarioId}
-        externalRefresh={pageRefreshKey}
-      />
+      {/* 7 — RETIRED IN v2.1.1 (Roman, 2026-09-07): the orphan strip's render.
+
+          It drew "⚠ N saved references with content unavailable · show" at the
+          foot of the page. `ScenarioOrphanStrip.tsx` and everything it reads are
+          KEPT and nothing is deleted from the database — this is an unmount, the
+          same treatment `ScanSection` and `AccusationSection` got in v2.1. No
+          other page renders it (checked), so there is nothing to leave behind
+          elsewhere. */}
 
       {/* Mounted only while open so it re-reads on every open — a dialog holding a
           draft from ten minutes ago would let a human overwrite an edit made since,

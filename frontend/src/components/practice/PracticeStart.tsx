@@ -30,6 +30,11 @@ import PracticeTitleRow from "./PracticeTitleRow";
 export type PracticeWho = "george" | "chuck" | "mixed";
 
 interface Props {
+  /** The scenario this deck belongs to. Threaded to `PracticeTitleRow`, which
+   *  mounts the three controls that came off `ScenarioHeaderStrip` (2026-09-07)
+   *  — they read the scenario themselves, so two scalars is the whole cost. */
+  slug: string;
+  scenarioId: string;
   code: string;
   title: string;
   /** Where the printed QUESTIONS live. Composed by the page, so this component
@@ -91,6 +96,8 @@ export const AlwaysCard: React.FC<{ wording: PracticeWording }> = ({ wording }) 
 );
 
 const PracticeStart: React.FC<Props> = ({
+  slug,
+  scenarioId,
   code,
   title,
   printHref,
@@ -162,6 +169,8 @@ const PracticeStart: React.FC<Props> = ({
     <section style={s.card}>
       <div style={s.kicker}>{w("kicker")}</div>
       <PracticeTitleRow
+        slug={slug}
+        scenarioId={scenarioId}
         code={code}
         title={title}
         printHref={printHref}
