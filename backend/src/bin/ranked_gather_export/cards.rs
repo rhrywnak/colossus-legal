@@ -18,6 +18,17 @@ pub struct Card {
     pub page: Option<i64>,
     pub title: String,
     pub quote: String,
+    /// The interrogatory or request for admission this card answers, when the
+    /// graph node carried one.
+    ///
+    /// Domain note: 367 of the 1,209 cards have one, and for the 86 whose quote
+    /// is nothing but `Admitted.` or `Denied as untrue.` it is the only text
+    /// that says what was admitted. The mirror already indexes it — it is part
+    /// of `probe_text` — so a list that ranked a card on its request and then
+    /// printed the answer alone was showing the reader less than the search had
+    /// used. `None` means the graph had none, which stays distinct from an
+    /// empty string somebody typed.
+    pub question: Option<String>,
     pub significance: String,
     pub about: Vec<String>,
 }
@@ -27,7 +38,7 @@ pub struct Card {
 // graph is not touched again.
 const CARDS_SQL: &str = "\
     SELECT evidence_id, document_id, page, \
-           coalesce(title, '') AS title, quote, \
+           coalesce(title, '') AS title, quote, question, \
            coalesce(significance, '') AS significance, about \
       FROM evidence_search \
      WHERE evidence_id = ANY($1::text[])";
@@ -75,6 +86,7 @@ pub async fn read_cards(
                 page: row.try_get("page")?,
                 title: row.try_get("title")?,
                 quote: row.try_get("quote")?,
+                question: row.try_get("question")?,
                 significance: row.try_get("significance")?,
                 about: row.try_get("about")?,
                 evidence_id,
