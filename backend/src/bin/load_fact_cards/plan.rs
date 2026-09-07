@@ -206,20 +206,39 @@ pub fn plan_points(files: &[TalkingPointsFile]) -> Result<Vec<PlannedPoints>> {
         .collect()
 }
 
+/// One picked candidate, ready to include.
+///
+/// A named struct rather than the `(String, i32, String)` tuple this was: three
+/// of its four fields are string-shaped, and a tuple made it possible to write the
+/// ranker's reason into the title slot with no compile error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedPick {
+    pub graph_node_id: String,
+    pub sort_ordinal: i32,
+    pub title: String,
+    /// Job D's sentence saying why it picked this card (integration ruling R2).
+    ///
+    /// ## Domain note: stored on the EVENT, never on the card
+    ///
+    /// §1's card carries the witness's own five sentences. "Why the ranker picked
+    /// this" is a claim about the CHOICE, and on a card it would read to Marie as
+    /// something she is meant to say — mapping it onto `watch_out` would put a
+    /// ranking note where she expects a warning about the other side. It rides
+    /// the include event's `note` in `scenario_fact_card_events` instead, which
+    /// is where the account of an act belongs.
+    pub reason: Option<String>,
+}
+
 /// One scenario's picks, ready to include.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedPicks {
     pub scenario_code: String,
     pub scenario_id: uuid::Uuid,
-    /// `(graph_node_id, sort_ordinal, title)` in display order.
-    pub picks: Vec<(String, i32, String)>,
-    /// Pick reasons this loader has nowhere to store. Reported, never mis-filed.
-    ///
-    /// Domain note: Job D wrote one sentence per pick saying why it chose that
-    /// card. §1's card has no field for it — "why the ranker picked this" is a
-    /// different claim from "how the other side will use it" — so mapping it onto
-    /// `watch_out` would put a ranking note where a witness expects a warning.
-    pub unstored_reasons: usize,
+    /// In display order — the pick number IS the order.
+    pub picks: Vec<PlannedPick>,
+    /// How many of those picks carry a reason for the ledger. Counted here so the
+    /// dry run can say what the apply will record before it records it.
+    pub stored_reasons: usize,
 }
 
 /// The ordinal step the picks are spaced by.
@@ -253,15 +272,14 @@ pub fn plan_picks(files: &[CandidatesFile]) -> Result<Vec<PlannedPicks>> {
             Ok(PlannedPicks {
                 scenario_code: file.scenario_code.clone(),
                 scenario_id: file.scenario_id,
-                unstored_reasons: ordered.iter().filter(|p| p.reason.is_some()).count(),
+                stored_reasons: ordered.iter().filter(|p| p.reason.is_some()).count(),
                 picks: ordered
                     .iter()
-                    .map(|p| {
-                        (
-                            p.graph_node_id.clone(),
-                            p.pick.saturating_mul(ORDINAL_STEP),
-                            p.title.clone(),
-                        )
+                    .map(|p| PlannedPick {
+                        graph_node_id: p.graph_node_id.clone(),
+                        sort_ordinal: p.pick.saturating_mul(ORDINAL_STEP),
+                        title: p.title.clone(),
+                        reason: p.reason.clone(),
                     })
                     .collect(),
             })

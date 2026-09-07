@@ -148,8 +148,8 @@ const CARD_COLUMNS: &str = "scenario_id, graph_node_id, title, backs_position, s
 
 // CONST: the ledger append. Every field ever written lands here.
 const INSERT_CARD_EVENT_SQL: &str = r#"INSERT INTO scenario_fact_card_events
-        (scenario_id, graph_node_id, field, value, actor, at)
-    VALUES ($1, $2, $3, $4, $5, $6)"#;
+        (scenario_id, graph_node_id, field, value, note, actor, at)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)"#;
 
 /// Everything needed to write one field.
 ///
@@ -165,6 +165,18 @@ pub struct FieldWrite<'a> {
     /// clears the field — a real act, and the ledger records it as one.
     pub value: Option<&'a str>,
     pub author: &'a str,
+    /// An optional sentence about the ACT, recorded on the ledger row and nowhere
+    /// else (integration ruling R2).
+    ///
+    /// ## Domain note: why this is not a sixth card field
+    ///
+    /// The card's five sentences are the witness's own words. A loader's reason
+    /// for picking a fact is a sentence ABOUT that choice, and printing it on the
+    /// card would read to Marie as something she is meant to say. It belongs with
+    /// the account of the act, which is what the ledger is.
+    ///
+    /// `None` is the ordinary state — an ordinary field edit explains itself.
+    pub note: Option<&'a str>,
     /// Passed in rather than read from the clock here, so a write and its ledger
     /// row share a timestamp and the row matches its log line.
     pub written_at: DateTime<Utc>,
@@ -238,6 +250,7 @@ async fn append_event(
         .bind(write.graph_node_id)
         .bind(write.field.code())
         .bind(write.value)
+        .bind(write.note)
         .bind(write.author)
         .bind(write.written_at)
         .execute(&mut **tx)

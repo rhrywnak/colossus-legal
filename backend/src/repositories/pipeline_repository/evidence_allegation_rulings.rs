@@ -32,6 +32,18 @@
 //! in `HUMAN_AUTHORED_TABLES`, and the two scan-path invariant tests in
 //! `scenario_human_facts_tests` fail the build if a scan path so much as names
 //! one.
+//!
+//! ## Two callers, both human clicks (integration ruling R1, 2026-09-07)
+//!
+//! [`save_ruling`] is called from `api::proof_matrix_rulings` — a human ruling on
+//! the Matrix page — and from `api::scenario_fact_include`, where a human
+//! INCLUDING a fact under an accusation has made the same judgment on another
+//! page and should not be asked for it twice.
+//!
+//! Both are a person clicking, which is what the §8 rule is about; neither is a
+//! machine path. The second caller writes `Keep` and never `Remove`, and it
+//! commits in its OWN transaction so a failure here cannot roll back the link the
+//! scenario page reads.
 
 use chrono::{DateTime, Utc};
 use sqlx::PgPool;

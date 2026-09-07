@@ -34,7 +34,11 @@ import type { ScenarioCard } from "../services/scenarioCards";
 import type { FactCardWording } from "../services/evidenceLinks";
 import { saveCardField, type CardFieldUpdate } from "../services/factCards";
 import { cardRows, cardTitle, rowText, type CardFieldName } from "./factCard";
-import { pdfHref } from "./ElementAllegationList";
+// `pdfHref` moved out of `ElementAllegationList` into `evidenceLocator` on
+// PROOF_MATRIX_v2, which FACT_CARD_v2 was branched beside rather than after.
+// Both merges applied cleanly and the result did not compile — the integration's
+// one semantic conflict, caught by `tsc` and not by git.
+import { pdfHref } from "./evidenceLocator";
 import {
   BUTTON_STYLE,
   CARD_STYLE,

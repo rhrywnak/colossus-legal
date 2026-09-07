@@ -92,6 +92,14 @@ const MATRIX_TIER_HEDGED_PAIRS: &str =
     "partial_admission+sworn_party_admission, partial_admission+sworn_party_evasion";
 const MATRIX_TIER_OTHER_PAIRS: &str = "factual_assertion+sworn_testimony";
 
+/// Our side, exactly as the R3 migration stores it — one line, no continuation.
+///
+/// Held as a const for the same reason as the tier pairs above: the drift test
+/// compares this against the SQL on disk character for character, and a line
+/// break introduced by formatting would fail with a diff nobody could read.
+const OUR_SIDE_SPEAKERS: &str = "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas Buk, \
+     Doug Buk, Charles M. Penzien, Charles Penzien, Paul Williams, Shaw";
+
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
     // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
@@ -291,9 +299,14 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         ),
         // FACT_CARD_v2 §3: whose statements are OURS. A token list, stored as
         // text like every other one in this table.
+        //
+        // Nine names since integration ruling R3, and this is the RAW stored
+        // string — `token_list_of` splits and folds it at the read, which is why
+        // the parsed fixture in `settings_test_fixture` is lowercased and this
+        // one is not.
         row(
             KEY_OUR_SIDE_SPEAKERS,
-            "Marie Awad",
+            OUR_SIDE_SPEAKERS,
             ValueKind::Text,
             None,
             None,
@@ -1373,6 +1386,11 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260906141743_proof_matrix_v2_rulings_and_reader_wording.sql",
         // FACT_CARD_v2: the deck size, beside the card's own words.
         "pipeline_migrations/20260906161201_fact_card_v2_tables_and_wording.sql",
+        // The 2026-09-07 integration: no new not-wording parameter, but it
+        // CORRECTS one — `rehearsal_our_side_speakers` goes from Marie alone to
+        // Marie and her counsel (ruling R3), and the correction pass below is
+        // what sees it.
+        "pipeline_migrations/20260906203730_fact_card_event_note_and_our_side_speakers.sql",
     ]
     .iter()
     .map(|relative| {

@@ -69,6 +69,15 @@ pub struct FactCardWording {
     pub rfa_template: String,
     /// The same line when no request number can be derived. Carries `{request}`
     /// and `{answer}`.
+    ///
+    /// ## Domain note: the unnumbered form is the settled answer (ruling R4)
+    ///
+    /// The RFA number is not on the Evidence node — it is in the document — so
+    /// the card cannot always source one. FACT_CARD_v2 asked whether a
+    /// human-entered RFA-number field was owed; ruled 2026-09-07: an absent
+    /// number is ACCEPTABLE, and this template is what the card reads instead.
+    /// Nothing here invents one. The field is owed only if a reader later finds
+    /// the missing number costs them something at a hearing.
     pub rfa_unnumbered_template: String,
     /// The line above the deck. Carries `{shown}`, `{total}` and `{collapsed}`.
     pub deck_template: String,

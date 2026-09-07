@@ -135,6 +135,9 @@ pub async fn apply_cards(
                 field: field.field,
                 value: field.value.as_deref(),
                 author: LOADER_AUTHOR,
+                // A drafted card field explains itself; only a PICK carries a
+                // reason for the choice behind it (R2, `write_pick_titles`).
+                note: None,
                 written_at: now,
             },
         )
@@ -220,7 +223,8 @@ pub async fn apply_picks(pool: &sqlx::PgPool, planned: &[PlannedPicks]) -> Resul
     let mut written = 0usize;
     for scenario in planned {
         let mut tx = pool.begin().await.context("opening a transaction")?;
-        for (node, ordinal, _title) in &scenario.picks {
+        for pick in &scenario.picks {
+            let node = &pick.graph_node_id;
             upsert_fact_ref(
                 &mut *tx,
                 scenario.scenario_id,
@@ -238,7 +242,7 @@ pub async fn apply_picks(pool: &sqlx::PgPool, planned: &[PlannedPicks]) -> Resul
                 &mut *tx,
                 scenario.scenario_id,
                 node,
-                *ordinal,
+                pick.sort_ordinal,
                 LOADER_AUTHOR,
             )
             .await
@@ -274,15 +278,21 @@ async fn write_pick_titles(
 ) -> Result<()> {
     use colossus_legal_backend::domain::fact_card::CardField;
 
-    for (node, _, title) in &scenario.picks {
+    for pick in &scenario.picks {
+        let node = &pick.graph_node_id;
         write_field(
             pool,
             &FieldWrite {
                 scenario_id: scenario.scenario_id,
                 graph_node_id: node,
                 field: CardField::Title,
-                value: Some(title),
+                value: Some(&pick.title),
                 author: LOADER_AUTHOR,
+                // Integration ruling R2. This write IS the include event for the
+                // pick — the one ledger row the act produces — so Job D's reason
+                // for choosing the card rides here, in the account of the act,
+                // and never on the card itself.
+                note: pick.reason.as_deref(),
                 written_at: now,
             },
         )

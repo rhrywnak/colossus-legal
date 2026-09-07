@@ -14,6 +14,35 @@
 
 use super::*;
 
+/// Our side, seeded value in and parsed list out (integration ruling R3).
+///
+/// Nine names since R3, not one: our side is Marie AND her counsel, each in every
+/// form the record spells them. `is_ours` compares WHOLE names case-folded, so
+/// "Jeffrey Sharp" does not cover a statement recorded as "Jeff Sharp" and both
+/// are listed.
+///
+/// ## Why this parses rather than listing nine lowercase literals
+///
+/// Two reasons, and the second is the real one. It costs `for_test` ONE line
+/// instead of eleven, which matters against Rule 18's ceiling — but more than
+/// that, it makes the fixture agree with the READER by construction. Writing the
+/// folded tokens by hand would be a second implementation of `parse_token_list`'s
+/// splitting and case-folding, free to disagree with the first the day either
+/// changed. Here it cannot.
+///
+/// The input is the migration's stored string verbatim;
+/// `the_fixtures_carry_the_values_the_migration_actually_seeds` pins that
+/// separately, character for character, against the SQL on disk.
+#[cfg(test)]
+fn our_side() -> Vec<String> {
+    parse_token_list(
+        "rehearsal_our_side_speakers",
+        "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas Buk, Doug Buk, \
+         Charles M. Penzien, Charles Penzien, Paul Williams, Shaw",
+    )
+    .expect("the fixture's own speaker list must parse")
+}
+
 /// A `Ratio` built literally, for fixtures only.
 ///
 /// `parse_ratio` is the boundary that rejects a zero denominator, and a fixture
@@ -65,9 +94,8 @@ impl Settings {
             link_short_list_max: 8,
             matrix_visible_items: 5,
             fact_card_visible_count: 10,
-            // LOWERCASED, as `token_list_of` stores every token list: the
-            // graph holds "Marie Awad" and the comparison folds case at the read.
-            rehearsal_our_side_speakers: vec!["marie awad".to_string()],
+            rehearsal_our_side_speakers: our_side(),
+
             wording: Wording::for_test(),
             accusation_wording: AccusationWording::for_test(),
             rehearsal_wording: RehearsalWording::for_test(),

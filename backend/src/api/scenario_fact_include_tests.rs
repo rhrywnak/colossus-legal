@@ -133,3 +133,65 @@ fn an_include_with_a_blank_accusation_is_refused_by_name() {
     assert!(message.contains("accusation"), "{message}");
     assert_eq!(details["field"], serde_json::json!("allegation_id"));
 }
+
+// ─── The Matrix half (integration ruling R1) ─────────────────────────────────
+
+/// The verdict an include writes is `Keep`, and the ids go in the right slots.
+///
+/// Both ids are `&str`, so nothing but this test stands between a correct call
+/// and one that files the verdict against the accusation instead of the item.
+#[test]
+fn an_include_keeps_the_item_on_the_matrix() {
+    let at = chrono::Utc::now();
+    let write = keep_write(
+        "doc-tighe:evidence:b49268dd",
+        "doc-complaint:allegation:45984d77",
+        "marie",
+        at,
+    );
+
+    assert_eq!(write.evidence_id, "doc-tighe:evidence:b49268dd");
+    assert_eq!(write.allegation_id, "doc-complaint:allegation:45984d77");
+    assert_eq!(write.ruling, MatrixRuling::Keep);
+    assert_eq!(write.ruled_by, "marie");
+    assert_eq!(write.written_at, at);
+}
+
+/// THE RULE THIS TEST EXISTS FOR. `Keep` whichever way the fact cuts.
+///
+/// The stance says what the statement DOES to the accusation; the Matrix verdict
+/// says a human read the pairing and it belongs on the page. A fact Marie
+/// includes BECAUSE it rebuts the accusation is exactly the item the Matrix must
+/// keep — `Remove` there would strike the evidence the include was for.
+///
+/// The link's `cut` is asserted alongside so the two stay visibly independent:
+/// the ruling is the same for both stances and the cut is not.
+#[test]
+fn the_verdict_is_keep_for_both_stances_while_the_cut_differs() {
+    use crate::domain::link_cut::LinkCut;
+
+    let at = chrono::Utc::now();
+    for stance in [CardStance::Supports, CardStance::Rebuts] {
+        let write = keep_write("node", "alleg", "marie", at);
+        assert_eq!(
+            write.ruling,
+            MatrixRuling::Keep,
+            "{stance:?} must still keep the item"
+        );
+    }
+
+    assert_eq!(CardStance::Supports.to_link_cut(), LinkCut::Against);
+    assert_eq!(CardStance::Rebuts.to_link_cut(), LinkCut::Supports);
+}
+
+/// The Matrix note stays empty, because nobody typed one.
+///
+/// `note` is a sentence a human wrote on the Matrix page. Composing one here
+/// ("included from the scenario page") would put words into a record whose whole
+/// value is that they are a person's own — the actor and the instant already say
+/// how the row got there.
+#[test]
+fn the_include_writes_no_matrix_note() {
+    let write = keep_write("node", "alleg", "marie", chrono::Utc::now());
+    assert!(write.note.is_none());
+}

@@ -182,6 +182,11 @@ pub async fn put_card_field(
             // The editor becomes the author, which is what clears the draft mark
             // on THIS field and no other (§2).
             author: &user.username,
+            // A human editing their own card explains nothing to anyone: the
+            // sentence they wrote IS the explanation, and the ledger already
+            // records who wrote it and when. The note carries a LOADER's reason
+            // for a choice (R2), which has no equivalent here.
+            note: None,
             written_at: Utc::now(),
         },
     )

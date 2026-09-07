@@ -267,7 +267,7 @@ fn a_proof_lands_under_its_point_with_its_code() {
     assert_eq!(under_two[0].who.as_deref(), Some("Judge Tighe"));
     assert_eq!(under_two[0].when.as_deref(), Some("2012-04-12"));
     assert_eq!(under_two[0].quote.as_deref(), Some("the words of n1"));
-    assert!(proofs.get(&1).is_none(), "point 1 has none");
+    assert!(!proofs.contains_key(&1), "point 1 has none");
 }
 
 /// An unnumbered proof still appears under its point, without a code.

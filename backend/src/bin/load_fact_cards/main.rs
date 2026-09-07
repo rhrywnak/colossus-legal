@@ -228,16 +228,23 @@ async fn load_candidates(args: &Args, pool: &sqlx::PgPool) -> Result<()> {
             scenario.scenario_id,
             scenario.picks.len()
         );
-        for (node, ordinal, title) in &scenario.picks {
-            println!("  {ordinal:>6}  {}  {}", short(node), preview(Some(title)));
-        }
-        if scenario.unstored_reasons > 0 {
-            // Named rather than dropped: §1's card has no field for "why the
-            // ranker picked this", and mapping it onto `watch_out` would put a
-            // ranking note where a witness expects a warning. See `PlannedPicks`.
+        for pick in &scenario.picks {
             println!(
-                "  NOTE: {} pick reasons have no field on the card and are NOT stored",
-                scenario.unstored_reasons
+                "  {:>6}  {}  {}",
+                pick.sort_ordinal,
+                short(&pick.graph_node_id),
+                preview(Some(&pick.title))
+            );
+        }
+        if scenario.stored_reasons > 0 {
+            // Said before the apply says it: integration ruling R2 gave the
+            // ranker's reasons a home on the include EVENT, not on the card.
+            // Naming the destination in the dry run is what lets a reader object
+            // to it before anything is written. See `plan::PlannedPick`.
+            println!(
+                "  {} pick reasons will be stored as the include event's note \
+                 (scenario_fact_card_events), not as a card field",
+                scenario.stored_reasons
             );
         }
     }

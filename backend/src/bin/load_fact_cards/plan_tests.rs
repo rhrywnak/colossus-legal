@@ -275,12 +275,15 @@ fn candidates(numbers: &[i32], reasons: bool) -> CandidatesFile {
 fn picks_are_ordered_and_spaced_by_the_ordering_modules_step() {
     use colossus_legal_backend::services::scenario_fact_order::ORDINAL_STEP;
     let planned = plan_picks(&[candidates(&[2, 1, 3], false)]).expect("plans");
-    let ordinals: Vec<i32> = planned[0].picks.iter().map(|(_, o, _)| *o).collect();
+    let ordinals: Vec<i32> = planned[0].picks.iter().map(|p| p.sort_ordinal).collect();
     assert_eq!(
         ordinals,
         vec![ORDINAL_STEP, ORDINAL_STEP * 2, ORDINAL_STEP * 3]
     );
-    assert!(planned[0].picks[0].0.ends_with(":1"), "pick 1 leads");
+    assert!(
+        planned[0].picks[0].graph_node_id.ends_with(":1"),
+        "pick 1 leads"
+    );
 }
 
 /// A gap in the pick numbers stops the load — the number IS the display order.
@@ -290,29 +293,34 @@ fn a_gap_in_the_pick_numbers_stops_the_load() {
     assert!(format!("{err}").contains("display order"));
 }
 
-/// PICK REASONS ARE COUNTED, NOT STORED AND NOT MIS-FILED.
+/// A PICK REASON IS CARRIED, AND IT NEVER BECOMES A CARD SENTENCE.
 ///
-/// §1's card has no field for "why the ranker picked this", and mapping it onto
-/// `watch_out` would put a ranking note where a witness expects to read how the
-/// other side will use the fact. The count is what makes the omission visible in
-/// the dry run rather than silent.
+/// Integration ruling R2 gave the ranker's reason a home: the include event's
+/// note in `scenario_fact_card_events`. What must never happen is the other
+/// filing — a reason landing on `title` or `watch_out`, where Marie would read
+/// "why the ranker picked this" as a warning about the other side.
 #[test]
-fn pick_reasons_are_counted_rather_than_stored() {
+fn a_pick_reason_is_carried_for_the_ledger_and_never_becomes_a_title() {
     let planned = plan_picks(&[candidates(&[1, 2], true)]).expect("plans");
-    assert_eq!(planned[0].unstored_reasons, 2);
-    for (_, _, title) in &planned[0].picks {
+    assert_eq!(planned[0].stored_reasons, 2);
+    for pick in &planned[0].picks {
         assert!(
-            !title.contains("because"),
+            pick.reason
+                .as_deref()
+                .is_some_and(|r| r.contains("because")),
+            "the reason travels with its pick"
+        );
+        assert!(
+            !pick.title.contains("because"),
             "a reason must not become a title"
         );
     }
 }
 
-/// A file with no reasons reports none.
+/// A file with no reasons carries none, and says so.
 #[test]
-fn a_file_without_reasons_reports_none_unstored() {
-    assert_eq!(
-        plan_picks(&[candidates(&[1], false)]).expect("plans")[0].unstored_reasons,
-        0
-    );
+fn a_file_without_reasons_carries_none() {
+    let planned = plan_picks(&[candidates(&[1], false)]).expect("plans");
+    assert_eq!(planned[0].stored_reasons, 0);
+    assert!(planned[0].picks[0].reason.is_none());
 }

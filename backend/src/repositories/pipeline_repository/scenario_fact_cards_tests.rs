@@ -139,20 +139,44 @@ fn the_statement_carries_each_columns_own_cast() {
 
 // ─── The ledger ──────────────────────────────────────────────────────────────
 
-/// The ledger records which field, what it became, who and when.
+/// The ledger records which field, what it became, why, who and when.
+///
+/// `note` joined the list at the 2026-09-07 integration (ruling R2): it carries a
+/// sentence about the ACT — a loader's reason for picking this fact — which has no
+/// home on the card, because the card's five sentences are the witness's own
+/// words.
 #[test]
-fn the_ledger_records_the_field_the_value_the_actor_and_the_time() {
+fn the_ledger_records_the_field_the_value_the_note_the_actor_and_the_time() {
     for column in [
         "scenario_id",
         "graph_node_id",
         "field",
         "value",
+        "note",
         "actor",
         "at",
     ] {
         assert!(
             INSERT_CARD_EVENT_SQL.contains(column),
             "the ledger must carry {column}: {INSERT_CARD_EVENT_SQL}"
+        );
+    }
+}
+
+/// The note is written on the LEDGER and never on the card.
+///
+/// The card upsert is built in `write_field` from `CardField::code()`, which has
+/// no `note` variant — so this asserts the shape from the other side: whatever a
+/// caller puts in `FieldWrite::note`, the only statement that names the column is
+/// the ledger append.
+#[test]
+fn only_the_ledger_statement_names_the_note_column() {
+    assert!(INSERT_CARD_EVENT_SQL.contains("note"));
+    for field in CardField::ALL {
+        assert_ne!(
+            field.code(),
+            "note",
+            "a card must not grow a `note` column — R2 put it on the event"
         );
     }
 }
