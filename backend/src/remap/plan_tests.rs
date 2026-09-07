@@ -3,6 +3,12 @@
 //! shape that could be ambiguous is tested as ambiguous.
 
 use super::*;
+use crate::remap::normalize::NearMatchSettings;
+
+/// Build a plan at the documented default thresholds.
+fn build(snap: &Snapshot, new_nodes: &[NewNode]) -> RemapPlan {
+    RemapPlan::build(snap, new_nodes, NearMatchSettings::default())
+}
 
 fn old(id: &str, page: i64, quote: &str, curated_rows: u64) -> SnapshotNode {
     SnapshotNode {
@@ -36,10 +42,10 @@ fn an_id_that_survived_the_reprocess_needs_no_remap() {
     // The stable-id arm's whole purpose. This must read as the best outcome, not
     // as an unmatched node.
     let snap = snapshot(vec![old("doc:evidence:aaaa", 4, "Yes.", 9)]);
-    let plan = RemapPlan::build(&snap, &[new("doc:evidence:aaaa", 4, "Yes.")]);
+    let plan = build(&snap, &[new("doc:evidence:aaaa", 4, "Yes.")]);
 
     assert_eq!(plan.nodes[0].outcome, Match::Unchanged);
-    assert_eq!(plan.auto_moves(), Vec::new());
+    assert!(plan.auto_moves().is_empty());
     assert_eq!(plan.totals().unchanged, 1);
     assert_eq!(plan.totals().yield_percent(), 100.0);
 }
@@ -47,21 +53,22 @@ fn an_id_that_survived_the_reprocess_needs_no_remap() {
 #[test]
 fn one_old_and_one_new_sharing_a_key_is_an_unambiguous_move() {
     let snap = snapshot(vec![old("doc:evidence:old1", 4, "Yes.", 9)]);
-    let plan = RemapPlan::build(&snap, &[new("doc:evidence:new1", 4, "Yes.")]);
+    let plan = build(&snap, &[new("doc:evidence:new1", 4, "Yes.")]);
 
     assert_eq!(
         plan.nodes[0].outcome,
         Match::Unambiguous {
-            new_id: "doc:evidence:new1".to_string()
+            new_id: "doc:evidence:new1".to_string(),
+            tier: MatchTier::Exact,
+            score: 1.0,
         }
     );
-    assert_eq!(
-        plan.auto_moves(),
-        vec![(
-            "doc:evidence:old1".to_string(),
-            "doc:evidence:new1".to_string()
-        )]
-    );
+    let moves = plan.auto_moves();
+    assert_eq!(moves.len(), 1);
+    assert_eq!(moves[0].old_id, "doc:evidence:old1");
+    assert_eq!(moves[0].new_id, "doc:evidence:new1");
+    assert_eq!(moves[0].tier, MatchTier::Exact);
+    assert_eq!(moves[0].curated_rows, 9);
 }
 
 #[test]
@@ -75,18 +82,24 @@ fn whitespace_and_line_breaks_in_a_quote_do_not_break_a_match() {
         "The claims  filed\nin probate.",
         3,
     )]);
-    let plan = RemapPlan::build(
+    let plan = build(
         &snap,
         &[new("doc:evidence:new1", 4, "The claims filed in probate.")],
     );
 
-    assert!(matches!(plan.nodes[0].outcome, Match::Unambiguous { .. }));
+    assert!(matches!(
+        plan.nodes[0].outcome,
+        Match::Unambiguous {
+            tier: MatchTier::Exact,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn a_different_page_is_a_different_statement() {
     let snap = snapshot(vec![old("doc:evidence:old1", 4, "Yes.", 3)]);
-    let plan = RemapPlan::build(&snap, &[new("doc:evidence:new1", 5, "Yes.")]);
+    let plan = build(&snap, &[new("doc:evidence:new1", 5, "Yes.")]);
 
     assert_eq!(plan.nodes[0].outcome, Match::Unmatched);
 }
@@ -94,7 +107,7 @@ fn a_different_page_is_a_different_statement() {
 #[test]
 fn two_new_nodes_on_one_key_are_ambiguous_and_never_auto_applied() {
     let snap = snapshot(vec![old("doc:evidence:old1", 4, "Yes.", 12)]);
-    let plan = RemapPlan::build(
+    let plan = build(
         &snap,
         &[
             new("doc:evidence:newA", 4, "Yes."),
@@ -108,7 +121,8 @@ fn two_new_nodes_on_one_key_are_ambiguous_and_never_auto_applied() {
             candidates: vec![
                 "doc:evidence:newA".to_string(),
                 "doc:evidence:newB".to_string()
-            ]
+            ],
+            tier: MatchTier::Exact,
         }
     );
     assert!(
@@ -126,7 +140,7 @@ fn two_old_twins_on_one_key_are_ambiguous_even_with_a_single_candidate() {
         old("doc:evidence:twinA", 4, "Yes.", 10),
         old("doc:evidence:twinB", 4, "Yes.", 8),
     ]);
-    let plan = RemapPlan::build(&snap, &[new("doc:evidence:new1", 4, "Yes.")]);
+    let plan = build(&snap, &[new("doc:evidence:new1", 4, "Yes.")]);
 
     for node in &plan.nodes {
         assert!(
@@ -146,7 +160,7 @@ fn an_unmatched_node_reports_the_curated_rows_it_would_orphan() {
         old("doc:evidence:old1", 4, "Gone from the new extraction.", 12),
         old("doc:evidence:old2", 5, "Also gone.", 0),
     ]);
-    let plan = RemapPlan::build(&snap, &[]);
+    let plan = build(&snap, &[]);
 
     let t = plan.totals();
     assert_eq!(t.unmatched, 2);
@@ -168,7 +182,7 @@ fn the_queue_puts_the_most_curated_orphan_first() {
             12,
         ),
     ]);
-    let plan = RemapPlan::build(&snap, &[]);
+    let plan = build(&snap, &[]);
     let queue = plan.queue();
 
     assert_eq!(queue.len(), 2);
@@ -184,7 +198,7 @@ fn the_yield_counts_survivors_and_clean_matches_together() {
         old("doc:evidence:lost", 3, "C.", 1),
         old("doc:evidence:muddy1", 4, "D.", 1),
     ]);
-    let plan = RemapPlan::build(
+    let plan = build(
         &snap,
         &[
             new("doc:evidence:kept", 1, "A."),
@@ -205,7 +219,7 @@ fn the_yield_counts_survivors_and_clean_matches_together() {
 
 #[test]
 fn an_empty_document_yields_one_hundred_percent_rather_than_dividing_by_zero() {
-    let plan = RemapPlan::build(&snapshot(Vec::new()), &[]);
+    let plan = build(&snapshot(Vec::new()), &[]);
     assert_eq!(plan.totals().yield_percent(), 100.0);
     assert!(plan.auto_moves().is_empty());
 }

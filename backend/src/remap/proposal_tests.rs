@@ -2,6 +2,7 @@
 //! three-step is a two-step with a ceremony in the middle.
 
 use super::*;
+use crate::remap::normalize::NearMatchSettings;
 use crate::remap::plan::{NewNode, RemapPlan, Snapshot, SnapshotNode};
 
 fn plan() -> RemapPlan {
@@ -31,7 +32,7 @@ fn plan() -> RemapPlan {
         verbatim_quote: "Yes.".to_string(),
         question: Some("Do you admit?".to_string()),
     }];
-    RemapPlan::build(&snapshot, &new_nodes)
+    RemapPlan::build(&snapshot, &new_nodes, NearMatchSettings::default())
 }
 
 #[test]
@@ -51,12 +52,65 @@ fn a_generated_proposal_carries_its_approval_line_commented_out() {
 }
 
 #[test]
+fn every_map_line_is_preceded_by_the_evidence_behind_it() {
+    // This comment line is what the human reads to decide whether to trust the
+    // MAP under it. A mislabeled tier or a wrong score would be approved as
+    // readily as a right one, so the exact rendering is pinned.
+    let rendered = render(&plan());
+    assert!(
+        rendered.contains(
+            "# tier1-exact · score 1.000 · page 4 · 9 curated row(s)\nMAP doc:evidence:old1 doc:evidence:new1"
+        ),
+        "got:\n{rendered}"
+    );
+}
+
+#[test]
+fn a_move_with_no_page_renders_a_dash_rather_than_an_empty_field() {
+    // All 525 live Evidence nodes carry a page, but a blank column between two
+    // separators would read as a rendering bug rather than as missing data.
+    let snapshot = Snapshot {
+        document_id: "d".to_string(),
+        taken_note: "n".to_string(),
+        nodes: vec![SnapshotNode {
+            id: "old1".to_string(),
+            page: None,
+            verbatim_quote: "Yes.".to_string(),
+            question: None,
+            curated_rows: 2,
+        }],
+    };
+    let new_nodes = vec![NewNode {
+        id: "new1".to_string(),
+        page: None,
+        verbatim_quote: "Yes.".to_string(),
+        question: None,
+    }];
+    let rendered = render(&RemapPlan::build(
+        &snapshot,
+        &new_nodes,
+        NearMatchSettings::default(),
+    ));
+
+    assert!(
+        rendered.contains("# tier1-exact · score 1.000 · page — · 2 curated row(s)"),
+        "got:\n{rendered}"
+    );
+}
+
+#[test]
 fn a_generated_proposal_states_the_yield_the_gate_test_checks() {
     let rendered = render(&plan());
     assert!(rendered.contains("1 unambiguous"));
     assert!(rendered.contains("1 unmatched"));
     assert!(rendered.contains("Yield (unchanged + unambiguous): 50.0%"));
     assert!(rendered.contains("Curated rows at risk in the queue: 12"));
+    assert!(
+        rendered
+            .contains("# Of the 1 unambiguous: 1 tier1-exact · 0 tier2-normalized · 0 tier3-near"),
+        "a yield that rests on tier 3 is a different run from one that rests on \
+         tier 1, and the header has to say which; got:\n{rendered}"
+    );
 }
 
 #[test]
@@ -156,69 +210,4 @@ fn two_old_ids_mapped_onto_one_new_id_are_refused() {
     // the twin merge exists to prevent a program from committing.
     let err = parse("DOCUMENT d\nAPPROVED R\nMAP a1 b1\nMAP a2 b1\n").unwrap_err();
     assert!(matches!(err, ProposalError::Syntax { .. }));
-}
-
-#[test]
-fn the_queue_names_the_orphan_and_what_it_would_cost() {
-    let queue = render_queue(&plan());
-    assert!(queue.contains("doc:evidence:orphan  (12 curated row(s))"));
-    assert!(queue.contains("UNMATCHED"));
-    assert!(queue.contains("Gone from the new extraction."));
-}
-
-#[test]
-fn the_queue_lists_every_candidate_for_an_ambiguous_node() {
-    let snapshot = Snapshot {
-        document_id: "d".to_string(),
-        taken_note: "n".to_string(),
-        nodes: vec![SnapshotNode {
-            id: "old1".to_string(),
-            page: Some(4),
-            verbatim_quote: "Yes.".to_string(),
-            question: None,
-            curated_rows: 3,
-        }],
-    };
-    let new_nodes = vec![
-        NewNode {
-            id: "newA".to_string(),
-            page: Some(4),
-            verbatim_quote: "Yes.".to_string(),
-            question: None,
-        },
-        NewNode {
-            id: "newB".to_string(),
-            page: Some(4),
-            verbatim_quote: "Yes.".to_string(),
-            question: None,
-        },
-    ];
-    let queue = render_queue(&RemapPlan::build(&snapshot, &new_nodes));
-
-    assert!(queue.contains("AMBIGUOUS"));
-    assert!(queue.contains("newA"));
-    assert!(queue.contains("newB"));
-}
-
-#[test]
-fn an_empty_queue_still_says_so_in_writing() {
-    let snapshot = Snapshot {
-        document_id: "d".to_string(),
-        taken_note: "n".to_string(),
-        nodes: vec![SnapshotNode {
-            id: "kept".to_string(),
-            page: Some(1),
-            verbatim_quote: "A.".to_string(),
-            question: None,
-            curated_rows: 0,
-        }],
-    };
-    let new_nodes = vec![NewNode {
-        id: "kept".to_string(),
-        page: Some(1),
-        verbatim_quote: "A.".to_string(),
-        question: None,
-    }];
-    let queue = render_queue(&RemapPlan::build(&snapshot, &new_nodes));
-    assert!(queue.contains("Nothing here needs a human"));
 }

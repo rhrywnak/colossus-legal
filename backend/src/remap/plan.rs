@@ -1,11 +1,10 @@
 //! Matching old Evidence nodes to new ones — pure, and therefore testable
 //! without a database or a reprocess.
 
-use std::collections::BTreeMap;
-
 use serde::{Deserialize, Serialize};
 
-use crate::api::pipeline::evidence_key::normalize;
+use super::normalize::NearMatchSettings;
+use super::tiers;
 
 /// One Evidence node as it stood before the reprocess.
 ///
@@ -62,27 +61,92 @@ pub struct NewNode {
     pub question: Option<String>,
 }
 
+/// How strong the evidence for a match is.
+///
+/// ## Rust Learning: a fieldless enum with a `label`, not a `String`
+///
+/// The tier is a closed set of three, so it is an enum: an invalid tier cannot be
+/// constructed, `match` on it is exhaustive, and the type is `Copy`. The rendered
+/// text lives in one place (`label`) rather than at every call site, so the
+/// proposal, the queue and the log can never drift into calling the same tier
+/// three different things.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchTier {
+    /// Page, quote and question agree byte for byte after the stable-id arm's
+    /// normalization. The strongest evidence there is short of the id surviving.
+    Exact,
+    /// They agree once case, hyphenated line breaks, whitespace and a trailing
+    /// `.`/`,` are set aside. A typographic difference, not a difference in what
+    /// the document says.
+    Normalized,
+    /// Neither form agrees, but both near-match measures clear their thresholds.
+    /// The score is printed next to every such match because it is the only tier
+    /// where a human is being asked to trust a number.
+    Near,
+}
+
+impl MatchTier {
+    /// The short name used in the proposal, the queue and the logs.
+    pub fn label(self) -> &'static str {
+        match self {
+            MatchTier::Exact => "tier1-exact",
+            MatchTier::Normalized => "tier2-normalized",
+            MatchTier::Near => "tier3-near",
+        }
+    }
+}
+
 /// What happened to one old node.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// ## Rust Learning: why this derives `PartialEq` but not `Eq`
+///
+/// `Near` carries an `f64` score, and `f64` is `PartialEq` but not `Eq` because
+/// NaN is not equal to itself. Deriving only `PartialEq` is the honest signature:
+/// the type can be compared in a test with `assert_eq!`, and nothing can put it
+/// in a `HashSet` or a `BTreeMap` key where a total ordering would be assumed.
+#[derive(Debug, Clone, PartialEq)]
 pub enum Match {
     /// The id survived the reprocess untouched. Nothing to remap.
     ///
     /// After the stable-id arm this should be the overwhelming majority, and a
     /// run where it is not is itself the finding.
     Unchanged,
-    /// Exactly one new node has this key, and no other old node claims it.
-    Unambiguous { new_id: String },
-    /// More than one candidate on one side or the other. Never auto-applied.
-    Ambiguous { candidates: Vec<String> },
-    /// No new node carries this key. The rows are orphaned.
+    /// Exactly one new node matched at this tier, and no other old node claims
+    /// it. `score` is 1.0 for the two exact tiers and the measured similarity for
+    /// a near match.
+    Unambiguous {
+        new_id: String,
+        tier: MatchTier,
+        score: f64,
+    },
+    /// More than one candidate on one side or the other, at the tier that found
+    /// them. Never auto-applied.
+    Ambiguous {
+        candidates: Vec<String>,
+        tier: MatchTier,
+    },
+    /// No new node matched at any tier. The rows are orphaned.
     Unmatched,
 }
 
 /// One old node with its outcome.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MatchedNode {
     pub old: SnapshotNode,
     pub outcome: Match,
+}
+
+/// One move the proposal may offer, with the evidence behind it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct AutoMove {
+    pub old_id: String,
+    pub new_id: String,
+    pub tier: MatchTier,
+    /// 1.0 at the two exact tiers; the measured similarity at tier 3.
+    pub score: f64,
+    pub page: Option<i64>,
+    /// What is actually at stake if this line is approved wrongly.
+    pub curated_rows: u64,
 }
 
 /// The whole plan for one document.
@@ -100,6 +164,12 @@ pub struct PlanTotals {
     pub unambiguous: usize,
     pub ambiguous: usize,
     pub unmatched: usize,
+    /// Unambiguous matches broken down by the tier that found them. A run whose
+    /// yield rests on tier 3 is a different run from one that rests on tier 1,
+    /// and collapsing them into one number would hide that (Standing Rule 1).
+    pub unambiguous_exact: usize,
+    pub unambiguous_normalized: usize,
+    pub unambiguous_near: usize,
     /// Curated rows attached to nodes that are ambiguous or unmatched — the
     /// number that measures the actual risk, as opposed to the node count.
     pub curated_rows_at_risk: u64,
@@ -119,42 +189,16 @@ impl PlanTotals {
     }
 }
 
-/// The key two nodes must share to be the same statement.
-///
-/// `(page, normalized quote, normalized question)` — the task's key, and the
-/// same normalization the stable-id arm uses, so the two cannot disagree about
-/// what "the same quote" means.
-fn match_key(page: Option<i64>, quote: &str, question: Option<&str>) -> String {
-    format!(
-        "{}\u{1f}{}\u{1f}{}",
-        page.map(|p| p.to_string()).unwrap_or_default(),
-        normalize(quote),
-        question.map(normalize).unwrap_or_default()
-    )
-}
-
 impl RemapPlan {
     /// Match a snapshot against the post-reprocess graph.
-    pub fn build(snapshot: &Snapshot, new_nodes: &[NewNode]) -> Self {
-        let new_by_key = index_new_nodes(new_nodes);
-        let old_counts = count_old_keys(snapshot);
-        let surviving: Vec<&str> = new_nodes.iter().map(|n| n.id.as_str()).collect();
-
-        let nodes = snapshot
-            .nodes
-            .iter()
-            .map(|old| {
-                let key = match_key(old.page, &old.verbatim_quote, old.question.as_deref());
-                MatchedNode {
-                    outcome: decide(old, &key, &new_by_key, &old_counts, &surviving),
-                    old: old.clone(),
-                }
-            })
-            .collect();
-
+    ///
+    /// `settings` carries the tier-3 thresholds so a document can be measured at
+    /// several settings without a rebuild; [`NearMatchSettings::default`] is the
+    /// documented pair.
+    pub fn build(snapshot: &Snapshot, new_nodes: &[NewNode], settings: NearMatchSettings) -> Self {
         RemapPlan {
             document_id: snapshot.document_id.clone(),
-            nodes,
+            nodes: tiers::match_all(snapshot, new_nodes, settings),
         }
     }
 
@@ -166,7 +210,14 @@ impl RemapPlan {
         for node in &self.nodes {
             match &node.outcome {
                 Match::Unchanged => t.unchanged += 1,
-                Match::Unambiguous { .. } => t.unambiguous += 1,
+                Match::Unambiguous { tier, .. } => {
+                    t.unambiguous += 1;
+                    match tier {
+                        MatchTier::Exact => t.unambiguous_exact += 1,
+                        MatchTier::Normalized => t.unambiguous_normalized += 1,
+                        MatchTier::Near => t.unambiguous_near += 1,
+                    }
+                }
                 Match::Ambiguous { .. } => {
                     t.ambiguous += 1;
                     t.curated_rows_at_risk += node.old.curated_rows;
@@ -180,12 +231,29 @@ impl RemapPlan {
         t
     }
 
-    /// The `(old id, new id)` pairs that may be auto-applied.
-    pub fn auto_moves(&self) -> Vec<(String, String)> {
+    /// The moves that may be auto-applied, each carrying the evidence behind it.
+    ///
+    /// Returns a struct rather than an `(old, new)` pair because the tier and the
+    /// score are not decoration: they are what the human approving the proposal
+    /// reads to decide whether to keep the line. A pair would have forced the
+    /// renderer to go looking for them again, and a renderer that has to look
+    /// something up is a renderer that can fail to.
+    pub fn auto_moves(&self) -> Vec<AutoMove> {
         self.nodes
             .iter()
             .filter_map(|n| match &n.outcome {
-                Match::Unambiguous { new_id } => Some((n.old.id.clone(), new_id.clone())),
+                Match::Unambiguous {
+                    new_id,
+                    tier,
+                    score,
+                } => Some(AutoMove {
+                    old_id: n.old.id.clone(),
+                    new_id: new_id.clone(),
+                    tier: *tier,
+                    score: *score,
+                    page: n.old.page,
+                    curated_rows: n.old.curated_rows,
+                }),
                 _ => None,
             })
             .collect()
@@ -208,59 +276,14 @@ impl RemapPlan {
     }
 }
 
-/// New nodes grouped by match key.
-fn index_new_nodes(new_nodes: &[NewNode]) -> BTreeMap<String, Vec<String>> {
-    let mut index: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for node in new_nodes {
-        let key = match_key(node.page, &node.verbatim_quote, node.question.as_deref());
-        index.entry(key).or_default().push(node.id.clone());
-    }
-    for ids in index.values_mut() {
-        ids.sort();
-    }
-    index
-}
-
-/// How many OLD nodes hold each key.
-///
-/// The twin class means two old nodes can share a key. If they do, neither can
-/// be matched unambiguously even when exactly one new node exists — one of them
-/// would silently take the other's rows.
-fn count_old_keys(snapshot: &Snapshot) -> BTreeMap<String, usize> {
-    let mut counts: BTreeMap<String, usize> = BTreeMap::new();
-    for node in &snapshot.nodes {
-        let key = match_key(node.page, &node.verbatim_quote, node.question.as_deref());
-        *counts.entry(key).or_insert(0) += 1;
-    }
-    counts
-}
-
-/// Decide one old node's outcome.
-fn decide(
-    old: &SnapshotNode,
-    key: &str,
-    new_by_key: &BTreeMap<String, Vec<String>>,
-    old_counts: &BTreeMap<String, usize>,
-    surviving: &[&str],
-) -> Match {
-    if surviving.contains(&old.id.as_str()) {
-        return Match::Unchanged;
-    }
-    let candidates = match new_by_key.get(key) {
-        Some(ids) => ids,
-        None => return Match::Unmatched,
-    };
-    let old_holders = old_counts.get(key).copied().unwrap_or(1);
-    if candidates.len() == 1 && old_holders == 1 {
-        return Match::Unambiguous {
-            new_id: candidates[0].clone(),
-        };
-    }
-    Match::Ambiguous {
-        candidates: candidates.clone(),
-    }
-}
-
 #[cfg(test)]
 #[path = "plan_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "plan_tier_tests.rs"]
+mod tier_tests;
+
+#[cfg(test)]
+#[path = "plan_guard_tests.rs"]
+mod guard_tests;
