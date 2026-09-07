@@ -72,8 +72,39 @@ const activeSegmentStyle: React.CSSProperties = {
   boxShadow: "0 1px 3px rgba(16,24,40,.2)",
 };
 
-// CONST: the mockup's tooltip copy, verbatim. User-facing text, not config.
-const TOOLTIP = "Ready = appears in Marie's rehearsal view. Human-only switch.";
+// ⚑ CONST: the tooltip. A literal, and one settings row is OWED for it.
+//
+// ## Why it changed (Roman's ruling, 2026-09-07)
+//
+// It read "Ready = appears in Marie's rehearsal view. Human-only switch." until
+// v2.1 retired the rehearsal page (ruling R35), at which point it named a surface
+// that no longer exists. The v2.1 task proposed "Ready = appears in Practice",
+// and CC stopped rather than write it: Practice is deliberately NOT gated on
+// Ready — `headerStripRules` says so in words, and no practice module references
+// `READY_STATUS` — so that sentence would have been false the moment it shipped.
+//
+// The ruling keeps the switch, because Ready does still drive something a human
+// sees, just not a page: the Trial Prep list's Ready/Draft counts
+// (`count_status(cards, ScenarioStatus::Ready)` → the served `metric_ready_label`)
+// and each card's green status chip (`statusMeta("ready")`). Both verified on
+// this branch. So the sentence now names what is TRUE rather than what used to be.
+//
+// ## Why it is still a literal
+//
+// There is no wording row behind it — checked: nothing in `backend/src` or the
+// migrations carries this string, and this control serves its two segment labels
+// as literals too. The comment that stood here claimed "User-facing text, not
+// config", which is the same argument the rules-enforcer rejected for the `#000`
+// in `ScenarioIdentityBlock` during v2.1. It is debt, not a decision. One row is
+// owed, and it joins the nine the v2.1 report already lists so that one migration
+// settles them all (rule 25 — the migration is Roman's):
+//
+//   scenario_status_ready_tooltip = "Ready = you have declared this scenario's
+//                                    prep complete. Shows on the Trial Prep list.
+//                                    Human-only switch."
+const TOOLTIP =
+  "Ready = you have declared this scenario's prep complete. " +
+  "Shows on the Trial Prep list. Human-only switch.";
 
 /**
  * Whether clicking a segment should actually change anything.
@@ -82,8 +113,12 @@ const TOOLTIP = "Ready = appears in Marie's rehearsal view. Human-only switch.";
  * rule with a named consequence, not a visual convention: the ready route writes a
  * row to the status-transitions ledger, so firing it for a click on the segment
  * you are already on would record a transition that never happened. The ledger is
- * the forensic record of who declared a scenario rehearsable and when; a false
+ * the forensic record of who declared a scenario's prep complete and when; a false
  * entry in it is worse than a missing feature.
+ *
+ * (It said "declared a scenario rehearsable" until v2.1 retired the rehearsal
+ * page. The ledger and this guard are unchanged — only the word for what the
+ * declaration MEANS moved, and it moved here too so the two agree.)
  *
  * @param next Whether the clicked segment means "ready".
  * @param currentReady Whether the scenario is ready right now.

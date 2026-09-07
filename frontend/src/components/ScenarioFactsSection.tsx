@@ -20,35 +20,69 @@
 // tags (2.3), and per-fact annotations (§2d, Phase 2). All three have their place
 // in this section in the design; none of them exists yet, and the Phase-1 law says
 // a component that does not exist renders NOTHING rather than a greyed hint.
+//
+// ## ⚑ v2.1 (ruling R35): THREE SECTIONS BECAME ONE LIST
+//
+// "Scan & candidates" and "The accusation, and every time they made it" are no
+// longer rendered by the scenario page. What they showed about the EVIDENCE is
+// here, behind a three-way filter — Included · Candidates · All — over one card.
+//
+// The reason is a reader's, not an engineer's. Three stacked lists over one pool
+// meant "is this fact already in?" was answered by scrolling between sections and
+// holding two counts in your head. One list with three filters answers it in a
+// click, and the filter names what you are looking at, which the three headings
+// never quite did.
+//
+// ## What this section now owns, and what it borrows
+//
+//   the header      `ScenarioFactsHeader` — heading, last-scan sentence, Scan
+//                   again, history, Reset order, the fold
+//   the filter      `FactsFilterBar` over the pure `factsFilter`
+//   Included        `WorkingView`, unchanged
+//   Candidates      `CardQueue`, unchanged — the same rows, the same Include /
+//                   rule controls and the same `CandidateFilterBar` the retired
+//                   section showed, mounted here instead
+//   the scan engine `ThemeScanPanel`, MOUNTED AND CHROMELESS. It must stay
+//                   mounted (architect ruling R3): its mount effect calls
+//                   `gatherCandidates`, the one place candidate ordinals are
+//                   minted. It lends this section its three scan controls
+//                   through `ScanHeaderApi` and draws no card of its own.
+//
+// ## The fold governs the LISTS, never the filter row
+//
+// Collapsed is still the arrival state and still remembered per scenario. What
+// changed is what a closed section says: the pills stay on screen with their
+// counts, so a folded list still declares how many facts are in it and how many
+// candidates are waiting — which is what makes folding honest rather than a
+// hiding place.
 
 import React, { useState } from "react";
 
 import AddHumanFactForm from "./AddHumanFactForm";
-import SectionFold from "./SectionFold";
+import CardQueue from "./CardQueue";
+import FactsFilterBar from "./FactsFilterBar";
+import ScenarioFactsHeader from "./ScenarioFactsHeader";
+import ThemeScanPanel from "./ThemeScanPanel";
+import { factsCounts, showsCandidates, showsIncluded, type FactsFilter } from "./factsFilter";
 import { useSectionOpen } from "./sectionCollapse";
 import WorkingView from "./WorkingView";
-import {
-  sectionHeaderStyle,
-  sectionMetaStyle,
-  sectionTitleStyle,
-} from "./scenarioSectionStyles";
-import { includedRows } from "./factsTable";
-import type { ScenarioCard } from "../services/scenarioCards";
+import { sectionPanelStyle } from "./scenarioSectionStyles";
+import type { ProposalSource, ScenarioCard } from "../services/scenarioCards";
+import type { TalkingPointDto } from "../services/scenarioAugmentation";
 import type { HumanFactDto } from "../services/scenarioAugmentation";
 import { deleteHumanFact } from "../services/scenarioAugmentation";
 import { removeScenarioFact } from "../services/scenarioFacts";
 import {
   fillCodeAndReason,
   fillDetail,
-  fillSlots,
   type AllegationOptions,
   type LinkPanelWording,
 } from "../services/evidenceLinks";
 import {
-  clearFactOrder,
   setFactOrder,
   setFactTier,
 } from "../services/scenarioFactCuration";
+import { resetFactOrder } from "./factsOrderReset";
 import FactsResetOrder from "./FactsResetOrder";
 import type { FactTier } from "../services/scenarioCards";
 
@@ -100,6 +134,51 @@ interface Props {
    * keeps one read reaching both.
    */
   options: AllegationOptions | null;
+  // ── v2.1 (change D): what the retired "Scan & candidates" section used ─────
+  /**
+   * `true` while the page's card read is still in flight.
+   *
+   * The filter pills need it and `cards` cannot carry it: this section takes an
+   * ARRAY (`WorkingView` maps over it) so an unread pool and an empty one arrive
+   * identically. Collapsing those two is what put "No candidates gathered yet"
+   * over a pool of 148 in .374 — the pills show their word with no number until
+   * this goes false.
+   */
+  loading: boolean;
+  /** Bumped when a scan merge writes candidate facts; relayed to the queue. */
+  externalRefresh: number;
+  /**
+   * The served sentence for a scenario NO scan has ever touched, or `null`.
+   *
+   * Served, never inferred — the browser cannot tell "nothing has been scanned"
+   * from "nothing scanned has been merged". Stands where the last-scan sentence
+   * would be; see `ScenarioFactsHeader`.
+   */
+  neverScannedNotice: string | null;
+  /** Which completed run is proposing the candidates, or `null`. Served. */
+  proposalSource: ProposalSource | null;
+  /**
+   * A scan completed or a run was deleted — the page's whole payload is stale.
+   *
+   * The HEAVY refresh, and correctly so: a completed run changes the pool, the
+   * proposal attribution and the served never-scanned notice at once.
+   */
+  onFactsChanged: () => void;
+  /**
+   * A ruling the SERVER confirmed, from the candidate queue (task 1.7F Part A).
+   *
+   * The LIGHT re-read: it updates this list and the queue's counts together
+   * without disturbing the queue's selection mid-triage, which a page-level
+   * refresh would — the class of defect task 1.7G spent two builds fixing.
+   */
+  onRulingSaved: () => void;
+  /**
+   * The scenario's live talking points, for each card's Backs picker (change E).
+   *
+   * This list is the ONE surface that offers the choice. See `FactCardBody` for
+   * why the copy of a card under a talking point does not.
+   */
+  points: TalkingPointDto[];
 }
 
 const ScenarioFactsSection: React.FC<Props> = ({
@@ -111,6 +190,13 @@ const ScenarioFactsSection: React.FC<Props> = ({
   onFactRemoved,
   wording,
   options,
+  loading,
+  externalRefresh,
+  neverScannedNotice,
+  proposalSource,
+  onFactsChanged,
+  onRulingSaved,
+  points,
 }) => {
   const [adding, setAdding] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -127,6 +213,26 @@ const ScenarioFactsSection: React.FC<Props> = ({
    * facts are in it.
    */
   const [open, toggleOpen] = useSectionOpen(scenarioId, "facts");
+  /**
+   * Which of the three lists is showing (v2.1, change D).
+   *
+   * `included` on arrival and deliberately NOT remembered, unlike the fold. The
+   * fold is a preference about how much page you want; this is a place in a
+   * workflow, and a section that greeted you with the candidate queue because
+   * that is where you left off three days ago would answer a question you did
+   * not ask. The default is the scenario's own content.
+   */
+  const [filter, setFilter] = useState<FactsFilter>("included");
+  /**
+   * Whether the run-history table is open.
+   *
+   * Behind a link rather than on the page, because it is the only surface in
+   * this app that shows scan history and it is read rarely — checked before
+   * this change: `ScanHistoryTable` has exactly one mount site, inside
+   * `ThemeScanPanel`. Dropping it would have taken the only way to see, compare
+   * or delete a run with it.
+   */
+  const [historyOpen, setHistoryOpen] = useState(false);
   /** Whether the Reset-order confirmation is open. */
   const [confirmingReset, setConfirmingReset] = useState(false);
   /** What the last reset did, or `null`. Every action acknowledges itself. */
@@ -264,139 +370,79 @@ const ScenarioFactsSection: React.FC<Props> = ({
   /**
    * Forget where EVERY fact in this scenario was placed (Piece 5b).
    *
-   * ## Why one control in the header replaced forty-six on the cards
-   *
-   * "Clear my order" sat on every placed card to do a thing a human does once,
-   * and it competed for the footer with Remove — two controls a click apart, one
-   * of which discards a position and the other of which takes the fact out of
-   * the scenario. The footer now keeps only Remove.
-   *
-   * ## Why it is a loop over the existing per-fact route
-   *
-   * There is no bulk endpoint and this task deliberately adds none: the ruling
-   * and order write paths are audited surfaces, and a second writer for "clear
-   * them all" would be a new path to guard for a control that runs a handful of
-   * times. The loop is bounded by the number of PLACED facts — a fact nobody
-   * dragged has nothing to clear — which is a few, not the whole list.
-   *
-   * ## Partial failure is REPORTED, never swallowed
-   *
-   * Each write can fail independently, so the outcome is counted and the
-   * sentence names how many landed. A loop that stopped at the first refusal and
-   * said "reset" would leave the order half-cleared with the screen claiming
-   * otherwise (Standing Rule 1).
+   * The reasoning — why one header control replaced forty-six on the cards, why
+   * it is a loop over the per-fact route rather than a new bulk endpoint, and
+   * why a partial failure is counted and reported — moved with the code to
+   * `resetFactOrder` when change D pushed this file past the 300-line limit.
+   * That module is where a reader should go, and it is now testable without
+   * mounting a section.
    */
   const resetOrder = () => {
-    const placed = cards.filter((card) => card.sort_ordinal != null);
     setConfirmingReset(false);
-
-    // The control is withheld until the words load, so this branch is
-    // unreachable through the UI. It is not a silent `return` all the same: a
-    // second caller wired up without the wording would otherwise get a confirm
-    // dialog, a click, and nothing at all — the exact shape Standing Rule 1
-    // exists to forbid. The refusal SAYS so, in the one place this component can
-    // speak without a stored sentence to speak it with.
-    if (!options) {
-      // eslint-disable-next-line no-console -- there is no stored sentence for a
-      // state that cannot happen through the UI, and inventing one would be the
-      // literal the language law deletes.
-      console.warn(
-        "Reset order was invoked before the card wording loaded; nothing was written.",
-      );
-      setError("The order could not be reset — please reload and try again.");
-      return;
-    }
-
-    Promise.allSettled(
-      placed.map((card) => clearFactOrder(slug, scenarioId, card.graph_node_id)),
-    ).then((results) => {
-      const cleared = results.filter((r) => r.status === "fulfilled").length;
-      const failed = results.length - cleared;
-
-      if (failed > 0) {
-        const first = results.find((r) => r.status === "rejected");
-        const reason =
-          first && first.status === "rejected"
-            ? first.reason instanceof Error
-              ? first.reason.message
-              : String(first.reason)
-            : "";
-        setError(
-          fillSlots(options.card_grammar.reset_order_failed_template, { reason }),
-        );
-      } else {
-        setError(null);
-      }
-
-      // The count is what ACTUALLY cleared, not what was attempted: a sentence
-      // reporting the intention would be the screen agreeing with the click
-      // rather than with the database.
-      setResetNotice(
-        fillSlots(options.card_grammar.reset_order_done_template, {
-          count: String(cleared),
-        }),
-      );
-      onFactRemoved();
+    void resetFactOrder({
+      slug,
+      scenarioId,
+      cards,
+      grammar: options?.card_grammar ?? null,
+      setError,
+      setNotice: setResetNotice,
+      onDone: onFactRemoved,
     });
   };
 
-  const included = includedRows(cards).length;
-  const total = included + humanFacts.length;
+  // `null` while the read is in flight — see the `loading` prop for why the two
+  // states must not be collapsed, and what happened the day they were.
+  const counts = factsCounts(loading ? null : cards);
 
   return (
     <section>
-      <div style={sectionHeaderStyle}>
-        <h2 style={sectionTitleStyle}>Scenario facts</h2>
-        {/* D10's empty-state fix: different copy at zero, because one is an
-            instruction and the other explains an emptiness. */}
-        <span style={sectionMetaStyle}>
-          {total === 0 ? (
-            "facts appear here when you ✓ Include a candidate above"
-          ) : (
-            <>
-              {included} included ·{" "}
-              <span style={{ color: "var(--state-success-strong)" }}>✓ Include</span> moves a
-              candidate here
-              {humanFacts.length > 0 && ` · ${humanFacts.length} added by hand`}
-            </>
-          )}
-        </span>
+      {/* ⚑ THE SCAN ENGINE, MOUNTED AND CHROMELESS (architect ruling R3).
 
-        {/* Piece 5b: ONE Reset order in the section header, confirmed. It
-            discards work across the whole list — the sequence IS the argument —
-            which is why it asks first, unlike the per-card control it replaces.
-            Withheld until the words load: there is no fallback vocabulary, and a
-            destructive control that cannot state what it does must not be
-            offered at all (R4). */}
-        {/* The header's right-hand controls. The wrapper carries the `auto`
-            margin rather than the Reset button, because the fold must sit at the
-            far edge whether or not the words for Reset have loaded — a control
-            that moves depending on someone else's fetch is a control a human
-            has to look for twice. */}
-        <span style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-          {options && (
-            <button
-              type="button"
-              onClick={() => setConfirmingReset(true)}
-              style={{
-                border: "none",
-                background: "none",
-                padding: 0,
-                color: "var(--accent-primary)",
-                cursor: "pointer",
-                fontFamily: "inherit",
-                fontSize: "0.8rem",
-              }}
-            >
-              {options.card_grammar.reset_order_label}
-            </button>
-          )}
+          It draws no card: it hands this section's header its three controls
+          and renders only what a header cannot — the running view, the scan's
+          refusals and the run report. It may NOT be unmounted; its mount effect
+          calls `gatherCandidates`, and gather is the one place candidate
+          ordinals are minted (every card's `C-14` handle). See `ScanHeaderApi`.
 
-          {/* P1b. The count line above stays visible when this closes, so a
-              folded section still says how many facts are in it. */}
-          <SectionFold open={open} onToggle={toggleOpen} names="the scenario facts" />
-        </span>
-      </div>
+          The header renders INSIDE this component's tree — the panel's own box
+          is `display: contents`, so what it returns becomes a child of the
+          section rather than a wrapper inside it. */}
+      <ThemeScanPanel
+        slug={slug}
+        scenarioId={scenarioId}
+        proposalSource={proposalSource}
+        onFactsChanged={onFactsChanged}
+        header={(scan) => (
+          <>
+            <ScenarioFactsHeader
+              scan={scan}
+              neverScannedNotice={neverScannedNotice}
+              historyOpen={historyOpen}
+              onToggleHistory={() => setHistoryOpen(!historyOpen)}
+              grammar={options?.card_grammar ?? null}
+              onResetOrder={() => setConfirmingReset(true)}
+              open={open}
+              onToggleOpen={toggleOpen}
+            />
+
+            {/* The run history, behind the header's `history` link. It opens
+                BELOW the header row it is reached from, at full width, and the
+                TABLE is the panel's own element — so there is one history, one
+                selection and one delete path however it is reached. */}
+            {historyOpen && (
+              <div
+                style={{
+                  ...sectionPanelStyle,
+                  marginBottom: "0.75rem",
+                  padding: "0 18px",
+                }}
+              >
+                {scan.history}
+              </div>
+            )}
+          </>
+        )}
+      />
 
       {options && (
         <FactsResetOrder
@@ -421,57 +467,79 @@ const ScenarioFactsSection: React.FC<Props> = ({
         </div>
       )}
 
-      {/* C2 + C4 in ONE table (task 1.7D item 6). 1.7C rendered human facts as a
-          separate list beneath the evidence, because a fact with no citation and a
-          fact with a pinpoint are different kinds of thing and §8 requires the
-          distinction be visible. That reasoning holds; what changed is HOW it is
-          made visible — the v3 mockup carries it in a coloured left-edge stripe
-          (green evidence, blue human) instead of splitting the reader's attention
-          across two lists they have to mentally join.
+      {/* ONE CARD, styled exactly as the watch-list's (mockup 3): the filter
+          band at the top, the list inside it. `sectionPanelStyle` is the shared
+          v3 panel — white, radius 12, no border, its edge is the shadow. */}
+      <div style={sectionPanelStyle}>
+        {/* OUTSIDE the fold, deliberately. A closed section still says how many
+            facts are in it and how many candidates are waiting, which is what
+            makes folding honest rather than a hiding place. */}
+        <FactsFilterBar active={filter} counts={counts} onPick={setFilter} />
 
-          The row's provenance line still says which it is in words, so the stripe
-          is a cue and never the only signal. `WorkingView` opens its pinpoints in
-          the viewer WINDOW (D5); a human row has no pinpoint to open. */}
-      {/* P1b: the fold governs the LIST and the add form, never the error banner
-          or the reset acknowledgment above — a message about something that just
-          failed or just happened must not be collapsible out of sight. */}
-      {open && (
-        <WorkingView
-          cards={cards}
-          humanFacts={humanFacts}
-          // FACT_CARD_v2 §2: a card is SCENARIO-scoped, so an edit is written
-          // against this pair. `onChanged` re-reads the deck, which is what makes
-          // the screen match the store after a field is stored.
-          slug={slug}
-          scenarioId={scenarioId}
-          onCardEdited={onChanged}
-          onAdd={() => setAdding(true)}
-          // P3: the form renders AT its button, inside the view that owns the
-          // button's position — not after a scroll region holding forty-six
-          // rows, which is where it used to land and why the control read as
-          // dead. The state and the write stay here; only the placement moved.
-          addForm={
-            adding ? (
-              <AddHumanFactForm
-                slug={slug}
-                scenarioId={scenarioId}
-                onSaved={() => {
-                  setAdding(false);
-                  setError(null);
-                  onChanged();
-                }}
-                onCancel={() => setAdding(false)}
-              />
-            ) : null
-          }
-          onRemoveHumanFact={removeHumanFact}
-          onRemoveFact={removeFact}
-          wording={wording}
-          options={options}
-          onSetTier={changeTier}
-          onMoveFact={moveFact}
-        />
-      )}
+        {open && showsIncluded(filter) && (
+          <WorkingView
+            cards={cards}
+            humanFacts={humanFacts}
+            // FACT_CARD_v2 §2: a card is SCENARIO-scoped, so an edit is written
+            // against this pair. `onChanged` re-reads the deck, which is what
+            // makes the screen match the store after a field is stored.
+            slug={slug}
+            scenarioId={scenarioId}
+            onCardEdited={onChanged}
+            onAdd={() => setAdding(true)}
+            // P3: the form renders AT its button, inside the view that owns the
+            // button's position — not after a scroll region holding forty-six
+            // rows, which is where it used to land and why the control read as
+            // dead. The state and the write stay here; only the placement moved.
+            addForm={
+              adding ? (
+                <AddHumanFactForm
+                  slug={slug}
+                  scenarioId={scenarioId}
+                  onSaved={() => {
+                    setAdding(false);
+                    setError(null);
+                    onChanged();
+                  }}
+                  onCancel={() => setAdding(false)}
+                />
+              ) : null
+            }
+            onRemoveHumanFact={removeHumanFact}
+            onRemoveFact={removeFact}
+            wording={wording}
+            options={options}
+            onSetTier={changeTier}
+            onMoveFact={moveFact}
+            // v2.1 (change E): the Backs picker, offered on THIS surface only.
+            points={points}
+          />
+        )}
+
+        {/* The candidate queue, exactly as the retired section mounted it —
+            same rows, same Include / rule controls, same `CandidateFilterBar`,
+            same one-key triage. Only its address changed.
+
+            `keyboardActive` is the fold AND the filter: a `<details>`-style body
+            that stays mounted would keep the one-key rulings firing on cards
+            nobody can see (ruling R7), and under the Included filter the queue
+            is not on screen at all. */}
+        {open && showsCandidates(filter) && (
+          <CardQueue
+            linkOptions={options}
+            slug={slug}
+            scenarioId={scenarioId}
+            externalRefresh={externalRefresh}
+            // The heading this fed lived on the retired section's head row. The
+            // pills carry the count now, so the frame is reported to nobody —
+            // the prop stays required by the queue and is deliberately a no-op
+            // rather than a widened signature this task has no reason to change.
+            onFrameChanged={() => {}}
+            keyboardActive={open}
+            onRulingSaved={onRulingSaved}
+          />
+        )}
+      </div>
     </section>
   );
 };

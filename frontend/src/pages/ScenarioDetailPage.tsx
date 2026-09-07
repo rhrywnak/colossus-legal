@@ -43,9 +43,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
-import AccusationSection from "../components/AccusationSection";
 import Breadcrumb from "../components/Breadcrumb";
-import ScanSection from "../components/ScanSection";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
 import ScenarioFactsSection from "../components/ScenarioFactsSection";
@@ -67,10 +65,6 @@ import {
   type ProposalSource,
   type ScenarioCard,
 } from "../services/scenarioCards";
-import {
-  fetchAccusationPanel,
-  type AccusationPanelDto,
-} from "../services/scenarioAccusation";
 import {
   fetchAugmentationPanel,
   type AugmentationPanelDto,
@@ -146,17 +140,18 @@ const ScenarioDetailPage: React.FC = () => {
    * are no longer on screen.
    */
   const [proposalSource, setProposalSource] = useState<ProposalSource | null>(null);
-  /**
-   * The accusation section's payload (task 2.11 B1).
-   *
-   * Its own state and its own read, NOT part of the four-read gate: a scenario
-   * whose accusation could not be loaded must still show its facts, its queue and
-   * its identity. Folding it into `Promise.all` would replace the whole page with
-   * a banner over one section — the same over-reaction the cards re-read notice
-   * exists to avoid.
-   */
-  const [accusation, setAccusation] = useState<AccusationPanelDto | null>(null);
-  const [accusationError, setAccusationError] = useState<string | null>(null);
+  // REMOVED IN v2.1 (ruling R36): `accusation` / `accusationError` and the read
+  // that filled them. The section they fed — "The accusation, and every time they
+  // made it" — is no longer rendered, so a read firing on every page refresh was
+  // a request nobody could see the answer to.
+  //
+  // ## What was NOT removed, and why that matters
+  //
+  // `AccusationSection.tsx`, `services/scenarioAccusation.ts`, the endpoint and
+  // every marked instance in the database are untouched. This is an UNMOUNT, not
+  // a deletion: instances a human marked elsewhere are still marked, and the
+  // section can be mounted again by restoring these lines. Nothing about the data
+  // was decided here.
   /**
    * The accusations the link panels offer, and the wording two sections share
    * (tasks 2.10 and 2.12).
@@ -371,34 +366,6 @@ const ScenarioDetailPage: React.FC = () => {
     };
   }, [slug, scenarioId, cardsRefreshKey]);
 
-  // The accusation read, keyed on the PAGE refresh so a marking or a pairing
-  // re-reads it — and so does anything else that changes what is included, which
-  // is what the count and the gaps are derived from.
-  useEffect(() => {
-    if (!scenarioId) return;
-    let cancelled = false;
-    fetchAccusationPanel(slug, scenarioId)
-      .then((payload) => {
-        if (cancelled) return;
-        setAccusation(payload);
-        setAccusationError(null);
-      })
-      .catch((err: unknown) => {
-        if (cancelled) return;
-        // Standing Rule 1: the section withdraws itself when it has no words to
-        // render with, so the absence has to SAY why — otherwise a whole block is
-        // simply missing from the page with nothing to diagnose.
-        setAccusation(null);
-        setAccusationError(
-          err instanceof Error
-            ? err.message
-            : "The accusation section could not be loaded.",
-        );
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [slug, scenarioId, pageRefreshKey, cardsRefreshKey]);
 
   const gatingCrumb = (
     <Breadcrumb
@@ -470,30 +437,16 @@ const ScenarioDetailPage: React.FC = () => {
         wording={augmentation?.identity_wording ?? null}
       />
 
-      {/* 3 — §2.3. A merge inside the scan writes the candidate facts every other
-          section below reads, so a merge refreshes the page's whole payload. */}
-      <ScanSection
-        slug={slug}
-        scenarioId={scenarioId}
-        linkOptions={linkOptions}
-        // `null` while the page is still loading, NOT the empty array it is
-        // initialised to. The queue's summary is derived from this, and an empty
-        // pool and an unread one must never look the same — collapsing them is
-        // what put "No candidates gathered yet" over 148 candidates (task 2.13c).
-        cards={loading ? null : cards}
-        // Either signal reloads the queue's pool: a merge (page-level) or a
-        // removal (queue-level). Summed rather than passed as two props because
-        // the VALUE is never read — only its change — and both only ever
-        // increment, so a bump to either is always a change to the sum.
-        externalRefresh={pageRefreshKey + queueRefreshKey}
-        // Served, not derived — see the field's note on the payload.
-        neverScannedNotice={neverScannedNotice}
-        proposalSource={proposalSource}
-        onFactsChanged={refresh}
-        // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
-        // appears below without the queue above being reloaded under the human.
-        onRulingSaved={refreshCards}
-      />
+      {/* 3 — RETIRED IN v2.1 (ruling R35). `ScanSection` is no longer
+          rendered: what it showed is on the Scenario facts section below, whose
+          header carries the scan controls and whose Candidates filter shows the
+          queue. The component and its tests are KEPT and unmounted, exactly as
+          `AccusationSection` is — nothing about the scan was decided here.
+
+          The scan ENGINE did not move. `ThemeScanPanel` is mounted by
+          `ScenarioFactsSection` now, and it must be mounted by something:
+          architect ruling R3 records that its mount effect calls
+          `gatherCandidates`, the one place candidate ordinals are minted. */}
 
       {/* A catalogue that would not load withdraws the link panels and the Remove
           control, so it has to SAY so — otherwise both are simply missing, on
@@ -528,28 +481,26 @@ const ScenarioDetailPage: React.FC = () => {
         options={linkOptions}
         onChanged={refresh}
         onFactRemoved={refreshAfterRemoval}
-      />
-
-      {/* 4b — task 2.11 B1: the accusation, its instances and their answers.
-          Placed directly beneath the facts it is built ON, because marking and
-          pairing are judgments ABOUT those facts and a human reads the two
-          together. A payload that would not load withdraws the whole section, so
-          the notice beside it is the only thing saying why. */}
-      {accusationError && <ScenarioNotice message={accusationError} />}
-      <AccusationSection
-        slug={slug}
-        scenarioId={scenarioId}
-        panel={accusation}
-        // WHOLE cards now (task R4, P3): the shared pair card renders the
-        // speaker, the kind, the pinpoint and the context around each quote, all
-        // of which were already on this payload and were being dropped one
-        // lookup short of the screen. The section derives the picker's narrower
-        // shape from these itself, so one list feeds both.
-        includedCards={cards.filter((card) => card.status === "included")}
-        // The served words the card speaks on this page — its fold's show/hide
-        // pair, and the sentence for a statement with no recorded speaker.
-        options={linkOptions}
-        onChanged={refresh}
+        // ── v2.1 (change D): what `ScanSection` used to be handed ────────────
+        // The pool's read state, which `cards` cannot carry — it is an array
+        // either way, and an unread pool must not count as an empty one (.374).
+        loading={loading}
+        // Either signal reloads the queue's pool: a merge (page-level) or a
+        // removal (queue-level). Summed rather than passed as two props because
+        // the VALUE is never read — only its change — and both only ever
+        // increment, so a bump to either is always a change to the sum.
+        externalRefresh={pageRefreshKey + queueRefreshKey}
+        // Served, not derived — see the field's note on the payload.
+        neverScannedNotice={neverScannedNotice}
+        proposalSource={proposalSource}
+        onFactsChanged={refresh}
+        // A ruling the SERVER confirmed. Re-reads the cards alone, so the fact
+        // appears in the list without the queue being reloaded under the human.
+        onRulingSaved={refreshCards}
+        // change E: the Backs picker's options. `[]` while the panel is
+        // unloaded, which withholds the control rather than offering an empty
+        // one — absent, not fake.
+        points={augmentation?.talking_points ?? []}
       />
 
       {/* 5 and 6 — §2.5 and §2.6.
@@ -569,6 +520,17 @@ const ScenarioDetailPage: React.FC = () => {
             cap={augmentation.talking_points_cap}
             wording={augmentation.wording}
             onChanged={refresh}
+            // v2.1 (F): each point renders the included facts that back it. The
+            // POOL is passed, not a filtered list — the filter is the pure rule
+            // in `talkingPointFacts`, and pre-filtering here would put it back
+            // on the page where no test reaches it.
+            cards={cards}
+            options={linkOptions}
+            // The LIGHT re-read, deliberately: an edit to a card under a point
+            // changes the cards and nothing else, and the page-level refresh
+            // would disturb the candidate queue's selection mid-triage — the
+            // class of defect task 1.7G spent two builds fixing.
+            onCardEdited={refreshCards}
           />
 
           {/* The backend splits watch-list notes from human facts; a client that

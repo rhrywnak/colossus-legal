@@ -36,18 +36,26 @@ const SCENARIO_TREE = [
   "pages/ScenarioDetailPage.tsx",
   "components/scenario/ScenarioHeaderStrip.tsx",
   "components/ScenarioIdentityBlock.tsx",
-  "components/ScanSection.tsx",
+  // v2.1 (change D): `ScanSection` and `ScanControlLine` left this tree with the
+  // retired "Scan & candidates" section. `ThemeScanPanel` did NOT — the facts
+  // section mounts it chromeless, because its mount effect mints candidate
+  // ordinals (architect ruling R3) — and it still carries the history table.
   "components/ThemeScanPanel.tsx",
-  "components/ScanControlLine.tsx",
   "components/ScanHistoryTable.tsx",
   "components/CardQueue.tsx",
   "components/CandidateCard.tsx",
   "components/RulingButtons.tsx",
   "components/ScenarioStatusControl.tsx",
   "components/ScenarioFactsSection.tsx",
+  "components/ScenarioFactsHeader.tsx",
+  "components/FactsFilterBar.tsx",
   "components/WorkingView.tsx",
+  "components/FactRow.tsx",
+  "components/FactCardBody.tsx",
+  "components/FactCardRows.tsx",
   "components/AddHumanFactForm.tsx",
   "components/TalkingPointsSection.tsx",
+  "components/PointFactRows.tsx",
   "components/WatchListSection.tsx",
   "components/WatchListBlock.tsx",
   "components/ScenarioOrphanStrip.tsx",
@@ -211,16 +219,64 @@ describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-0
     // status in row 1 with the identity, Delete at the far end of row 2 behind
     // `row2Right`'s auto margin. That is more distance than the separator ever
     // bought, and this asserts the order rather than the spacer.
+    //
+    // 2026-09-07: Delete wears `ss.solidDangerButton` now — Roman ruled it should
+    // read as a button of Practice's weight rather than as text. The DISTANCE
+    // property this test exists for is untouched by that; only the style name it
+    // looks for moved, and it is matched exactly so a revert to the text-only
+    // `ss.dangerButton` fails here rather than passing on a substring.
     const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
     const statusAt = header.indexOf("<ScenarioStatusControl");
     const row2At = header.indexOf("style={ss.row2}");
-    const deleteAt = header.indexOf("ss.dangerButton");
+    const deleteAt = header.indexOf("ss.solidDangerButton");
     expect(statusAt, "the status control is still on the header").toBeGreaterThan(-1);
     expect(deleteAt, "Delete is still on the header").toBeGreaterThan(-1);
     expect(row2At, "row 2 exists").toBeGreaterThan(-1);
     expect(statusAt, "status is in row 1").toBeLessThan(row2At);
     expect(deleteAt, "Delete is in row 2").toBeGreaterThan(row2At);
     expect(header, "and pushed to the far end of it").toContain("ss.row2Right");
+  });
+
+  it("Delete is SOLID and danger-coloured, derived from the Practice button", () => {
+    // Roman, 2026-09-07. `dangerButton` — text on nothing — read as an
+    // afterthought at the far end of the row rather than as the destructive act
+    // it is. Delete now has Practice's weight and the danger fill.
+    //
+    // Derived, not transcribed: two buttons that must match are one spread and
+    // one overridden property. A hand-copied list of padding/radius/size values
+    // is what drifts the next time the mockup moves, and that is the whole
+    // property this asserts.
+    const styles = read("components", "scenario", "stripStyles.ts");
+    const solidDanger = styles.slice(
+      styles.indexOf("export const solidDangerButton"),
+    );
+    expect(solidDanger, "shape and size come FROM Practice's button").toContain(
+      "...solidButton",
+    );
+    expect(solidDanger, "the fill is the token dangerButton already uses").toContain(
+      "background: \"var(--state-danger-strong)\"",
+    );
+
+    // NO NEW HEX. The `#ffffff` it inherits from `solidButton` is that style's
+    // own, and is a literal there rather than `--v3-on-fill` because that token
+    // is scoped to `[data-surface="v3"]` and undefined on three of this strip's
+    // four surfaces — the same reason `dangerButton` avoids `--v3-red-text`.
+    const declaration = solidDanger.slice(0, solidDanger.indexOf("};") + 2);
+    expect(declaration, "no hex literal introduced here").not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+
+    // The text-only style STAYS: three other surfaces still render it.
+    expect(styles).toContain("export const dangerButton");
+  });
+
+  it("the confirm dialog is still what guards Delete, unchanged", () => {
+    // The button got heavier, not more dangerous. Roman's 2026-08-07 overrule of
+    // D7 rested on the dialog being the real guard, and a restyle must not be
+    // mistaken for a change to that — this is the assertion that says so.
+    const header = read("components", "scenario", "ScenarioHeaderStrip.tsx");
+    expect(header, "Delete still only ASKS the page").toContain("onClick={onDelete}");
+    expect(header, "the strip owns no dialog of its own").not.toContain(
+      "ScenarioDeleteConfirm",
+    );
   });
 
   it("the kebab is deleted from the tree, not merely unmounted", () => {
@@ -318,15 +374,24 @@ describe("both long sections fold, collapsed by default, remembered (2026-08-28)
 
   it("the counts stay OUTSIDE the fold, so a closed section still declares itself", () => {
     // The whole reason collapsing-by-default is honest rather than a hiding
-    // place, and the exact objection ruling R7 raised. In `ScanSection` the head
-    // row carrying the heading and `{ruled} of {total}` must precede the
-    // `{open && ...}` body; in the facts section the `sectionMetaStyle` count
-    // line must precede its own.
-    const section = read("components", "ScanSection.tsx");
-    expect(section.indexOf("queueHeadStyle")).toBeLessThan(section.indexOf("{open && ("));
-
+    // place, and the exact objection ruling R7 raised.
+    //
+    // v2.1 (change D) moved WHICH element carries the counts, not the rule. The
+    // section's muted count line — "21 included · 4 added by hand" — is gone
+    // with the three-into-one collapse; the FILTER PILLS carry the numbers now,
+    // one per bucket, and they must precede the `{open && ...}` bodies exactly
+    // as that line did. A closed section still declares how many facts are in it
+    // AND how many candidates are waiting, which is strictly more than before.
     const facts = read("components", "ScenarioFactsSection.tsx");
-    expect(facts.indexOf("sectionMetaStyle")).toBeLessThan(facts.indexOf("{open && ("));
+    expect(facts.indexOf("<FactsFilterBar")).toBeLessThan(facts.indexOf("{open && "));
+
+    // …and the pills genuinely render the counts rather than three bare words.
+    const bar = read("components", "FactsFilterBar.tsx");
+    expect(bar).toContain("counts[filter]");
+    expect(
+      bar,
+      "an unread pool must show NO number, never a confident zero (.374)",
+    ).toContain("count !== null");
   });
 });
 
@@ -618,7 +683,10 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     expect(section).not.toContain("onFactRemoved={refresh}");
 
     const facts = read("components", "ScenarioFactsSection.tsx");
-    const removeFact = between(facts, "const removeFact", "const included");
+    // The bound moved with change D: the section's `const included` count is
+    // gone (the filter pills carry the numbers), so the next declaration after
+    // the two removal helpers is what bounds the slice.
+    const removeFact = between(facts, "const removeFact", "const codeFor");
     expect(removeFact).toContain("onFactRemoved()");
     expect(removeFact).not.toContain("onChanged()");
   });
@@ -652,8 +720,14 @@ describe("the live facts update and the summary override (task 1.7F)", () => {
     // and a removal changes a card's status without changing pool membership.
     const page = read("pages", "ScenarioDetailPage.tsx");
 
-    const scan = jsxElement(page, "ScanSection");
-    expect(scan).toContain("externalRefresh={pageRefreshKey + queueRefreshKey}");
+    // v2.1 (change D): the queue is mounted by the facts section now, so the
+    // summed key is handed there. `ScanSection` is unmounted — the assertion
+    // follows the queue rather than the component that used to hold it.
+    const facts = jsxElement(page, "ScenarioFactsSection");
+    expect(facts).toContain("externalRefresh={pageRefreshKey + queueRefreshKey}");
+    expect(page, "…and the retired section is not mounted at all").not.toContain(
+      "<ScanSection",
+    );
 
     const removal = between(page, "const refreshAfterRemoval", "}, []);");
     expect(removal).toContain("setCardsRefreshKey");
@@ -975,20 +1049,31 @@ describe("the scenario header stacks, and the four card labels are bold", () => 
       block.indexOf("const labelStyle"),
       block.indexOf("const textStyle"),
     );
-    expect(label, "Roman asked for BOLD").toContain("fontWeight: 700");
-    expect(label, "one size step up from 11px on this card's scale").toContain(
-      'fontSize: "12px"',
+    // v2.1 (change C) is the THIRD pass and moves the last two properties. The
+    // fence moves with them rather than being deleted — what it guards is
+    // unchanged in kind: these four headings must announce themselves.
+    expect(label, "Roman asked for BOLDER still").toContain("fontWeight: 800");
+    expect(label, "the section heading's own size, 15px").toContain(
+      'fontSize: "15px"',
     );
-    // The app's DARKEST text token, which is a near-black with a blue cast and
-    // deliberately not pure #000. A revert to a muted or secondary token is the
-    // regression this line exists to catch — colour is what did the work here,
-    // not size.
-    expect(label).toContain('color: "var(--text-primary)"');
+    // ⚑ PURE BLACK, through a token. The two previous passes ended at
+    // `--text-primary` (#1a202c on the v3 surface — a near-black with a blue
+    // cast) and Roman's report did not change. A revert to a muted, secondary
+    // or primary token is the regression this line catches.
+    expect(label).toContain('color: "var(--v3-label-strong)"');
     expect(label).not.toContain("--text-muted");
-    // Casing and tracking STAY, and now carry the whole distinction: at the same
-    // colour as the body text beneath them, dropping either would leave a label
-    // indistinguishable from the sentence it introduces.
-    expect(label).toContain('letterSpacing: "0.08em"');
+    expect(label).not.toContain("--text-secondary");
+    expect(label).not.toContain("--text-primary");
+    // …and the token is the MOCKUP's value, not a near-black by another name.
+    // Asserting the call site alone would let the colour drift in tokens.css
+    // with this fence still green, which is the whole failure mode a token
+    // introduces over a literal.
+    const tokens = readFileSync(join(SRC, "styles", "tokens.css"), "utf8");
+    expect(tokens).toMatch(/--v3-label-strong:\s*#000000;/);
+    // Casing STAYS. Tracking narrows to 0.02em and that is the other half of the
+    // change: wide tracking on caps this large reads as decoration, not as a
+    // title, which is what kept the previous pass from landing.
+    expect(label).toContain('letterSpacing: "0.02em"');
     expect(label).toContain('textTransform: "uppercase"');
   });
 
@@ -1034,5 +1119,143 @@ describe("the scenario header stacks, and the four card labels are bold", () => 
     expect(header).not.toContain("eyebrow");
     const styles = read("components", "scenario", "stripStyles.ts");
     expect(styles).not.toContain("eyebrow");
+  });
+});
+
+// ── v2.1: three sections became one list (rulings R35–R37) ───────────────────
+
+describe("the page renders ONE evidence list, not three sections", () => {
+  it("mounts neither the scan section nor the accusation section", () => {
+    // R35 and R36. Both components are KEPT — nothing about their data was
+    // decided here, and every marked accusation instance is untouched — so the
+    // fence is on the MOUNT, not on the file's existence. Deleting them would
+    // have been the stronger claim and it is not the one the ruling made.
+    const page = read("pages", "ScenarioDetailPage.tsx");
+    expect(page).not.toContain("<ScanSection");
+    expect(page).not.toContain("<AccusationSection");
+    expect(page).not.toContain("fetchAccusationPanel");
+  });
+
+  it("keeps both components on disk, unmounted", () => {
+    // The other half. An "unmount, do not delete" ruling that quietly became a
+    // deletion is the regression this catches — and it would be invisible until
+    // somebody went looking for the accusation data.
+    expect(() => read("components", "ScanSection.tsx")).not.toThrow();
+    expect(() => read("components", "AccusationSection.tsx")).not.toThrow();
+  });
+
+  it("keeps the scan ENGINE mounted, because ordinals are minted on its mount", () => {
+    // ⚑ Architect ruling R3, and the reason the scan card could not simply be
+    // deleted with its section: `ThemeScanPanel`'s mount effect calls
+    // `gatherCandidates`, the one place candidate ordinals are minted — every
+    // card's `C-14` handle. Unmounting it would let a proposed card arrive with
+    // `code: null`, which §2a forbids ("pull up C-14" must be speakable).
+    const facts = read("components", "ScenarioFactsSection.tsx");
+    expect(facts).toContain("<ThemeScanPanel");
+    // …and it draws no card of its own here: it lends its controls to the header.
+    expect(facts).toContain("header={(scan)");
+
+    const panel = read("components", "ThemeScanPanel.tsx");
+    expect(panel, "the mount effect that mints the ordinals must stay").toContain(
+      "gatherCandidates(slug, scenarioId)",
+    );
+  });
+
+  it("mounts the candidate queue under the facts section now", () => {
+    // Same rows, same Include / rule controls, same `CandidateFilterBar`, same
+    // one-key triage — only the address changed. The queue's own components are
+    // untouched, which is what makes this a move rather than a rewrite.
+    const facts = read("components", "ScenarioFactsSection.tsx");
+    expect(facts).toContain("<CardQueue");
+    expect(facts).toContain("showsCandidates(filter)");
+    // The keyboard guard travels with it (ruling R7): one-key rulings must not
+    // fire on a queue nobody can see, and under the Included filter it is not
+    // rendered at all.
+    expect(facts).toContain("keyboardActive={open}");
+  });
+
+  it("keeps scan history REACHABLE, because nothing else in the app shows it", () => {
+    // Checked before the move: `ScanHistoryTable` had exactly one mount site.
+    // Dropping it here would have taken the only way to see, compare or delete a
+    // run with it — which is a deletion of function disguised as a layout
+    // change.
+    const facts = read("components", "ScenarioFactsSection.tsx");
+    expect(facts).toContain("scan.history");
+    expect(facts).toContain("historyOpen");
+
+    const header = read("components", "ScenarioFactsHeader.tsx");
+    expect(header).toContain("onToggleHistory");
+  });
+
+  it("gives the facts card the SAME chrome as the watch-list's", () => {
+    // The mockup draws one card treatment for both sections. Both must read the
+    // shared v3 panel rather than either growing its own copy — two hand-built
+    // "white cards" on one page is how a radius or a shadow starts to differ.
+    for (const file of ["ScenarioFactsSection.tsx", "WatchListSection.tsx"]) {
+      expect(read("components", file)).toContain("sectionPanelStyle");
+    }
+  });
+
+  it("keeps the page's own 32px gap between the sections", () => {
+    // Change D asks for "the page's own gap", not a new number. It lives on
+    // `sectionHeaderStyle` and every section inherits it — including the facts
+    // header, which is drawn by its own component now and would have been the
+    // easy place to hand-roll a margin.
+    const styles = read("components", "scenarioSectionStyles.ts");
+    const header = styles.slice(
+      styles.indexOf("export const sectionHeaderStyle"),
+      styles.indexOf("export const sectionTitleStyle"),
+    );
+    expect(header).toContain('marginTop: "2rem"');
+
+    const factsHeader = read("components", "ScenarioFactsHeader.tsx");
+    expect(factsHeader).toContain("sectionHeaderStyle");
+    expect(factsHeader, "no hand-rolled spacing on this one section").not.toMatch(
+      /marginTop:\s*"(?!auto)/,
+    );
+  });
+});
+
+describe("the fact card is evidence only (ruling R37)", () => {
+  it("renders neither the machine's prose rows nor the sort ordinal", () => {
+    // The rendered-markup proof is in `factCardV21.test.tsx`. This is the
+    // source-level half: the three row labels must not be reachable from the
+    // card body at all, and the retired position style must be gone rather than
+    // left unused — an unused style is an invitation to put the number back
+    // without re-arguing it.
+    const body = read("components", "FactCardBody.tsx");
+    expect(body).not.toContain("watch_out_label");
+    expect(body).not.toContain("answer_label");
+    expect(body).not.toContain("POSITION_STYLE");
+    expect(read("components", "factCardStyles.ts")).not.toContain(
+      "export const POSITION_STYLE",
+    );
+  });
+
+  it("leaves the three fields on the WIRE and in the write path", () => {
+    // "Data untouched" is the other half of the ruling and the easier one to
+    // lose: a later reader tidying `CardFieldName` would silently remove the
+    // only way to correct an Answer, on data still being extracted.
+    const names = read("components", "factCard.ts");
+    for (const field of ["backs_position", "watch_out", "answer"]) {
+      expect(names, `${field} must stay writable`).toContain(`"${field}"`);
+    }
+    const service = read("services", "factCards.ts");
+    expect(service).toContain('field: "answer"');
+    expect(service).toContain('field: "watch_out"');
+    expect(service).toContain('field: "backs_position"');
+  });
+
+  it("writes the Backs picker through the SAME route the removed row used", () => {
+    // Change E's requirement, and the reason it is a requirement: a second
+    // writer for one column is a second place for the draft stamp, the
+    // authorship and the 403 handling to be got wrong. `saveCardField` is that
+    // route and the picker calls nothing else.
+    const body = read("components", "FactCardBody.tsx");
+    expect(body).toContain("saveCardField(slug, scenarioId, card.graph_node_id, update)");
+    expect(body).toContain('field: "backs_position"');
+    expect(body, "the picker goes through the same typed update").toContain(
+      "onPick={(value) => void save({ field: \"backs_position\", value })}",
+    );
   });
 });

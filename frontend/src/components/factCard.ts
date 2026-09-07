@@ -15,11 +15,22 @@
 // line, the Supports lines — arrive finished from the backend, for the reason the
 // language law gives: a sentence assembled in two places reads two ways.
 //
-// ## Nothing here is hidden for being absent
+// ## ⚑ v2.1 (ruling R37): the machine's PROSE left this card
 //
-// §2 is explicit, and it is the one place this instruction overrules the mockup
-// of record: a card with no Answer is work somebody still owes, and hiding the
-// row hides the work rather than the gap.
+// Until v2.1 `cardRows` returned four rows — Backs, Supports, Watch out, Answer
+// — and the block above said "nothing here is hidden for being absent: a card
+// with no Answer is work somebody still owes". That reasoning was sound for the
+// surface it was written for, a deck a witness reads. This page is not that
+// surface: it is Roman's and Chuck's working file, and three of those four rows
+// were the machine's suggested WORDS about evidence rather than the evidence.
+//
+// So the card shows the record — Proof and Supports — and the one row a human
+// actually sets from here is a POINTER, not prose: which talking point this fact
+// backs, offered as a picker in `FactCardBody` rather than as an editable
+// sentence. See `CardFieldName`, which still names all five fields, because the
+// API and the tables are untouched: `answer`, `watch_out` and `backs_position`
+// are all still stored, still served and still writable. They are not RENDERED
+// here any more, which is a display decision and reversible in this one file.
 
 import type {
   FactCardBlock,
@@ -55,10 +66,27 @@ export type CardRow = {
 };
 
 /**
- * The four authored rows, in the order §2 lists them, ALWAYS all four.
+ * The authored rows the card RENDERS. One, since v2.1: Supports.
  *
  * Proof is not here: it is the record's own words, no human writes it, and it has
- * no `authored_by` to draft-mark. It renders above these from the card's quote.
+ * no `authored_by` to draft-mark. It renders above this from the card's quote —
+ * as a `Q:`/`A:` pair when the item is a discovery answer.
+ *
+ * ## Why this still returns a LIST of one
+ *
+ * The shape is the contract with `FactCardBody`, which walks it. Returning a bare
+ * row would push the "is there anything to draw here" branch into the renderer,
+ * which is where it was before this module existed. A list of one costs nothing
+ * and means the day a row comes back — or a new one arrives — it arrives here,
+ * with a test, rather than as a second `<div>` inside the component.
+ *
+ * ## What left, and where it went (ruling R37)
+ *
+ * `backs_position` is now a PICKER in `FactCardBody`, not a sentence: the value a
+ * human sets from this page is which talking point the fact backs, and a free
+ * text box let them type a position no point occupies. `watch_out` and `answer`
+ * are the machine's prose and left the page entirely. All three are still on the
+ * payload — see `CardFieldName` and the module header.
  */
 export function cardRows(
   block: FactCardBlock,
@@ -66,28 +94,10 @@ export function cardRows(
 ): CardRow[] {
   return [
     {
-      field: "backs_position",
-      label: wording.backs_label,
-      lines: block.backs === null ? [] : [block.backs],
-      draft: block.drafts.backs,
-    },
-    {
       field: "supports",
       label: wording.supports_label,
       lines: block.supports,
       draft: block.drafts.supports,
-    },
-    {
-      field: "watch_out",
-      label: wording.watch_out_label,
-      lines: block.watch_out === null ? [] : [block.watch_out],
-      draft: block.drafts.watch_out,
-    },
-    {
-      field: "answer",
-      label: wording.answer_label,
-      lines: block.answer === null ? [] : [block.answer],
-      draft: block.drafts.answer,
     },
   ];
 }

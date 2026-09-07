@@ -49,34 +49,49 @@ const block = (overrides: Partial<FactCardBlock> = {}): FactCardBlock => ({
 const card = (overrides: Partial<ScenarioCard> = {}): ScenarioCard =>
   ({ graph_node_id: "n1", card: block(), ...overrides }) as ScenarioCard;
 
-// ─── The four rows, always four ──────────────────────────────────────────────
+// ─── The one row that renders (v2.1, ruling R37) ─────────────────────────────
 
 describe("cardRows", () => {
-  it("returns the four authored rows in §2's order", () => {
+  it("returns SUPPORTS and nothing else", () => {
+    // The suite this replaces asserted four rows in §2's order. Three of them —
+    // Backs, Watch out, Answer — were the machine's PROSE about the evidence,
+    // and v2.1 took them off the page: this is Roman's working file, not a
+    // witness's deck. The fields are untouched on the payload and in the tables;
+    // see the module header.
     const fields = cardRows(block(), wording).map((r) => r.field);
-    expect(fields).toEqual([
-      "backs_position",
-      "supports",
-      "watch_out",
-      "answer",
-    ]);
+    expect(fields).toEqual(["supports"]);
   });
 
-  it("STILL returns four rows when every field is empty", () => {
-    // §2, and the one place this instruction overrules the mockup of record: a
-    // card with no Answer is work somebody still owes, and hiding the row hides
-    // the work rather than the gap.
+  it("does not smuggle the three removed fields back as lines", () => {
+    // The regression that would actually be made: re-adding a row by widening
+    // this function rather than by re-arguing the ruling. Asserting the FIELD
+    // list alone would not catch a fourth row appended tomorrow with a label
+    // read from somewhere else.
+    const printed = cardRows(block(), wording)
+      .flatMap((r) => [r.label, ...r.lines])
+      .join(" | ");
+    expect(printed).not.toContain("Point 1");
+    expect(printed).not.toContain("They will say the judge approved it.");
+    expect(printed).not.toContain("The money was Dad's.");
+    expect(printed).not.toContain(wording.watch_out_label);
+    expect(printed).not.toContain(wording.answer_label);
+  });
+
+  it("STILL returns the row when Supports is empty", () => {
+    // The half of §2's reasoning that SURVIVES: an empty row is work somebody
+    // owes, and hiding it hides the work rather than the gap. A card that names
+    // no accusation renders the row with the stored em dash and stays.
     const rows = cardRows(
       block({ backs: null, supports: [], watch_out: null, answer: null }),
       wording,
     );
-    expect(rows).toHaveLength(4);
-    expect(rows.every((r) => r.lines.length === 0)).toBe(true);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].lines).toEqual([]);
+    expect(rowText(rows[0], wording)).toEqual(["—"]);
   });
 
-  it("labels every row from the store", () => {
-    const labels = cardRows(block(), wording).map((r) => r.label);
-    expect(labels).toEqual(["Backs", "Supports", "Watch out", "Answer"]);
+  it("labels the row from the store", () => {
+    expect(cardRows(block(), wording).map((r) => r.label)).toEqual(["Supports"]);
   });
 
   it("carries both Supports lines when a card names two accusations", () => {
@@ -88,27 +103,29 @@ describe("cardRows", () => {
     expect(supports?.lines).toHaveLength(2);
   });
 
-  it("carries each field's own draft mark", () => {
-    const rows = cardRows(
-      block({ drafts: { ...noDrafts, watch_out: true } }),
-      wording,
-    );
-    expect(rows.find((r) => r.field === "watch_out")?.draft).toBe(true);
-    expect(rows.find((r) => r.field === "answer")?.draft).toBe(false);
+  it("carries the row's own draft mark", () => {
+    // Per-field authorship still rides the block — `anyDraft` below reads all
+    // five — and the one rendered row reports its own, not the card's.
+    expect(
+      cardRows(block({ drafts: { ...noDrafts, supports: true } }), wording)[0].draft,
+    ).toBe(true);
+    expect(
+      cardRows(block({ drafts: { ...noDrafts, answer: true } }), wording)[0].draft,
+    ).toBe(false);
   });
 });
 
 describe("rowText", () => {
   it("prints the stored em dash for an empty row", () => {
-    const rows = cardRows(block({ answer: null }), wording);
-    const answer = rows.find((r) => r.field === "answer")!;
-    expect(rowText(answer, wording)).toEqual(["—"]);
+    const rows = cardRows(block({ supports: [] }), wording);
+    expect(rowText(rows[0], wording)).toEqual(["—"]);
   });
 
   it("prints the lines when there are any", () => {
     const rows = cardRows(block(), wording);
-    const answer = rows.find((r) => r.field === "answer")!;
-    expect(rowText(answer, wording)).toEqual(["The money was Dad's."]);
+    expect(rowText(rows[0], wording)).toEqual([
+      "Supports A-21 — CFS could have returned it.",
+    ]);
   });
 });
 

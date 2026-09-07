@@ -91,37 +91,17 @@ export function scenarioPagePath(slug: string, scenarioId: string): string {
   return `/cases/${encodeURIComponent(slug)}/trial-prep/${encodeURIComponent(scenarioId)}`;
 }
 
-/**
- * Rehearsal mode for a case, with no scenario named.
- *
- * Declared in `App.tsx` as `/cases/:slug/rehearsal`. The page opens on the first
- * READY scenario.
- *
- * @param slug the case slug, escaped here
- */
-export function rehearsalPath(slug: string): string {
-  return `/cases/${encodeURIComponent(slug)}/rehearsal`;
-}
-
-/**
- * Rehearsal mode, positioned on one scenario.
- *
- * Declared in `App.tsx` as `/cases/:slug/rehearsal/:code`.
- *
- * ## Domain note: the code, not the id
- *
- * This address takes the scenario's CODE (`S-1`) rather than its UUID, and that
- * is deliberate rather than accidental: it is an address a human reads aloud and
- * types during trial prep. A code nobody declared ready gets the stored
- * not-ready sentence — never a 404 — because the address is legitimate and the
- * scenario simply is not ready. Two different states, two different observables.
- *
- * @param slug the case slug, escaped here
- * @param code the scenario code, escaped here
- */
-export function rehearsalScenarioPath(slug: string, code: string): string {
-  return `/cases/${encodeURIComponent(slug)}/rehearsal/${encodeURIComponent(code)}`;
-}
+// RETIRED IN v2.1 (ruling R35): `rehearsalPath` and `rehearsalScenarioPath`.
+//
+// The two builders are DELETED rather than left unused, because this file is the
+// route-link guard's source of truth (Law 8): a builder that survives its route
+// keeps emitting a spelling nothing serves, and `routeReachability` would go on
+// pairing it with a `<Route>` that no longer exists. The page they addressed is
+// gone; the backend endpoints behind it are not (see `App.tsx`).
+//
+// `rehearsalScenarioPath` is also the address `.382` was fixed to compose — see
+// the note above `scenarioPagePath` — so its removal takes that whole defect
+// class with it rather than leaving a repaired dead link on the page.
 
 /**
  * Marie's practice drill for one scenario.

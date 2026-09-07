@@ -6,37 +6,51 @@
 // defect history, which is why it is asserted at every status the column
 // actually permits rather than at the two everybody thinks of.
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { isKnownDirection, showsViewTimeline, stripControls } from "../headerStripRules";
 
-describe("stripControls — the rehearsal gate", () => {
-  it("lets a READY scenario into rehearsal", () => {
-    expect(stripControls("ready").rehearsalEnabled).toBe(true);
+describe("stripControls — the rehearsal gate is GONE (v2.1, ruling R35)", () => {
+  // The suite it replaces asserted `rehearsalEnabled` at four statuses, and it
+  // was right to: that one branch was the whole reason this module exists. The
+  // page it gated is retired, the control is off the strip, and the flag is off
+  // the type — so what is worth asserting now is that nothing grew back.
+  //
+  // Reading the SOURCE rather than calling the function is deliberate: a flag
+  // that no longer exists cannot be asserted `toBe(false)` through the type, and
+  // `expect((c as any).rehearsalEnabled)` would pass just as happily against a
+  // typo. The fence has to be able to fail.
+  it("names no rehearsal control, and gates nothing on the status", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "headerStripRules.ts"),
+      "utf8",
+    );
+    const code = source
+      .split("\n")
+      .filter((line) => !line.trimStart().startsWith("//") && !line.trimStart().startsWith("*"))
+      .join("\n");
+
+    expect(code, "no control may be named `rehearsal…` again").not.toMatch(
+      /rehearsalEnabled/,
+    );
+    expect(
+      code,
+      'nothing on this strip compares the status — see the module note, and the ' +
+        'v2.1 STOP: Practice does not gate on Ready either',
+    ).not.toMatch(/status\s*===/);
   });
 
-  it("refuses a DRAFT one — the .389 defect, by name", () => {
-    // The control used to render identically at every status. Clicked on a Draft
-    // scenario it landed on the rehearsal page with no code in the URL, which
-    // left that page's index clamped at 0, which rendered a DIFFERENT scenario
-    // under its own title with no notice of any kind.
-    expect(stripControls("draft").rehearsalEnabled).toBe(false);
-  });
-
-  it("refuses NEEDS_EVIDENCE, which is why the test is `=== ready`", () => {
-    // ⚑ The reason the predicate is not `!== "draft"`. The status column permits
-    // a third value (ruling 6), and a scenario that needs evidence is exactly the
-    // kind nobody should be taken into a rehearsal on. A negated test would have
-    // let it through.
-    expect(stripControls("needs_evidence").rehearsalEnabled).toBe(false);
-  });
-
-  it("refuses a status nobody has invented yet", () => {
-    // The same property from the other side: an unrecognised status fails
-    // CLOSED. A new value added to the column tomorrow does not silently open
-    // the gate before anyone decides it should.
-    expect(stripControls("archived").rehearsalEnabled).toBe(false);
-    expect(stripControls("").rehearsalEnabled).toBe(false);
+  it("still refuses to grow a hidden branch: every status yields one answer", () => {
+    // The property the deleted suite was really protecting — that a reader can
+    // predict this strip from the status alone. It now has exactly one answer,
+    // and this asserts that rather than trusting the constant three lines up.
+    const answers = ["draft", "ready", "needs_evidence", "archived", ""].map((s) =>
+      JSON.stringify(stripControls(s)),
+    );
+    expect(new Set(answers).size).toBe(1);
   });
 });
 

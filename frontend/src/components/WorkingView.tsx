@@ -33,7 +33,7 @@ import {
 } from "./factsTable";
 import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { FactTier, ScenarioCard } from "../services/scenarioCards";
-import type { HumanFactDto } from "../services/scenarioAugmentation";
+import type { HumanFactDto, TalkingPointDto } from "../services/scenarioAugmentation";
 import {
   fillCounts,
   fillSlots,
@@ -164,6 +164,13 @@ interface Props {
     after: string | null,
     before: string | null,
   ) => void;
+  /**
+   * The scenario's live talking points (v2.1), for each card's Backs picker.
+   *
+   * The facts list is the ONE surface that offers this choice — see
+   * `FactCardBody` for why the copy of a card under a talking point does not.
+   */
+  points?: TalkingPointDto[];
 }
 
 const WorkingView: React.FC<Props> = ({
@@ -180,6 +187,7 @@ const WorkingView: React.FC<Props> = ({
   onCardEdited,
   onSetTier,
   onMoveFact,
+  points,
 }) => {
   const [term, setTerm] = useState("");
   // Which row is being dragged, for the duration of the drag only. Not state the
@@ -505,6 +513,7 @@ Nothing here yet. ✓ Include a candidate above, or add a fact of your own.
           onRemoveHumanFact={onRemoveHumanFact}
           onSetTier={setTierAnnouncing}
           onMoveFact={onMoveFact}
+          points={points}
         />
       )}
 

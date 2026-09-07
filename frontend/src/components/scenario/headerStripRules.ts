@@ -24,26 +24,29 @@
 // share, so the four surfaces that render the strip cannot disagree about when a
 // control is live.
 //
-// ## The one rule, and the defect behind it
+// ## ⚑ THERE IS NO GATED CONTROL LEFT (v2.1, ruling R35)
 //
-// Rehearsal is the surface a witness is TAKEN TO. Before .390 the control looked
-// alive on every scenario and, clicked on a Draft one, silently delivered a
-// DIFFERENT scenario's rehearsal — one missing argument, two silent
-// substitutions. So the control is inert unless the scenario is actually Ready,
-// and it says why on hover.
+// This module existed for ONE branch: rehearsal was the surface a witness is
+// TAKEN TO, so its control was inert unless the scenario was Ready. Before .390
+// it looked alive on every scenario and, clicked on a Draft one, silently
+// delivered a DIFFERENT scenario's rehearsal. That page is retired and its
+// control is gone from the strip, so `rehearsalEnabled` goes with it — a rule
+// nothing reads is a rule that quietly stops being true.
 //
-// Practice is deliberately NOT gated, and that asymmetry is the interesting
-// part: the drill is where a deck is found to be no good, on scenarios still
-// being built, and the page it opens is the one that reports "this scenario has
-// no deck yet". Gating it would hide the only screen able to say so.
+// What survives is the record of the asymmetry, because it is the answer to the
+// question a reader will ask next. Practice was deliberately NOT gated: the
+// drill is where a deck is found to be no good, on scenarios still being built,
+// and the page it opens is the one that reports "this scenario has no deck yet".
+// Gating it would hide the only screen able to say so. That reasoning is why the
+// three remaining flags are unconditional — and why `ScenarioStatusControl`'s
+// Ready tooltip cannot simply be re-pointed at Practice: NOTHING gates on Ready
+// on this surface any more (v2.1 STOP, reported to Roman).
 
 /** The stored status column. `needs_evidence` is permitted by ruling 6. */
 export type ScenarioStripStatus = string;
 
 /** What row 2 of the strip is allowed to do for one status. */
 export type StripControls = {
-  /** The Rehearsal view control is a live link rather than an inert span. */
-  rehearsalEnabled: boolean;
   /** Practice is never gated — see the module header. */
   practiceEnabled: boolean;
   /** Editing identity is never gated: a half-authored scenario is the normal case. */
@@ -55,17 +58,25 @@ export type StripControls = {
 /**
  * Which of the strip's controls are live for a given status.
  *
- * ONE branch, and the other three constants are the point: writing them out
- * makes "why is Practice not gated when Rehearsal is?" a question the code
- * answers instead of one a reader has to reconstruct from four call sites.
+ * NO branch left, and writing the three constants out is still the point: it
+ * makes "is anything on this strip gated by status?" a question the code answers
+ * — with "no, and here is why" — instead of one a reader has to reconstruct from
+ * three call sites.
  *
- * `"ready"` and nothing else enables rehearsal. Not `!== "draft"`: the status
- * column also permits `needs_evidence`, and a scenario that needs evidence is
- * exactly the kind nobody should be taken into a rehearsal on.
+ * ## Rust Learning parallel: why keep a function that returns a constant?
+ *
+ * The same reason a Rust `impl` keeps a method that always returns `true`: the
+ * SHAPE is the contract. Three surfaces ask this module what they may draw. When
+ * the next gate arrives it arrives here, once, rather than as a status
+ * comparison inlined into whichever page needed it first — which is exactly how
+ * the five headers this module replaced came to disagree.
+ *
+ * `status` is consequently unused today and is kept in the signature for that
+ * contract. It is named with a leading underscore so the linter's
+ * unused-parameter rule stays ON for every other function in the tree.
  */
-export function stripControls(status: ScenarioStripStatus): StripControls {
+export function stripControls(_status: ScenarioStripStatus): StripControls {
   return {
-    rehearsalEnabled: status === "ready",
     practiceEnabled: true,
     editEnabled: true,
     deleteEnabled: true,

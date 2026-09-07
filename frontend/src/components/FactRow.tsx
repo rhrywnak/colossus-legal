@@ -37,6 +37,7 @@ import { evidenceCardView, type ChipFilter } from "./evidenceCardModel";
 import type { WorkingRow } from "./factsTable";
 import type { AllegationOptions, LinkPanelWording } from "../services/evidenceLinks";
 import type { FactTier } from "../services/scenarioCards";
+import type { TalkingPointDto } from "../services/scenarioAugmentation";
 
 import {
   bodyStyle,
@@ -188,11 +189,20 @@ const FactRow: React.FC<{
   onToggleCard?: () => void;
   /** Re-read the deck after a field edit. */
   onCardEdited?: () => void;
+  /**
+   * The scenario's live talking points, which turn the card's Backs picker on.
+   *
+   * Threaded rather than fetched because this component renders inside two lists
+   * that already hold the payload, and a row that fetched its own points would
+   * fire one request per fact. Absent ⇒ no picker; see `FactCardBody`.
+   */
+  points?: TalkingPointDto[];
 }> = ({
   row,
   justArrived = false,
   wording,
   options = null,
+  points,
   onRemove,
   onDragStart,
   onDropOn,
@@ -270,12 +280,17 @@ const FactRow: React.FC<{
           <FactCardBody
             card={row.card}
             wording={options.fact_card}
+            // The question folds by the SAME served threshold and the same two
+            // stored words the curator's card uses, six lines below — one piece
+            // of evidence, one fold, whichever wrapper is around it.
+            grammar={options.card_grammar}
+            questionChars={options.card_question_truncate_chars}
             slug={slug}
             scenarioId={scenarioId}
-            position={row.card.display_ordinal ?? null}
             collapsed={collapsed}
             onToggle={() => onToggleCard?.()}
             onEdited={() => onCardEdited?.()}
+            points={points}
           />
         ) : view && options ? (
           <EvidenceCardBody

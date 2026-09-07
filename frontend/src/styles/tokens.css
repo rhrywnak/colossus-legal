@@ -506,6 +506,24 @@
    */
   --v3-on-fill: #ffffff;
 
+  /*
+   * The identity card's four section labels — THE ATTACK, OUR THEME, THEIR
+   * MOTIVATION, BEARS ON (v2.1 change C, MOCKUP_S7_v2.1_1_topcard).
+   *
+   * Pure black, and deliberately NOT `--text-primary`. That token is this
+   * surface's near-black (#1a202c, a blue cast), and three passes over
+   * fifteen days ended there with Roman still reporting the four headings did
+   * not announce themselves above the sentences they introduce. At 15px/800
+   * the cast is visible against the body text directly beneath, which is what
+   * the mockup rejected.
+   *
+   * A token rather than `color: "#000"` at the call site for the same reason
+   * `--v3-on-fill` is one: it is the darker half of a contrast pair whose other
+   * half (`--bg-surface`) is a token, and Rule 2 does not have a
+   * justified-by-comment exemption. The value is the mockup's own.
+   */
+  --v3-label-strong: #000000;
+
   /* Two shadow stacks. The layering is what carries a borderless card — a single
      tight shadow reads as a border, two reads as elevation. */
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.05), 0 4px 14px rgba(16, 24, 40, 0.07);

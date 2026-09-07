@@ -122,12 +122,36 @@ const gridStyle: React.CSSProperties = {
 //                                 muted, sentence case, no tracking, no bold.
 //                                 It was never going to inherit this and does
 //                                 not.
+//
+// ## v2.1: the third pass, and the last one
+//
+// 2026-08-25 moved the weight (600 → 700). 2026-08-28 moved the size (11 → 12px)
+// and the colour (`--text-muted` → `--text-primary`). Roman read the card for
+// another nine days and the report did not change: the four headings still did
+// not announce themselves above the sentences they introduce. So this pass moves
+// the two properties left — size to 15px, which is the SECTION heading's own
+// size, and tracking down to 0.02em, because wide tracking is what was making
+// bigger caps read as decoration rather than as a title.
+//
+// ## ⚑ Why this one colour is a literal and not a token
+//
+// `color: "#000"` is transcribed from MOCKUP_S7_v2.1_1_topcard, and it is the
+// one hex value in this file. `--text-primary` on the v3 surface is #1a202c — a
+// near-black with a blue cast — and at 15px/800 the cast is visible against the
+// body text beneath it, which is what the mockup rejected. Pure black is the
+// instruction's own value (task change C), signed against the screenshot.
+//
+// It is NOT a configuration value under Rule 2 — nothing about it varies by
+// environment, case or deployment; it is one card's transcribed typography, the
+// same class of decision as the 15px beside it. If it ever needs to vary, it
+// becomes a `--v3-…` token in tokens.css like every other colour here, and this
+// note is the record of why it was not one on day one.
 const labelStyle: React.CSSProperties = {
-  fontSize: "12px",
-  fontWeight: 700,
-  letterSpacing: "0.08em",
+  fontSize: "15px",
+  fontWeight: 800,
+  letterSpacing: "0.02em",
   textTransform: "uppercase",
-  color: "var(--text-primary)",
+  color: "var(--v3-label-strong)",
   marginBottom: LABEL_GAP,
 };
 

@@ -28,16 +28,41 @@
 // whose standing law is that every visible word is a settings row, and a
 // component holding a literal cannot be reused on a surface that forbids one.
 //
-// ## The paired exhibit is SKIPPED, not stubbed (ruling R9)
+// ## ⚑ v2.1 (ruling R37): THE FACTS ARE HERE NOW
 //
-// §2.5 asks each point to render its backing exhibit when the pairing data
-// exists. No pairing field exists on the wire and no pairing data exists in the
-// store, so the paired branch would be dead code — worse than an honest absence.
-// Every point says so, and task 3.9 brings the field and the branch together.
+// The block that stood here said the paired exhibit was "SKIPPED, not stubbed"
+// (ruling R9): §2.5 asked each point to render its backing evidence, "no pairing
+// field exists on the wire", so every point carried a stored `No exhibit paired
+// yet` and task 3.9 was to bring the field and the branch together.
+//
+// The field was already there. `backs_position` — an `Option<i32>` on the card
+// block — has been the fact→point link since FACT_CARD_v2, and on S-7 today it
+// is set on ten of the fifteen included facts. The placeholder was not waiting
+// for data; it was waiting for somebody to notice the data.
+//
+// So each point now renders one row per included fact that backs it, in the
+// facts list's own order, and clicking a row opens the SAME `FactCardBody` the
+// list shows. Which facts, in what order, and what a collapsed row says are all
+// decided by the pure `talkingPointFacts` — see that module for why the link is
+// one-way and what happens to a fact pointing at a point that was deleted.
+//
+// The `points_no_exhibit_notice` row stays in the settings store, unread. An
+// unread row costs nothing; a MISSING row that some other surface still asks for
+// costs a blank control, and deleting one is a migration against a table Roman
+// edits by hand.
+//
+// ## There is no third level
+//
+// A row expands to its card and stops. The card's own Backs picker is NOT
+// offered here — see `FactCardBody`, which withholds it when no `points` prop
+// arrives: a control offering to move a fact out from under the heading it is
+// filed beneath is a control that gets clicked by accident. The picker lives on
+// the facts list, which is the surface that owns the choice.
 
 import React, { useState } from "react";
 
 import AuthoredLineEditor from "./AuthoredLineEditor";
+import PointFactRows from "./PointFactRows";
 import {
   absentStyle,
   addButtonStyle,
@@ -55,6 +80,8 @@ import {
   type AuthoringWordingDto,
   type TalkingPointDto,
 } from "../services/scenarioAugmentation";
+import type { AllegationOptions } from "../services/evidenceLinks";
+import type { ScenarioCard } from "../services/scenarioCards";
 
 interface Props {
   slug: string;
@@ -66,6 +93,27 @@ interface Props {
   wording: AuthoringWordingDto;
   /** Re-read the payload after a successful write. */
   onChanged: () => void;
+  /**
+   * The page's whole card pool (v2.1). Each point filters it by `backs_position`.
+   *
+   * The POOL and not a pre-filtered list, because the filter is the pure rule
+   * this section is tested through — handing it three ready-made lists would put
+   * that rule back in the page, where no test reaches it.
+   */
+  cards: ScenarioCard[];
+  /**
+   * The card's own words and fold thresholds. `null` until they load.
+   *
+   * No words ⇒ no rows. Not a fallback and not an empty list: a row is
+   * `C-40 · title · cite`, and a card that cannot read its labels renders the
+   * page's error state rather than inventing a heading (the language law). The
+   * points themselves still render — their words come from a different payload
+   * that has already loaded, and withdrawing them too would hide Marie's
+   * argument because a card's vocabulary was slow.
+   */
+  options: AllegationOptions | null;
+  /** Re-read the deck after a card field edit, so the screen matches the store. */
+  onCardEdited: () => void;
 }
 
 const rowTextStyle: React.CSSProperties = { fontSize: "0.9rem", lineHeight: 1.6 };
@@ -107,9 +155,29 @@ const TalkingPointsSection: React.FC<Props> = ({
   cap,
   wording,
   onChanged,
+  cards,
+  options,
+  onCardEdited,
 }) => {
   const [adding, setAdding] = useState(false);
   const [draft, setDraft] = useState("");
+  /**
+   * Which fact rows are OPEN, by graph node id (v2.1, F).
+   *
+   * Collapsed is the default and the set holds what a human has opened — the
+   * opposite of `WorkingView`, which stores what was TOGGLED because its default
+   * is served ("first ten open"). Here the default is a constant, so the simpler
+   * shape is the honest one. A `Set` rather than a single id because two facts
+   * under two different points may be open at once, and closing one to open
+   * another is the page deciding what a reader may compare.
+   */
+  const [openFacts, setOpenFacts] = useState<Set<string>>(new Set());
+  const toggleFact = (graphNodeId: string) =>
+    setOpenFacts((previous) => {
+      const next = new Set(previous);
+      if (!next.delete(graphNodeId)) next.add(graphNodeId);
+      return next;
+    });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -199,10 +267,27 @@ const TalkingPointsSection: React.FC<Props> = ({
                       INLINE since task R4 (P5): a `span` with a separator rather
                       than a `div` under the text. The dot is punctuation between
                       two things on one line, not vocabulary. */}
-                  <span style={{ ...absentStyle, fontSize: "0.75rem" }}>
-                    · {wording.points_no_exhibit_notice}
-                  </span>
                 </AuthoredLineEditor>
+
+                {/* ⚑ THE FACTS THAT BACK THIS POINT (v2.1, F).
+                    Under the point's own line, which carries the cite — so the
+                    reader meets the argument, then its authority, then the
+                    evidence. Which facts and in what order is the pure
+                    `talkingPointFacts`; what a row LOOKS like is `PointFactRows`.
+                    Nothing renders when the card words have not loaded: a row is
+                    `C-40 · title · cite` and there is no fallback vocabulary. */}
+                {options && (
+                  <PointFactRows
+                    cards={cards}
+                    position={point.position}
+                    options={options}
+                    slug={slug}
+                    scenarioId={scenarioId}
+                    openFacts={openFacts}
+                    onToggleFact={toggleFact}
+                    onCardEdited={onCardEdited}
+                  />
+                )}
               </div>
             </div>
           ))

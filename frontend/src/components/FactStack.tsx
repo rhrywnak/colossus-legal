@@ -19,6 +19,7 @@ import { ghostButtonStyle } from "./scenarioSectionStyles";
 import type { ChipFilter } from "./evidenceCardModel";
 import { fillCount, type AllegationOptions, type LinkPanelWording } from "../services/evidenceLinks";
 import type { FactTier } from "../services/scenarioCards";
+import type { TalkingPointDto } from "../services/scenarioAugmentation";
 
 /**
  * The cards themselves: the shown stack, then the folded background pile.
@@ -64,6 +65,9 @@ export const FactStack: React.FC<{
   onToggleCard: (graphNodeId: string) => void;
   /** Re-read the deck after a field edit, so the screen matches the store. */
   onCardEdited: () => void;
+  /** The scenario's live talking points — the card's Backs picker. Absent on a
+   *  surface where the choice does not belong; see `FactCardBody`. */
+  points?: TalkingPointDto[];
 }> = ({
   shown,
   background,
@@ -88,6 +92,7 @@ export const FactStack: React.FC<{
   isOpen,
   onToggleCard,
   onCardEdited,
+  points,
 }) => {
   /** One card's props — identical for the shown stack and the background pile. */
   const cardFor = (row: WorkingRow, index: number) => ({
@@ -133,6 +138,10 @@ export const FactStack: React.FC<{
     collapsed: row.isHuman ? false : !isOpen(row, index),
     onToggleCard: () => onToggleCard(row.graphNodeId),
     onCardEdited,
+    // A human fact has no card and therefore no `backs_position`; passing the
+    // points anyway is harmless (the picker needs a card block to read a current
+    // value from) and keeps `cardFor` one shape rather than two.
+    points,
   });
 
   return (
