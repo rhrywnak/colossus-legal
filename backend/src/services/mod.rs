@@ -15,6 +15,8 @@ pub mod embedding_pipeline;
 pub mod embedding_service;
 pub mod embedding_text;
 pub mod evidence_mirror;
+/// A stored fact card composed into the lines a witness reads (FACT_CARD_v2 §2).
+pub mod fact_card_render;
 pub mod gate_fixture;
 pub mod gather_fusion;
 pub mod gather_probes;
@@ -26,6 +28,22 @@ pub mod graph_expansion_cypher;
 pub mod graph_expansion_minor;
 pub mod graph_expansion_queries;
 pub mod import_validator;
+/// §3's ordering, hide rules and duplicate fold for one accusation's evidence —
+/// the one function the drill-down and the Word export both take their order
+/// from (PROOF_MATRIX_v2).
+/// The human's rulings and §3's ordering applied over a fetched Element detail
+/// payload (PROOF_MATRIX_v2).
+pub mod matrix_detail;
+/// One Count as a printable document model — what prints, in what order, and
+/// how many (PROOF_MATRIX_v2 §4).
+pub mod matrix_export;
+/// The export model rendered to a Word (.docx) file — the format layer, and the
+/// only module in this crate that knows about fonts.
+pub mod matrix_export_docx;
+pub mod matrix_order;
+/// A request for admission rendered on one line, from stored templates — the
+/// one composer both the drill-down and the Word export use (PROOF_MATRIX_v2 §3).
+pub mod matrix_rfa;
 pub mod matrix_strength;
 pub mod practice_answer_version;
 pub mod practice_changes;
@@ -44,6 +62,11 @@ pub mod practice_status;
 pub mod qdrant_payload;
 pub mod qdrant_service;
 pub mod rehearsal_assembly;
+/// The rehearsal page's three sections, read off the scenario's fact cards
+/// (FACT_CARD_v2 §3).
+/// The prep page's card-backed sections, gathered (FACT_CARD_v2 §3).
+pub mod rehearsal_card_sections;
+pub mod rehearsal_cards;
 pub mod rehearsal_count;
 pub mod rehearsal_instances;
 pub mod rehearsal_phase;
@@ -60,6 +83,7 @@ pub mod scenario_card;
 pub mod scenario_card_assembly;
 pub mod scenario_card_context;
 pub mod scenario_card_projection;
+pub mod scenario_card_quote;
 pub mod scenario_cards_scan_state;
 pub mod scenario_dashboard;
 pub mod scenario_fact_order;

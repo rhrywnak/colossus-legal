@@ -5,273 +5,196 @@
 // non-comment lines at beta.394); moving the tests takes the module itself well
 // under, which is the R8 discipline that no file a task touches ends over the
 // limit.
+//
+// PROOF_MATRIX_v2 took four tests OUT of this file rather than adding to it. They
+// exercised `rank_supporting_evidence`, which §3 superseded: the drill-down's
+// order is now `services::matrix_order` (the four sort keys, the hide rules and
+// the `duplicate_of` fold) applied by `services::matrix_detail`, and both have
+// their own test files. The near-duplicate collapse those tests pinned still runs
+// — it is what produces the matrix ROW's two numbers — and is still tested in
+// `services::matrix_strength`.
 
+use super::super::element_detail_cypher::element_detail_cypher;
 use super::*;
-use crate::domain::evidence_tier::EvidenceTierMap;
+use crate::neo4j::schema;
 use serde_json::json;
 
-/// Pins the JSON shape of `AllegationSummary`. The frontend reads
-/// exactly these snake_case keys; a typo in the struct field name would
-/// silently break the panel.
-#[test]
-fn allegation_summary_serializes_with_expected_keys() {
-    let summary = AllegationSummary {
+/// One fully-populated supporting item, for the wire-shape tests.
+///
+/// Split out of the assertion when PROOF_MATRIX_v2 grew `EvidenceRef` from
+/// thirteen fields to twenty-six: the literal and the expectation it is compared
+/// against were one 130-line function, and a fixture nobody can read is a
+/// fixture nobody checks.
+fn wire_supporting_item() -> EvidenceRef {
+    EvidenceRef {
+        id: "evidence-074".to_string(),
+        verbatim_quote: Some("That is my recollection.".to_string()),
+        page_number: Some(22),
+        paragraph: Some("Q74".to_string()),
+        page_note: None,
+        source_document_id: Some("doc-phillips".to_string()),
+        source_document_title: Some("Phillips Discovery Response".to_string()),
+        statement_type: Some("partial_admission".to_string()),
+        evidence_strength: Some("sworn_party_admission".to_string()),
+        speaker: Some("George Phillips".to_string()),
+        question: Some("Did you review the accounting?".to_string()),
+        answer: None,
+        rank: Some(3),
+        role: Some("their_own_words".to_string()),
+        confidence: Some("high".to_string()),
+        rank_reason: Some("His own sworn answer.".to_string()),
+        why: None,
+        conflict: false,
+        duplicate_of_card_id: None,
+        document_date: Some("2016-08-08".to_string()),
+        ruling: Some("keep".to_string()),
+        ruled_by: Some("roman".to_string()),
+        hidden_reason: None,
+        rfa_line: None,
+        occurrences: 1,
+    }
+}
+
+/// One disputing item carrying nothing the linking pass wrote — the shape of the
+/// 286 edges that predate it.
+fn wire_disputing_item() -> EvidenceRef {
+    EvidenceRef {
+        id: "evidence-041".to_string(),
+        verbatim_quote: Some("No, that never happened.".to_string()),
+        page_number: Some(15),
+        paragraph: Some("Q41".to_string()),
+        page_note: None,
+        source_document_id: Some("doc-affidavit".to_string()),
+        source_document_title: Some("Humphrey Affidavit".to_string()),
+        statement_type: Some("denial".to_string()),
+        evidence_strength: Some("sworn_party_denial".to_string()),
+        speaker: Some("Marie Awad".to_string()),
+        question: None,
+        answer: None,
+        rank: None,
+        role: None,
+        confidence: None,
+        rank_reason: None,
+        why: None,
+        conflict: false,
+        duplicate_of_card_id: None,
+        document_date: None,
+        ruling: None,
+        ruled_by: None,
+        hidden_reason: None,
+        rfa_line: None,
+        occurrences: 1,
+    }
+}
+
+/// The Allegation carrying both fixture items.
+fn wire_summary() -> AllegationSummary {
+    AllegationSummary {
         allegation_id: "allegation-42".to_string(),
         paragraph_number: "10".to_string(),
         summary: Some("Defendant did the thing.".to_string()),
         title: Some("Title".to_string()),
         verbatim_quote: None,
         source_section: "Common",
-        supporting_evidence: vec![EvidenceRef {
-            id: "evidence-074".to_string(),
-            verbatim_quote: Some("That is my recollection.".to_string()),
-            page_number: Some(22),
-            paragraph: Some("Q74".to_string()),
-            page_note: None,
-            source_document_id: Some("doc-phillips".to_string()),
-            source_document_title: Some("Phillips Discovery Response".to_string()),
-            statement_type: Some("partial_admission".to_string()),
-            evidence_strength: Some("sworn_party_admission".to_string()),
-            speaker: Some("George Phillips".to_string()),
-            question: Some("Did you review the accounting?".to_string()),
-            tier: Some("hedged".to_string()),
-            occurrences: 1,
-        }],
-        disputing_evidence: vec![EvidenceRef {
-            id: "evidence-041".to_string(),
-            verbatim_quote: Some("No, that never happened.".to_string()),
-            page_number: Some(15),
-            paragraph: Some("Q41".to_string()),
-            page_note: None,
-            source_document_id: Some("doc-affidavit".to_string()),
-            source_document_title: Some("Humphrey Affidavit".to_string()),
-            statement_type: Some("denial".to_string()),
-            evidence_strength: Some("sworn_party_denial".to_string()),
-            speaker: Some("Marie Awad".to_string()),
-            question: None,
-            // The disputing leg is deliberately never tiered — see
-            // `rank_supporting_evidence`.
-            tier: None,
-            occurrences: 1,
-        }],
-    };
-    let value = serde_json::to_value(&summary).expect("serializes cleanly");
+        supporting_evidence: vec![wire_supporting_item()],
+        disputing_evidence: vec![wire_disputing_item()],
+    }
+}
+
+/// Pins the ALLEGATION-level JSON shape. The frontend reads exactly these
+/// snake_case keys; a typo in a struct field name would silently break the panel.
+#[test]
+fn allegation_summary_serializes_with_expected_keys() {
+    let value = serde_json::to_value(wire_summary()).expect("serializes cleanly");
+    let object = value.as_object().expect("an object body");
+    let mut keys: Vec<&str> = object.keys().map(String::as_str).collect();
+    keys.sort_unstable();
     assert_eq!(
-        value,
+        keys,
+        vec![
+            "allegation_id",
+            "disputing_evidence",
+            "paragraph_number",
+            "source_section",
+            "summary",
+            "supporting_evidence",
+            "title",
+            "verbatim_quote",
+        ]
+    );
+    assert_eq!(value["allegation_id"], json!("allegation-42"));
+    assert_eq!(value["paragraph_number"], json!("10"));
+    assert_eq!(value["source_section"], json!("Common"));
+    // Absent is `null`, not omitted — the panel distinguishes "no quote" from
+    // "the key is missing" (Rule 1).
+    assert_eq!(value["verbatim_quote"], json!(null));
+}
+
+/// Pins the EVIDENCE-level JSON shape, on both legs.
+///
+/// Split from the assertion above so a failure names which half of the wire moved
+/// — and because the two answer different questions: one is about the panel's
+/// card, the other about every row inside it.
+#[test]
+fn evidence_ref_serializes_with_expected_keys() {
+    let value = serde_json::to_value(wire_summary()).expect("serializes cleanly");
+    assert_eq!(
+        value["supporting_evidence"][0],
         json!({
-            "allegation_id": "allegation-42",
-            "paragraph_number": "10",
-            "summary": "Defendant did the thing.",
-            "title": "Title",
-            "verbatim_quote": null,
-            "source_section": "Common",
-            "supporting_evidence": [{
-                "id": "evidence-074",
-                "verbatim_quote": "That is my recollection.",
-                "page_number": 22,
-                "paragraph": "Q74",
-                "page_note": null,
-                "source_document_id": "doc-phillips",
-                "source_document_title": "Phillips Discovery Response",
-                "statement_type": "partial_admission",
-                "evidence_strength": "sworn_party_admission",
-                "speaker": "George Phillips",
-                "question": "Did you review the accounting?",
-                "tier": "hedged",
-                "occurrences": 1,
-            }],
-            "disputing_evidence": [{
-                "id": "evidence-041",
-                "verbatim_quote": "No, that never happened.",
-                "page_number": 15,
-                "paragraph": "Q41",
-                "page_note": null,
-                "source_document_id": "doc-affidavit",
-                "source_document_title": "Humphrey Affidavit",
-                "statement_type": "denial",
-                "evidence_strength": "sworn_party_denial",
-                "speaker": "Marie Awad",
-                "question": null,
-                "tier": null,
-                "occurrences": 1,
-            }],
+            "id": "evidence-074",
+            "verbatim_quote": "That is my recollection.",
+            "page_number": 22,
+            "paragraph": "Q74",
+            "page_note": null,
+            "source_document_id": "doc-phillips",
+            "source_document_title": "Phillips Discovery Response",
+            "statement_type": "partial_admission",
+            "evidence_strength": "sworn_party_admission",
+            "speaker": "George Phillips",
+            "question": "Did you review the accounting?",
+            "answer": null,
+            "rank": 3,
+            "role": "their_own_words",
+            "confidence": "high",
+            "rank_reason": "His own sworn answer.",
+            "why": null,
+            "conflict": false,
+            "duplicate_of_card_id": null,
+            "document_date": "2016-08-08",
+            "ruling": "keep",
+            "ruled_by": "roman",
+            "hidden_reason": null,
+            "rfa_line": null,
+            "occurrences": 1,
         })
     );
 }
 
-/// Build a supporting-leg item for the ranking tests.
-fn supporting(
-    id: &str,
-    statement_type: &str,
-    strength: &str,
-    speaker: &str,
-    question: Option<&str>,
-    quote: &str,
-) -> EvidenceRef {
-    EvidenceRef {
-        id: id.to_string(),
-        verbatim_quote: Some(quote.to_string()),
-        page_number: Some(1),
-        paragraph: None,
-        page_note: None,
-        source_document_id: None,
-        source_document_title: None,
-        statement_type: Some(statement_type.to_string()),
-        evidence_strength: Some(strength.to_string()),
-        speaker: Some(speaker.to_string()),
-        question: question.map(str::to_string),
-        tier: None,
-        occurrences: 1,
+/// An item from BEFORE the linking pass: every edge column `null`, `conflict`
+/// false, and the row still complete on the wire. That is 286 of the graph's
+/// 1,230 edges, and they must be distinguishable from items the pass rated —
+/// `null` is a state the page renders differently, not an absence.
+#[test]
+fn an_unranked_item_serializes_every_edge_column_as_null() {
+    let value = serde_json::to_value(wire_summary()).expect("serializes cleanly");
+    let disputing = &value["disputing_evidence"][0];
+    for absent in [
+        "rank",
+        "role",
+        "confidence",
+        "rank_reason",
+        "why",
+        "duplicate_of_card_id",
+        "document_date",
+        "ruling",
+        "ruled_by",
+        "hidden_reason",
+        "rfa_line",
+    ] {
+        assert_eq!(disputing[absent], json!(null), "{absent} must be null here");
     }
-}
-
-fn response_with(supporting_evidence: Vec<EvidenceRef>) -> ElementDetailResponse {
-    ElementDetailResponse {
-        element_id: "element-1-2".to_string(),
-        element_name: "Second".to_string(),
-        what_plaintiff_must_prove: "prove it".to_string(),
-        order_in_count: Some(2),
-        count_number: Some(1),
-        count_name: Some("Count I".to_string()),
-        review_notes: None,
-        allegations: vec![AllegationSummary {
-            allegation_id: "allegation-42".to_string(),
-            paragraph_number: "10".to_string(),
-            summary: None,
-            title: None,
-            verbatim_quote: None,
-            source_section: "Common",
-            supporting_evidence,
-            disputing_evidence: vec![supporting(
-                "d-1",
-                "denial",
-                "sworn_party_denial",
-                "George Phillips",
-                None,
-                "No.",
-            )],
-        }],
-        allegation_count: 1,
-        common_count: 1,
-        dedicated_count: 0,
-    }
-}
-
-/// The drill-down opens strongest first, with a chip on every mapped row.
-///
-/// This is the acceptance sentence for 1.2's drill-down, as a unit test: the
-/// items are supplied in the wrong order and must come back ranked.
-#[test]
-fn ranking_orders_the_drill_down_strongest_first_and_stamps_its_tiers() {
-    let mut response = response_with(vec![
-        supporting(
-            "e-hedged",
-            "partial_admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Did you review it?"),
-            "To the best of my recollection.",
-        ),
-        supporting(
-            "e-strong",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Was it received?"),
-            "Yes.",
-        ),
-    ]);
-    rank_supporting_evidence(&mut response, &EvidenceTierMap::for_test());
-
-    let leg = &response.allegations[0].supporting_evidence;
-    let ids: Vec<&str> = leg.iter().map(|e| e.id.as_str()).collect();
-    assert_eq!(ids, vec!["e-strong", "e-hedged"]);
-    assert_eq!(leg[0].tier.as_deref(), Some("strong"));
-    assert_eq!(leg[1].tier.as_deref(), Some("hedged"));
-}
-
-/// A known duplicate renders ONCE, carrying ×2 — and its twin is gone from
-/// the list rather than shown twice with a marker.
-#[test]
-fn a_duplicate_statement_renders_once_carrying_its_count() {
-    let mut response = response_with(vec![
-        supporting(
-            "c-9",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Was correspondence received?"),
-            "Correspondence was received from Marie Awad.",
-        ),
-        supporting(
-            "c-11",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Was correspondence received?"),
-            "Correspondence was received from Marie Awad.",
-        ),
-    ]);
-    rank_supporting_evidence(&mut response, &EvidenceTierMap::for_test());
-
-    let leg = &response.allegations[0].supporting_evidence;
-    assert_eq!(leg.len(), 1, "the pair collapses to one row");
-    assert_eq!(leg[0].id, "c-9");
-    assert_eq!(leg[0].occurrences, 2, "the row carries ×2");
-}
-
-/// Three "Yes." answers to three different interrogatories stay three rows.
-///
-/// The measured over-collapse trap, asserted at the layer the drill-down
-/// actually renders from — not only inside `matrix_strength`, because the
-/// question column has to survive the Cypher, the fold and this adapter to do
-/// its job.
-#[test]
-fn three_distinct_yes_admissions_survive_as_three_rows() {
-    let mut response = response_with(vec![
-        supporting(
-            "e-1",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Did you receive the letter?"),
-            "Yes.",
-        ),
-        supporting(
-            "e-2",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Was the auction held?"),
-            "Yes.",
-        ),
-        supporting(
-            "e-3",
-            "admission",
-            "sworn_party_admission",
-            "George Phillips",
-            Some("Did you sign it?"),
-            "Yes.",
-        ),
-    ]);
-    rank_supporting_evidence(&mut response, &EvidenceTierMap::for_test());
-    assert_eq!(response.allegations[0].supporting_evidence.len(), 3);
-}
-
-/// The disputing leg is untouched: not collapsed, not ranked, not tiered.
-///
-/// Collapsing rebuttals would quietly reduce the number of things arguing
-/// against us, which is the opposite of what an honesty pass is for.
-#[test]
-fn the_disputing_leg_is_left_exactly_as_it_was() {
-    let mut response = response_with(vec![]);
-    let before = response.allegations[0].disputing_evidence.clone();
-    rank_supporting_evidence(&mut response, &EvidenceTierMap::for_test());
-    assert_eq!(response.allegations[0].disputing_evidence, before);
-    assert_eq!(
-        response.allegations[0].disputing_evidence[0].tier, None,
-        "a rebuttal carries no strength tier",
-    );
+    assert_eq!(disputing["conflict"], json!(false));
+    assert_eq!(disputing["occurrences"], json!(1));
 }
 
 /// An Allegation with no Evidence on either leg serializes BOTH buckets as
@@ -312,16 +235,22 @@ fn allegation_with_no_evidence_serializes_empty_array_not_omitted() {
 fn detail_cypher_carries_both_evidence_legs_optionally_off_the_allegation() {
     let q = element_detail_cypher();
 
+    // The relationships are BOUND (`cr` / `dr`) since PROOF_MATRIX_v2 — the rank,
+    // role and confidence live on the edge, so the edge needs a name to project
+    // from. Everything else about the match is unchanged.
     assert!(q.contains(&format!(
-        "OPTIONAL MATCH (a)<-[:{}]-(ev)",
+        "OPTIONAL MATCH (a)<-[cr:{}]-(ev)",
         schema::CORROBORATES
     )));
-    assert!(q.contains(&format!("OPTIONAL MATCH (a)<-[:{}]-(dv)", schema::REBUTS)));
+    assert!(q.contains(&format!("OPTIONAL MATCH (a)<-[dr:{}]-(dv)", schema::REBUTS)));
     // Evidence reaches an Element only THROUGH an Allegation — never a
     // direct edge, which is the traversal that produced the false
     // `to_element: 0` finding on 2026-07-26.
-    assert!(!q.contains(&format!("(e)<-[:{}]-", schema::REBUTS)));
-    assert!(!q.contains(&format!("(e)<-[:{}]-", schema::CORROBORATES)));
+    for rel in [schema::REBUTS, schema::CORROBORATES] {
+        assert!(!q.contains(&format!("(e)<-[:{rel}]-")));
+        assert!(!q.contains(&format!("(e)<-[cr:{rel}]-")));
+        assert!(!q.contains(&format!("(e)<-[dr:{rel}]-")));
+    }
 }
 
 /// Every `disputing_*` alias the fold decodes must be projected. A renamed
@@ -337,6 +266,15 @@ fn detail_cypher_projects_every_disputing_alias_the_fold_reads() {
         "AS disputing_page_note",
         "AS disputing_document_id",
         "AS disputing_document_title",
+        "AS disputing_document_date",
+        "AS disputing_answer",
+        "AS disputing_rank",
+        "AS disputing_role",
+        "AS disputing_confidence",
+        "AS disputing_rank_reason",
+        "AS disputing_why",
+        "AS disputing_conflict",
+        "AS disputing_duplicate_of",
     ] {
         assert!(q.contains(alias), "missing RETURN alias `{alias}`");
     }
@@ -377,7 +315,19 @@ fn evidence_ref_without_document_serializes_null_source_id() {
         evidence_strength: Some("sworn_party_evasion".to_string()),
         speaker: Some("George Phillips".to_string()),
         question: Some("What was the basis for the valuation?".to_string()),
-        tier: None,
+        answer: None,
+        rank: None,
+        role: None,
+        confidence: None,
+        rank_reason: None,
+        why: None,
+        conflict: false,
+        duplicate_of_card_id: None,
+        document_date: None,
+        ruling: None,
+        ruled_by: None,
+        hidden_reason: None,
+        rfa_line: None,
         occurrences: 1,
     };
     let value = serde_json::to_value(&ev).expect("serializes cleanly");

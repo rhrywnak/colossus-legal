@@ -52,6 +52,7 @@ import {
   indexAllegationTotals,
 } from "../services/proofMatrix";
 import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import CountToolbar from "../components/CountToolbar";
 
 /** What the page needs from its two reads, after shaping. */
 interface ProofMatrixData {
@@ -247,6 +248,11 @@ const ProofMatrixContent: React.FC<{
         allegationTotals={allegationTotals}
         onSelect={setSelectedCountNumber}
       />
+      <CountToolbar
+        caseSlug={caseSlug}
+        countNumber={selected.count_number}
+        matrixWording={matrixWording}
+      />
       {/* Key by Count: switching Counts remounts the table, collapsing any
           expanded row (the single-open accordion resets per Count). */}
       <ElementTable
@@ -359,6 +365,8 @@ const COLUMN_HEADER_STYLE: React.CSSProperties = {
   textTransform: "uppercase",
   color: "var(--text-secondary)",
 };
+
+
 
 const MESSAGE_STYLE: React.CSSProperties = {
   padding: "2rem",

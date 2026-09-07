@@ -11,9 +11,18 @@ use crate::domain::wording::tests::seeded_value_in;
 use crate::domain::wording_templates::missing_placeholders;
 use std::collections::HashMap;
 
-/// The migration that seeds all eight rows.
-const SEED_MIGRATION: &str = "pipeline_migrations/\
-                              20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql";
+/// The migrations that seed this block, in the order they ran.
+///
+/// TWO files, because the block grew: task 396 seeded the first eight rows and
+/// PROOF_MATRIX_v2 seeded the twenty-six reader-facing ones. The test below
+/// concatenates them rather than picking one, so a key seeded in EITHER file is
+/// found — and a key seeded in NEITHER still fails by name, which is the whole
+/// point (a declared key with no row makes the backend refuse to start).
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/\
+     20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
+    "pipeline_migrations/20260906141743_proof_matrix_v2_rulings_and_reader_wording.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -30,6 +39,33 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_TIER_OTHER_CHIP, "Our sworn word"),
     (KEY_DUPLICATE_TEMPLATE, "×{count}"),
     (KEY_RANKED_LIST_NOTE, "Strongest first"),
+    // ── v2: the reader-facing rows ──────────────────────────────────────────
+    (KEY_MORE_TEMPLATE, "{count} more"),
+    (KEY_SHOW_HIDDEN_TEMPLATE, "Show hidden ({count})"),
+    (KEY_HIDE_HIDDEN_LABEL, "Hide those again"),
+    (KEY_KEEP_LABEL, "Keep"),
+    (KEY_REMOVE_LABEL, "Remove"),
+    (KEY_UNDO_LABEL, "Undo"),
+    (KEY_MACHINE_LABEL, "machine"),
+    (KEY_KEPT_TEMPLATE, "kept · {actor}"),
+    (KEY_CONFLICT_LABEL, "conflicts"),
+    (KEY_CONFIDENCE_HIGH_LABEL, "high"),
+    (KEY_CONFIDENCE_MEDIUM_LABEL, "medium"),
+    (KEY_CONFIDENCE_LOW_LABEL, "low"),
+    (KEY_CONFIDENCE_UNRATED_LABEL, "unrated"),
+    (KEY_RFA_TEMPLATE, "RFA {number} — {request} — {answer}"),
+    (KEY_RFA_UNNUMBERED_TEMPLATE, "{request} — {answer}"),
+    (KEY_LEGEND_LINE, "Red bar = the complaint's words · green = supports · red on a quote = disputes"),
+    (KEY_EXPORT_BUTTON_LABEL, "Export this count (Word)"),
+    (KEY_EXPORT_TITLE_TEMPLATE, "Count {number} — {name}"),
+    (KEY_EXPORT_SUPPORTING_HEADING, "Supporting"),
+    (KEY_EXPORT_DISPUTING_HEADING, "Disputing"),
+    (KEY_EXPORT_CONFIRMED_MARK, "\u{2713}"),
+    (KEY_EXPORT_EMPTY_LINE, "No evidence in the corpus."),
+    (KEY_EXPORT_FOOTER_TEMPLATE, "Generated {date}. Machine-ranked; items marked ✓ confirmed by Roman."),
+    (KEY_RULING_FAILED_TEMPLATE, "That decision did not save: {detail} Reload the page — what you see now may not be what is stored."),
+    (KEY_NO_SUPPORTING_LINE, "Nothing in the record supports this yet."),
+    (KEY_NO_DISPUTING_LINE, "Nothing in the record disputes this."),
 ];
 
 impl MatrixWording {
@@ -59,8 +95,16 @@ impl MatrixWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the .396 batch migration is on disk");
+    // Concatenated, not searched in turn: `seeded_value_in` answers per file, and
+    // joining them means one lookup that finds a key wherever it was seeded.
+    let sql: String = SEED_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|e| panic!("{relative} is on disk: {e}"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let fixture = MatrixWording::for_test_values();
 
@@ -89,7 +133,7 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
 #[test]
 fn the_three_tier_map_rows_are_seeded_by_the_same_migration() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
+    let sql = std::fs::read_to_string(root.join(SEED_MIGRATIONS[0]))
         .expect("the .396 batch migration is on disk");
 
     for key in [
@@ -118,7 +162,7 @@ fn the_seeded_map_parses_and_ranks_the_measured_dev_pairs_as_ruled() {
     use crate::domain::settings::parse_token_list;
 
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
+    let sql = std::fs::read_to_string(root.join(SEED_MIGRATIONS[0]))
         .expect("the .396 batch migration is on disk");
 
     let read = |key: &str| {
@@ -181,6 +225,44 @@ fn the_count_templates_carry_their_placeholder() {
             "{name} is missing a placeholder the store requires",
         );
     }
+}
+
+/// Every v2 template still carries every placeholder the store requires of it.
+///
+/// The seeded values live in `TEST_SEED`, which the test above pins to the
+/// migration — so this asserts the SHIPPED strings, not a fixture written to
+/// pass. A template that reached the migration with a placeholder missing would
+/// otherwise render a sentence with its facts silently removed: "kept · " with
+/// nobody named, or "RFA 9 — Admitted." with the request gone.
+#[test]
+fn every_v2_template_carries_the_placeholders_the_store_requires() {
+    let words = MatrixWording::for_test();
+    let checked = [
+        (KEY_MORE_TEMPLATE, &words.more_template),
+        (KEY_SHOW_HIDDEN_TEMPLATE, &words.show_hidden_template),
+        (KEY_KEPT_TEMPLATE, &words.kept_template),
+        (KEY_RFA_TEMPLATE, &words.rfa_template),
+        (KEY_RFA_UNNUMBERED_TEMPLATE, &words.rfa_unnumbered_template),
+        (KEY_EXPORT_TITLE_TEMPLATE, &words.export_title_template),
+        (KEY_EXPORT_FOOTER_TEMPLATE, &words.export_footer_template),
+        (KEY_RULING_FAILED_TEMPLATE, &words.ruling_failed_template),
+    ];
+    for (key, template) in checked {
+        let missing = missing_placeholders(key, template);
+        assert!(
+            missing.is_empty(),
+            "{key} seeds '{template}', which is missing {missing:?}",
+        );
+    }
+
+    // Anti-vacuity: `missing_placeholders` returns an empty Vec for a key it does
+    // not know, so the loop above would pass for eight keys nobody registered.
+    // Prove the table actually constrains one of them.
+    assert_eq!(
+        missing_placeholders(KEY_KEPT_TEMPLATE, "kept"),
+        vec!["{actor}"],
+        "the store does not require {{actor}} of the kept mark — the loop above is vacuous",
+    );
 }
 
 /// No key collides with a sibling block's.

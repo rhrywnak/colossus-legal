@@ -26,11 +26,11 @@ use neo4rs::{query, Graph};
 use serde::Serialize;
 use sqlx::PgPool;
 
+use super::element_detail_cypher::element_detail_cypher;
 use super::element_detail_fold::DetailFold;
 use crate::models::document_status::{
     ENTITY_ALLEGATION, ENTITY_DOCUMENT, ENTITY_ELEMENT, ENTITY_EVIDENCE, ENTITY_LEGAL_COUNT,
 };
-use crate::neo4j::schema;
 use crate::repositories::pipeline_repository::PipelineRepoError;
 
 // ── Error type ────────────────────────────────────────────────────
@@ -106,6 +106,14 @@ pub struct ElementDetailResponse {
     /// Number of mapped Allegations in the dedicated-Count paragraph range
     /// (¶`DEDICATED_PARA_START`+).
     pub dedicated_count: usize,
+    /// How many items each paragraph shows before "N more" — the stored
+    /// `matrix_visible_items` (PROOF_MATRIX_v2 §3).
+    ///
+    /// Served rather than compiled into the browser for the ordinary Rule 2
+    /// reason, and served on THIS payload rather than fetched separately because
+    /// the same number decides what the Word export prints: one read, one number,
+    /// and no way for the page and the document to disagree.
+    pub visible_items: usize,
 }
 
 /// One mapped Allegation as it appears in the detail panel's list. The fields
@@ -177,101 +185,64 @@ pub struct EvidenceRef {
     /// evidence. Also part of the collapse key — and it is the component that
     /// keeps three distinct "yes." admissions from merging into one row.
     pub question: Option<String>,
-    /// How hard this item is to dispute: `strong` / `hedged` / `other`, or `None`
-    /// when the stored tier map does not name its pair.
+    /// The answer half of a Q&A card, when there is one. Feeds the RFA line.
+    pub answer: Option<String>,
+
+    // ── What the linking pass wrote on the EDGE (PROOF_MATRIX_v2 §1) ─────────
+    //
+    // Served as raw tokens, not as labels: the words a reader sees come from the
+    // stored `matrix_*` wording rows, and a backend that sent finished labels
+    // would put the vocabulary in two places. `None` on all of them is a real
+    // state — 286 edges predate the pass.
+    /// `r.rank` — the pass's position within a stance, 1..N.
+    pub rank: Option<i64>,
+    /// `r.role` — one of the five tokens in
+    /// [`crate::domain::matrix_edge::EdgeRole`], or `None` when absent or
+    /// unreadable (the fold warns and shows the item; it never hides one it
+    /// failed to parse).
+    pub role: Option<String>,
+    /// `r.confidence` — `high` / `medium` / `low`, or `None` for an older edge.
+    pub confidence: Option<String>,
+    /// `r.rank_reason` — the pass's one line about why this item ranks here.
+    pub rank_reason: Option<String>,
+    /// `r.why` — the older linking pass's reason. Shown when there is no
+    /// `rank_reason`, so a row is never left with no explanation at all.
+    pub why: Option<String>,
+    /// `r.conflict` — the item both supports and disputes this Allegation.
     ///
-    /// Domain note: `None` is a real answer and renders as a row with no chip. An
-    /// item whose pair is unmapped is still counted as approved and still shown —
-    /// a new document type must never make proof vanish from this list.
+    /// A plain `bool` rather than `Option<bool>`: absent means false, and there
+    /// is no third state a reader could act on differently. 28 edges carry it.
+    pub conflict: bool,
+    /// `r.duplicate_of_card_id` — the item this one restates.
+    pub duplicate_of_card_id: Option<String>,
+    /// The SOURCE DOCUMENT's date, `YYYY-MM-DD`. §3's fourth sort key. Empty
+    /// string on four DEV documents, which the ordering treats as absent.
+    pub document_date: Option<String>,
+
+    // ── What a human said, and what this build worked out (§2, §3) ───────────
+    /// The human's verdict: `keep` / `remove`, or `None` for an unruled item.
+    pub ruling: Option<String>,
+    /// Who ruled. `None` exactly when `ruling` is `None`.
+    pub ruled_by: Option<String>,
+    /// Why this item is not in the default list: `does_not_belong` / `removed`,
+    /// or `None` for a visible one.
     ///
-    /// Populated by [`rank_supporting_evidence`]; the disputing leg leaves it
-    /// `None`, because tiering is a claim about how hard SUPPORT is to dispute.
-    pub tier: Option<String>,
-    /// How many near-identical statements collapsed into this row — the "×N".
+    /// Domain note: served rather than derived in the browser, so the page and
+    /// the Word export apply ONE set of hide rules.
+    pub hidden_reason: Option<String>,
+    /// The finished one-line rendering of a Q&A card, composed from the stored
+    /// templates. `None` for anything that is not one — the renderer then prints
+    /// `verbatim_quote` as usual.
+    pub rfa_line: Option<String>,
+    /// How many items this row stands for: itself, plus every `duplicate_of`
+    /// folded into it — the "×N".
     ///
-    /// `1` means no duplicates, which is the overwhelming majority of rows. The
+    /// `1` means nothing folded, which is the overwhelming majority of rows. The
     /// renderer prints the marker only above 1.
     pub occurrences: usize,
 }
 
 // ── Cypher and SQL constants ──────────────────────────────────────
-
-/// Build the detail Cypher: Element properties, parent LegalCount (OPTIONAL),
-/// and every Allegation that bears on this Element (OPTIONAL).
-///
-/// ## Why a `fn -> String` and not a `const`
-///
-/// Relationship types come from `neo4j::schema` so the read stays in lockstep
-/// with one constant; a Rust `const` cannot call `format!`, so the query is
-/// built by a function (the `fetch_hashes` pattern in
-/// `canonical_elements::cypher`). No literal `{ }` braces appear here (node
-/// bindings use `labels(x)[0]`, not property maps), so no `{{`/`}}` escaping.
-///
-/// ## Why label filters on every node binding
-///
-/// `(a)-[:{bears_on}]->(e)` with no label restriction would match any
-/// node-type bearing on an Element. House style — established in
-/// `causes_of_action_repository.rs` — is to gate every node binding with
-/// `labels(x)[0] = $label` and read the label name from `ENTITY_*`
-/// constants, so we never hardcode a domain string in a Cypher clause.
-///
-/// `e.id` for the Element matches the `id` *property* (not Neo4j's internal
-/// id) — that is the canonical, content-stable identifier the loader writes
-/// and the one Postgres stores in `authored_entities.entity_id`.
-fn element_detail_cypher() -> String {
-    format!(
-        "MATCH (e) \
-       WHERE e.id = $element_id AND labels(e)[0] = $element_label \
-     OPTIONAL MATCH (lc)-[:{has_element}]->(e) WHERE labels(lc)[0] = $count_label \
-     OPTIONAL MATCH (a)-[:{bears_on}]->(e) WHERE labels(a)[0] = $allegation_label \
-     OPTIONAL MATCH (a)<-[:{corroborates}]-(ev) WHERE labels(ev)[0] = $evidence_label \
-     OPTIONAL MATCH (ev)-[:{contained_in}]->(d) WHERE labels(d)[0] = $document_label \
-     OPTIONAL MATCH (ev)-[:{stated_by}]->(sp) \
-     OPTIONAL MATCH (a)<-[:{rebuts}]-(dv) WHERE labels(dv)[0] = $evidence_label \
-     OPTIONAL MATCH (dv)-[:{contained_in}]->(dd) WHERE labels(dd)[0] = $document_label \
-     OPTIONAL MATCH (dv)-[:{stated_by}]->(dsp) \
-     RETURN \
-       e.id                         AS element_id, \
-       e.element_name               AS element_name, \
-       e.what_plaintiff_must_prove  AS what_plaintiff_must_prove, \
-       e.order_in_count             AS order_in_count, \
-       lc.count_number              AS count_number, \
-       lc.title                     AS count_name, \
-       a.id                         AS allegation_id, \
-       a.paragraph_number           AS paragraph_number, \
-       a.summary                    AS summary, \
-       a.title                      AS title, \
-       a.verbatim_quote             AS verbatim_quote, \
-       ev.id                        AS evidence_id, \
-       ev.verbatim_quote            AS evidence_quote, \
-       ev.page_number               AS evidence_page_number, \
-       ev.paragraph                 AS evidence_paragraph, \
-       ev.page_note                 AS evidence_page_note, \
-       d.id                         AS source_document_id, \
-       d.title                      AS source_document_title, \
-       ev.statement_type            AS evidence_statement_type, \
-       ev.evidence_strength         AS evidence_strength, \
-       sp.name                      AS evidence_speaker, \
-       ev.question                  AS evidence_question, \
-       dv.id                        AS disputing_id, \
-       dv.verbatim_quote            AS disputing_quote, \
-       dv.page_number               AS disputing_page_number, \
-       dv.paragraph                 AS disputing_paragraph, \
-       dv.page_note                 AS disputing_page_note, \
-       dd.id                        AS disputing_document_id, \
-       dd.title                     AS disputing_document_title, \
-       dv.statement_type            AS disputing_statement_type, \
-       dv.evidence_strength         AS disputing_strength, \
-       dsp.name                     AS disputing_speaker, \
-       dv.question                  AS disputing_question",
-        has_element = schema::HAS_ELEMENT,
-        bears_on = schema::BEARS_ON,
-        corroborates = schema::CORROBORATES,
-        rebuts = schema::REBUTS,
-        contained_in = schema::CONTAINED_IN,
-        stated_by = schema::STATED_BY,
-    )
-}
 
 /// Defensive Postgres lookup: filter by entity_id (uniquely constrained) AND
 /// entity_type to keep a stray id collision with a different entity_type from
@@ -362,22 +333,13 @@ pub async fn fetch_element_with_allegations(
     const OP_GRAPH: &str = "fetch_element_with_allegations";
     const OP_PG: &str = "fetch_review_notes";
 
-    let q = query(&element_detail_cypher())
-        .param("element_id", element_id)
-        .param("element_label", ENTITY_ELEMENT)
-        .param("count_label", ENTITY_LEGAL_COUNT)
-        .param("allegation_label", ENTITY_ALLEGATION)
-        .param("evidence_label", ENTITY_EVIDENCE)
-        .param("document_label", ENTITY_DOCUMENT);
-
-    let mut stream =
-        graph
-            .execute(q)
-            .await
-            .map_err(|source| ElementDetailRepoError::Neo4jQuery {
-                operation: OP_GRAPH,
-                source,
-            })?;
+    let mut stream = graph
+        .execute(detail_query(element_id))
+        .await
+        .map_err(|source| ElementDetailRepoError::Neo4jQuery {
+            operation: OP_GRAPH,
+            source,
+        })?;
 
     // Fold the fanned-out rows: Element header once, Allegations deduped by id,
     // each Allegation's corroborating Evidence collected (see `DetailFold`). The
@@ -403,69 +365,11 @@ pub async fn fetch_element_with_allegations(
         })?;
     let mut allegations = fold.allegations;
 
-    // Allegations are already unique (folded by id in `DetailFold::push_row`,
-    // which also absorbs duplicate BEARS_ON edges a mid-ingest race could
-    // leave), so the historical sort-by-id + `dedup_by` step is no longer needed.
-    //
-    // Sort by paragraph_number numerically (parse the leading int prefix so
-    // ranges like "16-18" sort by 16). Falls back to lexicographic for
-    // anything we can't parse — keeps the order stable instead of panicking.
-    allegations.sort_by(|a, b| {
-        let pa = leading_int(&a.paragraph_number);
-        let pb = leading_int(&b.paragraph_number);
-        match (pa, pb) {
-            (Some(x), Some(y)) => x
-                .cmp(&y)
-                .then_with(|| a.paragraph_number.cmp(&b.paragraph_number)),
-            (Some(_), None) => std::cmp::Ordering::Less,
-            (None, Some(_)) => std::cmp::Ordering::Greater,
-            (None, None) => a.paragraph_number.cmp(&b.paragraph_number),
-        }
-    });
+    sort_by_paragraph(&mut allegations);
 
-    let allegation_count = allegations.len();
-    let common_count = allegations
-        .iter()
-        .filter(|a| a.source_section == "Common")
-        .count();
-    let dedicated_count = allegations
-        .iter()
-        .filter(|a| a.source_section == "Dedicated")
-        .count();
+    let (allegation_count, common_count, dedicated_count) = section_counts(&allegations);
 
-    // Postgres: fetch the review_notes column. A missing row is not an error
-    // here — the canonical loader writes the Element row, but a brand-new
-    // deployment whose loader hasn't run yet would have no row.
-    //
-    // `fetch_optional` returns `Option<Option<String>>`:
-    //   None        → no authored_entities row exists (data-load gap)
-    //   Some(None)  → row exists, review_notes column is SQL NULL (user
-    //                 has not yet written notes, or has cleared them)
-    //   Some(Some)  → row exists, notes string present
-    //
-    // Both `None` states render on the wire as `review_notes: null`, but
-    // we keep them distinguishable in operator logs (Rule 1: distinct
-    // observables) by emitting a debug span on the row-missing branch.
-    let pg_row: Option<Option<String>> = sqlx::query_scalar::<_, Option<String>>(REVIEW_NOTES_SQL)
-        .bind(element_id)
-        .bind(ENTITY_ELEMENT)
-        .fetch_optional(pool)
-        .await
-        .map_err(|e| ElementDetailRepoError::Postgres {
-            operation: OP_PG,
-            source: PipelineRepoError::Database(e.to_string()),
-        })?;
-
-    let review_notes: Option<String> = match pg_row {
-        None => {
-            tracing::debug!(
-                element_id = %element_id,
-                "no authored_entities row for element — review_notes defaulting to None"
-            );
-            None
-        }
-        Some(notes) => notes,
-    };
+    let review_notes = fetch_review_notes(pool, element_id, OP_PG).await?;
 
     Ok(ElementDetailResponse {
         element_id: header.element_id,
@@ -479,87 +383,120 @@ pub async fn fetch_element_with_allegations(
         allegation_count,
         common_count,
         dedicated_count,
+        // A placeholder the handler overwrites from the settings snapshot. The
+        // repository has no settings handle, and inventing a default here is
+        // exactly the compiled-in number Rule 2 forbids — so it is zero, which is
+        // visibly wrong if the handler ever stops filling it in, rather than
+        // plausibly right.
+        visible_items: 0,
     })
 }
 
-/// Collapse, tier and rank every Allegation's SUPPORTING evidence, in place.
+/// The detail query with every node label bound as a parameter.
 ///
-/// ## Why this happens here and not in the Cypher
-///
-/// Two of the three things it does are outside the graph's reach: the pair→tier
-/// map is a settings row, and the near-duplicate collapse keys on a normalized
-/// question and answer. Doing it in Rust also means the drill-down and the matrix
-/// row's two numbers come from ONE function
-/// ([`crate::services::matrix_strength::collapse_and_rank`]) — which is what
-/// makes "the counts agree" a property of the code rather than a coincidence.
-///
-/// ## Why the DISPUTING leg is left alone
-///
-/// A tier is a claim about how hard a piece of SUPPORT is to dispute. Ranking
-/// rebuttals by the same scale would read as a verdict on how badly the Element
-/// is damaged, which is a different judgment nobody has made — and collapsing
-/// them would quietly reduce the number of things arguing against us.
-///
-/// ## Rust Learning: `&mut` on the response instead of returning a new one
-///
-/// The response is already assembled and owns a `Vec` per Allegation; rebuilding
-/// the whole tree to change two fields per item would clone every quote. Taking
-/// `&mut` lets each `Vec` be replaced in place. The function returns nothing —
-/// its whole effect is the mutation, which the name says.
-pub fn rank_supporting_evidence(
-    response: &mut ElementDetailResponse,
-    tier_map: &crate::domain::evidence_tier::EvidenceTierMap,
-) {
-    use crate::services::matrix_strength::{collapse_and_rank, CorroboratingItem};
+/// Split out so the labels are named in one place: six `.param()` calls inline
+/// are six chances to bind the Document label to the Evidence gate, which would
+/// silently return zero evidence rows rather than fail.
+fn detail_query(element_id: &str) -> neo4rs::Query {
+    query(&element_detail_cypher())
+        .param("element_id", element_id)
+        .param("element_label", ENTITY_ELEMENT)
+        .param("count_label", ENTITY_LEGAL_COUNT)
+        .param("allegation_label", ENTITY_ALLEGATION)
+        .param("evidence_label", ENTITY_EVIDENCE)
+        .param("document_label", ENTITY_DOCUMENT)
+}
 
-    for allegation in &mut response.allegations {
-        let items: Vec<CorroboratingItem> = allegation
-            .supporting_evidence
-            .iter()
-            .map(|e| CorroboratingItem {
-                id: e.id.clone(),
-                statement_type: e.statement_type.clone(),
-                evidence_strength: e.evidence_strength.clone(),
-                speaker: e.speaker.clone(),
-                question: e.question.clone(),
-                quote: e.verbatim_quote.clone(),
-            })
-            .collect();
+/// `(total, common, dedicated)` for one Element's Allegations.
+///
+/// ## Why three numbers and not two
+///
+/// `common + dedicated` does NOT have to equal the total: an Allegation whose
+/// paragraph number is unparseable classifies as `"Unknown"` and belongs to
+/// neither range. Returning the total separately is what keeps the panel's
+/// header honest — "N allegations mapped (X common · Y dedicated)" with X + Y < N
+/// is a true sentence, and deriving N from X + Y would quietly lose those rows.
+fn section_counts(allegations: &[AllegationSummary]) -> (usize, usize, usize) {
+    let common = allegations
+        .iter()
+        .filter(|a| a.source_section == "Common")
+        .count();
+    let dedicated = allegations
+        .iter()
+        .filter(|a| a.source_section == "Dedicated")
+        .count();
+    (allegations.len(), common, dedicated)
+}
 
-        let groups = collapse_and_rank(&items, tier_map);
-
-        // Rebuild the leg in ranked order, keeping ONE `EvidenceRef` per group —
-        // the group's lead — and stamping it with what the collapse learned. The
-        // lookup by id is over a list that is a handful of items long, so the
-        // linear scan is cheaper than building a map to avoid it.
-        let mut ranked: Vec<EvidenceRef> = Vec::with_capacity(groups.len());
-        for group in &groups {
-            let Some(source) = allegation
-                .supporting_evidence
-                .iter()
-                .find(|e| e.id == group.lead.id)
-            else {
-                // Unreachable: every group's lead came from this very list. Logged
-                // rather than skipped silently, because if it ever happened it
-                // would mean a piece of proof had vanished between two lines of
-                // one function, and a missing item on a proof surface must never
-                // be something a reader has to notice for themselves.
-                tracing::error!(
-                    evidence_id = %group.lead.id,
-                    allegation_id = %allegation.allegation_id,
-                    "ranked group names an evidence id that is not in the allegation's \
-                     supporting list — the item has been dropped from the drill-down; \
-                     this indicates a defect in collapse_and_rank, not a data problem"
-                );
-                continue;
-            };
-            let mut item = source.clone();
-            item.tier = group.tier.map(|t| t.code().to_string());
-            item.occurrences = group.occurrences;
-            ranked.push(item);
+/// Sort Allegations by parsed-integer `paragraph_number`, in place.
+///
+/// Split out of [`fetch_element_with_allegations`] to keep that function inside
+/// the 50-line limit, and because the ordering deserves its own name: it is the
+/// order the panel reads in, and it is NOT the §3 evidence order — this one is
+/// about which accusation comes first, not which proof under it does.
+///
+/// Allegations are already unique (folded by id in `DetailFold::push_row`, which
+/// also absorbs duplicate `BEARS_ON` edges a mid-ingest race could leave), so no
+/// dedup step is needed here.
+///
+/// Sorts by the leading integer prefix so ranges like `"16-18"` sort by 16, and
+/// falls back to lexicographic for anything unparseable — keeping the order
+/// stable rather than panicking. Non-numeric values sort LAST.
+fn sort_by_paragraph(allegations: &mut [AllegationSummary]) {
+    allegations.sort_by(|a, b| {
+        let pa = leading_int(&a.paragraph_number);
+        let pb = leading_int(&b.paragraph_number);
+        match (pa, pb) {
+            (Some(x), Some(y)) => x
+                .cmp(&y)
+                .then_with(|| a.paragraph_number.cmp(&b.paragraph_number)),
+            (Some(_), None) => std::cmp::Ordering::Less,
+            (None, Some(_)) => std::cmp::Ordering::Greater,
+            (None, None) => a.paragraph_number.cmp(&b.paragraph_number),
         }
-        allegation.supporting_evidence = ranked;
-    }
+    });
+}
+
+/// The human-authored `review_notes` for one Element, or `None`.
+///
+/// A missing row is not an error: the canonical loader writes the Element row,
+/// but a brand-new deployment whose loader has not run yet would have none.
+///
+/// ## Rust Learning: `Option<Option<String>>` from `fetch_optional`
+///
+/// The outer `Option` is "was there a ROW"; the inner is "was the COLUMN null".
+/// Three states collapse to two on the wire — both `None` shapes serialize as
+/// `review_notes: null` — so they are kept distinguishable in the operator log
+/// instead (Rule 1: distinct observables), with a `debug` span on the
+/// row-missing branch.
+///
+/// # Errors
+/// Returns [`ElementDetailRepoError::Postgres`] if the query fails.
+async fn fetch_review_notes(
+    pool: &PgPool,
+    element_id: &str,
+    op: &'static str,
+) -> Result<Option<String>, ElementDetailRepoError> {
+    let pg_row: Option<Option<String>> = sqlx::query_scalar::<_, Option<String>>(REVIEW_NOTES_SQL)
+        .bind(element_id)
+        .bind(ENTITY_ELEMENT)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| ElementDetailRepoError::Postgres {
+            operation: op,
+            source: PipelineRepoError::Database(e.to_string()),
+        })?;
+
+    Ok(match pg_row {
+        None => {
+            tracing::debug!(
+                %element_id,
+                "no authored_entities row for element — review_notes defaulting to None"
+            );
+            None
+        }
+        Some(notes) => notes,
+    })
 }
 
 /// Parse the leading numeric prefix of a paragraph_number string. Returns

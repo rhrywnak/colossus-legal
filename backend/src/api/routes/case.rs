@@ -2,13 +2,13 @@
 //! causes-of-action, element, proof and trial-prep endpoints.
 
 use axum::{
-    routing::{get, patch},
+    routing::{get, patch, put},
     Router,
 };
 
 use crate::api::{
-    case, case_header, case_summary, causes_of_action, element_detail, proof_matrix, proof_review,
-    trial_prep,
+    case, case_header, case_summary, causes_of_action, element_detail, proof_matrix,
+    proof_matrix_export, proof_matrix_rulings, proof_review, trial_prep,
 };
 use crate::state::AppState;
 
@@ -37,6 +37,18 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/cases/:slug/proof-matrix/rollup",
             get(proof_matrix::get_proof_matrix_rollup),
+        )
+        // One address, two verbs: PUT sets a verdict on one item, DELETE takes it
+        // back. Both carry the pair in the BODY — an Evidence id is a content
+        // hash carrying colons, and two of those in a path would make every click
+        // depend on client and router agreeing about percent-encoding.
+        .route(
+            "/cases/:slug/proof-matrix/export.docx",
+            get(proof_matrix_export::get_count_export),
+        )
+        .route(
+            "/cases/:slug/proof-matrix/rulings",
+            put(proof_matrix_rulings::put_ruling).delete(proof_matrix_rulings::delete_ruling),
         )
         .route(
             "/cases/:slug/proof-review",

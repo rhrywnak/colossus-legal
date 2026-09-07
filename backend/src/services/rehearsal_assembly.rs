@@ -23,14 +23,15 @@ use sqlx::PgPool;
 use crate::domain::human_authored::HumanFactKind;
 use crate::domain::scenario_code::scenario_code;
 use crate::domain::settings::Settings;
-use crate::dto::rehearsal::{RehearsalPoint, RehearsalScenario, RehearsalWatchItem};
+use crate::dto::rehearsal::{RehearsalScenario, RehearsalWatchItem};
 use crate::repositories::pipeline_repository::{
     list_candidate_ordinals, list_fact_refs_for_scenario, list_human_facts_for_scenario,
-    list_items_for_response, sole_response_for_scenario, PipelineRepoError, ScenarioRecord,
+    PipelineRepoError, ScenarioRecord,
 };
 use crate::repositories::scenario_accusation_repository::{
     fetch_anchor_paragraphs, fetch_rehearsal_facts, RehearsalFactRow,
 };
+use crate::services::rehearsal_card_sections::{card_views, talking_points_of};
 use crate::services::rehearsal_render::{render_scenario, Authored, ScenarioInput};
 use crate::services::scenario_accusation::{derive, StoredJudgment};
 
@@ -81,7 +82,6 @@ pub async fn assemble_scenario(
     let included = included_ids(pool, scenario_id).await?;
     let state = derive(&judgments, &included);
     let facts = placed_facts(graph, &state).await?;
-    let points = talking_points_of(pool, scenario_id, settings).await?;
     // The candidate ordinals behind the C-codes the pair card prints (task R4,
     // P3). Read here rather than passed in, because this function is where every
     // other per-scenario read for this page already lives — and the working
@@ -96,6 +96,16 @@ pub async fn assemble_scenario(
     let paragraphs = fetch_anchor_paragraphs(graph, &anchors)
         .await
         .map_err(|source| AssemblyError::Record { source })?;
+
+    // FACT_CARD_v2 §3: the scenario's cards, the statements behind them, and the
+    // three views the prep page reads off them. Read here beside every other
+    // per-scenario read for this page; the views themselves are pure
+    // (`services::rehearsal_cards`), which is what makes "the other side is
+    // whoever is not us" a rule with a test rather than a query nobody can see.
+    let (card_sections, backing) =
+        card_views(pool, graph, scenario_id, &ordinals, settings).await?;
+
+    let points = talking_points_of(pool, scenario_id, settings, &backing).await?;
 
     Ok(render_scenario(ScenarioInput {
         code: scenario_code(record.code_ordinal),
@@ -128,6 +138,7 @@ pub async fn assemble_scenario(
         direction_label: direction_label(&record.direction, settings),
         attack_text: attack_text_of(&record.definition),
         bears_on: bears_on_codes(&anchors, &paragraphs),
+        cards: card_sections,
         ordinals: &ordinals,
         settings,
     }))
@@ -255,68 +266,6 @@ fn judgments_in(
         });
     }
     Ok(out)
-}
-
-/// One scenario's talking points, ordered and capped.
-///
-/// ## Why `scenario_responses.status` is NOT consulted — read before changing
-///
-/// Ruled 2026-08-01 and carried forward verbatim from the code this replaces: the
-/// SCENARIO's readiness is the only gate. Every 1.4 write path sets that column to
-/// `'draft'`, so filtering on it would show an empty block forever with no error —
-/// the silent-empty failure this codebase keeps removing.
-async fn talking_points_of(
-    pool: &PgPool,
-    scenario_id: uuid::Uuid,
-    settings: &Settings,
-) -> Result<Vec<RehearsalPoint>, AssemblyError> {
-    // The guarded read (task R1 Piece 6). This site had no multi-row warning at
-    // all until .390, and it is the one that feeds a witness: a second response
-    // row would have silently rehearsed the older row's points.
-    let response = sole_response_for_scenario(pool, scenario_id)
-        .await
-        .map_err(|source| AssemblyError::Read { source })?;
-
-    let Some(response) = response else {
-        return Ok(Vec::new());
-    };
-
-    let items = list_items_for_response(pool, response.id)
-        .await
-        .map_err(|source| AssemblyError::Read { source })?;
-
-    Ok(items
-        .into_iter()
-        // The cap is a display law as well as a write law: a list that grew past
-        // it — through a direct write, or a lowered cap — must still rehearse as
-        // the few points a witness can hold.
-        .take(settings.talking_points_cap)
-        .map(|item| RehearsalPoint {
-            // The STORED index, not the position in this iteration: the two agree
-            // today, and would stop agreeing the moment the cap trimmed from the
-            // front or a row went missing. Editing point 3 must address the row
-            // the store calls 3, or the edit lands on the wrong sentence.
-            //
-            // ## Rust Learning: `usize::try_from` on an `i32`
-            //
-            // `item_index` is `i32` because Postgres `int` is signed. A negative
-            // value cannot exist (the writer only ever inserts from `enumerate`),
-            // but the compiler does not know that, so the conversion is fallible.
-            // Falling back to 0 rather than panicking keeps a corrupted row from
-            // taking down the page — and 0 is a position no route matches, so the
-            // edit is refused rather than mis-applied.
-            position: usize::try_from(item.item_index).unwrap_or(0) + 1,
-            text: item.text,
-            // The pairing editor is tracker task 3.9 and does not exist; measured
-            // on DEV, `response_item_fact_refs` holds zero rows. Deriving a label
-            // from the record instead would put words in the witness's mouth.
-            exhibit: None,
-            exhibit_notice: settings
-                .rehearsal_chrome_wording
-                .point_no_exhibit_notice
-                .clone(),
-        })
-        .collect())
 }
 
 #[cfg(test)]

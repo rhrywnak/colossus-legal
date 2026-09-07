@@ -295,6 +295,86 @@ export type ScenarioCard = {
    * placeholder.
    */
   scan_reason?: string;
+  /**
+   * When the statement was made, or when its document is dated — the date the
+   * card's source line leads with (FACT_CARD_v2 §2).
+   *
+   * `YYYY-MM-DD` or `YYYY-MM`, formatted by the browser in the reader's locale —
+   * the one exception to the payload composing everything, and the same division
+   * of labour `ProposalSource.started_at` already makes for a date.
+   *
+   * Absent when neither the statement nor its document is dated: 11 of the 20
+   * documents carry no date at all, measured. The source line then leads with the
+   * speaker rather than showing an invented one.
+   */
+  source_date?: string;
+  /**
+   * The five sentences a witness's card carries in THIS scenario (FACT_CARD_v2).
+   *
+   * Absent — not an empty block — when nobody has drafted one. The two states are
+   * different and both occur: absent is a raw candidate nobody has written about,
+   * an empty block is somebody who started and stopped.
+   */
+  card?: FactCardBlock;
+};
+
+/** Which way a card cuts against one accusation. Mirrors `domain::fact_card`. */
+export type CardFactStance = "supports" | "rebuts";
+
+/** One accusation a card names, with the handle a lawyer cites. */
+export type CardSupportRef = {
+  allegation_id: string;
+  stance: CardFactStance;
+  /** `"A-21"`. Empty when the accusation carries no paragraph number — half a
+   *  citation is worse than none. */
+  code: string;
+};
+
+/** Which fields are still the machine's draft (FACT_CARD_v2 §2).
+ *
+ *  Five booleans rather than a list of tokens: the client asks "does THIS row get
+ *  a draft mark" once per row, and a list would make each of those a membership
+ *  test against a vocabulary the browser would have to keep in step with. */
+export type FactCardDrafts = {
+  title: boolean;
+  backs: boolean;
+  supports: boolean;
+  watch_out: boolean;
+  answer: boolean;
+};
+
+/**
+ * One card's authored block — display-ready, composed server-side.
+ *
+ * Every string here is finished trial language. The browser renders and
+ * concatenates nothing: no "Point " + n, no verb chosen from a token, no count
+ * tag assembled from a number and a title.
+ *
+ * `null` on any field renders the stored em dash and KEEPS the row — §2 is
+ * explicit that nothing is hidden for lacking a field, because a card with no
+ * Answer is work somebody still owes.
+ *
+ * The RAW values (`backs_position`, `supports_refs`) travel beside the composed
+ * ones because an editor needs them: the Backs picker has to know which point is
+ * selected, and Including a fact prefills its accusation from `supports_refs[0]`.
+ */
+export type FactCardBlock = {
+  title: string | null;
+  /** "Point 2 — My sisters' claim rested on hearsay." */
+  backs: string | null;
+  /** The stored position, for the editor. Present even when `backs` is null —
+   *  a stale position renders no line but must still be shown to whoever fixes
+   *  it. */
+  backs_position: number | null;
+  /** "Supports A-21 — CFS could have returned the money." At most two. */
+  supports: string[];
+  supports_refs: CardSupportRef[];
+  watch_out: string | null;
+  answer: string | null;
+  drafts: FactCardDrafts;
+  /** "Count 1 — Breach of Fiduciary Duty", deduplicated. Empty when no named
+   *  accusation reaches a count — 25 of 120 are wired to no element yet. */
+  count_tags: string[];
 };
 
 /** The three weights a fact can carry (task 2.13). Mirrors the backend enum. */

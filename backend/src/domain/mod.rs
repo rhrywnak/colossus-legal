@@ -28,6 +28,9 @@ pub mod chronology;
 pub mod confidence_band;
 pub mod date_precision;
 pub mod evidence_tier;
+/// The five sentences a witness's card carries, and who wrote each of them
+/// (FACT_CARD_v2 §1).
+pub mod fact_card;
 pub mod fact_role;
 pub mod fact_status;
 pub mod fact_tier;
@@ -39,6 +42,12 @@ pub mod link_cut;
 pub mod llm_effort;
 pub mod llm_params;
 pub mod llm_provider_ext;
+/// The role and confidence the linking pass wrote onto an Evidence→Allegation
+/// edge, and the order §3 sorts them in (PROOF_MATRIX_v2 §1).
+pub mod matrix_edge;
+/// A human's keep/remove verdict on one ranked Evidence→Allegation item, and
+/// the ledger vocabulary beside it (PROOF_MATRIX_v2 §2).
+pub mod matrix_ruling;
 pub mod practice_params;
 /// The verifier's second-chance matcher — numeral stripping and one-gap
 /// matching, for quotes the contiguous matcher cannot find. Split from
@@ -50,6 +59,7 @@ pub mod ruling_anchor;
 pub mod scenario_code;
 pub mod sentence_bounds;
 pub mod settings;
+pub mod text;
 pub mod wording;
 pub mod wording_accusation;
 pub mod wording_authoring;
@@ -58,6 +68,8 @@ pub mod wording_chronology;
 // The stored KEYS the block above reads. Split out for Rule 17 when T1.2
 // declared the subsets words — see that module's header.
 pub mod wording_chronology_keys;
+/// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2 §2, §3).
+pub mod wording_fact_card;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;

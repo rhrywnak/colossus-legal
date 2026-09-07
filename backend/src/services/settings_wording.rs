@@ -19,6 +19,7 @@ use crate::domain::wording_accusation::{build_accusation_wording, AccusationWord
 use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording};
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
 use crate::domain::wording_chronology::{build_chronology_wording, ChronologyWording};
+use crate::domain::wording_fact_card::{build_fact_card_wording, FactCardWording};
 use crate::domain::wording_matrix::{build_matrix_wording, MatrixWording};
 use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
 use crate::domain::wording_practice::{build_practice_wording, PracticeWording};
@@ -58,6 +59,8 @@ pub(crate) struct AllWording {
     pub(crate) scan: ScanWording,
     /// The words one evidence card speaks under either wrapper (ruling R6).
     pub(crate) card_grammar: CardGrammarWording,
+    /// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2).
+    pub(crate) fact_card: FactCardWording,
     /// The models admin's temperature control (ruling R5, 2026-08-09).
     pub(crate) model_params: ModelParamsWording,
     /// The words the case timeline speaks (chronology Phase B).
@@ -101,6 +104,7 @@ pub(crate) fn build_all_wording(
     let scenario_authoring = build_scenario_authoring_wording(|key| text_of(require(rows, key)?))?;
     let scan = build_scan_wording(|key| text_of(require(rows, key)?))?;
     let card_grammar = build_card_grammar_wording(|key| text_of(require(rows, key)?))?;
+    let fact_card = build_fact_card_wording(|key| text_of(require(rows, key)?))?;
     let model_params = build_model_params_wording(|key| text_of(require(rows, key)?))?;
     let chronology = build_chronology_wording(|key| text_of(require(rows, key)?))?;
     let matrix = build_matrix_wording(|key| text_of(require(rows, key)?))?;
@@ -120,6 +124,7 @@ pub(crate) fn build_all_wording(
         scenario_authoring,
         scan,
         card_grammar,
+        fact_card,
         model_params,
         chronology,
         matrix,

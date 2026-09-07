@@ -27,6 +27,9 @@ const validResponse: ElementDetailResponse = {
   count_number: 1,
   count_name: "Breach of fiduciary duty",
   review_notes: null,
+  // PROOF_MATRIX_v2: how many items each paragraph shows before "N more". Served
+  // rather than compiled in, so the page and the Word export agree.
+  visible_items: 5,
   allegations: [],
   allegation_count: 0,
   common_count: 0,

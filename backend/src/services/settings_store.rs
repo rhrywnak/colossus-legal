@@ -63,6 +63,9 @@ const KEY_READINESS_N: &str = "readiness_item_threshold_n";
 const KEY_CARD_TEST_RATIO: &str = "card_test_ratio";
 const KEY_REANCHOR_TOLERANCE: &str = "reanchor_close_match_tolerance";
 const KEY_LINK_SHORT_LIST_MAX: &str = "link_short_list_max";
+const KEY_MATRIX_VISIBLE_ITEMS: &str = "matrix_visible_items";
+const KEY_FACT_CARD_VISIBLE_COUNT: &str = "fact_card_visible_count";
+const KEY_OUR_SIDE_SPEAKERS: &str = "rehearsal_our_side_speakers";
 const KEY_CHRONOLOGY_PHASE_WINDOW: &str = "chronology_phase_window_events";
 const KEY_CHRONOLOGY_PICKER_MAX: &str = "chronology_document_picker_max";
 const KEY_TIMELINE_MIN_DATES: &str = "rehearsal_timeline_min_distinct_dates";
@@ -149,6 +152,9 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CARD_TEST_RATIO,
     KEY_REANCHOR_TOLERANCE,
     KEY_LINK_SHORT_LIST_MAX,
+    KEY_MATRIX_VISIBLE_ITEMS,
+    KEY_FACT_CARD_VISIBLE_COUNT,
+    KEY_OUR_SIDE_SPEAKERS,
     KEY_CHRONOLOGY_PHASE_WINDOW,
     KEY_CHRONOLOGY_PICKER_MAX,
     KEY_TIMELINE_MIN_DATES,
@@ -308,6 +314,9 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         card_test_ratio: ratio_of(require(rows, KEY_CARD_TEST_RATIO)?)?,
         reanchor_close_match_tolerance: float_of(require(rows, KEY_REANCHOR_TOLERANCE)?)?,
         link_short_list_max: count_of(require(rows, KEY_LINK_SHORT_LIST_MAX)?)?,
+        matrix_visible_items: count_of(require(rows, KEY_MATRIX_VISIBLE_ITEMS)?)?,
+        fact_card_visible_count: count_of(require(rows, KEY_FACT_CARD_VISIBLE_COUNT)?)?,
+        rehearsal_our_side_speakers: token_list_of(require(rows, KEY_OUR_SIDE_SPEAKERS)?)?,
         wording: words.curation,
         accusation_wording: words.accusation,
         rehearsal_wording: words.rehearsal,
@@ -330,6 +339,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         scan_wording: words.scan,
         rehearsal_instance_rows_expand_max: count_of(require(rows, KEY_ROWS_EXPAND_MAX)?)?,
         card_grammar_wording: words.card_grammar,
+        fact_card_wording: words.fact_card,
         model_params_wording: words.model_params,
         card_question_truncate_chars: count_of(require(rows, KEY_CARD_QUESTION_TRUNCATE)?)?,
         card_element_chips_visible_k: count_of(require(rows, KEY_CARD_ELEMENT_CHIPS_K)?)?,

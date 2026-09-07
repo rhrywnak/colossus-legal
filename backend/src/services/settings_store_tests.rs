@@ -30,6 +30,7 @@ use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
 use crate::domain::wording_authoring::AUTHORING_WORDING_KEYS;
 use crate::domain::wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS;
 use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
+use crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
@@ -91,6 +92,14 @@ const MATRIX_TIER_HEDGED_PAIRS: &str =
     "partial_admission+sworn_party_admission, partial_admission+sworn_party_evasion";
 const MATRIX_TIER_OTHER_PAIRS: &str = "factual_assertion+sworn_testimony";
 
+/// Our side, exactly as the R3 migration stores it — one line, no continuation.
+///
+/// Held as a const for the same reason as the tier pairs above: the drift test
+/// compares this against the SQL on disk character for character, and a line
+/// break introduced by formatting would fail with a diff nobody could read.
+const OUR_SIDE_SPEAKERS: &str = "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas Buk, \
+     Doug Buk, Charles M. Penzien, Charles Penzien, Paul Williams, Shaw";
+
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
     // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
@@ -109,6 +118,9 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         )
         .chain(crate::domain::wording_scan::ScanWording::for_test_values())
         .chain(crate::domain::wording_card_grammar::CardGrammarWording::for_test_values())
+        // FACT_CARD_v2: the witness's own block. A fixture missing these
+        // twenty-three rows would let a snapshot build that the real store could not.
+        .chain(crate::domain::wording_fact_card::FactCardWording::for_test_values())
         .chain(crate::domain::wording_model_params::ModelParamsWording::for_test_values())
         .chain(crate::domain::wording_chronology::ChronologyWording::for_test_values())
         .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
@@ -262,6 +274,41 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             "8",
             ValueKind::Count,
             Some(1.0),
+            None,
+        ),
+        // PROOF_MATRIX_v2 §3: how many items one paragraph shows before "N more",
+        // and how many the Word export prints per list. Floor of 1, mirroring the
+        // migration's — a list that shows nothing before its "more" control is a
+        // paragraph with its evidence hidden by configuration.
+        row(
+            KEY_MATRIX_VISIBLE_ITEMS,
+            "5",
+            ValueKind::Count,
+            Some(1.0),
+            None,
+        ),
+        // FACT_CARD_v2 §2: how many fact cards open in full before the rest
+        // collapse to their title and source line. Floor of 1, mirroring the
+        // migration's — a deck that opens nothing is a deck of headlines.
+        row(
+            KEY_FACT_CARD_VISIBLE_COUNT,
+            "10",
+            ValueKind::Count,
+            Some(1.0),
+            None,
+        ),
+        // FACT_CARD_v2 §3: whose statements are OURS. A token list, stored as
+        // text like every other one in this table.
+        //
+        // Nine names since integration ruling R3, and this is the RAW stored
+        // string — `token_list_of` splits and folds it at the read, which is why
+        // the parsed fixture in `settings_test_fixture` is lowercased and this
+        // one is not.
+        row(
+            KEY_OUR_SIDE_SPEAKERS,
+            OUR_SIDE_SPEAKERS,
+            ValueKind::Text,
+            None,
             None,
         ),
         // ONE_CARD_GRAMMAR: how much of a question shows, and how many element
@@ -634,7 +681,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     // at whatever moment it happened to be read.
     assert_eq!(
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
-        38,
+        // 38 on `.422`. PROOF_MATRIX_v2 added one and FACT_CARD_v2 two, on
+        // separate branches off the same 38 — so each branch asserted its own
+        // sum and this is where they are added together.
+        41,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -649,7 +699,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          deck row (hotfix, 2026-08-19) — and the chronology scroll window, how \
          many events one phase shows before it scrolls (Phase B, design R6), \
          and the chronology document picker's short list, how many documents \
-         one search offers (Phase C, design R9)"
+         one search offers (Phase C, design R9) — and PROOF_MATRIX_v2's short \
+         list, how many items one paragraph shows before \"N more\" and how many \
+         the Word export prints per list, which are ONE number so the page and \
+         the document a reader takes away from it cannot disagree — and \
+         FACT_CARD_v2's deck size, how many cards open in full before the rest \
+         collapse to their title and source line — and FACT_CARD_v2 §3's \
+         our-side speaker list, which is the INVERSE of naming the opposition \
+         because a speaker nobody listed must show an extra card rather than \
+         hide one she has to answer"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -719,9 +777,19 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         MATRIX_WORDING_KEYS.len(),
-        8,
-        "task 396 P1: the strong column's label and hint, the depth line, the \
-         three tier chips, the duplicate marker, and the ranked-list note"
+        34,
+        "task 396 P1's eight — the strong column's label and hint, the depth \
+         line, the three tier chips, the duplicate marker and the ranked-list \
+         note — plus PROOF_MATRIX_v2's twenty-six, which are what turned this \
+         page from a working surface into one Chuck reads: the short list's two \
+         controls and the hidden group's, the Keep/Remove/Undo buttons, the four \
+         marks under a quote (machine, kept, conflicts, and the four confidence \
+         words — including `low`, which no edge carries YET), the two RFA line \
+         templates, the colour legend, and the Word export's button, title, two \
+         headings, confirmed mark, empty sentence and footer, the \
+         two on-screen empty-leg sentences (worded apart, because our missing \
+         proof and theirs are different findings) — and the sentence shown when \
+         a decision does not save"
     );
     assert_eq!(
         WAR_ROOM_WORDING_KEYS.len(),
@@ -788,6 +856,16 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          don't-recall button earns without a model call"
     );
     assert_eq!(
+        FACT_CARD_WORDING_KEYS.len(),
+        23,
+        "FACT_CARD_v2: the five row labels, what an empty row says, the draft \
+         mark, the two context controls, the two composed lines and the two \
+         stance verbs, the two RFA templates, the deck line, the three editing \
+         controls and the sentence when an edit does not save, and the three the \
+         rehearsal page speaks — the no-answer notice, the accusation heading, \
+         and what a section says when nobody has written a card yet"
+    );
+    assert_eq!(
         seeded().len(),
         REQUIRED_KEYS.len()
             + PRACTICE_PARAM_KEYS.len()
@@ -809,8 +887,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
             + PRACTICE_LIST_WORDING_KEYS.len()
-            + CHRONOLOGY_WORDING_KEYS.len(),
-        "the seed and the twenty-one required lists must describe the same store"
+            + CHRONOLOGY_WORDING_KEYS.len()
+            + FACT_CARD_WORDING_KEYS.len(),
+        "the seed and the twenty-two required lists must describe the same store"
     );
 }
 
@@ -1302,6 +1381,16 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260901162435_gather_probe_max_share_to_one_sixth.sql",
         // ...and reverted, after measurement disproved the ruling behind it.
         "pipeline_migrations/20260901193521_gather_probe_max_share_back_to_one_third.sql",
+        // PROOF_MATRIX_v2: the matrix short list, one number for the page and the
+        // Word export.
+        "pipeline_migrations/20260906141743_proof_matrix_v2_rulings_and_reader_wording.sql",
+        // FACT_CARD_v2: the deck size, beside the card's own words.
+        "pipeline_migrations/20260906161201_fact_card_v2_tables_and_wording.sql",
+        // The 2026-09-07 integration: no new not-wording parameter, but it
+        // CORRECTS one — `rehearsal_our_side_speakers` goes from Marie alone to
+        // Marie and her counsel (ruling R3), and the correction pass below is
+        // what sees it.
+        "pipeline_migrations/20260906203730_fact_card_event_note_and_our_side_speakers.sql",
     ]
     .iter()
     .map(|relative| {

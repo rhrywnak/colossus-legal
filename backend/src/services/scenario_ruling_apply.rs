@@ -28,6 +28,15 @@ use crate::api::scenario_facts_mapping::ruling_error_to_app_error;
 /// identical across the twins of one keystroke — a struct built once and reused
 /// per target is also the statement that the twins receive the SAME ruling, which
 /// five repeated arguments would only imply.
+/// ## Rust Learning: `Copy` on a borrow-carrying struct
+///
+/// Every member is itself `Copy` — two field-less enums, a `&str`, and two
+/// `Option`s of `Copy` types — so copying this struct copies five machine words
+/// and no heap data. Deriving it lets the caller build the struct ONCE outside
+/// the twin loop and hand the same value to every target, which is what the
+/// paragraph above says the struct is for; without `Copy` the first target would
+/// move it and the second would not compile.
+#[derive(Clone, Copy)]
 pub struct RulingFields<'a> {
     pub kind: RulingKind,
     pub status: FactStatus,

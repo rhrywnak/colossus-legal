@@ -31,8 +31,8 @@ use crate::domain::settings::Settings;
 use crate::domain::wording_rehearsal::RehearsalWording;
 use crate::domain::wording_templates::render;
 use crate::dto::rehearsal::{
-    RehearsalAccusation, RehearsalGap, RehearsalHeaders, RehearsalPoint, RehearsalScenario,
-    RehearsalWatchItem,
+    RehearsalAccusation, RehearsalAccusationCard, RehearsalCardWatch, RehearsalGap,
+    RehearsalHeaders, RehearsalPoint, RehearsalScenario, RehearsalWatchItem,
 };
 use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
 use crate::services::rehearsal_count as count;
@@ -53,6 +53,20 @@ pub const GAP_NO_ANSWER: &str = "no_answer_prepared";
 pub const GAP_ACCUSATION_REMOVED: &str = "accusation_removed";
 pub const GAP_ANSWER_REMOVED: &str = "answer_removed";
 pub const GAP_INSTANCE_UNAVAILABLE: &str = "instance_unavailable";
+
+/// The three §3 sections, already built.
+///
+/// A struct rather than three fields on [`ScenarioInput`], which is already at
+/// the width `clippy::too_many_arguments` complains about when it was a call —
+/// and because these three are one thing: what the scenario's CARDS say, as
+/// opposed to what its instances, points and notes say.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct CardSections {
+    pub accusation: Vec<RehearsalAccusationCard>,
+    pub watch_for: Vec<RehearsalCardWatch>,
+    /// The stored sentence for a section with no cards behind it.
+    pub gap: String,
+}
 
 /// Everything one scenario's render needs, gathered by the assembly.
 #[derive(Debug)]
@@ -87,6 +101,11 @@ pub(crate) struct ScenarioInput<'a> {
     pub attack_text: Option<String>,
     /// The complaint paragraphs this scenario bears on, as A-codes.
     pub bears_on: Vec<String>,
+    /// FACT_CARD_v2 §3: the three sections read off the scenario's cards. Built
+    /// by `services::rehearsal_cards`, which is pure, and passed in whole so this
+    /// renderer stays a shaping step rather than growing a fourth source of
+    /// truth about what a card says.
+    pub cards: CardSections,
     /// Candidate ordinals by graph node id — the source of the C-codes the pair
     /// card prints (task R4, P3).
     ///
@@ -121,6 +140,9 @@ pub(crate) fn render_scenario(input: ScenarioInput<'_>) -> RehearsalScenario {
     let headers = section_headers(&accusation, &timeline, &input);
 
     RehearsalScenario {
+        accusation_cards: input.cards.accusation,
+        card_watch_for: input.cards.watch_for,
+        cards_gap: input.cards.gap,
         code: input.code,
         scenario_id: input.scenario_id,
         title: input.title.to_string(),

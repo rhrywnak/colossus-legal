@@ -25,6 +25,13 @@ serde_yaml = "0.9"
 # directly and a key that depends on a transitive crate is a key that can vanish
 # in a `cargo update`.
 unicode-normalization = "0.1"
+# String similarity for the remap's tier-3 near match (REMAP_NORMALIZED_MATCH).
+# Already in the lock at 0.11.1 as a transitive dep of clap, so this adds no new
+# code to the build — but the matcher calls `normalized_levenshtein` directly and
+# a measure that decides where Roman's curated rows land must not be able to
+# vanish in a `cargo update` of somebody else's dependency. Same reasoning as
+# unicode-normalization above.
+strsim = "0.11"
 chrono = { version = "0.4", features = ["serde"] }
 # Already in the lockfile via neo4rs; named directly because the practice pages
 # render every timestamp in the CASE's timezone (build .403 bundle, §D) and a
@@ -86,6 +93,11 @@ sqlx = { version = "0.8", features = [
     "chrono",
     "migrate",
 ] }
+# Word (.docx) generation for the Proof Matrix export (PROOF_MATRIX_v2 §4).
+# Pinned to an exact version, and `default-features = false` to leave out the
+# `image` feature — the export prints text only, and an image decoder is a
+# dependency surface this build has no use for.
+docx-rs = { version = "0.4.22", default-features = false }
 
 [dev-dependencies]
 # `test-util` is NOT part of tokio's `full`. It enables the VIRTUAL clock
@@ -101,3 +113,10 @@ tokio = { version = "1", features = ["full", "test-util"] }
 # *string* — runtime compilation lives in colossus-extract — so `regex`
 # is a test-only dependency here.
 regex = "1"
+
+# FACT_CARD_v2 §1: the one-off loader for Job B's and Job D's drafts. A
+# directory-shaped binary like `ocr_repair_apply`, so its pure planning half can
+# be tested without a database.
+[[bin]]
+name = "load_fact_cards"
+path = "src/bin/load_fact_cards/main.rs"

@@ -41,6 +41,7 @@ use colossus_legal_backend::oneshot::exit::{
     help_text, EXIT_BAD_INPUT, EXIT_CONNECTION, EXIT_EXECUTION_FAILED, EXIT_OK,
 };
 use colossus_legal_backend::remap::execute::{apply, load_document_nodes, take_snapshot};
+use colossus_legal_backend::remap::normalize::NearMatchSettings;
 use colossus_legal_backend::remap::plan::{RemapPlan, Snapshot};
 use colossus_legal_backend::remap::proposal;
 use tracing::{error, info, warn};
@@ -85,6 +86,16 @@ enum Command {
         /// Where to write the human queue.
         #[arg(long, default_value = "remap_human_queue.txt")]
         queue: PathBuf,
+        /// Tier-3 minimum similarity, 0.0-1.0. Omit for the documented default.
+        ///
+        /// Left as an `Option` on purpose: the default lives in
+        /// `NearMatchSettings::default`, so there is exactly one place to read it
+        /// and clap cannot drift from it.
+        #[arg(long)]
+        near_similarity: Option<f64>,
+        /// Tier-3 minimum word coverage, 0.0-1.0. Omit for the documented default.
+        #[arg(long)]
+        near_word_coverage: Option<f64>,
     },
     /// Execute an APPROVED proposal. This is the only writing path.
     Apply {
@@ -121,7 +132,18 @@ async fn execute(args: Args) -> Result<ExitCode, ExitCode> {
             snapshot,
             out,
             queue,
-        } => run_propose(&snapshot, &out, &queue).await,
+            near_similarity,
+            near_word_coverage,
+        } => {
+            // Validated BEFORE anything connects: a nonsensical threshold would
+            // otherwise produce a plausible-looking proposal (Rule 15).
+            let settings =
+                NearMatchSettings::new(near_similarity, near_word_coverage).map_err(|e| {
+                    error!(error = %e, "refusing to run with that threshold");
+                    ExitCode::from(EXIT_BAD_INPUT)
+                })?;
+            run_propose(&snapshot, &out, &queue, settings).await
+        }
         Command::Apply { proposal, report } => run_apply(&database_url, &proposal, &report).await,
     }
 }
@@ -173,16 +195,13 @@ async fn run_snapshot(
 }
 
 /// Match the snapshot against the graph as it stands now.
-async fn run_propose(snapshot_path: &Path, out: &Path, queue: &Path) -> Result<ExitCode, ExitCode> {
-    let text = std::fs::read_to_string(snapshot_path).map_err(|e| {
-        error!(error = %e, path = %snapshot_path.display(), "could not read the snapshot");
-        ExitCode::from(EXIT_BAD_INPUT)
-    })?;
-    let snapshot: Snapshot = serde_json::from_str(&text).map_err(|e| {
-        error!(error = %e, path = %snapshot_path.display(), "the snapshot is not readable JSON");
-        ExitCode::from(EXIT_BAD_INPUT)
-    })?;
-
+async fn run_propose(
+    snapshot_path: &Path,
+    out: &Path,
+    queue: &Path,
+    settings: NearMatchSettings,
+) -> Result<ExitCode, ExitCode> {
+    let snapshot = read_snapshot(snapshot_path)?;
     let graph = connect_graph().await?;
     let new_nodes = load_document_nodes(&graph, &snapshot.document_id)
         .await
@@ -191,13 +210,18 @@ async fn run_propose(snapshot_path: &Path, out: &Path, queue: &Path) -> Result<E
             ExitCode::from(EXIT_CONNECTION)
         })?;
 
-    let plan = RemapPlan::build(&snapshot, &new_nodes);
+    let plan = RemapPlan::build(&snapshot, &new_nodes, settings);
     let totals = plan.totals();
     info!(
         document = %snapshot.document_id,
         old_nodes = totals.old_nodes,
         unchanged = totals.unchanged,
         unambiguous = totals.unambiguous,
+        tier1_exact = totals.unambiguous_exact,
+        tier2_normalized = totals.unambiguous_normalized,
+        tier3_near = totals.unambiguous_near,
+        near_similarity = settings.similarity,
+        near_word_coverage = settings.word_coverage,
         ambiguous = totals.ambiguous,
         unmatched = totals.unmatched,
         yield_percent = format!("{:.1}", totals.yield_percent()),
@@ -216,6 +240,23 @@ async fn run_propose(snapshot_path: &Path, out: &Path, queue: &Path) -> Result<E
         "read the proposal, delete any MAP line you reject, then uncomment APPROVED"
     );
     Ok(ExitCode::from(EXIT_OK))
+}
+
+/// Read a snapshot file, distinguishing "not readable" from "not a snapshot".
+///
+/// The two failures are separate log lines on purpose: a missing file is a typo
+/// in the path, and unreadable JSON is a snapshot written by a build that
+/// disagrees with this one about what was captured. Collapsing them into one
+/// message would leave a reader of the logs unable to tell which (Rule 1).
+fn read_snapshot(path: &Path) -> Result<Snapshot, ExitCode> {
+    let text = std::fs::read_to_string(path).map_err(|e| {
+        error!(error = %e, path = %path.display(), "could not read the snapshot");
+        ExitCode::from(EXIT_BAD_INPUT)
+    })?;
+    serde_json::from_str(&text).map_err(|e| {
+        error!(error = %e, path = %path.display(), "the snapshot is not readable JSON");
+        ExitCode::from(EXIT_BAD_INPUT)
+    })
 }
 
 /// Execute an approved proposal.

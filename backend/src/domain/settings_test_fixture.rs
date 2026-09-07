@@ -14,6 +14,50 @@
 
 use super::*;
 
+/// Our side, seeded value in and parsed list out (integration ruling R3).
+///
+/// Nine names since R3, not one: our side is Marie AND her counsel, each in every
+/// form the record spells them. `is_ours` compares WHOLE names case-folded, so
+/// "Jeffrey Sharp" does not cover a statement recorded as "Jeff Sharp" and both
+/// are listed.
+///
+/// ## Why this parses rather than listing nine lowercase literals
+///
+/// Two reasons, and the second is the real one. It costs `for_test` ONE line
+/// instead of eleven, which matters against Rule 18's ceiling — but more than
+/// that, it makes the fixture agree with the READER by construction. Writing the
+/// folded tokens by hand would be a second implementation of `parse_token_list`'s
+/// splitting and case-folding, free to disagree with the first the day either
+/// changed. Here it cannot.
+///
+/// The input is the migration's stored string verbatim;
+/// `the_fixtures_carry_the_values_the_migration_actually_seeds` pins that
+/// separately, character for character, against the SQL on disk.
+#[cfg(test)]
+fn our_side() -> Vec<String> {
+    parse_token_list(
+        "rehearsal_our_side_speakers",
+        "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas Buk, Doug Buk, \
+         Charles M. Penzien, Charles Penzien, Paul Williams, Shaw",
+    )
+    .expect("the fixture's own speaker list must parse")
+}
+
+/// A `Ratio` built literally, for fixtures only.
+///
+/// `parse_ratio` is the boundary that rejects a zero denominator, and a fixture
+/// is not crossing that boundary — it is stating the seeded value directly. The
+/// helper exists so each ratio costs the fixture ONE line: `Ratio`'s two named
+/// fields make `rustfmt` expand every inline literal to four, and
+/// `Settings::for_test` is one line per stored setting against Rule 18's ceiling.
+#[cfg(test)]
+fn ratio(numerator: u32, denominator: u32) -> Ratio {
+    Ratio {
+        numerator,
+        denominator,
+    }
+}
+
 /// A snapshot for TESTS ONLY.
 ///
 /// ## Why this is `#[cfg(test)]` and not a `Default` impl
@@ -37,10 +81,7 @@ impl Settings {
             // is: `parse_ratio` is the boundary that rejects a zero
             // denominator, and a fixture is not crossing that boundary.
             gather_probe_floor: 3,
-            gather_probe_max_share: Ratio {
-                numerator: 1,
-                denominator: 3,
-            },
+            gather_probe_max_share: ratio(1, 3),
             gather_read_depth: 200,
             gather_subject_filter: crate::domain::gather_filter::GatherSubjectFilter::Widened,
             confidence_band_high: 0.80,
@@ -48,12 +89,13 @@ impl Settings {
             quote_context_window_chars: 240,
             talking_points_cap: 3,
             readiness_item_threshold_n: 5,
-            card_test_ratio: Ratio {
-                numerator: 9,
-                denominator: 10,
-            },
+            card_test_ratio: ratio(9, 10),
             reanchor_close_match_tolerance: 0.85,
             link_short_list_max: 8,
+            matrix_visible_items: 5,
+            fact_card_visible_count: 10,
+            rehearsal_our_side_speakers: our_side(),
+
             wording: Wording::for_test(),
             accusation_wording: AccusationWording::for_test(),
             rehearsal_wording: RehearsalWording::for_test(),
@@ -69,6 +111,7 @@ impl Settings {
             scan_wording: ScanWording::for_test(),
             rehearsal_instance_rows_expand_max: 3,
             card_grammar_wording: CardGrammarWording::for_test(),
+            fact_card_wording: crate::domain::wording_fact_card::FactCardWording::for_test(),
             model_params_wording: ModelParamsWording::for_test(),
             chronology_wording: ChronologyWording::for_test(),
             chronology_phase_window_events: 4,

@@ -52,6 +52,18 @@ export const FactStack: React.FC<{
   onNoticeCleared: () => void;
   /** The chip narrowing this list, or `null` (Piece 7). */
   onFilterChip: (filter: ChipFilter | null) => void;
+  // ── FACT_CARD_v2 §2 ───────────────────────────────────────────────────────
+  /** The case and scenario a field edit is written against — a card is
+   *  SCENARIO-scoped, because the same statement reads differently in two
+   *  attacks. */
+  slug: string;
+  scenarioId: string;
+  /** Which cards are OPEN. A fold, never a filter: every card is on the page and
+   *  one click opens a collapsed one. */
+  isOpen: (row: WorkingRow, index: number) => boolean;
+  onToggleCard: (graphNodeId: string) => void;
+  /** Re-read the deck after a field edit, so the screen matches the store. */
+  onCardEdited: () => void;
 }> = ({
   shown,
   background,
@@ -71,9 +83,14 @@ export const FactStack: React.FC<{
   onUndoWeight,
   onNoticeCleared,
   onFilterChip,
+  slug,
+  scenarioId,
+  isOpen,
+  onToggleCard,
+  onCardEdited,
 }) => {
   /** One card's props — identical for the shown stack and the background pile. */
-  const cardFor = (row: WorkingRow) => ({
+  const cardFor = (row: WorkingRow, index: number) => ({
     key: row.graphNodeId,
     row,
     wording,
@@ -108,12 +125,20 @@ export const FactStack: React.FC<{
     confirm: row.isHuman ? null : wording,
     options,
     onFilterChip,
+    // FACT_CARD_v2 §2: what the card SAYS, and how to edit it. A human fact has
+    // no card — §8 keeps it uncited by design, so there is nothing for a witness
+    // to read off it beyond the sentence she wrote — and passes none.
+    slug,
+    scenarioId,
+    collapsed: row.isHuman ? false : !isOpen(row, index),
+    onToggleCard: () => onToggleCard(row.graphNodeId),
+    onCardEdited,
   });
 
   return (
     <>
-      {shown.map((row) => (
-        <FactRow {...cardFor(row)} />
+      {shown.map((row, index) => (
+        <FactRow {...cardFor(row, index)} />
       ))}
 
       {/* Piece 5a: EVERY weight change says what it did, and offers the way
@@ -181,7 +206,13 @@ export const FactStack: React.FC<{
 
       {/* Same anatomy inside the pile (ruling 3) — these are the same cards, not
           a reduced rendering of them. */}
-      {showBackground && background.map((row) => <FactRow {...cardFor(row)} />)}
+      {showBackground &&
+        background.map((row, index) => (
+          // The pile continues the deck's numbering: a card folded into the
+          // background is still the Nth card, and restarting the count at zero
+          // would open ten more in full the moment somebody expanded it.
+          <FactRow {...cardFor(row, shown.length + index)} />
+        ))}
     </>
   );
 };

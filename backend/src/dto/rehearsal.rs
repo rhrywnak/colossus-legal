@@ -89,6 +89,12 @@ pub struct RehearsalPoint {
     /// and it is a NAMED absence, not a blank, which is the honest-gap law
     /// applied to a block whose pairing editor does not exist yet.
     pub exhibit_notice: String,
+    /// The Proof of every card that backs this point (FACT_CARD_v2 §3).
+    ///
+    /// Empty is the ordinary state on a scenario nobody has drafted cards for.
+    /// This is the 3.9 pairing the `exhibit` field above was waiting for — see
+    /// [`RehearsalPointProof`].
+    pub backing: Vec<RehearsalPointProof>,
 }
 
 /// One thing to watch for, and its address.
@@ -101,6 +107,62 @@ pub struct RehearsalPoint {
 #[serde(deny_unknown_fields)]
 pub struct RehearsalWatchItem {
     pub id: String,
+    pub text: String,
+}
+
+/// One of the other side's statements, with her answer (FACT_CARD_v2 §3).
+///
+/// ## Domain note: shown even when unanswered
+///
+/// `answer` is `None` for a statement nobody has replied to, and the section
+/// renders `answer_gap` beneath it rather than dropping the card. An unanswered
+/// accusation is the most important thing on this page; hiding it would hide the
+/// work rather than the gap.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RehearsalAccusationCard {
+    /// The handle a human says out loud — "C-116". `None` when nothing has
+    /// numbered this statement.
+    pub code: Option<String>,
+    /// What she says about this statement in three seconds, or `None`.
+    pub title: Option<String>,
+    /// Who said it, or `None` for documentary evidence.
+    pub who: Option<String>,
+    /// The statement's own date, `YYYY-MM-DD`. `None` when unrecorded — such
+    /// cards sort last, because a missing date cannot be the oldest.
+    pub when: Option<String>,
+    /// The statement, verbatim. `None` on a node carrying no quote.
+    pub quote: Option<String>,
+    /// Her reply. `None` is a real and important state — see the type doc.
+    pub answer: Option<String>,
+    /// The stored sentence shown when `answer` is `None`. Always present, so the
+    /// gap is named rather than left blank (the honest-gap law).
+    pub answer_gap: String,
+}
+
+/// One card's proof, under the point it backs (FACT_CARD_v2 §3).
+///
+/// ## Domain note: this IS the 3.9 pairing
+///
+/// Tracker task 3.9 was "pair each talking point with the exhibit that backs it",
+/// and [`RehearsalPoint::exhibit`] has carried a named absence waiting for it. The
+/// pairing needs no editor: `backs_position` on the card already says which point
+/// it is for, and this reads it back.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RehearsalPointProof {
+    pub code: Option<String>,
+    pub title: Option<String>,
+    pub who: Option<String>,
+    pub when: Option<String>,
+    pub quote: Option<String>,
+}
+
+/// One card's warning, with the handle a human says out loud (FACT_CARD_v2 §3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct RehearsalCardWatch {
+    pub code: Option<String>,
     pub text: String,
 }
 
@@ -427,6 +489,19 @@ pub struct RehearsalScenario {
     /// Block 6.
     pub watch_for: Vec<RehearsalWatchItem>,
     pub watch_for_gap: Option<String>,
+    // ── FACT_CARD_v2 §3: the three sections read off the cards ───────────────
+    /// The other side's statements, oldest first, each with her answer.
+    ///
+    /// Empty on a scenario nobody has drafted cards for; `cards_gap` then says so
+    /// rather than leaving the section blank.
+    pub accusation_cards: Vec<RehearsalAccusationCard>,
+    /// Every card's `watch_out`, with its C-code. Rendered BEFORE the free-form
+    /// `watch_for` items — a warning tied to a statement she can cite leads, and
+    /// the standing notes follow.
+    pub card_watch_for: Vec<RehearsalCardWatch>,
+    /// The stored sentence for a section with no cards behind it. Always sent,
+    /// so three sections cannot each invent their own way of being empty.
+    pub cards_gap: String,
     pub headers: RehearsalHeaders,
     /// Whether this scenario's instance rows arrive OPEN or one line tall.
     ///

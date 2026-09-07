@@ -45,11 +45,54 @@ export type RehearsalPoint = {
   text: string;
   /** Her own phrasing — "My certified letter". `null` until task 3.9. */
   exhibit: string | null;
+  /**
+   * The Proof of every card that backs this point (FACT_CARD_v2 §3).
+   *
+   * THIS is the 3.9 pairing the `exhibit` field above was waiting for. It needed
+   * no editor: `backs_position` on the card already says which point it is for.
+   * Empty on a scenario nobody has drafted cards for.
+   */
+  backing: RehearsalPointProof[];
   /** The stored sentence shown when `exhibit` is null. Never a blank. */
   exhibit_notice: string;
 };
 
 /** One thing to watch for, and its address. */
+/** One card's proof, under the point it backs (FACT_CARD_v2 §3). */
+export type RehearsalPointProof = {
+  /** "C-116", or null for a statement nothing has numbered. */
+  code: string | null;
+  title: string | null;
+  who: string | null;
+  when: string | null;
+  quote: string | null;
+};
+
+/** One of the other side's statements, with her answer (FACT_CARD_v2 §3). */
+export type RehearsalAccusationCard = {
+  code: string | null;
+  title: string | null;
+  who: string | null;
+  when: string | null;
+  quote: string | null;
+  /**
+   * Her reply, or `null`.
+   *
+   * `null` is a real and important state: the card is still SHOWN, with
+   * `answer_gap` beneath it. An unanswered accusation is the most important
+   * thing on this page, and hiding it would hide the work rather than the gap.
+   */
+  answer: string | null;
+  /** The stored sentence shown when `answer` is null. Always present. */
+  answer_gap: string;
+};
+
+/** One card's warning, with the handle a human says out loud (§3). */
+export type RehearsalCardWatch = {
+  code: string | null;
+  text: string;
+};
+
 export type RehearsalWatchItem = {
   /** The row id `PUT …/human-facts/:fact_id` needs. Renders nowhere. */
   id: string;
@@ -223,6 +266,21 @@ export type RehearsalScenario = {
   points_gap: string | null;
   watch_for: RehearsalWatchItem[];
   watch_for_gap: string | null;
+  /**
+   * The other side's statements, oldest first, each with her answer (§3).
+   *
+   * Empty on a scenario nobody has drafted cards for; `cards_gap` then says so
+   * rather than leaving the section blank.
+   */
+  accusation_cards: RehearsalAccusationCard[];
+  /**
+   * Every card's warning, with its C-code. Rendered BEFORE the free-form
+   * `watch_for` items — a warning tied to a statement she can cite leads, and the
+   * standing notes follow.
+   */
+  card_watch_for: RehearsalCardWatch[];
+  /** The stored sentence for a section with no cards behind it. */
+  cards_gap: string;
   headers: RehearsalHeaders;
   /**
    * Whether the instance rows arrive open or one line tall.

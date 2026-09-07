@@ -13,20 +13,12 @@ import {
   getCausesOfAction,
   type CausesOfActionResponse,
 } from "../causesOfAction";
+import { MATRIX_WORDING_FIXTURE } from "../../testFixtures/matrixWording";
 
 const validResponse: CausesOfActionResponse = {
   case_slug: "awad_v_catholic_family_service",
   counts: [],
-  matrix_wording: {
-    strong_column_label: "Strong support",
-    raw_approved_template: "· {count} approved",
-    strong_hint: "Sworn admissions by the other side, and the court's own findings.",
-    tier_strong_chip: "Their own words",
-    tier_hedged_chip: "Qualified",
-    tier_other_chip: "Our sworn word",
-    duplicate_template: "×{count}",
-    ranked_list_note: "Strongest first",
-  },
+  matrix_wording: MATRIX_WORDING_FIXTURE,
 };
 
 describe("getCausesOfAction", () => {

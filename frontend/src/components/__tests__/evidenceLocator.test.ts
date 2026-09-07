@@ -1,13 +1,18 @@
 /**
- * Pure-helper tests for ElementAllegationList — the source-PDF locator helpers.
+ * Pure-helper tests for `evidenceLocator` — the source-PDF locator helpers.
  * Locks the click-through URL construction (reusing the app's existing
  * /api/documents/:id/file#page=N pattern) and the human locator label across
  * the present/absent-page and missing-title branches.
  *
+ * Moved with the helpers themselves by PROOF_MATRIX_v2, which lifted them out of
+ * `ElementAllegationList` so the new evidence ROW could use them without
+ * importing the list it lives inside. Nothing about the behaviour changed, which
+ * is what these unchanged assertions say.
+ *
  * No DOM / RTL — pure functions only (project precedent: CountCard helpers).
  */
 import { describe, expect, it } from "vitest";
-import { locatorLabel, pdfHref } from "../ElementAllegationList";
+import { locatorLabel, pdfHref } from "../evidenceLocator";
 import { API_BASE_URL } from "../../services/api";
 import type { AllegationEvidence } from "../../services/elementDetailService";
 
@@ -25,7 +30,19 @@ const makeEvidence = (
   evidence_strength: "sworn_party_admission",
   speaker: "George Phillips",
   question: "Did you receive the letter?",
-  tier: "strong",
+  answer: null,
+  rank: 1,
+  role: "their_own_words",
+  confidence: "high",
+  rank_reason: "His own sworn answer.",
+  why: null,
+  conflict: false,
+  duplicate_of_card_id: null,
+  document_date: "2016-08-08",
+  ruling: null,
+  ruled_by: null,
+  hidden_reason: null,
+  rfa_line: null,
   occurrences: 1,
   ...overrides,
 });

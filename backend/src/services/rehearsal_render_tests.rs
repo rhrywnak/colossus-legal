@@ -17,6 +17,7 @@ use crate::domain::human_authored::HumanFactKind;
 use crate::domain::settings::Settings;
 use crate::dto::rehearsal::RehearsalWatchItem;
 use crate::repositories::scenario_accusation_repository::RehearsalFactRow;
+use crate::services::rehearsal_render::CardSections;
 use crate::services::scenario_accusation::{derive, StoredJudgment};
 use std::collections::HashSet;
 
@@ -97,6 +98,11 @@ fn render_with(
     // candidate nothing has numbered and keeps the assertions below unchanged.
     let ordinals = HashMap::new();
     render_scenario(ScenarioInput {
+        // FACT_CARD_v2 §3: this suite asserts how the INSTANCES, points and notes
+        // render, and holds no cards. Empty rather than absent — the three
+        // sections are always on the payload, and their emptiness is what the gap
+        // sentence is for.
+        cards: CardSections::default(),
         ordinals: &ordinals,
         // Task R3's three: the identity line's word, the foldable verbatim
         // attack, and the bears-on chips. Fixed here because these tests are
@@ -114,6 +120,7 @@ fn render_with(
         state: &state,
         facts: &rows,
         points: vec![RehearsalPoint {
+            backing: Vec::new(),
             position: 1,
             text: "I sent a certified letter in November 2009.".to_string(),
             exhibit: None,

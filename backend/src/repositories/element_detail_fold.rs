@@ -27,6 +27,7 @@ use std::collections::HashMap;
 use super::element_detail_repository::{
     source_section_for, AllegationSummary, ElementDetailRepoError, EvidenceRef,
 };
+use crate::domain::matrix_edge::{EdgeRole, LinkConfidence};
 
 /// Element + parent-Count columns captured from the first decoded row. A named
 /// struct (not a tuple) keeps the call site readable and clippy's
@@ -112,17 +113,19 @@ enum EvidenceLeg {
 }
 
 impl EvidenceLeg {
-    /// The row aliases this leg projects: `(id, quote, page, paragraph,
-    /// page_note, document_id, document_title, statement_type,
-    /// evidence_strength, speaker, question)`.
+    /// The row aliases this leg projects, in the order [`decode_evidence`]
+    /// destructures them.
     ///
-    /// The last four arrived with task 396's strength ranking. They are projected
-    /// for BOTH legs rather than the supporting one alone: the legs are parallel
-    /// by design (`the_two_evidence_legs_read_disjoint_columns` asserts the array
-    /// widths match), and a leg that projected fewer columns than its twin would
-    /// make the shared `decode_evidence` branch on which leg it is holding —
-    /// which is exactly the `&str` flag this enum replaced.
-    fn columns(self) -> [&'static str; 11] {
+    /// Every column is projected for BOTH legs rather than the supporting one
+    /// alone: the legs are parallel by design
+    /// (`the_two_evidence_legs_read_disjoint_columns` asserts the array widths
+    /// match), and a leg that projected fewer columns than its twin would make
+    /// the shared `decode_evidence` branch on which leg it is holding — which is
+    /// exactly the `&str` flag this enum replaced.
+    ///
+    /// The last nine arrived with PROOF_MATRIX_v2: eight edge properties the
+    /// linking pass wrote, plus the source document's date, which §3 sorts on.
+    fn columns(self) -> [&'static str; 20] {
         match self {
             EvidenceLeg::Supporting => [
                 "evidence_id",
@@ -136,6 +139,15 @@ impl EvidenceLeg {
                 "evidence_strength",
                 "evidence_speaker",
                 "evidence_question",
+                "evidence_answer",
+                "evidence_document_date",
+                "evidence_rank",
+                "evidence_role",
+                "evidence_confidence",
+                "evidence_rank_reason",
+                "evidence_why",
+                "evidence_conflict",
+                "evidence_duplicate_of",
             ],
             EvidenceLeg::Disputing => [
                 "disputing_id",
@@ -149,6 +161,15 @@ impl EvidenceLeg {
                 "disputing_strength",
                 "disputing_speaker",
                 "disputing_question",
+                "disputing_answer",
+                "disputing_document_date",
+                "disputing_rank",
+                "disputing_role",
+                "disputing_confidence",
+                "disputing_rank_reason",
+                "disputing_why",
+                "disputing_conflict",
+                "disputing_duplicate_of",
             ],
         }
     }
@@ -176,22 +197,15 @@ fn decode_evidence(
     leg: EvidenceLeg,
     op: &'static str,
 ) -> Result<Option<EvidenceRef>, ElementDetailRepoError> {
-    let [c_id, c_quote, c_page, c_para, c_note, c_doc_id, c_doc_title, c_stmt, c_strength, c_speaker, c_question] =
+    let [c_id, c_quote, c_page, c_para, c_note, c_doc_id, c_doc_title, c_stmt, c_strength, c_speaker, c_question, c_answer, c_date, c_rank, c_role, c_confidence, c_rank_reason, c_why, c_conflict, c_duplicate] =
         leg.columns();
     let id: Option<String> = row.get(c_id).map_err(decode_err(op))?;
     // No Evidence on this row → nothing to attach.
     let Some(id) = id else {
         return Ok(None);
     };
-    let source_document_id: Option<String> = row.get(c_doc_id).map_err(decode_err(op))?;
-    if source_document_id.is_none() {
-        tracing::warn!(
-            evidence_id = %id,
-            leg = leg.label(),
-            "Evidence has no CONTAINED_IN Document — source-PDF click-through unavailable; \
-             re-run pass-2 extraction for the source document or verify its CONTAINED_IN edge was authored"
-        );
-    }
+    let source_document_id = decode_source_document(row, c_doc_id, leg, &id, op)?;
+
     Ok(Some(EvidenceRef {
         verbatim_quote: row.get(c_quote).map_err(decode_err(op))?,
         page_number: row.get(c_page).map_err(decode_err(op))?,
@@ -202,15 +216,128 @@ fn decode_evidence(
         evidence_strength: row.get(c_strength).map_err(decode_err(op))?,
         speaker: row.get(c_speaker).map_err(decode_err(op))?,
         question: row.get(c_question).map_err(decode_err(op))?,
-        // Both filled in later, by `rank_supporting_evidence`, and only for the
-        // supporting leg. Decoding cannot know a tier: the map lives in the
-        // settings store, which this layer has no handle on.
-        tier: None,
+        answer: row.get(c_answer).map_err(decode_err(op))?,
+        document_date: row.get(c_date).map_err(decode_err(op))?,
+        rank: row.get(c_rank).map_err(decode_err(op))?,
+        rank_reason: row.get(c_rank_reason).map_err(decode_err(op))?,
+        why: row.get(c_why).map_err(decode_err(op))?,
+        duplicate_of_card_id: row.get(c_duplicate).map_err(decode_err(op))?,
+        // `conflict` is written on 28 edges and absent everywhere else. Absent
+        // means "not in conflict", which is why this is a `bool` rather than an
+        // `Option<bool>` — there is no third state a reader could act on.
+        conflict: row
+            .get::<Option<bool>>(c_conflict)
+            .map_err(decode_err(op))?
+            .unwrap_or(false),
+        // Both vocabularies are validated rather than trusted: an unknown token is
+        // logged with the item's id and rendered as "no claim", never as a hidden
+        // row. See `readable_token`.
+        role: readable_token(row, c_role, &id, op, parse_role)?,
+        confidence: readable_token(row, c_confidence, &id, op, parse_confidence)?,
+        // Filled in later by the ordering overlay, which needs the human rulings
+        // and the stored wording — neither of which this layer has a handle on.
+        ruling: None,
+        ruled_by: None,
+        hidden_reason: None,
+        rfa_line: None,
         occurrences: 1,
-        // `id` is moved last — it is borrowed by the `warn` above.
+        // `id` is moved last — it is borrowed by the parses above.
         source_document_id,
         id,
     }))
+}
+
+/// One role token, canonicalised, or the message an operator needs.
+///
+/// A named function rather than a closure at the call site: the two vocabularies
+/// parse identically apart from their type, and a pair of two-line closures
+/// inside a struct literal is where a copy-paste puts the wrong one.
+fn parse_role(token: &str) -> Result<&'static str, String> {
+    EdgeRole::try_from(token)
+        .map(EdgeRole::code)
+        .map_err(|e| e.to_string())
+}
+
+/// One confidence token, canonicalised, or the message an operator needs.
+fn parse_confidence(token: &str) -> Result<&'static str, String> {
+    LinkConfidence::try_from(token)
+        .map(LinkConfidence::code)
+        .map_err(|e| e.to_string())
+}
+
+/// The Evidence item's source Document id, warning when there is none.
+///
+/// Split from [`decode_evidence`] so that function stays inside the 50-line
+/// limit, and because this is the one column whose ABSENCE is a data-gap worth an
+/// operator line rather than just a `None`: the item is kept (it still bears on
+/// the Allegation) and the source-PDF click-through is simply unavailable. We do
+/// not drop the evidence and we do not fail the request.
+fn decode_source_document(
+    row: &neo4rs::Row,
+    column: &'static str,
+    leg: EvidenceLeg,
+    evidence_id: &str,
+    op: &'static str,
+) -> Result<Option<String>, ElementDetailRepoError> {
+    let source_document_id: Option<String> = row.get(column).map_err(decode_err(op))?;
+    if source_document_id.is_none() {
+        tracing::warn!(
+            %evidence_id,
+            leg = leg.label(),
+            "Evidence has no CONTAINED_IN Document — source-PDF click-through unavailable; \
+             re-run pass-2 extraction for the source document or verify its CONTAINED_IN edge was authored"
+        );
+    }
+    Ok(source_document_id)
+}
+
+/// Read one vocabulary column, keeping only a token this build can name.
+///
+/// ## Why an unreadable token degrades instead of failing the request
+///
+/// `role` and `confidence` are written by a pass that runs OUTSIDE this build, so
+/// a newer pass emitting a sixth role is a state that will happen, and it must
+/// not take down an Element's whole detail panel. Equally it must not be guessed
+/// at: an unrecognised role rendered as `does_not_belong` would hide proof.
+///
+/// So the token is dropped to `None` — "this build has no claim about it" —
+/// which shows the row with no mark, and the offending value is `warn`-logged
+/// with the item id so an operator can see the backend is behind the graph. This
+/// is the same reasoning `matrixStrength.tierChipLabel` documents for an unknown
+/// tier, applied one layer earlier.
+///
+/// ## Rust Learning: taking a closure that returns `Result<&'static str, String>`
+///
+/// The two vocabularies have different error types, so the caller passes a small
+/// closure that does its own parse and flattens the error to a `String` for the
+/// log line. The success value is the CANONICAL token (`role.code()`), not the
+/// raw one — so a value that differed only in case could never reach the wire.
+fn readable_token(
+    row: &neo4rs::Row,
+    column: &'static str,
+    evidence_id: &str,
+    op: &'static str,
+    parse: impl Fn(&str) -> Result<&'static str, String>,
+) -> Result<Option<String>, ElementDetailRepoError> {
+    let raw: Option<String> = row.get(column).map_err(decode_err(op))?;
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    match parse(&raw) {
+        Ok(code) => Ok(Some(code.to_string())),
+        Err(message) => {
+            tracing::warn!(
+                %evidence_id,
+                column,
+                token = %raw,
+                error = %message,
+                "the graph holds a linking-pass token this build cannot name — the row \
+                 is shown with no mark for it and nothing is hidden; update the backend \
+                 vocabulary in domain::matrix_edge"
+            );
+            Ok(None)
+        }
+    }
 }
 
 /// Append `ev` to `bucket` unless an item with the same `id` is already present.
@@ -302,73 +429,5 @@ impl DetailFold {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn evidence(id: &str, page: i64) -> EvidenceRef {
-        EvidenceRef {
-            id: id.to_string(),
-            verbatim_quote: None,
-            page_number: Some(page),
-            paragraph: None,
-            page_note: None,
-            source_document_id: None,
-            source_document_title: None,
-            statement_type: None,
-            evidence_strength: None,
-            speaker: None,
-            question: None,
-            tier: None,
-            occurrences: 1,
-        }
-    }
-
-    /// A second push with the SAME evidence id is a no-op — the panel must not
-    /// render an Evidence card twice when a duplicate `CORROBORATES` edge fans
-    /// the same Evidence onto two rows.
-    #[test]
-    fn push_evidence_deduped_skips_duplicate_id() {
-        let mut bucket: Vec<EvidenceRef> = Vec::new();
-        push_evidence_deduped(&mut bucket, evidence("evidence-074", 22));
-        // Same id, different page_number — still treated as the same item.
-        push_evidence_deduped(&mut bucket, evidence("evidence-074", 99));
-        assert_eq!(bucket.len(), 1);
-        assert_eq!(bucket[0].id, "evidence-074");
-        assert_eq!(bucket[0].page_number, Some(22), "first write wins");
-    }
-
-    /// The two legs project disjoint column sets — a leg reading the other's
-    /// aliases would attach disputing items to the supporting bucket, which
-    /// renders as a rebuttal shown under "supporting evidence": the worst
-    /// possible display error on a proof surface.
-    #[test]
-    fn the_two_evidence_legs_read_disjoint_columns() {
-        let supporting = EvidenceLeg::Supporting.columns();
-        let disputing = EvidenceLeg::Disputing.columns();
-        for s in supporting {
-            assert!(
-                !disputing.contains(&s),
-                "column `{s}` is claimed by both legs"
-            );
-        }
-        assert_eq!(supporting.len(), disputing.len(), "legs must be parallel");
-    }
-
-    /// Each leg names itself in the data-gap warning, so an operator reading the
-    /// log can tell WHICH side is missing its source document.
-    #[test]
-    fn each_leg_labels_itself_for_the_operator_log() {
-        assert_eq!(EvidenceLeg::Supporting.label(), "corroborating");
-        assert_eq!(EvidenceLeg::Disputing.label(), "disputing");
-    }
-
-    /// Distinct evidence ids both land in the bucket, preserving insertion order.
-    #[test]
-    fn push_evidence_deduped_keeps_distinct_ids() {
-        let mut bucket: Vec<EvidenceRef> = Vec::new();
-        push_evidence_deduped(&mut bucket, evidence("evidence-074", 22));
-        push_evidence_deduped(&mut bucket, evidence("evidence-041", 15));
-        let ids: Vec<&str> = bucket.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, vec!["evidence-074", "evidence-041"]);
-    }
-}
+#[path = "element_detail_fold_tests.rs"]
+mod tests;

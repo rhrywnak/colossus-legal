@@ -169,6 +169,28 @@ fn probes(out: &mut String, gather: &RankedGather) {
     }
 }
 
+/// The words inside the quote block.
+///
+/// ## Why a request is printed above the answer
+///
+/// 86 cards in this corpus answer a request for admission with nothing but
+/// `Admitted.` or `Denied as untrue.` Since the mirror began indexing
+/// `question`, those cards RANK — 35 of them appeared in the v2 export — and the
+/// block printed the answer on its own. A reader could see that the gather had
+/// found something and not what had been admitted, and "Admitted." is not a
+/// sentence anyone can put in a brief.
+///
+/// So where the card carries a request, the block shows both, labelled, in the
+/// order they were asked and answered. Where it does not, the bare quote is
+/// returned unchanged — byte for byte, which
+/// `a_card_without_a_question_renders_exactly_as_before` holds.
+fn quote_body(question: Option<&str>, quote: &str) -> String {
+    match question.map(str::trim).filter(|q| !q.is_empty()) {
+        Some(request) => format!("Request: {request}\nAnswer: {quote}"),
+        None => quote.to_string(),
+    }
+}
+
 fn ranked(out: &mut String, gather: &RankedGather, cards: &BTreeMap<String, Card>) {
     out.push_str(&format!("## The top {RANKED_SHOWN}\n\n"));
     let shown: Vec<_> = gather
@@ -207,7 +229,7 @@ fn ranked(out: &mut String, gather: &RankedGather, cards: &BTreeMap<String, Card
             }
         ));
         out.push_str("> ");
-        out.push_str(&card.quote.replace('\n', "\n> "));
+        out.push_str(&quote_body(card.question.as_deref(), &card.quote).replace('\n', "\n> "));
         out.push_str("\n\n");
         if !card.significance.is_empty() {
             out.push_str(&format!("*Why it matters.* {}\n\n", card.significance));

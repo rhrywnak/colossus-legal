@@ -9,6 +9,7 @@
 //! database or graph is needed to prove the contract holds.
 
 use super::*;
+use crate::repositories::pipeline_repository::EvidenceSummaryOverrideRecord;
 
 /// The seeded snapshot — band cutoffs 0.80/0.50, context window 240. The
 /// assertions below are written against those, the same values the migration
@@ -51,6 +52,9 @@ fn linked_row(edge_class: &str) -> CardExtrasRow {
     CardExtrasRow {
         evidence_id: "ev-1".to_string(),
         statement_type: Some("partial_admission".to_string()),
+        // FACT_CARD_v2 §2: the statement's own date wins over its document's.
+        event_date: Some("2010-10-14".to_string()),
+        document_date: Some("2010-11-02".to_string()),
         grounding_status: Some("exact".to_string()),
         edge_class: Some(edge_class.to_string()),
         allegation_id: Some("alleg-54".to_string()),
@@ -68,6 +72,9 @@ fn unlinked_row() -> CardExtrasRow {
     CardExtrasRow {
         evidence_id: "ev-1".to_string(),
         statement_type: Some("partial_admission".to_string()),
+        // No date of its own — the fold falls back to the document's.
+        event_date: None,
+        document_date: Some("2010-11-02".to_string()),
         grounding_status: Some("exact".to_string()),
         edge_class: None,
         allegation_id: None,

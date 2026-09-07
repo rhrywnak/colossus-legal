@@ -38,6 +38,16 @@
 //! quote, the page, the question and the candidates, so the decision can be made
 //! from the file.
 //!
+//! ## Three tiers of evidence (added 2026-09-05)
+//!
+//! The first real re-extraction matched **0 of 14** movable nodes, because the
+//! only test was byte-for-byte agreement and the corrected page text changed
+//! every quote's line breaks. Matching now runs in three tiers — exact, exact
+//! after a loose normalization, and a measured near match — and every `MAP` line
+//! carries the tier and the score that produced it, so approving a tier-3 line is
+//! a different act from approving a tier-1 line and reads like one. See
+//! [`tiers`] for the order and [`normalize`] for what the loose form drops.
+//!
 //! Measured yield across a real template change: 87.8% unambiguous, 4 ambiguous,
 //! 12 unmatched of 131. That is the floor the Morris gate test checks against.
 //!
@@ -46,7 +56,9 @@
 //! Shipped and tested; not run. The task says so and the tool does not argue.
 
 pub mod execute;
+pub mod normalize;
 pub mod plan;
 pub mod proposal;
+mod tiers;
 
-pub use plan::{Match, RemapPlan, Snapshot, SnapshotNode};
+pub use plan::{AutoMove, Match, MatchTier, RemapPlan, Snapshot, SnapshotNode};
