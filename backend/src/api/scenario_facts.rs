@@ -47,7 +47,6 @@
 //! reference whose node has since disappeared is returned with `content: null`
 //! rather than dropped, so a stale reference stays observable (Standing Rule 1).
 
-use crate::domain::fact_card::CardStance;
 use axum::{
     extract::{Path, State},
     http::StatusCode,
@@ -63,12 +62,12 @@ use crate::{
     auth::{require_edit, AuthUser},
     bias::repository::BiasRepository,
     domain::{fact_status::FactStatus, ruling_anchor::RulingKind},
-    dto::{AddFactRequest, FactActionRequest, ScenarioFactDto},
+    dto::{AddFactRequest, FactAction, FactActionRequest, ScenarioFactDto},
     error::AppError,
     repositories::pipeline_repository::{get_scenario, list_fact_refs_for_scenario},
     services::scenario_proposal_lookup::resolve_proposed_ruling,
     services::scenario_ruling::{record_removal, record_ruling, RulingRequest},
-    services::scenario_ruling_apply::{rule_one, RulingFields},
+    services::scenario_ruling_apply::RulingFields,
     state::AppState,
 };
 
@@ -214,7 +213,7 @@ pub(crate) async fn ensure_scenario_in_case(
 // The pure mapping helpers (`join_facts`, the two verb translations, and the
 // error→HTTP mapping) live in the sibling `scenario_facts_mapping` module — they
 // are pure, and moving them kept this module inside the 300-line limit.
-use super::scenario_fact_include::{include_link, link_included_fact};
+use super::scenario_fact_include::{include_link, mint_ordinals_for_include, rule_targets};
 use super::scenario_facts_mapping::{
     action_to_ruling_kind, action_to_status, join_facts, ruling_error_to_app_error,
 };
@@ -465,39 +464,14 @@ pub async fn apply_fact_action(
     )
     .await?;
 
-    Ok(StatusCode::OK)
-}
-
-/// Rule every target the one action settles, and link each included one.
-///
-/// Split out of [`apply_fact_action`] for the function-size limit (Rule 18).
-///
-/// ## Domain note: one ruling, several statements
-///
-/// `targets` is usually the single card the human clicked. It is longer only when
-/// the projecting run found byte-identical twins — one judgment settles the whole
-/// set, because asking a human to rule the same sentence twice is the duplicate
-/// work the proposal machinery exists to remove.
-///
-/// The loop is SEQUENTIAL and stops at the first error rather than pressing on:
-/// a half-ruled twin set is recoverable by re-clicking, whereas a partial write
-/// whose failure was swallowed would leave the reader believing all of them were
-/// judged (Rule 1).
-async fn rule_targets(
-    state: &AppState,
-    id: uuid::Uuid,
-    targets: &[String],
-    fields: RulingFields<'_>,
-    link: Option<(&str, CardStance)>,
-) -> Result<(), AppError> {
-    for target in targets {
-        rule_one(state, id, target, fields).await?;
-
-        if let Some((allegation_id, stance)) = link {
-            link_included_fact(state, target, allegation_id, stance, fields.ruled_by).await?;
-        }
+    // FACT_CARD_v2 / v2.1.2: an include is also the moment a candidate acquires
+    // the handle a human says out loud. Only an include — a drop, an un-drop, a
+    // defer and a reopen all change STATE, and none of them creates identity.
+    if matches!(payload.action, FactAction::Include) {
+        mint_ordinals_for_include(&state, id, &targets).await?;
     }
-    Ok(())
+
+    Ok(StatusCode::OK)
 }
 
 /// `GET /cases/:slug/scenarios/:scenario_id/facts` — list saved facts with content.

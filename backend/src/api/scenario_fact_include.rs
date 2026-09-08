@@ -5,6 +5,11 @@
 //! an include does — recording which accusation the fact bears on and which way
 //! it cuts — while the handler beside it is about the ruling itself.
 //!
+//! v2.1.2 added a THIRD such thing, to the same seam and for the same reason:
+//! [`mint_ordinals_for_include`], which gives a just-included fact the `C-n` a
+//! human says out loud. Its own doc comment says why identity is minted at the
+//! include and not on a read path.
+//!
 //! ## Why the include grew two more writes
 //!
 //! Including a fact used to write a `scenario_fact_refs` row and nothing else,
@@ -20,12 +25,15 @@
 //! FACT_CARD_v2 §2 applied: write the link alone and name the gap.
 
 use chrono::Utc;
+use uuid::Uuid;
 
 use crate::domain::fact_card::CardStance;
 use crate::domain::matrix_ruling::MatrixRuling;
 use crate::dto::{FactAction, FactActionRequest};
 use crate::error::AppError;
+use crate::repositories::pipeline_repository::assign_candidate_ordinals;
 use crate::repositories::pipeline_repository::evidence_allegation_rulings::RulingWrite;
+use crate::services::scenario_ruling_apply::{rule_one, RulingFields};
 use crate::state::AppState;
 
 /// The accusation and stance an INCLUDE must carry, or the refusal that names
@@ -236,3 +244,103 @@ async fn keep_on_the_matrix(
 #[cfg(test)]
 #[path = "scenario_fact_include_tests.rs"]
 mod tests;
+
+/// Give a just-included fact its C-code, at the moment identity is created.
+///
+/// ## Why the mint happens HERE and not on a read path
+///
+/// Gather memoizes ordinals for everything it can see, and `…/facts/cards`
+/// deliberately does not (two readers racing to mint the same `C-14` is a unique
+/// violation waiting to happen — that route's own doc comment says so). Between the
+/// two of them sits a fact a human included that gather does not reach: it has a
+/// ruling, it has a card, and it had no number, so every message about it had to
+/// name a 70-character node id. An INCLUDE is not a read and it cannot race a
+/// second reader, so it is the honest place for identity to begin.
+///
+/// Idempotent: `assign_candidate_ordinals` ends in `ON CONFLICT … DO NOTHING`, so a
+/// fact that already has an ordinal keeps it and re-including one mints nothing.
+/// `targets` is the ruling's own list — one node, or the byte-identical twin set a
+/// single ruling settles — so the twins are numbered by the same act that ruled them.
+///
+/// ## Domain note: an ordinal is never re-issued
+///
+/// The table is append-only by design (a dropped candidate keeps its id forever, so
+/// "we looked at C-31 and dropped it" stays sayable). Nothing here renumbers, and a
+/// re-include after a removal returns the SAME number the fact had before.
+///
+/// # Errors
+/// [`AppError::Internal`] when the insert fails — notably a unique violation on
+/// `(scenario_id, ordinal)`. **Returned, never swallowed:** a duplicate `C-14` would
+/// make a human's spoken handle ambiguous, and a silent failure here would leave a
+/// visibly un-numbered card with nothing in the log saying why (Standing Rule 1).
+/// The ruling itself has already committed, and the message says exactly that.
+pub(crate) async fn mint_ordinals_for_include(
+    state: &AppState,
+    scenario_id: Uuid,
+    targets: &[String],
+) -> Result<(), AppError> {
+    let minted = assign_candidate_ordinals(&state.pipeline_pool, scenario_id, targets, Utc::now())
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e, %scenario_id, targets = targets.len(),
+                "the include was recorded and its candidate identifier could not be assigned"
+            );
+            // The scenario rides in the MESSAGE and not only in the log, for the
+            // reason `link_included_fact` gives above: the ruling has already
+            // committed, so nothing will re-prompt the human, and a 500 that
+            // cannot say which scenario it was about is one nobody can act on.
+            AppError::Internal {
+                message: format!(
+                    "the fact was included in scenario {scenario_id} but its candidate \
+                     number could not be assigned; include it again to retry"
+                ),
+            }
+        })?;
+
+    // Logged in BOTH directions, because zero is a real and common answer — the
+    // fact already had a number — and an absent line would be indistinguishable
+    // from the mint never having been attempted.
+    tracing::info!(
+        %scenario_id,
+        targets = targets.len(),
+        minted,
+        "assigned candidate identifiers for an included fact"
+    );
+    Ok(())
+}
+
+/// Rule every target the one action settles, and link each included one.
+///
+/// Split out of `api::scenario_facts::apply_fact_action` for the function-size
+/// limit (Rule 18), and moved HERE in v2.1.2 for the module-size limit (Rule 17):
+/// its two inner calls are this module's own subject — what an include does beyond
+/// writing its ruling row — so it reads better beside them than beside the router.
+///
+/// ## Domain note: one ruling, several statements
+///
+/// `targets` is usually the single card the human clicked. It is longer only when
+/// the projecting run found byte-identical twins — one judgment settles the whole
+/// set, because asking a human to rule the same sentence twice is the duplicate
+/// work the proposal machinery exists to remove.
+///
+/// The loop is SEQUENTIAL and stops at the first error rather than pressing on:
+/// a half-ruled twin set is recoverable by re-clicking, whereas a partial write
+/// whose failure was swallowed would leave the reader believing all of them were
+/// judged (Rule 1).
+pub(crate) async fn rule_targets(
+    state: &AppState,
+    id: uuid::Uuid,
+    targets: &[String],
+    fields: RulingFields<'_>,
+    link: Option<(&str, CardStance)>,
+) -> Result<(), AppError> {
+    for target in targets {
+        rule_one(state, id, target, fields).await?;
+
+        if let Some((allegation_id, stance)) = link {
+            link_included_fact(state, target, allegation_id, stance, fields.ruled_by).await?;
+        }
+    }
+    Ok(())
+}

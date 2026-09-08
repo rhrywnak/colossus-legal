@@ -8,6 +8,7 @@ use super::*;
 // `apply_display_order` and `build_ref_states` moved to the pool assembler when
 // this route module hit the 300-line limit; the tests stayed with the payload
 // they describe.
+use crate::api::scenario_cards_hydrate::refs_outside_pool;
 use crate::bias::dto::DocumentRef;
 use crate::repositories::pipeline_repository::ScenarioFactRefRecord;
 use crate::services::scenario_card_assembly::apply_display_order;
@@ -262,5 +263,104 @@ fn a_scenario_with_no_target_is_told_why_its_queue_is_empty() {
         response.link_progress.is_none(),
         "there is no stuck pile to report progress against — '0 of 0 linked' \
          would be a true sentence about a question nobody asked"
+    );
+}
+
+// ─── A ruled fact outside the gathered pool still reaches the payload (v2.1.2) ─
+
+/// The defect this route carried until v2.1.2, in one pure test.
+///
+/// The gathered pool is `all_evidence_about_subject`, so an included fact ABOUT
+/// SOMEBODY ELSE — Phillips' own admission, answering an accusation against Marie
+/// — never appeared in it, and `assemble` only ever walks the pool. The reference
+/// row existed, the card existed, and the fact was on no screen. Measured on DEV
+/// 2026-09-08: ten of S-1's nineteen included facts.
+///
+/// Two halves, because the fix has two halves:
+///
+/// 1. [`refs_outside_pool`] must name exactly the ruled node the pool lacks — and
+///    must NOT name the one it already has, or the handler would hydrate a node
+///    twice and serve it as two cards.
+/// 2. Once that node is appended, `assemble` must serve it like any other member:
+///    `included` in `pool`, `dropped` in `set_aside`.
+///
+/// No graph, no database: the hydrate itself is one `evidence_by_ids` call, and
+/// what is worth pinning is the SELECTION and the OUTCOME either side of it.
+#[test]
+fn a_ruled_fact_outside_the_gathered_pool_is_selected_and_then_served() {
+    let settings = crate::domain::settings::Settings::for_test();
+
+    // The graph gathered ev-1 only. A human has ruled on three facts: ev-1 (in the
+    // pool), ev-2 (outside it, included) and ev-3 (outside it, dropped).
+    let gathered = vec![instance("ev-1", Some(14))];
+    let refs = vec![
+        fact_ref("ev-1", "included"),
+        fact_ref("ev-2", "included"),
+        fact_ref("ev-3", "dropped"),
+    ];
+
+    let missing = refs_outside_pool(&refs, &gathered);
+    assert_eq!(
+        missing,
+        vec!["ev-2".to_string(), "ev-3".to_string()],
+        "exactly the ruled nodes the gather does not reach, in the refs' own order"
+    );
+
+    // What `append_refs_outside_pool` does with what `evidence_by_ids` hands back.
+    let mut pool = gathered;
+    pool.push(instance("ev-2", Some(14)));
+    pool.push(instance("ev-3", Some(14)));
+
+    let response = assemble(
+        pool,
+        &HashMap::new(),
+        &build_ref_states(refs).expect("well-formed rows decode"),
+        &ordinals(&[("ev-1", 1), ("ev-2", 2), ("ev-3", 3)]),
+        &HashMap::new(),
+        &settings,
+        PoolIndexes {
+            human: HumanTouchIndex {
+                question_overrides: &HashMap::new(),
+                links: &HashMap::new(),
+            },
+            proposals: &HashMap::new(),
+        },
+    );
+
+    let served: Vec<&str> = response
+        .pool
+        .iter()
+        .map(|c| c.graph_node_id.as_str())
+        .collect();
+    assert_eq!(
+        served,
+        vec!["ev-1", "ev-2"],
+        "the included fact from outside the pool is served beside the gathered one"
+    );
+    let aside: Vec<&str> = response
+        .set_aside
+        .iter()
+        .map(|c| c.graph_node_id.as_str())
+        .collect();
+    assert_eq!(
+        aside,
+        vec!["ev-3"],
+        "and a dropped one from outside the pool still lands in set-aside"
+    );
+}
+
+/// A pool that already holds every ruled node hydrates nothing.
+///
+/// The no-op case is worth its own assertion: if this returned the refs regardless,
+/// every page load would re-read the whole ruled set from the graph and serve each
+/// of those cards twice.
+#[test]
+fn a_pool_that_already_holds_every_ruled_fact_needs_no_hydrate() {
+    let pool = vec![instance("ev-1", None), instance("ev-2", None)];
+    let refs = vec![fact_ref("ev-1", "included"), fact_ref("ev-2", "dropped")];
+
+    assert!(
+        refs_outside_pool(&refs, &pool).is_empty(),
+        "nothing is missing, so nothing is fetched"
     );
 }
