@@ -57,6 +57,7 @@ use crate::{
 };
 
 use super::scenario_card_fact_cards::attach_scenario_fact_cards;
+use super::scenario_cards_hydrate::append_refs_outside_pool;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 use super::scenario_gather::resolve_gather_subject;
 
@@ -107,7 +108,7 @@ pub async fn get_scenario_cards(
         )));
     };
 
-    let pool = BiasRepository::new(state.graph.clone())
+    let mut pool = BiasRepository::new(state.graph.clone())
         .all_evidence_about_subject(&subject_id)
         .await
         .map_err(|e| {
@@ -117,6 +118,20 @@ pub async fn get_scenario_cards(
                 message: "failed to read candidate pool".to_string(),
             }
         })?;
+
+    // The refs are read BEFORE `node_ids` is computed, because a ruled fact whose
+    // node the gather no longer reaches has to join the pool before anything else
+    // in this handler measures it. See `append_refs_outside_pool` for why that
+    // matters and what it fixes.
+    let refs = list_fact_refs_for_scenario(&state.pipeline_pool, id)
+        .await
+        .map_err(|e| {
+            tracing::error!(error = %e, scenario_id = %id, "failed to list scenario fact refs for cards");
+            AppError::Internal {
+                message: "failed to list scenario fact refs".to_string(),
+            }
+        })?;
+    append_refs_outside_pool(state.graph.clone(), id, &refs, &mut pool).await?;
 
     let node_ids: Vec<String> = pool.iter().map(|c| c.evidence_id.clone()).collect();
 
@@ -130,14 +145,6 @@ pub async fn get_scenario_cards(
         })?;
     let extras = collapse_extras(extras);
 
-    let refs = list_fact_refs_for_scenario(&state.pipeline_pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to list scenario fact refs for cards");
-            AppError::Internal {
-                message: "failed to list scenario fact refs".to_string(),
-            }
-        })?;
     let ordinals = list_candidate_ordinals(&state.pipeline_pool, id)
         .await
         .map_err(|e| {

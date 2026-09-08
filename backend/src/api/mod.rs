@@ -65,6 +65,7 @@ pub mod scenario_augmentation_read;
 pub mod scenario_card_edit;
 pub mod scenario_card_fact_cards;
 pub mod scenario_cards;
+pub mod scenario_cards_hydrate;
 pub mod scenario_fact_curation;
 pub mod scenario_fact_curation_reads;
 pub mod scenario_fact_include;
