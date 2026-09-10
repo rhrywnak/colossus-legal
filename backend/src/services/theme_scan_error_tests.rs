@@ -1,6 +1,11 @@
-//! Unit tests for `theme_scan.rs` — kept in a sibling file
+//! Unit tests for the Theme Scan error taxonomy — kept in a sibling file
 //! (`#[cfg(test)] #[path = "..."] mod tests;`) so the parent module
 //! stays under the 300-line limit (house pattern, see registry_tests.rs).
+//!
+//! Renamed from `theme_scan_tests.rs` and re-attached when the taxonomy moved out
+//! of `theme_scan.rs` (task SCAN_SERVER_STATE). Every test in it was already a
+//! test of a `ThemeScanError` Display string, so the file followed the enum
+//! rather than staying beside a module it had stopped being about.
 
 use super::*;
 
@@ -310,3 +315,9 @@ fn display_scan_run_delete_failed_names_run_and_source() {
     assert!(s.contains(&Uuid::nil().to_string()), "missing run id: {s}");
     assert!(s.contains("delete boom"), "source not surfaced: {s}");
 }
+
+// The four SCAN-STATE refusals — already running, not running, not cancellable,
+// and the in-flight check failing — have their own sibling
+// (`theme_scan_state_error_tests.rs`). This file was at the 300-line limit, and
+// they are a distinct subject: every test above is about a scan that could not
+// START, and every test there is about a scan that is already going.

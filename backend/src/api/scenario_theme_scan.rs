@@ -31,16 +31,29 @@ use uuid::Uuid;
 
 use crate::{
     auth::{require_edit, AuthUser},
-    dto::{ScanRequest, ScanRunListResponse, ScanRunStatusResponse, ScanStartedResponse},
+    dto::{
+        ScanCancelResponse, ScanRequest, ScanRunListResponse, ScanRunStatusResponse,
+        ScanStartedResponse,
+    },
     error::AppError,
     repositories::pipeline_repository::SCAN_STATUS_RUNNING,
     services::theme_scan::ThemeScanError,
     services::theme_scan_run::{
-        delete_scenario_scan_run, get_scan_run_status, list_scenario_scan_runs,
+        cancel_scenario_scan_run, delete_scenario_scan_run, get_scan_run_status,
+        list_scenario_scan_runs,
     },
     services::theme_scan_start::start_theme_scan,
     state::AppState,
 };
+
+// STRUCTURAL: the status word the cancel route answers with — API WIRE
+// VOCABULARY, not a display string. The browser branches on this token and never
+// renders it, so it cannot vary by deployment without breaking the client that
+// reads it; changing it is a protocol change, not a configuration change.
+// Deliberately NOT one of the `SCAN_STATUS_*` consts: those four are the values
+// written to `scan_runs.status`, and this is a value no row ever holds — it names
+// the moment between the request and the judging task's write.
+const SCAN_STATUS_CANCELLING: &str = "cancelling";
 
 /// `POST /cases/:slug/scenarios/:scenario_id/theme-scan` — scan a scenario.
 ///
@@ -192,6 +205,106 @@ pub async fn delete_scenario_scan_run_handler(
     Ok(StatusCode::NO_CONTENT)
 }
 
+/// `POST /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/cancel` — stop a
+/// run that is currently judging.
+///
+/// Edit-gated and case-fenced exactly as [`get_scenario_scan_run`] is — it is the
+/// same resource, and stopping a scan is a mutation of the case's record, so a
+/// read-only viewer must not be able to trigger one.
+///
+/// **202 Accepted**, not 200: the route signals the judging task and returns; the
+/// task writes `status = 'cancelled'`. 202 is the status for "understood, and it
+/// has not happened yet", which is precisely the state of the world when this
+/// returns, and the body's `"cancelling"` says the same thing in the payload.
+///
+/// A run that is not `running` is a 409 naming the status it holds — see
+/// [`cancel_scenario_scan_run`] for the four fences and what each refuses.
+#[tracing::instrument(skip(state, user), fields(slug = %slug, scenario_id = %scenario_id, run_id = %run_id))]
+pub async fn cancel_scenario_scan_run_handler(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path((slug, scenario_id, run_id)): Path<(String, String, String)>,
+) -> Result<(StatusCode, Json<ScanCancelResponse>), AppError> {
+    require_edit(&user)?;
+
+    // Both path ids parse up front so a malformed id is a clean 400, not a "not
+    // found" masquerade (identical to the GET poll and the DELETE).
+    let scenario_uuid = Uuid::parse_str(&scenario_id).map_err(|_| AppError::BadRequest {
+        message: "scenario_id must be a valid UUID".to_string(),
+        details: json!({ "field": "scenario_id" }),
+    })?;
+    let run_uuid = Uuid::parse_str(&run_id).map_err(|_| AppError::BadRequest {
+        message: "run_id must be a valid UUID".to_string(),
+        details: json!({ "field": "run_id" }),
+    })?;
+
+    tracing::info!(
+        "{} POST /cases/{}/scenarios/{}/scan-runs/{}/cancel",
+        user.username,
+        slug,
+        scenario_id,
+        run_id,
+    );
+
+    cancel_scenario_scan_run(&state, &slug, scenario_uuid, run_uuid)
+        .await
+        .map_err(map_scan_error)?;
+
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(ScanCancelResponse {
+            run_id: run_uuid,
+            status: SCAN_STATUS_CANCELLING.to_string(),
+        }),
+    ))
+}
+
+/// The three 409s a human meets while a scan is RUNNING (task SCAN_SERVER_STATE).
+///
+/// Each is the resource's STATE refusing an action, and each carries the one extra
+/// fact that makes the refusal actionable rather than merely correct:
+///
+///   * already running → the RUN ID, so the browser adopts that scan instead of
+///     showing an error for something that is not wrong;
+///   * not running → the STATUS it actually holds, so a client can settle its own
+///     view instead of polling for a transition that already happened;
+///   * not cancellable → nothing extra; the message carries the whole story, and
+///     the code exists so a client can tell it from the one above.
+///
+/// The `unreachable!` arm is a genuine invariant, not a shrug: [`map_scan_error`]
+/// matches exactly these three variants before delegating here, so anything else
+/// means the two have drifted apart — a bug to hear about loudly in a test rather
+/// than a wrong status served quietly. It cannot fire without that arm being
+/// edited first.
+fn scan_state_conflict(message: String, err: ThemeScanError) -> AppError {
+    match err {
+        ThemeScanError::ScanAlreadyRunning { run_id, .. } => conflict(
+            message,
+            json!({ "reason": "scan_already_running", "run_id": run_id }),
+        ),
+        ThemeScanError::ScanRunNotRunning { status, .. } => conflict(
+            message,
+            json!({ "reason": "scan_not_running", "status": status }),
+        ),
+        ThemeScanError::ScanRunNotCancellable { .. } => {
+            conflict(message, json!({ "reason": "scan_not_cancellable" }))
+        }
+        other => unreachable!("scan_state_conflict called with {other:?}"),
+    }
+}
+
+/// One 409, with its machine-readable code in `details`.
+///
+/// The envelope's top-level `error` field is `AppError`'s to set and reads
+/// `"conflict"` for every 409 this API returns, so the code that says WHICH
+/// conflict lives in `details.reason` — the shape the run-cited refusal
+/// established. Named here so the four conflict arms below cannot each invent
+/// their own place to put it, and so `map_scan_error` stays inside the
+/// function-size limit.
+fn conflict(message: String, details: serde_json::Value) -> AppError {
+    AppError::Conflict { message, details }
+}
+
 /// Map a [`ThemeScanError`] onto its HTTP surface.
 ///
 /// The split is deliberate (Standing Rule 1 — a caller can tell *what* went
@@ -230,6 +343,29 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
             message,
             details: json!({ "reason": "run_cited" }),
         },
+        // A scan of this scenario is already running. A 409 for the same reason
+        // `ScanRunCited` is one: the request is well-formed and the caller is
+        // permitted; it conflicts with the current STATE of the resource.
+        //
+        // `details.run_id` is the load-bearing half. The browser reads it and
+        // ADOPTS that run — showing its live progress instead of an error — so a
+        // human who clicked Run on a second tab, or came back to a page whose
+        // state was stale, lands on the scan that is actually happening. Without
+        // the id the only honest thing the client could do is show a message and
+        // leave the human to find the run themselves.
+        //
+        // `details.reason` is the machine-readable discriminator. The envelope's
+        // top-level `error` field is owned by `AppError`'s IntoResponse and reads
+        // `"conflict"` for every 409 this API returns, so the CODE for a specific
+        // conflict lives in `details` — the shape `ScanRunCited` established with
+        // `{"reason": "run_cited"}`, and the reason this does not invent a second
+        // envelope for one route.
+        // Grouped because they are one family — the resource's STATE refusing an
+        // action, not a fault and not a bad request. Their codes and the one extra
+        // fact each carries are in `scan_state_conflict`.
+        e @ (ThemeScanError::ScanAlreadyRunning { .. }
+        | ThemeScanError::ScanRunNotRunning { .. }
+        | ThemeScanError::ScanRunNotCancellable { .. }) => scan_state_conflict(message, e),
         // Bad model CHOICE (unknown/inactive, un-satisfiable params, or an
         // un-buildable row like a vLLM model with no endpoint): the operator
         // fixes it by picking a valid model — 400 with the reason.
@@ -267,9 +403,17 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
         // were written to carry a recovery action precisely because this is their
         // only surface; discarding them here would make that a lie.
         //
-        // Two, not three: `SubjectResolveFailed` was retired on 2026-08-07 with
-        // the case-default fallback that was its only cause.
-        ThemeScanError::DefinitionInvalid { .. } | ThemeScanError::ModelLookupFailed { .. } => {
+        // Two, then three: `SubjectResolveFailed` was retired on 2026-08-07 with
+        // the case-default fallback that was its only cause, and
+        // `ScanRunInFlightCheckFailed` joined in task SCAN_SERVER_STATE. It
+        // belongs here for exactly the stated reason and no other: the in-flight
+        // check runs at step 3b, BEFORE `write_stub`, so a failure leaves no row
+        // to open and the toast is its only surface. Its `#[error]` string names
+        // the scenario, the cause and the recovery action precisely because of
+        // that, and the generic 500 would throw all three away.
+        ThemeScanError::DefinitionInvalid { .. }
+        | ThemeScanError::ModelLookupFailed { .. }
+        | ThemeScanError::ScanRunInFlightCheckFailed { .. } => {
             tracing::error!(error = %message, "theme scan: failed before any run was recorded");
             AppError::Internal { message }
         }
@@ -288,3 +432,9 @@ fn map_scan_error(err: ThemeScanError) -> AppError {
 #[cfg(test)]
 #[path = "scenario_theme_scan_tests.rs"]
 mod tests;
+
+// The running-scan refusals' status + `details` mappings, in their own sibling —
+// see that file's doc for the seam and why `details` is what is asserted.
+#[cfg(test)]
+#[path = "scenario_theme_scan_state_tests.rs"]
+mod state_tests;

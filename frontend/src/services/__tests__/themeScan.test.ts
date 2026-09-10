@@ -6,10 +6,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  cancelScanRun,
   deleteScanRun,
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
+  ScanAlreadyRunningError,
   startThemeScan,
 } from "../themeScan";
 
@@ -57,6 +59,102 @@ describe("startThemeScan", () => {
     await expect(
       startThemeScan(SLUG, SCENARIO, {}),
     ).rejects.toThrow(/selected 'qwen-14b' but loaded 'qwen-7b'/);
+  });
+});
+
+/**
+ * **E10.** A second start comes back as a 409 the panel can ADOPT.
+ *
+ * The typed error is the contract: the panel branches on `instanceof` and reads
+ * `runId` as data, so it can show the scan that is actually running instead of an
+ * error message. Sniffing the id out of the prose would work until somebody
+ * edited the sentence.
+ */
+describe("startThemeScan — the already-running refusal", () => {
+  it("throws a typed error carrying the run the browser should adopt", async () => {
+    // @ts-ignore — minimal fetch mock
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        error: "conflict",
+        message:
+          "a scan of scenario 1111 is already running (run 2222) — watch that one, or stop it before starting another",
+        details: { reason: "scan_already_running", run_id: RUN },
+      }),
+    });
+
+    await expect(startThemeScan(SLUG, SCENARIO, {})).rejects.toBeInstanceOf(
+      ScanAlreadyRunningError,
+    );
+    // …and the id is on the error, not merely in the sentence.
+    const caught = await startThemeScan(SLUG, SCENARIO, {}).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(ScanAlreadyRunningError);
+    expect((caught as ScanAlreadyRunningError).runId).toBe(RUN);
+  });
+
+  it("does NOT claim an already-running run for a different 409", async () => {
+    // The envelope's top-level `error` reads "conflict" for EVERY 409 this API
+    // returns, so the discriminator is `details.reason`. A 409 that is not this
+    // one must not be adopted — the panel would start polling a run id it does
+    // not have, and the human would watch a progress bar for nothing.
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({ error: "conflict", details: { reason: "run_cited" } }),
+    });
+    const caught = await startThemeScan(SLUG, SCENARIO, {}).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(ScanAlreadyRunningError);
+  });
+
+  it("throws an ordinary error when the 409 body is unreadable", async () => {
+    // Standing Rule 1: an unparseable body is not silently treated as the
+    // adoptable case (which would throw with an undefined run id), and it is not
+    // swallowed either.
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => {
+        throw new Error("not JSON");
+      },
+    });
+    const caught = await startThemeScan(SLUG, SCENARIO, {}).catch((e: unknown) => e);
+    expect(caught).toBeInstanceOf(Error);
+    expect(caught).not.toBeInstanceOf(ScanAlreadyRunningError);
+  });
+});
+
+describe("cancelScanRun", () => {
+  it("POSTs the run's cancel URL and resolves on the 202", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202, json: async () => ({}) });
+    // @ts-ignore — minimal fetch mock
+    global.fetch = fetchMock;
+
+    await expect(cancelScanRun(SLUG, SCENARIO, RUN)).resolves.toBeUndefined();
+
+    const [url, options] = fetchMock.mock.calls[0];
+    expect(url).toContain(`/api/cases/${SLUG}/scenarios/${SCENARIO}/scan-runs/${RUN}/cancel`);
+    expect(options.method).toBe("POST");
+  });
+
+  it("throws with the backend's reason when the run is no longer running", async () => {
+    // A stop that did not happen must SAY so — the scan the human was watching is
+    // either finished or was stopped by somebody else, and both are answers they
+    // can act on. Swallowing this would leave a Stop button that did nothing.
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        message: "scan run 2222 is not running — it is 'completed', so there is nothing to stop",
+      }),
+    });
+    await expect(cancelScanRun(SLUG, SCENARIO, RUN)).rejects.toThrow(
+      /Failed to stop the scan.*nothing to stop/,
+    );
   });
 });
 

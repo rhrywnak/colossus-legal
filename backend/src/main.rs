@@ -361,6 +361,11 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         default_chat_model: DEFAULT_CHAT_MODEL.to_string(),
         registry,
         theme_scan_semaphore,
+        // The stop-handle map starts EMPTY, and that is correct rather than a gap:
+        // the startup sweep above has just failed every run this process could have
+        // inherited, so there is no live judging task for a token to point at. The
+        // map fills as scans are started (see `services::theme_scan_start`).
+        scan_cancel: Arc::new(tokio::sync::Mutex::new(std::collections::HashMap::new())),
         // Share the SAME engine Arc the pipeline uses — a refcount bump, not a
         // second engine/HTTP client. The Theme Scan rewire (Chunk B) constructs
         // its per-run provider from an llm_models row via provider_for_model,

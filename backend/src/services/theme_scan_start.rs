@@ -37,24 +37,21 @@
 //! typed error the route returns as its HTTP status — never a background failure
 //! the user must poll to discover.
 
-use std::sync::Arc;
-use std::time::Instant;
-
 use chrono::Utc;
+use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use crate::domain::llm_params::ResolvedLlmParams;
-use crate::dto::ThemeScanSummary;
 use crate::repositories::pipeline_repository::{
-    fail_scan_run, finalize_scan_run_completed, insert_scan_run_stub, promote_scan_run_running,
-    ScanRunFinal, ScanRunStart, ScanRunStub,
+    fail_scan_run, find_running_scan_run, insert_scan_run_stub, promote_scan_run_running,
+    PromoteOutcome, ScanRunStart, ScanRunStub,
 };
 use crate::services::theme_scan::{
     load_scenario_fenced, prepare_scan, PrefilterSnapshot, PreparedScan, ScanPrompt,
     ThemeScanError, ValidatedScan,
 };
-use crate::services::theme_scan_judge::judge_all;
-use crate::services::theme_scan_persist::{count_to_i32, persist_and_summarize, ScanRunMeta};
+use crate::services::theme_scan_job::spawn_scan_job;
+use crate::services::theme_scan_persist::count_to_i32;
 use crate::services::theme_scan_validate::{load_scan_prompt, validate_scan_request};
 use crate::state::AppState;
 
@@ -78,21 +75,14 @@ pub async fn start_theme_scan(
     // deploy; the rest are the request's own contents).
     let prompt = load_scan_prompt(state)?;
     let record = load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+    // 3b: is one already going? Placed AFTER the case fence — so a caller cannot
+    // learn that another case's scenario is busy — and BEFORE the stub INSERT, so a
+    // refused second scan leaves no row in Run History for a run that never was.
+    refuse_if_already_running(state, scenario_id).await?;
     let validated = validate_scan_request(state, record, requested_model_id.as_deref()).await?;
 
     // 4: from here on, a failure is visible in Run History.
-    let run_id = Uuid::new_v4();
-    insert_scan_run_stub(
-        &state.pipeline_pool,
-        &ScanRunStub {
-            run_id,
-            scenario_id,
-            requested_model_id: requested_model_id.clone(),
-            started_at: Utc::now(),
-        },
-    )
-    .await
-    .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
+    let run_id = write_stub(state, scenario_id, requested_model_id).await?;
 
     // 5: prepare, recording any failure onto the stub before it propagates.
     let prepared = prepare_or_record(state, run_id, scenario_id, validated, prompt).await?;
@@ -105,14 +95,120 @@ pub async fn start_theme_scan(
     let candidates_total = count_to_i32(prepared.groups.len(), "candidates_total");
     let candidates_read = count_to_i32(prepared.conservation.pool, "candidates_read");
 
-    // 6: promote and spawn.
-    promote_run(state, run_id, &prepared, candidates_total, candidates_read).await?;
-    spawn_scan_job(state, prepared, run_id, scenario_id, candidates_total);
+    // 6: promote, register the stop handle, and spawn.
+    //
+    // The token is registered BEFORE the task starts, not inside it: registering
+    // from within the spawned task would leave a window in which the POST has
+    // already returned a run_id the browser can render a Stop button for, and the
+    // cancel route would find no token and refuse. Ordering it here means "the
+    // caller has a run_id" and "that run can be stopped" become true together.
+    promote_run(
+        state,
+        run_id,
+        &prepared,
+        scenario_id,
+        candidates_total,
+        candidates_read,
+    )
+    .await?;
+    let cancel = register_stop_handle(state, run_id).await;
+    spawn_scan_job(
+        state,
+        prepared,
+        run_id,
+        scenario_id,
+        candidates_total,
+        cancel,
+    );
 
     Ok(ScanStarted {
         run_id,
         candidates_total,
     })
+}
+
+/// Write the `failed` stub row and return the run id it was born with.
+///
+/// Split out to keep [`start_theme_scan`] within the function-size limit; the
+/// step is step 4 of the module doc's six, and the line it draws is the important
+/// one — before this call a failure returns an HTTP status and nothing else,
+/// after it every failure is visible in Run History.
+///
+/// The id is minted HERE rather than passed in, so there is exactly one place a
+/// run's identity comes into existence.
+async fn write_stub(
+    state: &AppState,
+    scenario_id: Uuid,
+    requested_model_id: Option<String>,
+) -> Result<Uuid, ThemeScanError> {
+    let run_id = Uuid::new_v4();
+    insert_scan_run_stub(
+        &state.pipeline_pool,
+        &ScanRunStub {
+            run_id,
+            scenario_id,
+            requested_model_id,
+            started_at: Utc::now(),
+        },
+    )
+    .await
+    .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
+    Ok(run_id)
+}
+
+/// Register the run's stop handle and hand back the token for the judging task.
+///
+/// Two owners of one token, deliberately: the MAP's copy is what the cancel route
+/// finds, and the returned copy is what the judging loop watches. A
+/// `CancellationToken` clone is a handle on the same token, not a copy of it, so
+/// cancelling either cancels both — which is the entire mechanism.
+///
+/// Split out for the function-size limit, and the split earns its place by giving
+/// the ordering a name: see the call site for why registration must complete
+/// before the POST returns.
+async fn register_stop_handle(state: &AppState, run_id: Uuid) -> CancellationToken {
+    let cancel = CancellationToken::new();
+    state
+        .scan_cancel
+        .lock()
+        .await
+        .insert(run_id, cancel.clone());
+    cancel
+}
+
+/// Refuse a second scan of a scenario that already has one in flight.
+///
+/// The cheap, ordinary path to the 409 (part A2). The
+/// `scan_runs_one_running_per_scenario` index is the backstop behind it — see
+/// [`promote_run`] — but this check is what produces the refusal a human actually
+/// meets, and it produces it BEFORE any row is written, any provider is built or
+/// any candidate is read.
+///
+/// An unreadable check PROPAGATES rather than defaulting to "nothing is running":
+/// treating a DB failure as permission would fail in the expensive direction, and
+/// a scan is one metered call per candidate over a pool of hundreds.
+async fn refuse_if_already_running(
+    state: &AppState,
+    scenario_id: Uuid,
+) -> Result<(), ThemeScanError> {
+    let running = find_running_scan_run(&state.pipeline_pool, scenario_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunInFlightCheckFailed {
+            scenario_id,
+            source,
+        })?;
+
+    if let Some(row) = running {
+        tracing::info!(
+            %scenario_id, run_id = %row.run_id, started_at = %row.started_at,
+            "theme scan: refusing a second scan; one is already running on this scenario"
+        );
+        return Err(ThemeScanError::ScanAlreadyRunning {
+            scenario_id,
+            run_id: row.run_id,
+        });
+    }
+    Ok(())
 }
 
 /// Run the preparation, writing its failure reason onto the stub row before
@@ -164,14 +260,28 @@ async fn prepare_or_record(
 /// overwriting it would destroy a truthful record with a guess. The full context
 /// — run id, what failed — rides the returned typed error, which the route logs
 /// before answering 500.
+///
+/// ## The third outcome: the index caught a race the pre-check could not
+///
+/// [`refuse_if_already_running`] reads, then this writes, and two POSTs a
+/// millisecond apart can both pass the read. The
+/// `scan_runs_one_running_per_scenario` partial unique index is what makes that
+/// window harmless, and this arm is what makes it POLITE: the collision comes
+/// back as the same `ScanAlreadyRunning` 409 the pre-check returns, never as a
+/// 500 about a constraint the human has no way to understand.
+///
+/// The losing run's stub row is left as it was born — `failed`, carrying the
+/// stub's own reason. That is honest: the run never started, and the row says a
+/// scan did not finish starting, which is exactly what happened.
 async fn promote_run(
     state: &AppState,
     run_id: Uuid,
     prepared: &PreparedScan,
+    scenario_id: Uuid,
     candidates_total: i32,
     candidates_read: i32,
 ) -> Result<(), ThemeScanError> {
-    let rows = promote_scan_run_running(
+    let outcome = promote_scan_run_running(
         &state.pipeline_pool,
         &ScanRunStart {
             run_id,
@@ -188,139 +298,41 @@ async fn promote_run(
     .await
     .map_err(|source| ThemeScanError::ScanRunWriteFailed { run_id, source })?;
 
-    if rows == 0 {
-        return Err(ThemeScanError::ScanRunNotPromotable { run_id });
-    }
-    Ok(())
-}
-
-/// Spawn the judging task.
-///
-/// ## Rust Learning: `tokio::spawn` needs `Send + 'static`
-///
-/// The task outlives this function, so its future must own everything it uses
-/// (`'static`) and be movable across threads (`Send`). `AppState` is `Clone`
-/// (all Arc/pool fields — a clone is refcount bumps) and every field is
-/// Send+Sync+'static; `PreparedScan` is likewise (Arc provider, Arc<str>, a
-/// Copy params, owned Vec/String). So we clone `state` and MOVE both into the
-/// task. The task's own errors are handled inside it (it must never leave the
-/// row stuck `running`) — the `JoinHandle` is dropped deliberately.
-fn spawn_scan_job(
-    state: &AppState,
-    prepared: PreparedScan,
-    run_id: Uuid,
-    scenario_id: Uuid,
-    candidates_total: i32,
-) {
-    tracing::info!(
-        %scenario_id, %run_id, model_id = %prepared.model_id,
-        concurrency = prepared.concurrency, candidates_total,
-        prompt_file = %prepared.prompt_file,
-        "theme scan: started (background)"
-    );
-    let state = state.clone();
-    tokio::spawn(async move { execute_scan_job(state, prepared, run_id, scenario_id).await });
-}
-
-/// The spawned judging task. Any failure marks the run `failed` with a reason —
-/// it NEVER leaves the row stuck `running` (the startup sweep is the last-resort
-/// guard, not the primary one).
-async fn execute_scan_job(
-    state: AppState,
-    prepared: PreparedScan,
-    run_id: Uuid,
-    scenario_id: Uuid,
-) {
-    if let Err(e) = run_scan_job(&state, prepared, run_id, scenario_id).await {
-        tracing::error!(%run_id, %scenario_id, error = %e, "theme scan: background job failed");
-        if let Err(fe) = fail_scan_run(&state.pipeline_pool, run_id, &e).await {
-            tracing::error!(%run_id, error = %fe,
-                "theme scan: could not mark run failed (startup sweep will catch it)");
+    match outcome {
+        PromoteOutcome::Promoted => Ok(()),
+        PromoteOutcome::NotPromotable => Err(ThemeScanError::ScanRunNotPromotable { run_id }),
+        PromoteOutcome::AlreadyRunning => {
+            // Re-read to name the run the caller should watch. A failure to
+            // re-read is not allowed to become a 500 for a request whose answer is
+            // already known to be "no": the index said so. But the browser needs an
+            // id to adopt, so an unreadable re-read propagates as the check failure
+            // it is, rather than as a 409 pointing at nothing.
+            let winner = find_running_scan_run(&state.pipeline_pool, scenario_id)
+                .await
+                .map_err(|source| ThemeScanError::ScanRunInFlightCheckFailed {
+                    scenario_id,
+                    source,
+                })?
+                .ok_or(ThemeScanError::ScanRunNotPromotable { run_id })?;
+            tracing::info!(
+                %scenario_id, refused = %run_id, running = %winner.run_id,
+                "theme scan: the one-running-per-scenario index refused a concurrent start"
+            );
+            Err(ThemeScanError::ScanAlreadyRunning {
+                scenario_id,
+                run_id: winner.run_id,
+            })
         }
     }
 }
 
-/// The fallible inner body: judge (with live progress) → persist → finalize.
-/// Returns `Err(message)` on a completion-time failure so [`execute_scan_job`]
-/// can mark the run `failed`.
-async fn run_scan_job(
-    state: &AppState,
-    prepared: PreparedScan,
-    run_id: Uuid,
-    scenario_id: Uuid,
-) -> Result<(), String> {
-    let clock = Instant::now();
-    let results = judge_all(
-        Arc::clone(&prepared.provider),
-        Arc::clone(&state.theme_scan_semaphore),
-        prepared.concurrency,
-        Arc::clone(&prepared.scan_prompt),
-        Arc::clone(&prepared.scan_criteria),
-        prepared.params,
-        prepared.groups,
-        state.pipeline_pool.clone(),
-        run_id,
-        // The automatic-retry cap, read once at startup (ruled 2026-08-28). The
-        // scan judges hundreds of candidates concurrently, so a permissive cap
-        // multiplies across every one of them — which is precisely why the
-        // default is zero and why the value is not decided here.
-        state.config.llm_retry_policy,
-    )
-    .await;
-    // millis fit i64 for any real scan; the impossible overflow caps (Standing Rule 1).
-    let duration_ms = i64::try_from(clock.elapsed().as_millis()).unwrap_or(i64::MAX);
-
-    let summary = persist_and_summarize(
-        &state.pipeline_pool,
-        ScanRunMeta {
-            run_id,
-            scenario_id,
-            model_id: prepared.model_id,
-            cost_per_input_token: prepared.cost_per_input_token,
-            cost_per_output_token: prepared.cost_per_output_token,
-            duration_ms,
-            conservation: prepared.conservation,
-        },
-        results,
-    )
-    .await;
-
-    let summary_json = serde_json::to_value(&summary)
-        .map_err(|e| format!("failed to serialize scan summary: {e}"))?;
-    let final_ = build_run_final(&summary, run_id, duration_ms, summary_json);
-    finalize_scan_run_completed(&state.pipeline_pool, &final_)
-        .await
-        .map_err(|e| format!("failed to finalize scan run: {e}"))?;
-
-    tracing::info!(
-        %run_id, %scenario_id, candidates_read = summary.candidates_read,
-        relevant = summary.relevant, irrelevant = summary.irrelevant,
-        failed = summary.failed, duration_ms, "theme scan: complete"
-    );
-    Ok(())
-}
-
-/// Assemble the finalize record from the completed summary (narrowing the usize
-/// counts to the `INTEGER` columns). Split out to keep [`run_scan_job`] under the
-/// function-size limit.
-fn build_run_final(
-    summary: &ThemeScanSummary,
-    run_id: Uuid,
-    duration_ms: i64,
-    summary_json: serde_json::Value,
-) -> ScanRunFinal {
-    ScanRunFinal {
-        run_id,
-        relevant_count: count_to_i32(summary.relevant, "relevant_count"),
-        irrelevant_count: count_to_i32(summary.irrelevant, "irrelevant_count"),
-        failed_count: count_to_i32(summary.failed, "failed_count"),
-        input_tokens: summary.input_tokens,
-        output_tokens: summary.output_tokens,
-        computed_cost: summary.computed_cost,
-        duration_ms,
-        summary_json,
-    }
-}
+// The BACKGROUND JOB — spawn, judge, finalize-or-cancel — moved to the sibling
+// `theme_scan_job` when this module reached the 300-line limit (task
+// SCAN_SERVER_STATE). The seam is the one the module doc already draws: steps 1-6
+// above make a run EXIST and answer the POST; everything after the spawn happens
+// with nobody waiting, and its failures are recorded on the row rather than
+// returned. `spawn_scan_job` is the last line of the first story and the first of
+// the second.
 
 /// Serialize everything that DECIDED this run into the `scan_runs.resolved_params`
 /// JSONB snapshot.

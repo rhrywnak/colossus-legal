@@ -44,6 +44,11 @@ tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
 neo4rs = "0.8"
 dotenvy = "0.15"
 tokio-stream = "0.1"
+# UNCHANGED by task SCAN_SERVER_STATE. `tokio_util::sync::CancellationToken` — the
+# stop handle every running Theme Scan is registered under in
+# `AppState::scan_cancel` — is in tokio-util's UNGATED `sync` module (there is no
+# "sync" feature; the compile refuses one), so the existing "io" entry already
+# provides it. No dependency was added or changed for the scan stop.
 tokio-util = { version = "0.7", features = ["io"] }
 # Downgraded from 5 to 4 to resolve `ort` version conflict with rig-fastembed.
 # fastembed 5 needs ort 2.0.0-rc.11, rig-fastembed needs ort 2.0.0-rc.9.

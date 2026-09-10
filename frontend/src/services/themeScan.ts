@@ -7,6 +7,10 @@
 //          returns immediately (the ~94-candidate fan-out runs in a tokio task).
 //   GET  /api/cases/:slug/scenarios/:scenarioId/scan-runs/:runId
 //        → live progress while `running`; the full `summary` once `completed`.
+//   POST /api/cases/:slug/scenarios/:scenarioId/scan-runs/:runId/cancel
+//        → 202 { run_id, status: "cancelling" } — signals the backend's judging
+//          task to stop. The row becomes `cancelled` a moment later; the POLL is
+//          what observes that, not this response.
 //   GET  /api/chat/models
 //        → the active model catalog (registry ids) for the model picker.
 //
@@ -120,12 +124,23 @@ export type ScanConservation = {
   failed: number;
 };
 
+/** One run's lifecycle state, as the backend's `SCAN_STATUS_*` consts write it.
+ *
+ *  `cancelled` is a human's Stop (task SCAN_SERVER_STATE part C) and is TERMINAL
+ *  like the other two, but it is neither of them: not `completed` (the run never
+ *  judged its whole pool, so its counts are partial), and not `failed` (nothing
+ *  went wrong). The verdicts it judged before the stop are kept and keep
+ *  projecting — which is the entire reason to stop rather than delete. */
+export type ScanRunState = "running" | "completed" | "cancelled" | "failed";
+
 /** The poll response (backend `ScanRunStatusResponse`). While `running`, the
  *  counts are a LIVE, advancing ESTIMATE; `summary` is present only once
- *  `completed`; `error` is present only when `failed`. */
+ *  `completed`; `error` is present only when `failed`. A `cancelled` run has
+ *  NEITHER — no summary (there is no finished whole) and no error (nothing went
+ *  wrong): its counts on the row are the whole record. */
 export type ScanRunStatus = {
   run_id: string;
-  status: "running" | "completed" | "failed";
+  status: ScanRunState;
   model_id: string;
   candidates_total: number | null;
   candidates_judged: number;
@@ -160,7 +175,7 @@ export type ScanModel = {
 export type ScanRunHeader = {
   run_id: string;
   model_id: string;
-  status: "running" | "completed" | "failed";
+  status: ScanRunState;
   candidates_total: number | null;
   candidates_judged: number;
   relevant_count: number;
@@ -221,12 +236,107 @@ export async function startThemeScan(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
+  if (response.status === 409) {
+    // The body is read ONCE here, so `readErrorMessage` (which also calls
+    // `response.json()`) must not run on this path — a Response body can only be
+    // consumed one time.
+    const already = await readAlreadyRunning(response);
+    if (already) throw already;
+    // A 409 that is not the already-running one has no other meaning on this
+    // route today, but it is not swallowed: fall through to the ordinary throw
+    // below, which cannot re-read the body and says so honestly.
+    throw new Error("Failed to start theme scan — the request conflicted with the scan's state.");
+  }
   if (!response.ok) {
     // The backend message rides through verbatim (names the endpoint / models on
     // a 503 hard-gate refusal) — surface it, do not flatten to a generic error.
     throw new Error(`Failed to start theme scan${await readErrorMessage(response)}`);
   }
   return (await response.json()) as ScanStartedResponse;
+}
+
+/**
+ * The 409 that means "a scan of this scenario is already going, here is its id".
+ *
+ * ## Why a typed error rather than a message the caller pattern-matches
+ *
+ * The panel's response to this is not to show an error at all — it is to ADOPT
+ * the running run and start polling it, so the human sees the scan that is
+ * actually happening instead of being told off for asking twice. That branch
+ * needs the `run_id` as data. Sniffing it out of a prose message would work until
+ * somebody edited the sentence; an `instanceof` check and a field cannot drift.
+ */
+export class ScanAlreadyRunningError extends Error {
+  /** The run the browser should adopt and poll. */
+  readonly runId: string;
+
+  constructor(runId: string, message: string) {
+    super(message);
+    // ## TS note: restoring the prototype after extending a built-in
+    //
+    // `Error` is a built-in whose constructor returns a fresh object, so a
+    // subclass compiled to ES5-era output loses its prototype link and
+    // `instanceof` silently returns false. Setting it explicitly is the standard
+    // fix and costs one line; without it the panel's adopt branch would never
+    // run and the failure would look like the backend not sending a 409.
+    Object.setPrototypeOf(this, ScanAlreadyRunningError.prototype);
+    this.name = "ScanAlreadyRunningError";
+    this.runId = runId;
+  }
+}
+
+/**
+ * Read a 409 body and return the typed error when it is the already-running one.
+ *
+ * The backend's error envelope is `{ error, message, details }` for every 4xx,
+ * with the top-level `error` fixed at `"conflict"` for all 409s — so the specific
+ * conflict is identified by `details.reason` (the shape the run-cited refusal
+ * established). `null` when the body is absent, unparseable, or a different
+ * conflict; the caller then throws its own error rather than guessing.
+ */
+async function readAlreadyRunning(response: Response): Promise<ScanAlreadyRunningError | null> {
+  try {
+    const body: unknown = await response.json();
+    if (body === null || typeof body !== "object") return null;
+    const { message, details } = body as { message?: unknown; details?: unknown };
+    if (details === null || typeof details !== "object") return null;
+    const { reason, run_id: runId } = details as { reason?: unknown; run_id?: unknown };
+    if (reason !== "scan_already_running" || typeof runId !== "string") return null;
+    return new ScanAlreadyRunningError(
+      runId,
+      typeof message === "string" ? message : "A scan of this scenario is already running.",
+    );
+  } catch {
+    // Body absent or not JSON. Not swallowed — the caller throws either way; this
+    // only decides whether the throw carries a run id to adopt.
+    return null;
+  }
+}
+
+/**
+ * Ask the backend to STOP a run that is currently judging.
+ *
+ * Resolves on the 202. That is deliberately not the same as "it stopped": the
+ * backend has signalled its judging task, and the task writes `cancelled` when it
+ * comes out of its loop. The POLL is what observes the transition, so a caller
+ * must keep polling after this resolves rather than assuming the run is settled.
+ *
+ * A non-2xx throws with the backend's message (Standing Rule 1). The two 409s a
+ * caller can meet are "it is not running any more" and "no live task owns it";
+ * both name the state in the message, which is what the panel surfaces.
+ */
+export async function cancelScanRun(
+  slug: string,
+  scenarioId: string,
+  runId: string,
+): Promise<void> {
+  const response = await authFetch(
+    `${scenarioBase(slug, scenarioId)}/scan-runs/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+  );
+  if (!response.ok) {
+    throw new Error(`Failed to stop the scan${await readErrorMessage(response)}`);
+  }
 }
 
 /** Poll one run's live status. `summary` is populated once `status` is `completed`. */

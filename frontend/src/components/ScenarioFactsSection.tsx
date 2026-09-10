@@ -412,6 +412,11 @@ const ScenarioFactsSection: React.FC<Props> = ({
         scenarioId={scenarioId}
         proposalSource={proposalSource}
         onFactsChanged={onFactsChanged}
+        // Verdicts landing while a scan RUNS (task SCAN_SERVER_STATE, part E9).
+        // Wired to the same light re-read a removal uses — cards and the queue's
+        // counts together, without the page-level refresh that would reload the
+        // queue's pool under a human ruling cards while the scan works.
+        onCandidatesChanged={onFactRemoved}
         header={(scan) => (
           <>
             <ScenarioFactsHeader

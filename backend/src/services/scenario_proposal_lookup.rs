@@ -1,5 +1,12 @@
-//! The projection's READS: what a completed run proposes to a scenario's queue,
-//! and what ruling one of those cards settles.
+//! The projection's READS: what the projecting run proposes to a scenario's
+//! queue, and what ruling one of those cards settles.
+//!
+//! "Completed" is no longer the word, and the change is deliberate
+//! (SCAN_SERVER_STATE part D, 2026-09-10): the projecting run may be one that is
+//! still judging, or one a human stopped part-way. `fetch_projecting_run` owns
+//! which run that is; everything here treats the three the same, because a fact
+//! proposed by a run is a fact proposed by that run whether or not the run
+//! reached the end of its pool.
 //!
 //! Two callers, one subject. The cards route asks it for a WHOLE POOL ("what is
 //! proposed here?"); the ruling route asks it for ONE NODE ("is this a proposal,
@@ -51,7 +58,12 @@ use crate::state::AppState;
 /// A proposal the human is about to rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ProposedRuling {
-    /// The completed run that proposed it — recorded as the ruling's provenance.
+    /// The run that proposed it — recorded as the ruling's provenance.
+    ///
+    /// Not necessarily a FINISHED run: a running or stopped run projects too, and
+    /// its id is recorded exactly the same way. The provenance names WHICH scan
+    /// put the candidate in front of the human, which is a fact about the moment
+    /// of the ruling and not about how the scan later ended.
     pub run_id: Uuid,
     /// Every node this ruling settles, the ruled card first.
     pub covers: Vec<String>,
@@ -79,7 +91,8 @@ pub async fn resolve_proposed_ruling(
         .await
         .map_err(|e| read_failed(e, "the projecting scan run", scenario_id))?
     else {
-        // Nothing has completed for this scenario, so nothing can be a proposal.
+        // No run has judged anything for this scenario, so nothing can be a
+        // proposal (see `fetch_projecting_run` for the three states that count).
         return Ok(None);
     };
 
@@ -263,7 +276,11 @@ fn read_failed(
     }
 }
 
-/// The completed run whose verdicts this queue is showing, or `None`.
+/// The run whose verdicts this queue is showing, or `None`.
+///
+/// Running, cancelled or completed — see `fetch_projecting_run`. The queue draws
+/// it identically either way; what a scan proposed does not change shape because
+/// the scan is still going.
 ///
 /// ## Why a read failure is fatal to the request
 ///
@@ -328,7 +345,7 @@ pub(crate) async fn project_run(
         admitted = verdicts.len(),
         proposed = groups.len(),
         already_ruled = verdicts.len() - groups.iter().map(|g| g.covers.len()).sum::<usize>(),
-        "projected a completed scan run onto the candidate queue"
+        "projected a scan run onto the candidate queue"
     );
     Ok(groups)
 }

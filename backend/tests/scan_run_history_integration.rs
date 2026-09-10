@@ -30,7 +30,7 @@ use uuid::Uuid;
 use colossus_legal_backend::config::AppConfig;
 use colossus_legal_backend::repositories::pipeline_repository::{
     delete_scenario, insert_scan_run_stub, insert_scenario, list_scan_runs,
-    promote_scan_run_running, ScanRunStart, ScanRunStub,
+    promote_scan_run_running, PromoteOutcome, ScanRunStart, ScanRunStub,
 };
 
 type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -58,7 +58,11 @@ async fn pipeline_pool() -> TestResult<PgPool> {
 
 /// Insert a minimal scenario and return its id (the FK owner of the scan runs).
 async fn insert_test_scenario(pool: &PgPool, slug: &str, name: &str) -> TestResult<Uuid> {
-    let id = insert_scenario(
+    // REPAIRED 2026-09-10 (task SCAN_SERVER_STATE): `insert_scenario` returns
+    // `(scenario_id, code_ordinal)` since the S-code minting change, and this
+    // harness had not been updated — the file has not compiled since. The ordinal
+    // is discarded here because nothing in this suite reads a scenario's code.
+    let (id, _code_ordinal) = insert_scenario(
         pool,
         name,
         "offense",
@@ -105,11 +109,21 @@ async fn insert_run_at(
             model_id: "qwen-14b".to_string(),
             resolved_params: json!({ "temperature": 0.0, "timeout_secs": 90, "max_tokens": 512 }),
             candidates_total: 10,
+            // REPAIRED 2026-09-10: `candidates_read` (the POOL, distinct from the
+            // judged denominator) has been a required field since task 2.15 Tier 2
+            // and this harness never grew it. Same number as the denominator here:
+            // these fixtures pre-filter nothing.
+            candidates_read: 10,
         },
     )
     .await?;
+    // REPAIRED 2026-09-10: `promote_scan_run_running` returns a three-way
+    // `PromoteOutcome` since task SCAN_SERVER_STATE — the third arm is the
+    // one-running-per-scenario index refusing a concurrent start. `Promoted` is
+    // the only acceptable answer for a stub this helper just wrote.
     assert_eq!(
-        promoted, 1,
+        promoted,
+        PromoteOutcome::Promoted,
         "the stub row just written must be promotable to running"
     );
     Ok(run_id)

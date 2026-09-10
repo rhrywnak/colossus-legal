@@ -92,6 +92,7 @@ pub mod review_grounding;
 pub mod review_items;
 pub mod scan_run_merges;
 pub mod scan_run_projection;
+pub mod scan_run_state;
 pub mod scan_run_verdicts;
 pub mod scan_runs;
 pub mod scenario_candidate_ordinals;
@@ -124,6 +125,7 @@ pub use report_queries::{
 };
 pub use scan_run_merges::*;
 pub use scan_run_projection::*;
+pub use scan_run_state::*;
 pub use scan_run_verdicts::*;
 pub use scan_runs::*;
 pub use scenario_candidate_ordinals::*;
