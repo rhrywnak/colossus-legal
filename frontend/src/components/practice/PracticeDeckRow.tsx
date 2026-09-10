@@ -38,7 +38,10 @@ import React from "react";
 import type { PracticeQuestion, PracticeWording } from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
-import { DragHandle, reorderProps, useDropTarget } from "../dragReorder";
+import { useSortable } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+
+import { DragHandle } from "../dragReorder";
 import * as d from "./practiceDeckStyles";
 import * as e from "./practiceEditorStyles";
 import PracticeRowEdit from "./PracticeRowEdit";
@@ -73,10 +76,6 @@ interface Props {
   /** True when this row's inline field stack is open. */
   fieldsOpen: boolean;
   onToggleFields: () => void;
-  /** The row a drag picked up, or null. The list owns it — a drop needs both ends. */
-  dragging: string | null;
-  onPickUp: () => void;
-  onDropHere: () => void;
 }
 
 const PracticeDeckRow: React.FC<Props> = ({
@@ -89,37 +88,54 @@ const PracticeDeckRow: React.FC<Props> = ({
   deleting,
   fieldsOpen,
   onToggleFields,
-  dragging,
-  onPickUp,
-  onDropHere,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   const pill = sidePill(question, wording);
-  const [dropOver, setDropOver] = useDropTarget();
   // Drag is an EDIT-MODE affordance only. Outside it the row is Marie's, and a
   // deck that re-ordered itself under her hand while she was reading it would
   // be the page rewriting the questions she is about to face.
   const canDrag = editor.editing && editor.ready;
 
+  /**
+   * The row's half of the sortable list.
+   *
+   * `attributes` and `listeners` go on the GRIP, not on this row — that is the
+   * whole of "the grip is the only handle". The row body keeps its links, its
+   * buttons and its field stack, and a press anywhere on it is still a press.
+   * (Before dnd-kit the whole row carried `draggable`, so a drag could start
+   * from the question text; on a touch screen that made the row nearly
+   * unreadable, because every attempt to select or scroll picked it up.)
+   *
+   * `transform` slides the OTHER rows out of the way while one is lifted, which
+   * is the thing native HTML5 drag could not do at all: `CSS.Transform.toString`
+   * turns dnd-kit's measurement into the `translate3d` that moves them, and
+   * `transition` is what makes it a slide rather than a jump.
+   */
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: question.id, disabled: !canDrag });
+
   return (
     <div
-      {...reorderProps({
-        enabled: canDrag,
-        onPickUp,
-        onDropHere,
-        onHover: setDropOver,
-      })}
+      ref={setNodeRef}
       style={{
         ...d.questionRow,
         // Three columns outside the editor, four inside it — the arrows get a
         // column of their own rather than overlaying anything.
         gridTemplateColumns: editor.editing ? "56px 1fr auto" : "1fr auto",
         ...(last ? d.questionRowLast : {}),
-        // Where the drop would land. Only on OTHER rows: highlighting the row
-        // being dragged would say it is about to move onto itself.
-        ...(dropOver && dragging !== null && dragging !== question.id
-          ? { borderTop: "2px solid var(--practice-navy)" }
-          : {}),
+        transform: CSS.Transform.toString(transform),
+        transition,
+        // The lifted row. It rides ABOVE its neighbours and casts a shadow, so
+        // the thing in hand is visibly the thing in hand — the affordance Apple's
+        // HIG and Primer's drag pattern both describe, and the one a person needs
+        // to believe the gesture is working.
+        ...(isDragging ? d.questionRowLifted : {}),
       }}
     >
       {editor.editing && (
@@ -127,8 +143,17 @@ const PracticeDeckRow: React.FC<Props> = ({
           {/* The grip, and the arrows under it. Both do the same job: the drag
               is faster with a mouse, the arrows are the KEYBOARD path and stay
               for exactly that reason — a re-order only a mouse can perform is
-              one Chuck cannot do from the keyboard at all. */}
-          <DragHandle hint={w("editor_drag_hint")} style={{ fontSize: 13 }} />
+              one Chuck cannot do from the keyboard at all.
+
+              dnd-kit's own keyboard sensor also lands here, because the grip is
+              where the listeners are: Space lifts the row, the arrows move it,
+              Space drops it. The ▲▼ buttons are the simpler path and are not
+              being replaced — one moves a row a step, the other carries it. */}
+          <DragHandle
+            hint={w("editor_drag_hint")}
+            style={{ fontSize: 13 }}
+            handleProps={canDrag ? { ...attributes, ...listeners } : undefined}
+          />
           <button
             type="button"
             style={e.arrowButton}

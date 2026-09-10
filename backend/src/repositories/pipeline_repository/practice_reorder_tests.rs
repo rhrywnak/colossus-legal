@@ -3,6 +3,18 @@
 //! `resequenced` is pure precisely so this is possible: the rule that decides
 //! where a dropped question lands is the part a person notices when it is wrong,
 //! and it should not need a Postgres connection to pin.
+//!
+//! ## Every expectation here now carries Chuck's two rows on the end
+//!
+//! Since the 2026-09-10 save fix, `resequenced` returns the WHOLE deck rather
+//! than one side (see the module doc for the collision that forced it). In this
+//! fixture George holds slots 0-4 and Chuck holds 5-6, so a George drag permutes
+//! the first five and leaves `90, 91` exactly where they were.
+//!
+//! **The within-side answer did not change.** Read any assertion below with its
+//! last two ids covered and it is the assertion that was here before tonight.
+//! That is the point of the slot-preserving rule and the reason these tests were
+//! amended rather than rewritten.
 
 use uuid::Uuid;
 
@@ -59,7 +71,7 @@ fn ids(ns: &[u128]) -> Vec<Uuid> {
 fn a_question_dropped_on_the_first_lands_first() {
     let out = resequenced(&deck(), Uuid::from_u128(5), Some(Uuid::from_u128(1)))
         .expect("a real move names a position");
-    assert_eq!(out, ids(&[5, 1, 2, 3, 4]));
+    assert_eq!(out, ids(&[5, 1, 2, 3, 4, 90, 91]));
 }
 
 /// Dragging the first onto the last puts it immediately ABOVE the last.
@@ -70,7 +82,7 @@ fn a_question_dropped_on_the_first_lands_first() {
 fn a_question_dropped_on_another_takes_that_ones_place() {
     let out = resequenced(&deck(), Uuid::from_u128(1), Some(Uuid::from_u128(5)))
         .expect("a real move names a position");
-    assert_eq!(out, ids(&[2, 3, 4, 1, 5]));
+    assert_eq!(out, ids(&[2, 3, 4, 1, 5, 90, 91]));
 }
 
 /// A drop past the final row means LAST, and `None` is how that arrives.
@@ -78,7 +90,7 @@ fn a_question_dropped_on_another_takes_that_ones_place() {
 fn no_target_means_the_end_of_the_side() {
     let out =
         resequenced(&deck(), Uuid::from_u128(2), None).expect("dropping past the end is a move");
-    assert_eq!(out, ids(&[1, 3, 4, 5, 2]));
+    assert_eq!(out, ids(&[1, 3, 4, 5, 2, 90, 91]));
 }
 
 /// Dropping a row onto the one directly BELOW it changes nothing — by design.
@@ -98,12 +110,12 @@ fn no_target_means_the_end_of_the_side() {
 fn a_drop_onto_the_next_row_down_asks_for_the_order_it_already_has() {
     let out = resequenced(&deck(), Uuid::from_u128(2), Some(Uuid::from_u128(3)))
         .expect("the gesture is legal, it simply asks for no change");
-    assert_eq!(out, ids(&[1, 2, 3, 4, 5]));
+    assert_eq!(out, ids(&[1, 2, 3, 4, 5, 90, 91]));
 
     // Down past one row: drop onto the row AFTER the one being passed.
     let moved = resequenced(&deck(), Uuid::from_u128(2), Some(Uuid::from_u128(4)))
         .expect("a real move names a position");
-    assert_eq!(moved, ids(&[1, 3, 2, 4, 5]));
+    assert_eq!(moved, ids(&[1, 3, 2, 4, 5, 90, 91]));
 }
 
 /// A drop onto itself names no position, and is not an error.
@@ -118,12 +130,24 @@ fn a_drop_onto_itself_is_nothing_to_do_and_not_a_failure() {
     );
 }
 
-/// The other side is not in the returned order, and cannot be a target.
+/// The other side cannot be a TARGET — and it does come back, unmoved.
 ///
 /// Domain note: George's questions and Chuck's are two ordered lists sharing a
 /// table. Dragging a cross question in among the directs would produce a deck
 /// that deals a Chuck question in a George sitting — a different question, not a
-/// re-ordered one.
+/// re-ordered one. That half is unchanged: a cross-side target is `None`.
+///
+/// ## The second half INVERTED on 2026-09-10, and that is the fix
+///
+/// This test used to assert `!out.contains(90)` and `out.len() == 5` — that
+/// Chuck's rows were ABSENT from George's re-sequence. That absence was the bug:
+/// `write_order` then numbered five rows `0..4` while Chuck's still held 6..9,
+/// and `practice_questions_order_unique` (scenario-wide) rolled the transaction
+/// back. Chuck's drag returned 500 every time.
+///
+/// So the assertion is now its opposite — Chuck's rows must be PRESENT, at the
+/// same indexes they went in at — and the two halves together are the whole
+/// rule: the other side cannot be dropped onto, and the other side does not move.
 #[test]
 fn a_target_on_the_other_side_is_refused_and_the_other_side_never_moves() {
     assert_eq!(
@@ -133,11 +157,16 @@ fn a_target_on_the_other_side_is_refused_and_the_other_side_never_moves() {
 
     let out = resequenced(&deck(), Uuid::from_u128(1), Some(Uuid::from_u128(3)))
         .expect("a same-side move is fine");
-    assert!(
-        !out.contains(&Uuid::from_u128(90)) && !out.contains(&Uuid::from_u128(91)),
-        "Chuck's questions must not appear in George's re-sequence: {out:?}"
+    assert_eq!(
+        out.len(),
+        7,
+        "the WHOLE deck comes back, or write_order renumbers into a collision: {out:?}"
     );
-    assert_eq!(out.len(), 5, "only this side is re-sequenced");
+    assert_eq!(
+        (out[5], out[6]),
+        (Uuid::from_u128(90), Uuid::from_u128(91)),
+        "Chuck's rows must be in the slots they were in: {out:?}"
+    );
 }
 
 /// A question the deck does not hold names no position.

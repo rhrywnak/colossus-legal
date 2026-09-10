@@ -42,6 +42,9 @@
 
 import React from "react";
 
+import { DndContext, closestCenter } from "@dnd-kit/core";
+import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
+
 import type {
   PracticeAttachOption,
   PracticeQuestion,
@@ -50,12 +53,13 @@ import type {
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
 import PracticeAddQuestion from "./PracticeAddQuestion";
+import PracticeDeckGapAdd from "./PracticeDeckGapAdd";
 import PracticeDeckRow from "./PracticeDeckRow";
 import PracticeSidePicker, { type SideCounts } from "./PracticeSidePicker";
 import PrintAntecedent from "./PrintAntecedent";
 import { antecedentOf } from "./printSheetPlan";
 import { type DeckSectionLabel, sideSections } from "../../pages/practiceQueue";
-import { dropPosition } from "../dragReorder";
+import { gapAnchor, useDeckDrag } from "./deckSortable";
 import * as d from "./practiceDeckStyles";
 import * as s from "./practiceStyles";
 
@@ -92,6 +96,22 @@ interface Props {
   setFieldsFor: React.Dispatch<React.SetStateAction<string | null>>;
 }
 
+// Two literals this file used to hold travelled with the code that uses them:
+// the gap control's "+ Add question here" into `PracticeDeckGapAdd`, and the
+// lifted-row announcement into `deckSortable`. Both are owed as settings rows
+// there. The drag HINT was never a literal — it is the existing
+// `practice_editor_drag_hint` row, read on the grip in `PracticeDeckRow`.
+
+/**
+ * A gap's identity: which run it is in, and which row it sits above.
+ *
+ * The index alone is not enough — Chuck's two runs both have a gap 0, and one
+ * `addingAt` holding "0" would open a form in each. The run's label key is what
+ * separates them; `"only"` mirrors the key the render already uses for a side
+ * with a single unlabelled run.
+ */
+const gapKey = (labelKey: string | null, index: number): string =>
+  `${labelKey ?? "only"}:${index}`;
 const PracticeDeckList: React.FC<Props> = ({
   questions,
   side,
@@ -143,15 +163,21 @@ const PracticeDeckList: React.FC<Props> = ({
   // that undo. Do not invent a state."
   const [deleted, setDeleted] = React.useState<PracticeQuestion[]>([]);
 
-  // Whether the add form is showing. `fieldsFor` is NOT here: the control that
-  // guards an open field stack — Edit the deck — moved to the title row above,
-  // and state must live where the thing that guards it lives, or the guard is
-  // reading a copy.
+  // Whether the BOTTOM add form is showing. `fieldsFor` is NOT here: the control
+  // that guards an open field stack — Edit the deck — moved to the title row
+  // above, and state must live where the thing that guards it lives, or the
+  // guard is reading a copy.
   const [adding, setAdding] = React.useState(false);
-  // Which row a drag picked up. Held HERE and not on the row, because a drop is
-  // a fact about two rows and only the list knows both.
-  const [dragging, setDragging] = React.useState<string | null>(null);
-
+  /**
+   * Which GAP has its add form open, or `null`.
+   *
+   * The row above the gap, or the empty string for the gap above the first row —
+   * "no row above" is a real position (the top of the run) and not the absence of
+   * a choice, which is what `null` means here. One at a time, and opening a gap
+   * closes the bottom box, because two forms on screen is two places a half-typed
+   * question can be lost.
+   */
+  const [addingAt, setAddingAt] = React.useState<string | null>(null);
   // Both counts, off the WHOLE deck, so the button for the side that is not
   // showing still says how much is behind it.
   const sections = sideSections(questions, side);
@@ -170,6 +196,13 @@ const PracticeDeckList: React.FC<Props> = ({
   // rather than only this side's, because a redirect's target is on the other.
   const rows = sections.flatMap((part) => part.questions);
   const visible = questions.filter((q) => !q.hidden);
+
+  // The drag itself — sensors, what a lift announces, what a drop means. Lifted
+  // into a hook so this component reads as the LIST it is; see `useDeckDrag`.
+  const { sensors, lifted, onDragStart, onDragEnd, onDragCancel } = useDeckDrag(
+    sections,
+    editor.reorder,
+  );
 
   return (
     <div style={d.deck}>
@@ -222,6 +255,35 @@ const PracticeDeckList: React.FC<Props> = ({
           </div>
         )}
 
+        {/* ONE DndContext for the page, and one SortableContext PER RUN
+            (Roman's ruling, 2026-09-10). Chuck's side is drawn in two runs —
+            his directs, then his redirects — partitioned by `kind` rather than
+            by `sort_order`, so the displayed order is not the stored order
+            across the boundary between them. One context spanning both would let
+            a direct be dragged into the middle of the redirects, slide, drop, and
+            then visibly jump home the instant the list re-grouped it: the row
+            would travel and snap back, because the drag changed its position and
+            not its `kind`. Two contexts mean the gesture is simply not offered,
+            the insertion line never appears outside the row's own run, and
+            nothing ever moves and then un-moves. George's side has one run and is
+            unaffected either way.
+
+            `closestCenter` is the collision strategy for a vertical list: the row
+            whose centre is nearest the pointer is the one being pointed at. */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragStart={onDragStart}
+          onDragEnd={onDragEnd}
+          onDragCancel={onDragCancel}
+        >
+        {/* What a screen reader hears while a row is in hand. `polite` so it
+            waits for a pause rather than interrupting, and it names the question
+            because on this screen the rows are sentences — "item 3" identifies
+            nothing here. */}
+        <div aria-live="polite" style={d.srOnly}>
+          {lifted}
+        </div>
         {sections.map((part) => (
           <React.Fragment key={part.labelKey ?? "only"}>
             {/* The run's heading, when the side has more than one run. Chuck's
@@ -233,8 +295,37 @@ const PracticeDeckList: React.FC<Props> = ({
             {part.labelKey !== null && (
               <div style={d.sectionLabel}>{sectionHeading(part.labelKey)}</div>
             )}
-            {part.questions.map((question) => (
+            <SortableContext
+              items={part.questions.map((q) => q.id)}
+              strategy={verticalListSortingStrategy}
+            >
+            {part.questions.map((question, index) => (
               <React.Fragment key={question.id}>
+                {/* The gap ABOVE this row. Editor-only, one open at a time, and
+                    the same form the bottom box opens — a second add form with
+                    its own fields would be a second place the rules about tactics
+                    and redirects could drift. `gapAnchor` names the row above,
+                    because that is the anchor that survives the re-render; the
+                    gap above the first row has none, which the server reads as
+                    the top of the side. */}
+                {editor.editing && (
+                  <PracticeDeckGapAdd
+                    open={gapKey(part.labelKey, index) === addingAt}
+                    onOpen={() => {
+                      setAddingAt(gapKey(part.labelKey, index));
+                      setAdding(false);
+                    }}
+                    onCancel={() => setAddingAt(null)}
+                    anchor={gapAnchor(part.questions, (q) => q.id, index)}
+                    onAdd={(question) => {
+                      editor.add(question);
+                      setAddingAt(null);
+                    }}
+                    wording={wording}
+                    attachOptions={attachOptions}
+                    ready={editor.ready}
+                  />
+                )}
                 {/* The defense question this one repairs, quoted above it. Drawn
                   by the SHARED component the printed sheets use — a redirect
                   read on its own means nothing, and this is the same judgement
@@ -282,23 +373,6 @@ const PracticeDeckList: React.FC<Props> = ({
                       setDeleted((was) => [...was, question]);
                     }}
                     deleting={deletingId === question.id}
-                    dragging={dragging}
-                    onPickUp={() => setDragging(question.id)}
-                    onDropHere={() => {
-                      if (dragging === null) return;
-                      // The browser computes NEIGHBOURS, never an ordinal — the
-                      // position is the server's, derived from what is stored. Same
-                      // rule the scenario-facts drag follows.
-                      const landing = dropPosition(
-                        rows,
-                        (q) => q.id,
-                        dragging,
-                        question.id,
-                      );
-                      setDragging(null);
-                      if (landing !== null)
-                        editor.reorder(dragging, landing.before);
-                    }}
                     fieldsOpen={fieldsFor === question.id}
                     onToggleFields={() =>
                       setFieldsFor((was) =>
@@ -309,8 +383,10 @@ const PracticeDeckList: React.FC<Props> = ({
                 )}
               </React.Fragment>
             ))}
+            </SortableContext>
           </React.Fragment>
         ))}
+        </DndContext>
 
         {editor.editing &&
           (adding ? (
@@ -329,7 +405,10 @@ const PracticeDeckList: React.FC<Props> = ({
               <button
                 type="button"
                 style={s.button}
-                onClick={() => setAdding(true)}
+                onClick={() => {
+                setAdding(true);
+                setAddingAt(null);
+              }}
               >
                 {w("editor_add_label")}
               </button>

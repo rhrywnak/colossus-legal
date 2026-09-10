@@ -7,6 +7,19 @@
 //! REFUSAL — nine ways a typed question can be wrong, all of them proved before
 //! a transaction opens.
 //!
+//! ## The REFUSALS moved out (2026-09-10)
+//!
+//! This module's own header has always said that adding a question is mostly
+//! refusal — nine ways a typed one can be wrong, all proved before a transaction
+//! opens — and task DECK_DRAG_AND_ADD added a tenth and an eleventh (an `after`
+//! naming another side's row, and `after` and `at_start` together), which carried
+//! the file past Rule 17's limit. So the refusals are now the sibling
+//! [`super::practice_editor_add_fences`], along with the `AddPlan` they produce,
+//! and what is left here is the WRITE: insert, place, log, commit.
+//!
+//! The seam is the one the header already drew. Nothing changed but where the
+//! functions live.
+//!
 //! ## CRITICAL — the pipeline pool
 //!
 //! Every table here lives in `colossus_legal_v2`.
@@ -18,26 +31,36 @@ use axum::{
 
 use crate::{
     auth::AuthUser,
-    domain::practice_params::TACTIC_CARD_MAX,
     dto::practice_review::{AddQuestionRequest, DeckChangeResponse},
     error::AppError,
     repositories::pipeline_repository::{
         practice::{list_deck, PracticeQuestionRecord},
         practice_editor::{insert_question, log_change, next_sort_order, NewChange, NewQuestion},
+        practice_reorder::{placed_after, position_within_side, write_order, NewPosition},
     },
     services::practice_notes::attribution,
     state::AppState,
 };
 
 use super::practice::repo_error;
+use super::practice_editor_add_fences::{fence_after, plan_question, AddPlan};
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
 /// Add a question somebody typed on the page.
 ///
+/// ## Where the new question lands (task DECK_DRAG_AND_ADD part 3)
+///
+/// Without `after` it appends, as it always has. With `after` it is written at
+/// the end exactly as before and then MOVED, in the same transaction, to sit
+/// immediately below that row on its own side — see [`write_question`] for why
+/// the two are one act rather than an insert followed by a reorder call.
+///
 /// # Errors
 /// 400 for an unsigned change, an unknown kind, a blank text, a redirect with
-/// no `follows`, or a `follows` naming no cross question in this deck; 404 when
-/// the scenario does not exist or is reached through the wrong case.
+/// no `follows`, a `follows` naming no cross question in this deck, or an
+/// `after` naming a question on the OTHER side; 404 when the scenario does not
+/// exist, is reached through the wrong case, or when `after` names a question
+/// this scenario does not hold.
 pub async fn post_add_question(
     user: AuthUser,
     State(state): State<AppState>,
@@ -53,9 +76,15 @@ pub async fn post_add_question(
         .map_err(|e| repo_error("list_deck", e))?;
     let plan = plan_question(&state, &body, &deck)?;
 
-    let question_id = write_question(&state, scenario_id, &body, &plan, &by, &by_id).await?;
+    // Fenced BEFORE the transaction opens, like every other refusal in this
+    // module: a request that names an impossible position is answered without a
+    // row having been written and then moved back.
+    let at = fence_after(&body, &plan, &deck, scenario_id)?;
 
-    tracing::info!(%scenario_id, %question_id, kind = %plan.kind, by = %by, "practice deck: a question was added");
+    let question_id =
+        write_question(&state, scenario_id, &body, &plan, &deck, at, (&by, &by_id)).await?;
+
+    tracing::info!(%scenario_id, %question_id, kind = %plan.kind, ?at, by = %by, "practice deck: a question was added");
     Ok(Json(DeckChangeResponse { question_id }))
 }
 
@@ -70,9 +99,11 @@ async fn write_question(
     scenario_id: uuid::Uuid,
     body: &AddQuestionRequest,
     plan: &AddPlan,
-    by: &str,
-    by_id: &str,
+    deck: &[PracticeQuestionRecord],
+    at: NewPosition,
+    attribution: (&str, &str),
 ) -> Result<uuid::Uuid, AppError> {
+    let (by, by_id) = attribution;
     let mut tx = state
         .pipeline_pool
         .begin()
@@ -105,6 +136,27 @@ async fn write_question(
     .await
     .map_err(|e| repo_error("insert_question", e))?;
 
+    // The move, inside the SAME transaction as the insert. A question that
+    // arrived at the bottom and then hopped to the middle a moment later would be
+    // two facts on Chuck's screen for one thing he did, and a failure between
+    // them would leave the row somewhere he did not ask for with nothing saying
+    // so. `placed_after` returns `None` only for positions `fence_after` has
+    // already refused, so reaching it here would be a broken invariant rather
+    // than a request problem — and it is reported as one.
+    // `End` is where the INSERT already put it, so there is nothing to write and
+    // nothing to say — which keeps every add that predates the gap control on
+    // exactly the one-statement path it has always taken.
+    let position = match at {
+        NewPosition::End => None,
+        at => Some(place_new_question(&mut tx, deck, question_id, plan, at).await?),
+    };
+    let placement = match position {
+        // The stored value counts from ONE, because it is read by a person: the
+        // deck's third question is "3" on screen and in Chuck's box, never "2".
+        Some(at) => format!("{} {}", plan.side, at + 1),
+        None => plan.side.to_string(),
+    };
+
     log_change(
         &mut tx,
         &NewChange {
@@ -116,7 +168,14 @@ async fn write_question(
             // The SIDE, which is the one fact about a new question the change
             // list needs — and it is stored rather than joined because the
             // question's row may have moved by the time the list is read.
-            after_value: Some(plan.side),
+            //
+            // Since task DECK_DRAG_AND_ADD it carries the POSITION too, when the
+            // add named one: "chuck 3" rather than "chuck". A question added into
+            // the middle of a deck is a different event from one appended to the
+            // end, and the box that tells Chuck what changed since his last
+            // sitting could not tell them apart. Appended adds are unchanged —
+            // they say the side alone, exactly as every stored row already does.
+            after_value: Some(&placement),
             changed_by: by,
             changed_by_id: by_id,
         },
@@ -127,179 +186,62 @@ async fn write_question(
     Ok(question_id)
 }
 
-/// What an add request becomes, once proved.
-struct AddPlan {
-    side: &'static str,
-    kind: &'static str,
-    tactic: Option<i16>,
-    follows: Option<String>,
-    source_kind: &'static str,
-    source_ref: Option<String>,
-}
-
-/// The side and kind one requested kind is.
+/// Move the row that was just inserted to the position that was asked for.
 ///
-/// The form asks ONE question because the side follows from the kind: a cross is
-/// George's, and the other two are Chuck's.
-fn side_and_kind(kind: &str) -> Result<(&'static str, &'static str), AppError> {
-    match kind {
-        "cross" => Ok(("george", "cross")),
-        "direct" => Ok(("chuck", "direct")),
-        "redirect" => Ok(("chuck", "redirect")),
-        other => Err(AppError::BadRequest {
-            message: "kind must be cross, direct or redirect".to_string(),
-            details: serde_json::json!({ "field": "kind", "value": other }),
-        }),
-    }
-}
-
-/// A tactic belongs to a cross question and nowhere else.
+/// Returns its new position WITHIN ITS SIDE, counting from zero — the number the
+/// change row prints (incremented, because a person counts from one).
 ///
-/// Accepting one on a Chuck question would put a trap tag on a friendly
-/// question, which is the opposite of what the tag means.
-fn fence_tactic(kind: &str, tactic: Option<i16>) -> Result<Option<i16>, AppError> {
-    match (kind, tactic) {
-        ("cross", Some(t)) if (1..=TACTIC_CARD_MAX).contains(&t) => Ok(Some(t)),
-        ("cross", None) => Ok(None),
-        ("cross", Some(t)) => Err(AppError::BadRequest {
-            message: format!("tactic must be a card number from 1 to {TACTIC_CARD_MAX}"),
-            details: serde_json::json!({ "field": "tactic", "value": t }),
-        }),
-        (_, Some(_)) => Err(AppError::BadRequest {
-            message: "only a George question carries a tactic".to_string(),
-            details: serde_json::json!({ "field": "tactic" }),
-        }),
-        (_, None) => Ok(None),
-    }
-}
-
-/// Prove a redirect names a cross question that is in THIS deck.
+/// ## Why the whole deck is rewritten for one new row
 ///
-/// The same check the deck file's validator makes, made here because a question
-/// typed on the page never passes through the file. `follows_key` is
-/// deliberately not a foreign key, so this is the whole of it.
-fn fence_follows(
-    kind: &str,
-    follows: Option<&str>,
+/// `write_order` renumbers every id it is handed to `0..N-1`, and
+/// `practice_questions_order_unique` spans the scenario — so a partial list
+/// collides with the rows left out of it. That is the same 500 that made the
+/// drag never save; see `practice_reorder`'s module doc. `placed_after` therefore
+/// returns a permutation of the deck plus the new row, and all of it is written.
+///
+/// ## Rust Learning: `ok_or_else` turning a broken invariant into an error
+///
+/// `placed_after` answers `None` only for the two positions [`fence_after`] has
+/// already refused, so reaching that arm means the two functions have drifted
+/// apart. It is reported as a 500 with a log line naming the drift rather than
+/// silently leaving the question at the bottom of the deck — which would be a row
+/// sitting somewhere nobody asked for, with nothing anywhere saying so
+/// (Standing Rule 1).
+async fn place_new_question(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     deck: &[PracticeQuestionRecord],
-) -> Result<Option<String>, AppError> {
-    let follows = follows.map(str::trim).filter(|v| !v.is_empty());
-    if kind != "redirect" {
-        if follows.is_some() {
-            return Err(AppError::BadRequest {
-                message: "only a redirect follows a George question".to_string(),
-                details: serde_json::json!({ "field": "follows" }),
-            });
+    question_id: uuid::Uuid,
+    plan: &AddPlan,
+    at: NewPosition,
+) -> Result<usize, AppError> {
+    let order = placed_after(deck, question_id, plan.side, at).ok_or_else(|| {
+        tracing::error!(
+            %question_id, ?at, side = plan.side,
+            "practice deck: fence_after passed a position placed_after refuses — \
+             an internal invariant between the two is broken"
+        );
+        AppError::Internal {
+            message: "the new question's position could not be determined; nothing was changed"
+                .to_string(),
         }
-        return Ok(None);
-    }
-    let key = follows.ok_or_else(|| AppError::BadRequest {
-        message: "a redirect must say which George question it follows".to_string(),
-        details: serde_json::json!({ "field": "follows" }),
     })?;
-    if !deck
-        .iter()
-        .any(|q| q.kind == "cross" && q.deck_key.as_deref() == Some(key))
-    {
-        return Err(AppError::BadRequest {
-            message: format!("no George question in this deck has the key \"{key}\""),
-            details: serde_json::json!({ "field": "follows", "value": key }),
-        });
-    }
-    Ok(Some(key.to_string()))
-}
 
-/// Prove an add request before a transaction opens.
-///
-/// Split from the handler so that function reads as the four steps it is —
-/// fence the case, fence the editor, plan, write — and because everything here
-/// is a refusal about what a CLIENT sent, which is a different subject from
-/// writing a question.
-fn plan_question(
-    state: &AppState,
-    body: &AddQuestionRequest,
-    deck: &[PracticeQuestionRecord],
-) -> Result<AddPlan, AppError> {
-    if body.text.trim().is_empty() {
-        return Err(AppError::BadRequest {
-            message: "a question must have words in it".to_string(),
-            details: serde_json::json!({ "field": "text" }),
-        });
-    }
-    let (side, kind) = side_and_kind(&body.kind)?;
-    let tactic = fence_tactic(kind, body.tactic)?;
-    let follows = fence_follows(kind, body.follows.as_deref(), deck)?;
+    write_order(tx, &order)
+        .await
+        .map_err(|e| repo_error("write_order", e))?;
 
-    let (source_kind, source_ref) = resolve_attach(state, body, deck)?;
-    Ok(AddPlan {
-        side,
-        kind,
-        tactic,
-        follows,
-        source_kind,
-        source_ref,
+    position_within_side(deck, &order, question_id, plan.side).ok_or_else(|| {
+        tracing::error!(
+            %question_id, side = plan.side,
+            "practice deck: the new question is missing from the order that was just written"
+        );
+        AppError::Internal {
+            message: "the new question's position could not be determined; nothing was changed"
+                .to_string(),
+        }
     })
 }
 
-/// What the add form's "Attach to" choice becomes on the row.
-///
-/// ## Domain note: an instance's ref is BORROWED from a sibling question
-///
-/// `source_ref` on an instance question is the graph node id the seed resolved,
-/// and this page does not read the graph. So attaching to "instance 2" means
-/// taking the ref the deck's own second instance question already carries —
-/// which is exactly what "attach to the same thing that one is attached to"
-/// means, and it cannot invent an id that points nowhere.
-///
-/// A scenario whose deck has no question on that instance yet cannot offer it,
-/// and [`crate::services::practice_editor_options`] says so in its own header.
-fn resolve_attach(
-    state: &AppState,
-    body: &AddQuestionRequest,
-    deck: &[PracticeQuestionRecord],
-) -> Result<(&'static str, Option<String>), AppError> {
-    let (Some(kind), Some(index)) = (body.source_kind.as_deref(), body.source_index) else {
-        // "no receipt" — the honest answer when a question traces to nothing.
-        return Ok(("manual", None));
-    };
-    let wanted = match kind {
-        "instance" => "instance",
-        "point" => "point",
-        other => {
-            return Err(AppError::BadRequest {
-                message: "source_kind must be instance or point".to_string(),
-                details: serde_json::json!({ "field": "source_kind", "value": other }),
-            })
-        }
-    };
-    let nth = usize::try_from(index - 1).map_err(|_| AppError::BadRequest {
-        message: "source_index counts from 1".to_string(),
-        details: serde_json::json!({ "field": "source_index", "value": index }),
-    })?;
-    let borrowed = deck
-        .iter()
-        .filter(|q| q.source_kind == wanted)
-        .nth(nth)
-        .and_then(|q| q.source_ref.clone())
-        .ok_or_else(|| AppError::BadRequest {
-            message: format!(
-                "this scenario's deck has no question on {wanted} {index} to attach to"
-            ),
-            details: serde_json::json!({ "field": "source_index", "value": index }),
-        })?;
-    let _ = state;
-    Ok((wanted_static(wanted), Some(borrowed)))
-}
-
-/// The `&'static str` one validated source kind is.
-///
-/// `wanted` above is already one of two literals, but it borrows from a `match`
-/// on client input; this hands back the crate's own constant so nothing derived
-/// from a request reaches the column.
-fn wanted_static(kind: &str) -> &'static str {
-    if kind == "instance" {
-        "instance"
-    } else {
-        "point"
-    }
-}
+#[cfg(test)]
+#[path = "practice_editor_add_tests.rs"]
+mod tests;
