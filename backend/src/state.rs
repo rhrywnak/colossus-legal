@@ -7,7 +7,9 @@ use colossus_extract::{EmbeddingProvider, LlmProvider};
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
-use tokio::sync::Semaphore;
+use tokio::sync::{Mutex, Semaphore};
+use tokio_util::sync::CancellationToken;
+use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::pipeline::extraction_engine::ExtractionEngine;
@@ -113,6 +115,43 @@ pub struct AppState {
     /// separate from the pipeline's `llm_semaphore` so a scan and document
     /// extraction never starve each other (D2b STEP-1 concurrency decision).
     pub theme_scan_semaphore: Arc<Semaphore>,
+
+    /// The STOP handle of every Theme Scan currently judging in this process.
+    ///
+    /// Keyed by `run_id`; a token is inserted by `services::theme_scan_start`
+    /// before the judging task is spawned, and removed by that task on ANY exit
+    /// (finished, cancelled, or failed). The cancel route looks the run up here
+    /// and calls `cancel()`; the judging loop checks the token before each LLM
+    /// call and stops asking for more.
+    ///
+    /// ## Why a map in memory rather than a column on the row
+    ///
+    /// The thing being cancelled is a `tokio` task inside THIS process, so the
+    /// handle that can stop it cannot outlive the process either. A `cancel_me`
+    /// flag on `scan_runs` would have to be polled, would survive a restart the
+    /// task did not, and would need its own cleanup. The durable half of the story
+    /// is already on the row — the judging loop writes `status = 'cancelled'` on
+    /// its way out — and this map is only the doorbell.
+    ///
+    /// An absent entry is therefore a real answer, not a gap: it means no live task
+    /// in this process owns that run, and the cancel route refuses rather than
+    /// reporting a stop that nothing will ever perform (Standing Rule 1).
+    ///
+    /// ## Rust Learning: `tokio::sync::Mutex`, not `std::sync::Mutex`
+    ///
+    /// Both would work — every critical section here is three lines of map access
+    /// with no `.await` inside it — but `std::sync::Mutex::lock()` returns a
+    /// `Result` because of POISONING: if any thread panics while holding the lock,
+    /// every later `lock()` fails forever. The only ways to handle that are
+    /// `.unwrap()` (banned in production paths) or an error arm for a case that
+    /// cannot be recovered from. `tokio::sync::Mutex` has no poisoning, so
+    /// `lock().await` yields the guard directly and there is no `Result` to
+    /// mishandle. Every caller is already `async`.
+    ///
+    /// `Arc` because `AppState` is CLONED per request and every clone must reach
+    /// the SAME map — a per-clone copy would let the route ring a doorbell in a
+    /// house nobody is in.
+    pub scan_cancel: Arc<Mutex<HashMap<Uuid, CancellationToken>>>,
 
     /// The shared Rig extraction engine, used to construct per-run LLM providers
     /// from an `llm_models` row via `pipeline::providers::provider_for_model`.

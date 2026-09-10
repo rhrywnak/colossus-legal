@@ -41,6 +41,16 @@ pub(crate) fn routes() -> Router<AppState> {
             get(scenario_theme_scan::get_scenario_scan_run)
                 .delete(scenario_theme_scan::delete_scenario_scan_run_handler),
         )
+        // Stop a run that is currently judging (task SCAN_SERVER_STATE, part C).
+        // POST rather than DELETE: it does not remove anything — the run, its
+        // counts and every verdict it has already written all survive, which is
+        // the point. Its own path segment rather than a query flag on the DELETE
+        // so the two are impossible to confuse, in the router and in the log.
+        // Edit-gated + case-fenced inside the handler, like its siblings above.
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/cancel",
+            post(scenario_theme_scan::cancel_scenario_scan_run_handler),
+        )
         // There is no merge route (2026-08-08). A completed run's admitted
         // verdicts reach the queue as a READ-TIME PROJECTION served by
         // `…/facts/cards`, and the human's ruling is the only write — so the

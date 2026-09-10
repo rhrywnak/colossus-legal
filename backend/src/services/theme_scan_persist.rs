@@ -169,12 +169,39 @@ fn process_one(
         representative,
         members,
     } = group;
-    let fields = classify(meta, &representative, &members, &outcome.verdict, acc);
+    tally(meta, &representative, &members, &outcome.verdict, acc);
+    acc.verdicts
+        .extend(verdict_records(meta.run_id, &members, &outcome));
+}
 
-    for graph_node_id in members {
-        acc.verdicts.push(ScanRunVerdictRecord {
-            run_id: meta.run_id,
-            graph_node_id,
+/// The `scan_run_verdicts` rows one judged GROUP produces — one per member.
+///
+/// PURE (no tallies, no logging, no I/O) and `pub(crate)` because there are now
+/// TWO writers and they must produce byte-identical rows: `theme_scan_judge`
+/// inserts a group's rows the moment it is judged, and [`persist_and_summarize`]
+/// replays the whole set at the end of the run. Two hand-written copies of this
+/// mapping would eventually disagree about one column, and the disagreement would
+/// be invisible — `ON CONFLICT DO NOTHING` means the second write is silently
+/// discarded, so whichever copy ran FIRST would be the record.
+///
+/// ## Rust Learning: `&[String]` in, owned `String`s out
+///
+/// The members are borrowed because the caller keeps them (the judge still needs
+/// the group afterwards), and each row needs an OWNED `graph_node_id` because
+/// `ScanRunVerdictRecord` is a `'static` value handed to sqlx. `clone()` per
+/// member is the honest cost of that, and it is a handful of short strings per
+/// group — not a place to reach for lifetimes.
+pub(crate) fn verdict_records(
+    run_id: Uuid,
+    members: &[String],
+    outcome: &JudgeOutcome,
+) -> Vec<ScanRunVerdictRecord> {
+    let fields = verdict_fields(&outcome.verdict);
+    members
+        .iter()
+        .map(|graph_node_id| ScanRunVerdictRecord {
+            run_id,
+            graph_node_id: graph_node_id.clone(),
             relevant: fields.relevant,
             proposed_role: fields.proposed_role.clone(),
             confidence: fields.confidence,
@@ -184,8 +211,8 @@ fn process_one(
             // pointer to a sibling that a later delete could remove.
             raw_reply: outcome.raw_reply.clone(),
             error: fields.error.clone(),
-        });
-    }
+        })
+        .collect()
 }
 
 /// The verdict-row fields for one candidate (mirrors `scan_run_verdicts`).
@@ -197,18 +224,56 @@ struct VerdictFields {
     error: Option<String>,
 }
 
-/// Route one candidate into the tally and produce its verdict-row fields.
+/// One verdict's ROW SHAPE — pure, and the single source of that shape.
+///
+/// Three outcomes, each distinguishable on the row (Standing Rule 1): a relevant
+/// verdict, an irrelevant one (both carry the model's role/confidence/reason and
+/// no error), and a per-item failure (all four `None`, and `error` says why).
+///
+/// Split from [`tally`] when the judge started writing rows of its own: the SHAPE
+/// of a row is needed by both writers, while the tallies and the honesty sample
+/// belong to the once-per-run pass alone.
+fn verdict_fields(verdict: &Result<Verdict, String>) -> VerdictFields {
+    match verdict {
+        Ok(v) if v.relevant => VerdictFields {
+            relevant: Some(true),
+            proposed_role: Some(v.proposed_role.code().to_string()),
+            confidence: Some(v.confidence),
+            reason: Some(v.reason.clone()),
+            // No write to fail, so no per-item error to record. A verdict-level
+            // error still lands in the `Err` arm below.
+            error: None,
+        },
+        Ok(v) => VerdictFields {
+            relevant: Some(false),
+            proposed_role: Some(v.proposed_role.code().to_string()),
+            confidence: Some(v.confidence),
+            reason: Some(v.reason.clone()),
+            error: None,
+        },
+        Err(reason) => VerdictFields {
+            relevant: None,
+            proposed_role: None,
+            confidence: None,
+            reason: None,
+            error: Some(reason.to_string()),
+        },
+    }
+}
+
+/// Route one candidate into the run's TALLIES and its human-facing lists.
 ///
 /// Three outcomes (Standing Rule 1 — distinguishable): a relevant verdict
 /// (suggested to the human, never written), an irrelevant verdict (sampled, never
-/// suggested), or a per-item failure (counted, logged with `evidence_id`).
-fn classify(
+/// suggested), or a per-item failure (counted, logged with `evidence_id`). The
+/// row shape each produces is [`verdict_fields`]'s job, not this one's.
+fn tally(
     meta: &ScanRunMeta,
     candidate: &BiasInstance,
     members: &[String],
     verdict: &Result<Verdict, String>,
     acc: &mut Accumulator,
-) -> VerdictFields {
+) {
     match verdict {
         Ok(v) if v.relevant => handle_relevant(candidate, members, v, acc),
         Ok(v) => handle_irrelevant(candidate, v, acc),
@@ -232,27 +297,14 @@ fn handle_relevant(
     members: &[String],
     v: &Verdict,
     acc: &mut Accumulator,
-) -> VerdictFields {
+) {
     acc.relevant += 1;
     acc.suggestions
         .push(to_suggestion(candidate.clone(), members, v));
-    VerdictFields {
-        relevant: Some(true),
-        proposed_role: Some(v.proposed_role.code().to_string()),
-        confidence: Some(v.confidence),
-        reason: Some(v.reason.clone()),
-        // No write to fail, so no per-item error to record. A verdict-level error
-        // still lands here via `handle_failed`.
-        error: None,
-    }
 }
 
 /// An irrelevant verdict: never written, but sampled for the honesty check.
-fn handle_irrelevant(
-    candidate: &BiasInstance,
-    v: &Verdict,
-    acc: &mut Accumulator,
-) -> VerdictFields {
+fn handle_irrelevant(candidate: &BiasInstance, v: &Verdict, acc: &mut Accumulator) {
     acc.irrelevant += 1;
     acc.rejected.push(ThemeScanRejected {
         graph_node_id: candidate.evidence_id.clone(),
@@ -260,13 +312,6 @@ fn handle_irrelevant(
         confidence: v.confidence,
         content: candidate.clone(),
     });
-    VerdictFields {
-        relevant: Some(false),
-        proposed_role: Some(v.proposed_role.code().to_string()),
-        confidence: Some(v.confidence),
-        reason: Some(v.reason.clone()),
-        error: None,
-    }
 }
 
 /// A per-item failure: counted and logged with run/evidence/scenario context.
@@ -275,7 +320,7 @@ fn handle_failed(
     candidate: &BiasInstance,
     reason: &str,
     acc: &mut Accumulator,
-) -> VerdictFields {
+) {
     acc.failed += 1;
     tracing::error!(
         run_id = %meta.run_id,
@@ -284,13 +329,6 @@ fn handle_failed(
         reason = %reason,
         "theme scan: producing a verdict failed"
     );
-    VerdictFields {
-        relevant: None,
-        proposed_role: None,
-        confidence: None,
-        reason: None,
-        error: Some(reason.to_string()),
-    }
 }
 
 /// Write the `scan_run_verdicts` detail rows (the `scan_runs` header already

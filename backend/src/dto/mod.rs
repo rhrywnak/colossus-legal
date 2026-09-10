@@ -89,8 +89,8 @@ pub use scenario_facts::{
 };
 pub use schema::SchemaResponse;
 pub use theme_scan::{
-    ScanRequest, ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse, ScanStartedResponse,
-    ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary,
+    ScanCancelResponse, ScanRequest, ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse,
+    ScanStartedResponse, ThemeScanRejected, ThemeScanSuggestion, ThemeScanSummary,
 };
 pub use trial_prep::{
     ScenarioStatus, ScenarioSummary, TrialPrepAlert, TrialPrepDashboard, TrialPrepMetrics,

@@ -71,6 +71,13 @@ fn deleting_a_run_the_record_cites_maps_to_409_and_explains_why() {
     }
 }
 
+// The four SCAN-STATE mappings — the three 409s a human meets while a scan is
+// RUNNING, and the pre-row 500 that must keep its message — have their own
+// sibling (`scenario_theme_scan_state_tests.rs`). This file was at the 300-line
+// limit, and they are a distinct subject: every test here is about a scan that
+// could not START or a run that could not be DELETED, and every test there is
+// about a scan that is already going.
+
 #[test]
 fn provenance_check_failure_is_a_500_not_a_permissive_delete() {
     // Standing Rule 1, in the destructive direction: if the pre-delete check

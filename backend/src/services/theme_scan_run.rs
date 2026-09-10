@@ -10,6 +10,11 @@
 //! Every function here is case-fenced. A caller must not learn that a scenario —
 //! or a run — exists in another case, so a cross-case id is reported exactly like
 //! an absent one.
+//!
+//! The one WRITE that is not a delete is [`cancel_scenario_scan_run`], which
+//! stops a run in flight (task SCAN_SERVER_STATE, part C). It writes no row of its
+//! own: it rings the doorbell and the judging task records the outcome. See its
+//! doc for why that separation is the whole design.
 
 use uuid::Uuid;
 
@@ -17,7 +22,7 @@ use crate::dto::theme_scan::ScanPanelWording;
 use crate::dto::{ScanRunHeader, ScanRunListResponse, ScanRunStatusResponse};
 use crate::repositories::pipeline_repository::{
     count_run_provenance, delete_scan_run, get_scan_run, list_candidate_ordinals, list_scan_runs,
-    ScanRunHeaderRow,
+    ScanRunHeaderRow, SCAN_STATUS_RUNNING,
 };
 use crate::services::scan_conservation::annotate_conservation_line;
 use crate::services::scan_run_delta::with_pool_deltas;
@@ -243,6 +248,86 @@ pub async fn delete_scenario_scan_run(
     if rows_affected == 0 {
         return Err(ThemeScanError::ScanRunNotFound { run_id });
     }
+    Ok(())
+}
+
+/// Stop a run that is currently judging.
+///
+/// ## This function writes NOTHING to `scan_runs` — and that is the design
+///
+/// It cancels the run's [`tokio_util::sync::CancellationToken`], and the judging
+/// task — the one writer that knows what it actually judged before it stopped —
+/// records `status = 'cancelled'` on its way out. Hence the `cancelling` in the
+/// response: at the moment this returns, the stop has been REQUESTED and the row
+/// still says `running`. The panel's poll sees `cancelled` a moment later.
+///
+/// The alternative (route writes `cancelled`, task exits quietly) has two writers
+/// racing over one row: the route's write and the task's last progress bump can
+/// land in either order, so a stopped run could end up `cancelled` with counts
+/// from before its final in-flight calls, or `running` again after them. One
+/// writer, and the counts are always the ones the loop reached.
+///
+/// ## Fences, in order
+///
+///   * **case** — the scenario must belong to `case_slug` ([`load_scenario_fenced`]).
+///   * **scenario** — the run must belong to that scenario, as
+///     [`get_scan_run_status`] does it: keyed by `run_id` alone, so the match is
+///     checked after the read. Either miss is
+///     [`ThemeScanError::ScanRunNotFound`] → 404, identical to an absent id.
+///   * **state** — the run must be `running`. Anything else is
+///     [`ThemeScanError::ScanRunNotRunning`] → 409 naming the status it holds,
+///     because "it already finished" and "somebody else stopped it" are answers,
+///     not errors.
+///   * **liveness** — a token must be registered for it in this process. Absent
+///     means no live task will ever write `cancelled`, so the caller is told that
+///     ([`ThemeScanError::ScanRunNotCancellable`] → 409) rather than handed a 202
+///     promising a stop nothing is going to perform.
+pub async fn cancel_scenario_scan_run(
+    state: &AppState,
+    case_slug: &str,
+    scenario_id: Uuid,
+    run_id: Uuid,
+) -> Result<(), ThemeScanError> {
+    load_scenario_fenced(&state.pipeline_pool, case_slug, scenario_id).await?;
+
+    let row = get_scan_run(&state.pipeline_pool, run_id)
+        .await
+        .map_err(|source| ThemeScanError::ScanRunReadFailed { run_id, source })?
+        .ok_or(ThemeScanError::ScanRunNotFound { run_id })?;
+
+    if row.scenario_id != scenario_id {
+        return Err(ThemeScanError::ScanRunNotFound { run_id });
+    }
+    if row.status != SCAN_STATUS_RUNNING {
+        return Err(ThemeScanError::ScanRunNotRunning {
+            run_id,
+            status: row.status,
+        });
+    }
+
+    // ## Rust Learning: the guard is dropped before the `if`, deliberately
+    //
+    // `lock().await` yields a guard that holds the map for as long as it lives.
+    // Binding the LOOKUP's result instead — a cloned token — ends the borrow at
+    // the end of this statement, so the map is free again while the rest of this
+    // function runs. A token clone is a handle on the same token, so cancelling
+    // the clone cancels the one the judging task is watching.
+    let token = state.scan_cancel.lock().await.get(&run_id).cloned();
+    let Some(token) = token else {
+        tracing::warn!(
+            %run_id, %scenario_id,
+            "theme scan: stop requested for a run with no live judging task in this backend"
+        );
+        return Err(ThemeScanError::ScanRunNotCancellable { run_id });
+    };
+
+    token.cancel();
+    tracing::info!(
+        %run_id, %scenario_id,
+        candidates_judged = row.candidates_judged,
+        relevant_count = row.relevant_count,
+        "theme scan: stop requested; the judging task will record it as cancelled"
+    );
     Ok(())
 }
 

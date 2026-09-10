@@ -52,10 +52,12 @@ import {
 import { gatherCandidates } from "../services/scenarioGather";
 import type { ProposalSource } from "../services/scenarioCards";
 import {
+  cancelScanRun,
   deleteScanRun,
   fetchScanModels,
   fetchScanRuns,
   getScanRun,
+  ScanAlreadyRunningError,
   startThemeScan,
   type ScanWording,
   type ScanModel,
@@ -63,6 +65,7 @@ import {
   type ScanRunStatus,
   type ThemeScanSummary,
 } from "../services/themeScan";
+import { adoptableRun, isSettledRun } from "./themeScanRunState";
 
 // CONST: frontend poll/tick cadences are not runtime-configurable (there is no
 // frontend config endpoint); POLL_INTERVAL_MS matches the DocumentsPage
@@ -71,6 +74,32 @@ import {
 // poll value in both surfaces together if the cadence ever changes.
 const POLL_INTERVAL_MS = 3000;
 const ELAPSED_TICK_MS = 1000;
+// How many poll ticks pass between re-reads of the candidate cards while a scan
+// is running. The verdicts land one at a time now (server part B) and the queue
+// projects them as they do (part D), so the page has to look again to show them.
+// Every 5th tick = ~15s: often enough that the pill and the queue visibly grow
+// during a scan, rare enough that a human ruling cards mid-scan is not fighting a
+// list that reloads under them. A cadence, like the two above, not a knob.
+const CARDS_REFRESH_EVERY_N_POLLS = 5;
+
+// The Stop control's four words. LITERALS, and OWED as settings rows — a
+// migration is Roman's to author (CLAUDE.md rule 25) and this task did not
+// authorise one. The same accounting `FactsFilterBar` makes for its three filter
+// words and `ScenarioFactsHeader` makes for its five, and for the same reason:
+// every other string this panel renders is served with the run history
+// (`ScanPanelWording`), so these four are the exception and are named as such
+// rather than quietly added to the served set.
+//
+// Owed rows, named the way the served ones are:
+//   scan_running_stop_label          = "Stop"
+//   scan_running_stop_pending_label  = "Stopping…"
+//   scan_running_stop_notice         = "Stop the scan. What it has already found is kept."
+//   scan_running_stop_pending_notice = "Stopping — waiting for the scan to finish the calls already in flight."
+const STOP_LABEL = "Stop";
+const STOP_PENDING_LABEL = "Stopping…";
+const STOP_NOTICE = "Stop the scan. What it has already found is kept.";
+const STOP_PENDING_NOTICE =
+  "Stopping — waiting for the scan to finish the calls already in flight.";
 
 // REMOVED in task R1: the per-scenario collapse PREFERENCE and its localStorage
 // helpers (`COLLAPSE_KEY_PREFIX`, `readCollapsed`, `writeCollapsed`, and the
@@ -176,12 +205,28 @@ interface Props {
    * a sibling it does not own.
    */
   onFactsChanged?: () => void;
+  /**
+   * New verdicts have landed while a scan is still running (task
+   * SCAN_SERVER_STATE, part E9).
+   *
+   * The LIGHT re-read, deliberately NOT `onFactsChanged`. A running scan fires
+   * this every ~15 seconds, and `onFactsChanged` is the page-level refresh that
+   * re-runs all four reads and reloads the queue's pool — which "would disturb
+   * the queue's selection mid-triage, which is precisely the class of defect task
+   * 1.7G spent two builds fixing" (`ScenarioDetailPage`'s own note). Doing that
+   * on a timer, to a human who is ruling cards while the scan works, would be
+   * that defect on a schedule.
+   *
+   * The caller wires it to the same signal a confirmed ruling uses.
+   */
+  onCandidatesChanged?: () => void;
 }
 
 const ThemeScanPanel: React.FC<Props> = ({
   slug,
   scenarioId,
   onFactsChanged,
+  onCandidatesChanged,
   proposalSource,
   header,
 }) => {
@@ -203,6 +248,27 @@ const ThemeScanPanel: React.FC<Props> = ({
   const [poll, setPoll] = useState<ScanRunStatus | null>(null);
   const [elapsedMs, setElapsedMs] = useState(0);
   const startedAtRef = useRef<number>(0);
+  /**
+   * Runs this session has already watched settle.
+   *
+   * The adopt effect below reads the run HISTORY, which is refetched
+   * asynchronously — so for a moment after a run finishes, the list still says
+   * `running` while `activeRun` is already null. Without this memory the panel
+   * would re-adopt the run it just finished and the two would trade places until
+   * the refetch landed. A ref rather than state: nothing renders from it, and a
+   * re-render on every settle would be work for no pixels.
+   */
+  const settledRuns = useRef<Set<string>>(new Set());
+  /** A Stop has been sent and the poll has not yet seen the run settle. Keeps the
+   *  button disabled for exactly that window (part E11) rather than forever. */
+  const [stopping, setStopping] = useState(false);
+  /** How many times the current run has been polled — drives the every-5th-tick
+   *  card re-read. A ref because it must survive re-renders without causing one. */
+  const pollTicks = useRef(0);
+  /** A failed Stop, in the backend's own words. Distinct from `startError`: a
+   *  scan that would not start and a scan that would not stop are different
+   *  things to be told (Standing Rule 1). */
+  const [stopError, setStopError] = useState<string | null>(null);
 
   const [startError, setStartError] = useState<string | null>(null);
   // A model-catalog load failure gets its OWN observable state, distinct from a
@@ -288,23 +354,39 @@ const ThemeScanPanel: React.FC<Props> = ({
   }, [slug, scenarioId, refreshRuns]);
 
   // ── Poll the active run every 3s while it is running ────────────────────────
+  //
+  // THREE terminal states now, not two (task SCAN_SERVER_STATE part E9).
+  // `cancelled` settles exactly as `completed` does — clear the active run,
+  // re-read the history, re-read the cards — with one difference the code makes
+  // explicit rather than assumes: a cancelled run has no `summary` to cache,
+  // because there is no finished whole to summarize. Its verdicts are already in
+  // the queue below, which is the point of stopping rather than deleting.
   useEffect(() => {
     if (!activeRun) return;
     let cancelled = false;
+    pollTicks.current = 0;
     const tick = async () => {
       try {
         const status = await getScanRun(slug, scenarioId, activeRun.runId);
         if (cancelled) return;
         setPoll(status);
-        if (status.status === "completed" && status.summary) {
-          const summary = status.summary;
-          // Seed the lazy cache with the just-finished result, auto-select it so
-          // it renders immediately, and re-read the history so the new run appears.
-          setSummaries((m) => ({ ...m, [status.run_id]: summary }));
-          setSelectedRunIds([status.run_id]);
+        pollTicks.current += 1;
+        if (isSettledRun(status.status)) {
+          // Remember it BEFORE clearing, so the adopt effect below cannot pick
+          // this run back up off a history list that has not refetched yet.
+          settledRuns.current.add(status.run_id);
+          if (status.summary) {
+            // Seed the lazy cache with the just-finished result and auto-select it
+            // so it renders immediately. A stopped run reaches this with no
+            // summary and simply does not open a report — correct, and not a
+            // fallback: there is no report.
+            const summary = status.summary;
+            setSummaries((m) => ({ ...m, [status.run_id]: summary }));
+            setSelectedRunIds([status.run_id]);
+          }
           refreshRuns();
           // THE DEAD WIRE, reconnected (audit defects 7-8). `refreshRuns` reloads
-          // this panel's own history list and nothing else — but a completed run
+          // this panel's own history list and nothing else — but a settled run
           // changes what the PAGE is showing: a new run now projects, so the
           // queue's pool, its `proposal_source` attribution and the served
           // "no scan has run yet" notice are all stale the instant this fires.
@@ -313,11 +395,20 @@ const ThemeScanPanel: React.FC<Props> = ({
           // had just been scanned.
           onFactsChanged?.();
           setActiveRun(null);
+          setStopping(false);
         } else if (status.status === "failed") {
+          settledRuns.current.add(status.run_id);
           setStartError(status.error ?? "The scan failed.");
           // A failed run is also part of the history — surface it in the list.
           refreshRuns();
           setActiveRun(null);
+          setStopping(false);
+        } else if (pollTicks.current % CARDS_REFRESH_EVERY_N_POLLS === 0) {
+          // Still running, and verdicts have been landing on the server since the
+          // last look (part B writes each one as its group is judged, part D
+          // projects them). The page cannot know that without asking, so it asks
+          // — on the LIGHT signal, never the page-level refresh; see the prop.
+          onCandidatesChanged?.();
         }
       } catch (e) {
         if (!cancelled) setStartError(e instanceof Error ? e.message : "Failed to poll the scan.");
@@ -329,7 +420,36 @@ const ThemeScanPanel: React.FC<Props> = ({
       cancelled = true;
       clearInterval(id);
     };
-  }, [activeRun, slug, scenarioId, refreshRuns]);
+  }, [activeRun, slug, scenarioId, refreshRuns, onFactsChanged, onCandidatesChanged]);
+
+  // ── Adopt a scan the SERVER says is still going (task SCAN_SERVER_STATE, E8) ─
+  //
+  // Before this, a scan existed only inside the tab that started it: reload the
+  // page, open the scenario in a second tab, or navigate away and back, and the
+  // twenty-minute run in flight was invisible — the page offered `Scan again` as
+  // though nothing were happening, and the only thing standing between a human
+  // and a second metered run was their memory of having started the first.
+  //
+  // The run history is already fetched on mount and after every settle, and a
+  // `running` row in it IS the server saying a scan is in flight. So the panel
+  // adopts it and starts polling, which lights the running view, the live counts
+  // and the Stop button on any page that shows this panel.
+  //
+  // Keyed on `runs` rather than on mount so it also catches a run that started
+  // elsewhere while this page was open. `adoptableRun` owns the two rules —
+  // newest running row, never one this session already watched settle.
+  useEffect(() => {
+    if (activeRun) return;
+    const adopt = adoptableRun(runs, settledRuns.current);
+    if (!adopt) return;
+    // The timer counts from when the SERVER started the run, so a scan adopted
+    // eight minutes in reads eight minutes rather than restarting at zero.
+    startedAtRef.current = adopt.startedAtMs;
+    setElapsedMs(Date.now() - adopt.startedAtMs);
+    setPoll(null);
+    setStopping(false);
+    setActiveRun({ runId: adopt.runId, modelId: adopt.modelId });
+  }, [runs, activeRun]);
 
   // ── Tick the elapsed timer client-side while running ────────────────────────
   useEffect(() => {
@@ -341,6 +461,7 @@ const ThemeScanPanel: React.FC<Props> = ({
   const onRun = useCallback(async () => {
     if (!selectedModel) return;
     setStartError(null);
+    setStopError(null);
     startedAtRef.current = Date.now();
     setElapsedMs(0);
     try {
@@ -349,8 +470,25 @@ const ThemeScanPanel: React.FC<Props> = ({
       });
       setCandidateCount(started.candidates_total);
       setPoll(null);
+      setStopping(false);
       setActiveRun({ runId: started.run_id, modelId: selectedModel });
     } catch (e) {
+      // A REFUSAL, not a failure (task SCAN_SERVER_STATE, part E10). The backend
+      // answers a second start with a 409 carrying the run that is already going,
+      // so the honest response is to show that scan rather than an error: the
+      // human asked to scan this scenario and one is being scanned. This is what
+      // makes the stale-tab case — Run clicked on a page that had not noticed —
+      // land on the live progress instead of on a message.
+      if (e instanceof ScanAlreadyRunningError) {
+        // The adopted run started before now, so let the adopt path own the
+        // timer: `refreshRuns` brings in the row carrying its real `started_at`.
+        settledRuns.current.delete(e.runId);
+        setPoll(null);
+        setStopping(false);
+        setActiveRun({ runId: e.runId, modelId: selectedModel });
+        refreshRuns();
+        return;
+      }
       // Verbatim backend message (names the endpoint / both models on a 503 gate,
       // and the missing path when the judging prompt is not deployed).
       setStartError(e instanceof Error ? e.message : "Failed to start the scan.");
@@ -362,6 +500,29 @@ const ThemeScanPanel: React.FC<Props> = ({
       refreshRuns();
     }
   }, [selectedModel, slug, scenarioId, refreshRuns]);
+
+  // ── Stop the scan that is running (task SCAN_SERVER_STATE, part E11) ────────
+  //
+  // The button disables on click and re-enables when the POLL settles the run,
+  // not when this resolves — because the 202 means "the backend has been told",
+  // and the run is still `running` at that moment. Re-enabling here would offer
+  // a second Stop for a scan already stopping; leaving it disabled forever would
+  // strand the control if the stop were refused. Both windows are handled: a
+  // refusal re-enables it immediately, with the backend's reason on screen.
+  const onStop = useCallback(async () => {
+    if (!activeRun) return;
+    setStopping(true);
+    setStopError(null);
+    try {
+      await cancelScanRun(slug, scenarioId, activeRun.runId);
+    } catch (e) {
+      // Standing Rule 1: a stop that did not happen says so, and hands the
+      // control back. The backend's message names which of the two refusals it
+      // was — already settled, or no live task owns the run.
+      setStopping(false);
+      setStopError(e instanceof Error ? e.message : "Failed to stop the scan.");
+    }
+  }, [activeRun, slug, scenarioId]);
 
   // ── Select a history run for display ────────────────────────────────────────
   // Single-select: click a row to VIEW that run (replaces any prior selection);
@@ -635,7 +796,13 @@ const ThemeScanPanel: React.FC<Props> = ({
       {expanded && (
         <>
           {running ? (
-            <RunningView poll={poll} modelName={modelName(activeRun.modelId)} elapsedMs={elapsedMs} />
+            <RunningView
+              poll={poll}
+              modelName={modelName(activeRun.modelId)}
+              elapsedMs={elapsedMs}
+              stopping={stopping}
+              onStop={() => void onStop()}
+            />
           ) : header !== undefined ? (
             // The caller drew Run, the model and the history itself. Nothing
             // here — an empty control row under a header that already carries
@@ -661,6 +828,15 @@ const ThemeScanPanel: React.FC<Props> = ({
           {startError && (
             <div style={S.errorBox} role="alert">
               {startError}
+            </div>
+          )}
+          {/* A refused Stop, in the backend's words. Its own box, not merged into
+              `startError`: "the scan would not start" and "the scan would not
+              stop" are different things to be told, and a human meeting the
+              second one is watching a scan that is still spending. */}
+          {stopError && (
+            <div style={S.errorBox} role="alert">
+              {stopError}
             </div>
           )}
           {historyError && (
@@ -739,9 +915,13 @@ const RunningView: React.FC<{
   poll: ScanRunStatus | null;
   modelName: string;
   elapsedMs: number;
-}> = ({ poll, modelName, elapsedMs }) => {
+  /** A Stop has been sent and the poll has not yet settled the run. */
+  stopping: boolean;
+  onStop: () => void;
+}> = ({ poll, modelName, elapsedMs, stopping, onStop }) => {
   const judged = poll?.candidates_judged ?? 0;
   const total = poll?.candidates_total ?? 0;
+  const relevant = poll?.relevant_count ?? 0;
   const pct = total > 0 ? Math.round((judged / total) * 100) : 0;
   return (
     <div style={S.running}>
@@ -751,10 +931,31 @@ const RunningView: React.FC<{
           <span style={S.pulseDot} /> Scanning
         </span>
         <span style={S.timer}>{formatElapsed(elapsedMs)}</span>
+        {/* STOP. The same quiet accent link the facts header's controls use — it
+            is an ordinary choice, not a destructive one: the run keeps its
+            counts and every verdict it has already found, which is exactly why
+            it is not styled as a danger button. Disabled from the click until
+            the poll settles the run, with the reason on the tooltip so a greyed
+            control never refuses in silence. */}
+        <button
+          type="button"
+          style={stopping ? S.stopLinkBusy : S.stopLink}
+          disabled={stopping}
+          title={stopping ? STOP_PENDING_NOTICE : STOP_NOTICE}
+          onClick={onStop}
+        >
+          {stopping ? STOP_PENDING_LABEL : STOP_LABEL}
+        </button>
       </div>
 
       <div style={S.judged}>
         {judged} <span style={S.judgedOf}>of {total || "…"} judged</span>
+        {/* WHAT IT HAS FOUND, beside how far it has got. The counter alone says
+            how much work is left; this says whether the work is finding
+            anything, which is the number that decides whether to let a scan run
+            or stop it. It is the same `relevant_count` the tile below shows —
+            served, never derived — put where the eye already is. */}
+        <span style={S.relevantSoFar}>· {relevant} relevant so far</span>
       </div>
 
       <PipelineProgressBar status="PROCESSING" percentComplete={pct} />
@@ -1190,6 +1391,38 @@ const S: Record<string, React.CSSProperties> = {
   },
   judged: { fontSize: "1.9rem", fontWeight: 700, color: "var(--text-primary)" },
   judgedOf: { fontSize: "1rem", fontWeight: 400, color: "var(--text-muted)" },
+  // Reads at the weight of the "of N judged" clause it sits beside, in the accent
+  // rather than the muted grey: it is the one number on this line that is a
+  // FINDING rather than a measure of progress.
+  relevantSoFar: {
+    fontSize: "1rem",
+    fontWeight: 400,
+    color: "var(--accent-primary)",
+    marginLeft: "8px",
+  },
+  // The facts header's quiet inline link, matched exactly (`ScenarioFactsHeader`
+  // `linkStyle`): accent text, no button chrome. Deliberately not a danger
+  // button — stopping keeps everything the scan found.
+  stopLink: {
+    border: "none",
+    background: "none",
+    padding: 0,
+    color: "var(--accent-primary)",
+    cursor: "pointer",
+    fontFamily: "inherit",
+    fontSize: "0.8rem",
+  },
+  // The same link, mid-stop. Muted and not-allowed, mirroring that header's
+  // `linkDisabledStyle`, so a refused click looks refused.
+  stopLinkBusy: {
+    border: "none",
+    background: "none",
+    padding: 0,
+    color: "var(--text-muted)",
+    cursor: "not-allowed",
+    fontFamily: "inherit",
+    fontSize: "0.8rem",
+  },
   tileRow: { display: "flex", gap: "10px" },
   tile: {
     flex: 1,

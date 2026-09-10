@@ -105,7 +105,11 @@ pub mod settings_template_file;
 pub mod settings_wording;
 pub mod settings_write;
 pub mod theme_scan;
+pub mod theme_scan_error;
+pub mod theme_scan_job;
 pub mod theme_scan_judge;
+#[cfg(test)]
+pub mod theme_scan_live_fixture;
 pub mod theme_scan_parse;
 pub mod theme_scan_persist;
 pub mod theme_scan_prefilter;

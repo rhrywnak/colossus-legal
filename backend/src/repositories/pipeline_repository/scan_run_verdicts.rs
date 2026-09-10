@@ -36,6 +36,27 @@ pub struct ScanRunVerdictRecord {
 
 /// Insert every per-candidate verdict for a run in ONE transaction.
 ///
+/// ## The insert is IDEMPOTENT per (run, node) — and that is load-bearing
+///
+/// Since task SCAN_SERVER_STATE part B a verdict is written TWICE by design:
+/// once by `services::theme_scan_judge` the moment its group is judged (so a run
+/// that is still going — or one a human stops — has real rows to project), and
+/// again by `services::theme_scan_persist::write_verdicts` at the end, which
+/// stayed exactly where it was because it is the one write that sees the whole
+/// run and can be replayed if the per-item write failed.
+///
+/// `ON CONFLICT (run_id, graph_node_id) DO NOTHING` is what makes the second
+/// write a no-op rather than a `23505` that would abort the whole transaction and
+/// lose every verdict in it. The conflict target is the table's PRIMARY KEY
+/// (migration 20260715121130: `PRIMARY KEY (run_id, graph_node_id)`), which is
+/// why no extra unique key was needed for this.
+///
+/// DO NOTHING rather than DO UPDATE, deliberately: the two writes carry the SAME
+/// verdict — the second is built from the same `JudgeOutcome` — so there is
+/// nothing to correct, and an UPDATE would let a late replay silently rewrite a
+/// verdict a human may already have ruled on. First writer wins, and the first
+/// writer is the one that judged it.
+///
 /// ## Rust Learning: `&mut *txn` — reborrowing the transaction for each `execute`
 ///
 /// `pool.begin()` yields a `Transaction` that owns a connection. Each
@@ -57,26 +78,31 @@ pub async fn insert_scan_run_verdicts(
     }
     let mut txn = pool.begin().await?;
     for v in verdicts {
-        sqlx::query(
-            r#"INSERT INTO scan_run_verdicts (
-                   run_id, graph_node_id, relevant, proposed_role,
-                   confidence, reason, raw_reply, error
-               ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
-        )
-        .bind(v.run_id)
-        .bind(&v.graph_node_id)
-        .bind(v.relevant)
-        .bind(&v.proposed_role)
-        .bind(v.confidence)
-        .bind(&v.reason)
-        .bind(&v.raw_reply)
-        .bind(&v.error)
-        .execute(&mut *txn)
-        .await?;
+        sqlx::query(INSERT_VERDICT_SQL)
+            .bind(v.run_id)
+            .bind(&v.graph_node_id)
+            .bind(v.relevant)
+            .bind(&v.proposed_role)
+            .bind(v.confidence)
+            .bind(&v.reason)
+            .bind(&v.raw_reply)
+            .bind(&v.error)
+            .execute(&mut *txn)
+            .await?;
     }
     txn.commit().await?;
     Ok(())
 }
+
+// CONST: the verdict INSERT. Extracted so the conflict clause — the thing that
+// makes the judge-time write and the end-of-run write coexist — can be asserted
+// by a unit test without a live database (the house pattern; see
+// `LIST_SCAN_RUNS_SQL`). Query text, not config, so Rule 13 does not apply.
+const INSERT_VERDICT_SQL: &str = "INSERT INTO scan_run_verdicts (\
+     run_id, graph_node_id, relevant, proposed_role, \
+     confidence, reason, raw_reply, error) \
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
+     ON CONFLICT (run_id, graph_node_id) DO NOTHING";
 
 #[cfg(test)]
 mod tests {
@@ -91,6 +117,28 @@ mod tests {
             .acquire_timeout(Duration::from_millis(500))
             .connect_lazy("postgres://127.0.0.1:1/nodb")
             .expect("connect_lazy builds a pool without connecting")
+    }
+
+    /// The double-write contract (task SCAN_SERVER_STATE part B).
+    ///
+    /// A verdict is written when its group is judged AND again in the end-of-run
+    /// batch. Without this clause the second write raises 23505 and rolls back the
+    /// whole transaction — every verdict in the run lost to a duplicate of one
+    /// that was already safely stored. The conflict target is the table's own
+    /// primary key, so this cannot drift from the schema without the insert
+    /// failing outright.
+    #[test]
+    fn the_verdict_insert_tolerates_a_row_that_is_already_there() {
+        assert!(
+            INSERT_VERDICT_SQL.contains("ON CONFLICT (run_id, graph_node_id) DO NOTHING"),
+            "the judge-time write and the end-of-run write must not collide: {INSERT_VERDICT_SQL}"
+        );
+        // DO NOTHING, never DO UPDATE: the first writer is the one that judged the
+        // candidate, and a replay must not rewrite a verdict a human may have ruled.
+        assert!(
+            !INSERT_VERDICT_SQL.contains("DO UPDATE"),
+            "a replay must not overwrite the stored verdict: {INSERT_VERDICT_SQL}"
+        );
     }
 
     #[tokio::test]

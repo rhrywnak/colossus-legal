@@ -47,6 +47,7 @@ use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use super::scan_run_state::{is_one_running_violation, PromoteOutcome};
 use super::PipelineRepoError;
 
 // CONST: the `scan_runs.status` vocabulary, owned by code (the migration keeps NO
@@ -60,6 +61,8 @@ pub(crate) const SCAN_STATUS_RUNNING: &str = "running";
 /// spellings of "completed" is exactly the drift the constants exist to prevent.
 pub(crate) const SCAN_STATUS_COMPLETED: &str = "completed";
 const SCAN_STATUS_FAILED: &str = "failed";
+// SCAN_STATUS_CANCELLED lives in the sibling `scan_run_state`, beside the
+// function that writes it. See that module for why.
 
 /// The message stamped on a run the startup sweep finds still `running`.
 const INTERRUPTED_BY_RESTART: &str = "interrupted by restart";
@@ -185,10 +188,29 @@ pub struct ScanRunStart {
 /// apply only to a row still in the birth state, so a promote that arrives after
 /// something else already failed or finished the run cannot resurrect it. Zero
 /// rows updated is reported to the caller rather than swallowed.
+///
+/// ## Why this returns a three-way outcome rather than a row count
+///
+/// Since the `scan_runs_one_running_per_scenario` partial unique index (migration
+/// 20260910142419) there are THREE things this UPDATE can mean, and a `u64` can
+/// only say two of them. A promote that collides with a scan already running on
+/// the same scenario is not a database FAULT — it is the invariant doing its job,
+/// and the caller owes the browser a 409 with the other run's id, not a 500. So
+/// the collision is caught here, where the raw `sqlx::Error` still carries the
+/// constraint name, and named in the return type.
+///
+/// ## Rust Learning: matching a database error BEFORE `?` converts it
+///
+/// `PipelineRepoError::Database` holds a `String` — `From<sqlx::Error>`
+/// stringifies the cause, so by the time `?` has run, the SQLSTATE and the
+/// constraint name are gone and only prose is left. Matching on the `Result`
+/// instead of applying `?` keeps the typed error in hand for exactly as long as
+/// it takes to ask it one question. Sniffing the string afterwards would work
+/// until somebody changed a message.
 pub async fn promote_scan_run_running(
     pool: &PgPool,
     start: &ScanRunStart,
-) -> Result<u64, PipelineRepoError> {
+) -> Result<PromoteOutcome, PipelineRepoError> {
     let result = sqlx::query(
         r#"UPDATE scan_runs SET
                status = $2,
@@ -209,9 +231,19 @@ pub async fn promote_scan_run_running(
     .bind(Utc::now())
     .bind(SCAN_STATUS_FAILED)
     .execute(pool)
-    .await?;
-    Ok(result.rows_affected())
+    .await;
+
+    match result {
+        Ok(done) if done.rows_affected() == 0 => Ok(PromoteOutcome::NotPromotable),
+        Ok(_) => Ok(PromoteOutcome::Promoted),
+        Err(e) if is_one_running_violation(&e) => Ok(PromoteOutcome::AlreadyRunning),
+        Err(e) => Err(e.into()),
+    }
 }
+
+// `PromoteOutcome` and the unique-violation classifier behind its third arm live
+// in the sibling `scan_run_state`, with the rest of the one-running-per-scenario
+// invariant (this module was at the 300-line limit).
 
 // ─── 2. PROGRESS (per-candidate bump) ────────────────────────────────────────
 

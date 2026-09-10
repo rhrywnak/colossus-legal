@@ -88,6 +88,21 @@ pub struct ScanStartedResponse {
     pub candidates_total: i32,
 }
 
+/// The immediate response to `POST .../scan-runs/:run_id/cancel`.
+///
+/// `status` is always `"cancelling"`, and the tense is the point: the route only
+/// signalled the judging task, so at the instant this is serialized the row still
+/// reads `running`. The task writes `cancelled` when it comes out of its loop,
+/// which the panel's existing 3-second poll picks up. Reporting `"cancelled"`
+/// here would be the client believing something the record does not yet say
+/// (Standing Rule 1).
+#[derive(Debug, Clone, Serialize)]
+pub struct ScanCancelResponse {
+    pub run_id: Uuid,
+    /// Always `"cancelling"` — see the struct doc for why it is not `"cancelled"`.
+    pub status: String,
+}
+
 /// The poll response for `GET .../scan-runs/:run_id`.
 ///
 /// While `running`, the counts are a LIVE, advancing ESTIMATE (the UI must show

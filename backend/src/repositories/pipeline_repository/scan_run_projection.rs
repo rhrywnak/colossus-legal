@@ -5,17 +5,34 @@
 //! Two reasons, and the second is the real one. `scenario_store.rs` — the other
 //! plausible home — is already over the 300-line limit, so adding to it would
 //! deepen an existing violation. And these two reads are a distinct SUBJECT: they
-//! answer "what does a completed run currently propose to this scenario's queue?",
+//! answer "what does the projecting run currently propose to this scenario's queue?",
 //! which is a read the queue makes on every page load and which nothing else in
 //! the run lifecycle cares about. `scan_runs.rs` owns the run's own life (birth,
 //! progress, finalize, delete); this owns the run's shadow on the curation surface.
 //!
-//! ## The law these two reads encode (R-b)
+//! ## The law these two reads encode (R-b, widened 2026-09-10)
 //!
-//! **Only the latest COMPLETED run projects.** No unions across runs, and a run
-//! that failed or is still running projects nothing. That rule lives in the SQL
-//! here — one place — rather than in whichever caller happens to need it, because
-//! a second copy of "which run counts" is a second answer waiting to disagree.
+//! **Only the latest run that has actually judged something projects.** No unions
+//! across runs. That rule lives in the SQL here — one place — rather than in
+//! whichever caller happens to need it, because a second copy of "which run
+//! counts" is a second answer waiting to disagree.
+//!
+//! What changed, and what did not. Until task SCAN_SERVER_STATE the gate was
+//! `status = 'completed'`, which meant a scan's findings were invisible for the
+//! entire twenty minutes it ran and vanished with a run a human stopped. Both are
+//! wrong for the same reason: the verdict rows are REAL the moment they are
+//! written, and a fact proposed by a run is a fact proposed by that run whether
+//! or not the run later reached the end of its pool. So the gate is now
+//! `running`, `cancelled` or `completed`, plus the thing that actually matters —
+//! **the run has at least one verdict row**.
+//!
+//! That second clause is what still keeps a dead run out. `failed` is excluded by
+//! name (a scan that died at the vLLM gate judged nothing, and ruling R3 keeps an
+//! all-calls-errored run from taking the projecting slot), and the EXISTS clause
+//! excludes the case the status alone cannot see: a run that is `running` but has
+//! not yet judged its first candidate. Without it, starting a re-scan would blank
+//! the queue the human is working in for as long as the first LLM call takes —
+//! superseding the previous run's proposals with nothing at all.
 //!
 //! CRITICAL: both tables live in the pipeline database (`colossus_legal_v2`), so
 //! callers pass `&state.pipeline_pool`.
@@ -26,7 +43,12 @@ use uuid::Uuid;
 
 use super::PipelineRepoError;
 
-/// The completed run whose verdicts a scenario's queue is currently showing.
+/// The run whose verdicts a scenario's queue is currently showing.
+///
+/// Not necessarily a FINISHED run since 2026-09-10 — it may still be judging, or
+/// have been stopped part-way. The surface names it the same either way, because
+/// what it attributes is which scan proposed a card, not whether that scan
+/// eventually ran out of candidates.
 ///
 /// Carries only what the SURFACE needs to attribute the proposals: which run, what
 /// judged them, and when it started. The counts stay in the run header — this is
@@ -41,23 +63,40 @@ pub struct ProjectingRunRow {
 // CONST: the projecting-run query, held as a `const` for the house SQL-shape test
 // pattern (see `LIST_SCAN_RUNS_SQL`). Query text, not config — Rule 13 N/A.
 //
-// `status = $2` is R-b's whole enforcement: a `running` or `failed` run is not a
-// candidate here, so a scan that died at the vLLM gate proposes nothing.
+// The two clauses that carry R-b, and why each is needed on its own:
+//
+//   * `status IN ($2, $3, $4)` — running, cancelled, completed. Three bound
+//     placeholders rather than an array bind so the three tokens stay the same
+//     `SCAN_STATUS_*` consts the writers use, and so a SQL-shape test can see
+//     the shape. `failed` is absent by construction: it is the one terminal state
+//     that means "this run produced nothing anybody should act on".
+//   * `EXISTS (... scan_run_verdicts ...)` — the run has judged at least one
+//     candidate. This is what keeps a just-started re-scan from superseding the
+//     previous run's proposals with an empty set before its first verdict lands.
 //
 // ORDER BY started_at DESC matches the history table the human is reading, so
 // "the latest run" means the same thing on both surfaces. There is no completion
 // timestamp on `scan_runs` to order by instead, and scans are serialised per
-// scenario (one active run, swept at boot), so start order IS completion order in
-// practice. Stated here rather than silently assumed.
-const PROJECTING_RUN_SQL: &str = "SELECT run_id, model_id, started_at \
-     FROM scan_runs WHERE scenario_id = $1 AND status = $2 \
-     ORDER BY started_at DESC LIMIT 1";
+// scenario (at most one running run — enforced by the
+// `scan_runs_one_running_per_scenario` index since migration 20260910142419), so
+// start order IS finish order. Stated here rather than silently assumed.
+const PROJECTING_RUN_SQL: &str = "SELECT r.run_id, r.model_id, r.started_at \
+     FROM scan_runs r WHERE r.scenario_id = $1 AND r.status IN ($2, $3, $4) \
+     AND EXISTS (SELECT 1 FROM scan_run_verdicts v WHERE v.run_id = r.run_id) \
+     ORDER BY r.started_at DESC LIMIT 1";
 
-/// The scenario's latest COMPLETED run, or `None` when nothing has completed.
+/// The scenario's latest run that has judged something, or `None` when none has.
 ///
-/// `None` is a real answer, not a gap: a scenario that has never been scanned —
-/// or whose only run failed — proposes nothing, and the queue must render that as
-/// "no proposals" rather than as an error. A failure to READ is a different thing
+/// Admits a run that is still `running` and a run a human `cancelled`, as well as
+/// a `completed` one — see the module doc for why a partial run's verdicts are
+/// real. `resolve_proposed_ruling` records whichever it returns as the ruling's
+/// provenance without caring which of the three it was: a fact proposed by a
+/// stopped run is a fact proposed by that run.
+///
+/// `None` is a real answer, not a gap: a scenario that has never been scanned,
+/// one whose only run failed, and one whose newest run has not yet judged its
+/// first candidate all propose nothing, and the queue must render that as "no
+/// proposals" rather than as an error. A failure to READ is a different thing
 /// entirely and propagates (see the caller).
 ///
 /// # Errors
@@ -68,6 +107,8 @@ pub async fn fetch_projecting_run(
 ) -> Result<Option<ProjectingRunRow>, PipelineRepoError> {
     let row = sqlx::query_as::<_, ProjectingRunRow>(PROJECTING_RUN_SQL)
         .bind(scenario_id)
+        .bind(super::scan_runs::SCAN_STATUS_RUNNING)
+        .bind(super::scan_run_state::SCAN_STATUS_CANCELLED)
         .bind(super::scan_runs::SCAN_STATUS_COMPLETED)
         .fetch_optional(pool)
         .await?;
@@ -210,35 +251,79 @@ mod tests {
     }
 
     #[test]
-    fn only_the_latest_completed_run_projects() {
+    fn only_the_latest_run_projects() {
         // R-b: no unions. One scenario, one projecting run, and it is the newest —
         // a re-scan supersedes the previous run's un-ruled proposals rather than
         // adding to them.
         assert!(
-            PROJECTING_RUN_SQL.contains("ORDER BY started_at DESC")
+            PROJECTING_RUN_SQL.contains("ORDER BY r.started_at DESC")
                 && PROJECTING_RUN_SQL.contains("LIMIT 1"),
             "exactly ONE run projects, and it is the newest: {PROJECTING_RUN_SQL}"
         );
         assert!(
-            PROJECTING_RUN_SQL.contains("scenario_id = $1"),
+            PROJECTING_RUN_SQL.contains("r.scenario_id = $1"),
             "the projecting run must be fenced to its scenario: {PROJECTING_RUN_SQL}"
         );
     }
 
+    /// A RUNNING run projects — and a CANCELLED one keeps projecting.
+    ///
+    /// The whole point of task SCAN_SERVER_STATE part D: a human watches the scan
+    /// find things and rules on them while it works, and stopping the scan keeps
+    /// what it already found rather than throwing it away. Three bound statuses,
+    /// and they are the three the writers actually write.
     #[test]
-    fn a_failed_run_projects_nothing() {
-        // A run that died at the vLLM gate judged nothing, and a running one is
-        // mid-flight. Either putting proposals in front of a human would claim a
-        // scan parentage no completed verdict supports — the same reasoning
-        // `count_completed_scan_runs` states for the never-scanned notice.
+    fn a_running_or_cancelled_run_projects_what_it_has_judged() {
         assert!(
-            PROJECTING_RUN_SQL.contains("status = $2"),
-            "the projecting-run query must gate on status: {PROJECTING_RUN_SQL}"
+            PROJECTING_RUN_SQL.contains("r.status IN ($2, $3, $4)"),
+            "the projecting-run query must admit the three live states: {PROJECTING_RUN_SQL}"
+        );
+        assert_eq!(
+            super::super::scan_runs::SCAN_STATUS_RUNNING,
+            "running",
+            "the bound status is the one `promote_scan_run_running` writes"
+        );
+        assert_eq!(
+            super::super::scan_run_state::SCAN_STATUS_CANCELLED,
+            "cancelled",
+            "the bound status is the one `cancel_scan_run` writes"
         );
         assert_eq!(
             super::super::scan_runs::SCAN_STATUS_COMPLETED,
             "completed",
             "the bound status is the one `finalize_scan_run_completed` writes"
+        );
+    }
+
+    #[test]
+    fn a_failed_run_projects_nothing() {
+        // A run that died at the vLLM gate judged nothing. Putting its proposals in
+        // front of a human would claim a scan parentage no verdict supports — the
+        // same reasoning `count_completed_scan_runs` states for the never-scanned
+        // notice, and ruling R3's reason for recording an all-errored run `failed`.
+        //
+        // Asserted as an ABSENCE, because that is how the query excludes it: the
+        // `IN` list above names three states and `failed` is not one of them, so a
+        // failed run can never match however it is ordered.
+        assert!(
+            !PROJECTING_RUN_SQL.contains("failed"),
+            "the projecting-run query must not admit a failed run: {PROJECTING_RUN_SQL}"
+        );
+    }
+
+    /// A run with no verdicts yet must NOT take the projecting slot.
+    ///
+    /// Without this clause, clicking Scan again would empty the queue the human is
+    /// working in the instant the new run went `running` — the newest run projects,
+    /// and a run that has judged nothing projects nothing. The verdicts arrive one
+    /// at a time now (part B), so this is the difference between a queue that grows
+    /// and a queue that blanks and then refills.
+    #[test]
+    fn a_run_that_has_judged_nothing_yet_does_not_supersede() {
+        assert!(
+            PROJECTING_RUN_SQL
+                .contains("EXISTS (SELECT 1 FROM scan_run_verdicts v WHERE v.run_id = r.run_id)"),
+            "the projecting run must already have judged something: {PROJECTING_RUN_SQL}"
         );
     }
 

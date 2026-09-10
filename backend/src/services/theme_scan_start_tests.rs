@@ -119,7 +119,17 @@ fn start_validates_before_it_records_and_records_before_it_works() {
     let prompt = call_position(&body, "load_scan_prompt(");
     let fence = call_position(&body, "load_scenario_fenced(");
     let validate = call_position(&body, "validate_scan_request(");
-    let stub = call_position(&body, "insert_scan_run_stub(");
+    // The in-flight refusal (task SCAN_SERVER_STATE part A2). Positioned like the
+    // other pre-row checks and for the same reason: a second scan of a scenario
+    // that is already scanning is refused with a 409 and NO run row, so the
+    // history is not diluted with a start that never was.
+    let in_flight = call_position(&body, "refuse_if_already_running(");
+    // The stub INSERT moved into `write_stub` when this function reached the
+    // 50-line limit — so the position pinned here is the CALL to that helper, and
+    // `the_stub_helper_still_writes_the_stub` below is what keeps the helper
+    // honest. Two assertions where there was one, because the extraction put a
+    // name between this contract and the statement that satisfies it.
+    let stub = call_position(&body, "write_stub(");
     let prepare = call_position(&body, "prepare_or_record(");
     let promote = call_position(&body, "promote_run(");
     let spawn = call_position(&body, "spawn_scan_job(");
@@ -141,6 +151,12 @@ fn start_validates_before_it_records_and_records_before_it_works() {
          itself in the panel, and must not leave a failed row diluting the history"
     );
     assert!(
+        in_flight < stub,
+        "the in-flight refusal must run BEFORE the stub is written — a second scan \
+         of a scenario already scanning is the caller's to resolve (watch that run \
+         or stop it), and must not leave a failed row in the history"
+    );
+    assert!(
         stub < prepare,
         "the stub row must be written BEFORE the work preparation does — otherwise a \
          scan that dies in the vLLM gate or the candidate read leaves no record, which \
@@ -150,6 +166,34 @@ fn start_validates_before_it_records_and_records_before_it_works() {
         prepare < promote && promote < spawn,
         "preparation must succeed before promotion, and promotion before the judging \
          task is spawned (nothing may spend LLM budget on an unreportable run)"
+    );
+}
+
+/// The extracted stub helper is still the thing that writes the stub.
+///
+/// The ordering test above pins where `write_stub` is CALLED. Without this, an
+/// edit that emptied that helper — or repointed it at a different write — would
+/// leave every position assertion true and the row unwritten, which is the exact
+/// blind spot the ordering contract exists to close.
+#[test]
+fn the_stub_helper_still_writes_the_stub() {
+    let path =
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/theme_scan_start.rs");
+    let text = std::fs::read_to_string(path).expect("theme_scan_start.rs is readable");
+    let start = text
+        .find("async fn write_stub")
+        .expect("write_stub is present");
+    let rest = &text[start..];
+    let end = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    let body = &rest[..end];
+
+    assert!(
+        body.contains("insert_scan_run_stub("),
+        "write_stub must actually write the stub row: {body}"
+    );
+    assert!(
+        body.contains("ScanRunWriteFailed"),
+        "a failed stub INSERT must propagate as a typed error, never be swallowed: {body}"
     );
 }
 

@@ -172,8 +172,13 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// ONE field of a witness's card. The two features were built on separate
 /// branches off 301 and integrated here, so this number is 301 + 4 + 1 — not
 /// either branch's own figure.
+///
+/// 307 since SCAN_SERVER_STATE_v1, which added one: `POST
+/// /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/cancel`, the stop a
+/// human can give a scan that is still judging. One line, not two — `POST` has
+/// no axum `HEAD` pair.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 306;
+const EXPECTED_ROUTE_LINES: usize = 307;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {
