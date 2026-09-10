@@ -1,118 +1,89 @@
 // =============================================================================
-// dragReorder.tsx — one implementation of "drag a row to re-order it"
+// dragReorder.tsx — the two pieces of "drag a row to re-order it" that outlived
+// the mechanism
 // =============================================================================
 //
-// ## Why this file exists (nav cleanup Part 2, Roman's drag item)
+// ## What this file was, and what happened to it (2026-09-10)
 //
-// The task asked for "the scenario-facts drag-handle component (⠿)" to be reused
-// on the practice deck. There is no such component. The facts drag is woven
-// through `FactRow` — a card that also renders tier pickers, chips, a spine, a
-// weight control and an `evidenceCardView`, all typed to `WorkingRow` and
-// `AllegationOptions`. None of that means anything to a practice question.
+// It held the MECHANICS of native HTML5 drag-and-drop — `draggable`, the
+// `dragstart`/`dragover`/`drop` handlers, and the two browser quirks that make
+// them work — shared by the practice deck and, the header claimed, the scenario
+// facts table. The claim was stale: `FactRow` has always carried its own inline
+// copy and never imported this.
 //
-// What IS reusable is the MECHANICS, and they are not obvious enough to retype:
+// The practice deck moved to dnd-kit tonight, because native HTML5 drag has no
+// press-and-hold, does not slide the rows apart, and does not work reliably on a
+// touch screen at all — and Chuck edits Marie's decks on an iPad. So
+// `reorderProps` and `useDropTarget`, which existed only to wrap those events,
+// are gone. The Firefox `setData` note and the `preventDefault` note went with
+// them; they are recorded in the git history of this file and in
+// `CC_REPORT_DECK_DRAG_AND_ADD_v1`, and `FactRow` still carries its own.
 //
-//   · `dragstart` must call `setData`, or **Firefox silently cancels the drag** —
-//     no event, no error, nothing on screen. That cost Roman a bug report once
-//     already (it worked in Chrome, so it worked under test).
-//   · `dragover` must call `preventDefault`, or the browser refuses the drop
-//     outright. It reads like styling and is not.
-//   · The dragged id lives in React state, not in the drag payload — the payload
-//     is a formality the browser demands.
+// Two things survive, because both are about what a drag MEANS rather than how a
+// browser reports one:
 //
-// So the mechanics move here and both surfaces call them. That is the smallest
-// honest adaptation: one place where the Firefox fix lives, one place where the
-// drop semantics are written down.
+//   · `dropPosition` — where a dropped row lands, named as a NEIGHBOUR. The
+//     server resolves it against what is stored; the browser never computes an
+//     ordinal. dnd-kit reports the same two ids the HTML5 handlers did, so this
+//     function did not change when the mechanism under it did, and its six tests
+//     did not either.
+//   · `DragHandle` — the ⠿ grip. Now the ONLY handle, rather than decoration on
+//     a row that was draggable everywhere.
 
-import React, { useState, type CSSProperties } from "react";
+import React, { type CSSProperties, type HTMLAttributes } from "react";
 
 /**
  * The ⠿ grip, exactly as the facts table draws it.
  *
  * A `<span>` and not a `<button>`: it is not a control that does something when
- * pressed, it is the part of the row you take hold of. The row carries
- * `draggable`, not this — a handle that were itself draggable would let you drag
- * the grip out of its own row.
+ * pressed, it is the part of the row you take hold of.
+ *
+ * ## `handleProps` — what changed on 2026-09-10
+ *
+ * The row used to carry `draggable` and this was decoration; a drag could begin
+ * anywhere on the row, including on the question text. Under dnd-kit the grip is
+ * the ONLY handle, so it is the grip that carries the sensor's `attributes` and
+ * `listeners` — pass them here and this becomes the thing you take hold of, in
+ * fact and not only in appearance.
+ *
+ * That is the Primer/HIG pattern and it buys two things at once: the row body
+ * stays fully clickable (its links, its buttons, its field stack), and on a
+ * touch screen a finger dragged across the question text scrolls the list
+ * instead of picking the row up.
+ *
+ * `undefined` — the default, and what a caller with no drag passes — leaves this
+ * exactly the inert span it has always been.
+ *
+ * ## TS note: `HTMLAttributes<HTMLSpanElement>` as the prop type
+ *
+ * dnd-kit's `attributes` and `listeners` are both plain objects of DOM props
+ * (`role`, `tabIndex`, `aria-*`, `onPointerDown`, `onKeyDown`), so the honest
+ * type is the element's own attribute bag rather than an import from the
+ * library. This file then knows nothing about dnd-kit, which is why it can stay
+ * shared and why the facts table could adopt the same grip without adopting the
+ * dependency.
  */
-export const DragHandle: React.FC<{ hint: string; style?: CSSProperties }> = ({
-  hint,
-  style,
-}) => (
+export const DragHandle: React.FC<{
+  hint: string;
+  style?: CSSProperties;
+  handleProps?: HTMLAttributes<HTMLSpanElement>;
+}> = ({ hint, style, handleProps }) => (
   <span
     aria-label={hint}
     title={hint}
-    style={{ cursor: "grab", color: "var(--text-secondary)", ...style }}
+    {...handleProps}
+    style={{
+      cursor: handleProps ? "grab" : "default",
+      color: "var(--text-secondary)",
+      // A grip you can put a finger on. 24 px is the minimum touch target every
+      // one of the cited guidelines names, and the ⠿ glyph alone is about eight.
+      ...(handleProps ? { display: "inline-block", minWidth: 24, touchAction: "none" } : {}),
+      ...style,
+    }}
   >
     ⠿
   </span>
 );
-
-/**
- * The four handlers a re-orderable row needs, plus whether it is being hovered.
- *
- * `onPickUp` records which row is moving (the caller holds that state, because
- * only the caller knows the list). `onDropHere` is told nothing — the caller
- * already knows both ends: the one it picked up and the one it is calling this
- * on.
- *
- * ## React Learning: why this returns props instead of being a component
- *
- * A wrapper component would have to own the row's element, its styling and its
- * children — and both callers already own theirs, with different shapes. A
- * function returning a props object composes into an existing element instead:
- * `<div {...reorderProps({…})} style={…}>`. The pattern is what the React docs
- * call a "prop getter", and it is the lightest way to share behaviour without
- * also dictating markup.
- */
-export function reorderProps(options: {
-  /** False turns every handler off — the row is inert, not merely unstyled. */
-  enabled: boolean;
-  onPickUp: () => void;
-  onDropHere: () => void;
-  /** Told when this row becomes (or stops being) the hovered drop target. */
-  onHover: (over: boolean) => void;
-}): React.HTMLAttributes<HTMLElement> & { draggable: boolean } {
-  const { enabled, onPickUp, onDropHere, onHover } = options;
-  return {
-    draggable: enabled,
-    onDragStart: (event: React.DragEvent) => {
-      if (!enabled) return;
-      // Firefox CANCELS a drag whose `dragstart` sets no data — the drag simply
-      // never begins. Chrome does not require it, which is exactly why this is
-      // the kind of bug that ships. The value is unused; that data EXISTS is the
-      // whole point.
-      event.dataTransfer?.setData("text/plain", "row");
-      if (event.dataTransfer) event.dataTransfer.effectAllowed = "move";
-      onPickUp();
-    },
-    onDragOver: (event: React.DragEvent) => {
-      if (!enabled) return;
-      // Without this the browser refuses the drop. Not a styling concern.
-      event.preventDefault();
-      onHover(true);
-    },
-    onDragLeave: () => onHover(false),
-    onDrop: (event: React.DragEvent) => {
-      if (!enabled) return;
-      event.preventDefault();
-      onHover(false);
-      onDropHere();
-    },
-  };
-}
-
-/**
- * Track which row is hovered, so a row can show where a drop would land.
- *
- * A hook rather than a `useState` in each caller, because "am I the hovered
- * target" is per-ROW state and forgetting to clear it on `dragleave` leaves a
- * row highlighted after the pointer has gone — a stale highlight that reads as
- * a selection.
- */
-export function useDropTarget(): [boolean, (over: boolean) => void] {
-  const [over, setOver] = useState(false);
-  return [over, setOver];
-}
 
 /**
  * Where a dropped row lands: the ids of `items`, re-sequenced.

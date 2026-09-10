@@ -169,6 +169,18 @@ export interface NewQuestion {
   watch_for: string | null;
   source_kind: string | null;
   source_index: number | null;
+  /** The question this one lands immediately BELOW, on its own side.
+   *
+   *  The gap control between two rows sends the row above it; the bottom
+   *  "+ Add a question" box sends `null`, which the server reads as the end of
+   *  the side — the behaviour it has always had. */
+  after?: string | null;
+  /** Put it at the TOP of its side — the gap above the first row.
+   *
+   *  Its own flag rather than `after: null`, because that value already means
+   *  "the end" and one absent value cannot mean both ends of a list. Mutually
+   *  exclusive with `after`; the server refuses both together with a 400. */
+  at_start?: boolean;
 }
 
 /** Add a question somebody typed on the page. */

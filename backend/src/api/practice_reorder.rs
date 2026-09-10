@@ -21,7 +21,9 @@ use crate::{
     error::AppError,
     repositories::pipeline_repository::practice::{list_deck, PracticeQuestionRecord},
     repositories::pipeline_repository::practice_editor::{log_change, NewChange},
-    repositories::pipeline_repository::practice_reorder::{resequenced, write_order},
+    repositories::pipeline_repository::practice_reorder::{
+        position_within_side, resequenced, write_order,
+    },
     services::practice_notes::attribution,
     state::AppState,
 };
@@ -93,7 +95,7 @@ pub async fn post_reorder_question(
     // would write `position = 0` into the change log — a record saying the
     // question moved to the top when it did not — with nothing anywhere saying
     // so. Standing Rule 1: if it can fail, the failure is observable.
-    let position = commit_order(&state, &question, &order, (&by_id, &by)).await?;
+    let position = commit_order(&state, &question, &deck, &order, (&by_id, &by)).await?;
 
     tracing::info!(moved = true, position, by = %by, "practice deck: a question was dragged");
     Ok(Json(DeckChangeResponse { question_id }))
@@ -101,7 +103,18 @@ pub async fn post_reorder_question(
 
 /// Write the new order and log the change, in ONE transaction.
 ///
-/// Returns the dragged question's new position, for the caller's log line.
+/// Returns the dragged question's new position WITHIN ITS SIDE, for the caller's
+/// log line and the change row.
+///
+/// ## Why the side, when the order is now the whole deck
+///
+/// Since the 2026-09-10 save fix `resequenced` hands back a permutation of the
+/// entire scenario (see its module doc for the collision that forced it), so an
+/// index into `order` is a whole-deck number — on DEV's S-1, a question that is
+/// George's third can sit at whole-deck slot 17. The change log is read by Chuck
+/// in his "Changed since your last sitting" box, beside a screen that shows one
+/// side at a time, and a number that matched nothing on it would be worse than no
+/// number. `position_within_side` counts the way the screen counts.
 ///
 /// Split from the handler so that function stays the four steps it reads as —
 /// sign, read, decide, write — and because the invariant check below deserves to
@@ -125,12 +138,13 @@ pub async fn post_reorder_question(
 async fn commit_order(
     state: &AppState,
     question: &PracticeQuestionRecord,
+    deck: &[PracticeQuestionRecord],
     order: &[Uuid],
     attribution: (&str, &str),
 ) -> Result<usize, AppError> {
     let (by_id, by) = attribution;
     let question_id = question.id;
-    let Some(position) = order.iter().position(|id| *id == question_id) else {
+    let Some(position) = position_within_side(deck, order, question_id, &question.side) else {
         tracing::error!(
             "practice deck: resequenced returned an order without the dragged question — \
              an internal invariant in practice_reorder::resequenced is broken"

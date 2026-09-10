@@ -197,6 +197,89 @@ describe("addQuestion", () => {
     expect(body).not.toHaveProperty("editing_as");
   });
 
+  /**
+   * The gap control's request: `after` names the row above the gap.
+   *
+   * The field has to reach the wire, and it has to reach it as an ID — the
+   * server resolves the position against what is stored, so a browser that sent
+   * an ordinal would be writing an order computed from a deck that may have moved
+   * on. Same rule as the drag's `before`.
+   */
+  it("carries `after` when a gap control named the row above it", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+
+    await addQuestion(SLUG, SCENARIO, {
+      kind: "cross",
+      text: "And then what happened?",
+      tactic: null,
+      follows: null,
+      watch_for: null,
+      source_kind: null,
+      source_index: null,
+      after: QUESTION,
+      at_start: false,
+    });
+
+    const body = JSON.parse(mock.mock.calls[0][1].body);
+    expect(body.after).toBe(QUESTION);
+    expect(body.at_start).toBe(false);
+  });
+
+  /**
+   * The TOP gap sends `at_start`, and never `after: null` on its own.
+   *
+   * `after: null` is what the bottom box sends and the server reads it as the END
+   * of the side. If the top gap sent the same thing, pressing the topmost line
+   * would add the question at the bottom of the deck — the one place the person
+   * pressing it did not point at. The two ends of a list cannot share one absent
+   * value, which is why the flag exists.
+   */
+  it("carries `at_start` for the gap above the first row", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+
+    await addQuestion(SLUG, SCENARIO, {
+      kind: "cross",
+      text: "Let us start here.",
+      tactic: null,
+      follows: null,
+      watch_for: null,
+      source_kind: null,
+      source_index: null,
+      after: null,
+      at_start: true,
+    });
+
+    const body = JSON.parse(mock.mock.calls[0][1].body);
+    expect(body.at_start).toBe(true);
+    expect(body.after).toBeNull();
+  });
+
+  /**
+   * The bottom box sends neither, and still appends.
+   *
+   * The path every caller took before tonight. `deny_unknown_fields` on the
+   * server means a field it does not know is a 400, and `#[serde(default)]` means
+   * an absent one is fine — so what must not happen is this request growing a
+   * key. Asserted as an absence.
+   */
+  it("sends no position at all from the bottom add box", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+
+    await addQuestion(SLUG, SCENARIO, {
+      kind: "cross",
+      text: "One more.",
+      tactic: null,
+      follows: null,
+      watch_for: null,
+      source_kind: null,
+      source_index: null,
+    });
+
+    const body = JSON.parse(mock.mock.calls[0][1].body);
+    expect(body).not.toHaveProperty("after");
+    expect(body).not.toHaveProperty("at_start");
+  });
+
   it("reports a failure as a question that was NOT added", async () => {
     failFetch(400);
     await expect(

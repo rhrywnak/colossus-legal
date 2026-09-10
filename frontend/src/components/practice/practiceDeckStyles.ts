@@ -93,6 +93,50 @@ export const questionRowFlagged: CSSProperties = {
 /** `.qrow:last-child` — the list closes with a rule, as the mockup draws it. */
 export const questionRowLast: CSSProperties = { borderBottom: `1px solid ${LINE}` };
 
+/**
+ * The row while it is LIFTED — in hand, above its neighbours.
+ *
+ * A shadow and a raised stacking order, which together are what say "you are
+ * holding this". Apple's HIG on list reordering and GitHub Primer's drag pattern
+ * both describe the same two: the dragged item leaves the plane of the list, and
+ * the rows it passes slide rather than jump. The sliding is dnd-kit's transform
+ * on the OTHER rows; this is the lift.
+ *
+ * `position: relative` is what makes `zIndex` mean anything on a grid child.
+ */
+export const questionRowLifted: CSSProperties = {
+  position: "relative",
+  zIndex: 2,
+  background: "var(--bg-surface)",
+  boxShadow: "0 6px 16px rgba(0, 0, 0, 0.18)",
+  borderRadius: 8,
+  // The cursor stays "grabbing" for as long as the pointer is down, which is the
+  // one piece of feedback a mouse user gets that a touch user does not need.
+  cursor: "grabbing",
+};
+
+/**
+ * The thin "+ Add question here" line that sits in a GAP between two rows.
+ *
+ * Deliberately quiet: it appears in every gap of the visible run while the
+ * editor is on, so anything with weight would turn a list of ten questions into
+ * a list of ten questions and eleven buttons. Full width so the whole gap is the
+ * target — the thing being pointed at is the space, not a word in it.
+ */
+export const addGapLine: CSSProperties = {
+  display: "block",
+  width: "100%",
+  border: "none",
+  background: "none",
+  padding: "2px 6px",
+  textAlign: "left",
+  font: "inherit",
+  fontSize: "0.78rem",
+  color: "var(--accent-primary)",
+  cursor: "pointer",
+  opacity: 0.75,
+};
+
 /** `.qrow .n` */
 export const questionNumber: CSSProperties = { color: MUTED, fontSize: 14, paddingTop: 3 };
 
@@ -316,4 +360,26 @@ export const ante: CSSProperties = {
 export const anteQuote: CSSProperties = {
   color: "var(--practice-ante-label)",
   fontStyle: "normal",
+};
+
+/**
+ * Present to a screen reader, invisible on screen.
+ *
+ * The standard clip-rect recipe rather than `display: none` or
+ * `visibility: hidden`, both of which take the element out of the accessibility
+ * tree — an `aria-live` region hidden either of those ways announces nothing at
+ * all, which is the failure this technique exists to avoid. It is the shape
+ * every one of the cited guidelines uses for a live region with no visual
+ * counterpart.
+ */
+export const srOnly: CSSProperties = {
+  position: "absolute",
+  width: 1,
+  height: 1,
+  padding: 0,
+  margin: -1,
+  overflow: "hidden",
+  clip: "rect(0, 0, 0, 0)",
+  whiteSpace: "nowrap",
+  border: 0,
 };

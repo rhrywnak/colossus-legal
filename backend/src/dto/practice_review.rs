@@ -194,6 +194,47 @@ pub struct AddQuestionRequest {
     pub source_kind: Option<String>,
     #[serde(default)]
     pub source_index: Option<i32>,
+    /// The question this new one lands immediately BELOW, on its own side.
+    ///
+    /// `None` appends to the end of the side, which is what this route did for
+    /// its whole life and what the bottom "+ Add a question" box still asks for.
+    /// `Some` is the gap control between two rows (task DECK_DRAG_AND_ADD part
+    /// 3) — the row above the gap.
+    ///
+    /// ## Why "after" and not "before"
+    ///
+    /// The drag names the row it lands ON TOP OF, because a person dropping a
+    /// card is pointing at the row they want to displace. A person pressing
+    /// "+ Add question here" is pointing at a GAP, and the only row that gap is
+    /// anchored to when the list re-renders is the one above it — the row below
+    /// may not exist. `practice_reorder::placed_after` converts the one into the
+    /// other so the placement rule itself is written once.
+    ///
+    /// Fenced by the handler: a row this scenario does not hold is a 404, and one
+    /// on the other side is a 400 naming the field — placing a Chuck question
+    /// below a George row is not something the deck can express.
+    #[serde(default)]
+    pub after: Option<Uuid>,
+    /// Put the new question at the TOP of its side.
+    ///
+    /// ## Why this exists, when `after` was meant to carry every position
+    ///
+    /// It cannot carry the top one. `after` names the row a new question lands
+    /// BELOW, and the gap above the first row has no row above it — so the task
+    /// specified `after = none` for that gap, while the same task specifies that
+    /// an add with no `after` APPENDS, which is what the bottom "+ Add a
+    /// question" box has always done and what every existing caller relies on.
+    /// One absent value cannot mean both "the very top" and "the very end".
+    ///
+    /// So the top is its own flag. `false` — the default, and what every client
+    /// that predates the gap control sends by not sending it — leaves `after`
+    /// deciding, unchanged.
+    ///
+    /// Mutually exclusive with `after`: sending both is a 400 naming the field,
+    /// because the two would be asking for different places and the server would
+    /// have to pick one silently.
+    #[serde(default)]
+    pub at_start: bool,
 }
 
 /// What a write to the deck did, so the browser can re-read rather than guess.
