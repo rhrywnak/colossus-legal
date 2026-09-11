@@ -6,13 +6,15 @@
 //! `chat_providers`, because the catalog is a DB-level truth and the map
 //! only exists when `ANTHROPIC_API_KEY` is configured.
 
+use std::collections::HashMap;
+
 use axum::{extract::State, Json};
 use serde::Serialize;
 
 use crate::api::embed::ErrorResponse;
 use crate::auth::{require_ai, require_edit, AuthUser};
 use crate::domain::billing_class::BillingClass;
-use crate::repositories::pipeline_repository::models;
+use crate::repositories::pipeline_repository::{models, seconds_per_candidate_by_model};
 use crate::state::AppState;
 
 /// A single entry in the chat-models response.
@@ -37,6 +39,28 @@ pub struct ChatModelEntry {
     /// cannot be tested without a browser, and duplicates it per client. The
     /// vocabulary belongs to `domain::billing_class`; this field is what it says.
     pub display_label: String,
+    /// The same name as the scan CONFIRMATION says it, cost stated for both
+    /// classes — "Qwen3.8 27B (NVFP4, local) (local · $0)".
+    ///
+    /// Separate from `display_label` because the two are read at different
+    /// moments and `BillingClass` phrases them differently on purpose; see
+    /// [`BillingClass::confirm_suffix`] for why the free case speaks here and is
+    /// silent in the picker.
+    pub confirm_label: String,
+    /// Seconds per candidate this deployment has MEASURED for this model, or
+    /// `None` when nothing has completed a run on it yet.
+    ///
+    /// Absent rather than zero, and omitted from the payload entirely when
+    /// unknown: the confirmation multiplies this by a candidate count to promise
+    /// a human how long their afternoon is about to be, and a defaulted `0.0`
+    /// would promise "about 0 minutes" for a scan that has never been timed. The
+    /// browser drops the time clause when the field is absent.
+    ///
+    /// Always `None` on `/api/chat/models` — one chat turn is not a scan, and
+    /// there is nothing per-candidate to measure. `skip_serializing_if` keeps that
+    /// payload byte-identical to what it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub measured_seconds_per_candidate: Option<f64>,
 }
 
 /// Compose one catalog entry, with its billing label attached.
@@ -50,7 +74,11 @@ pub struct ChatModelEntry {
 /// could not be read. The caller drops the model, logs it, and carries the
 /// sentence back on `ChatModelsResponse::warnings` — one misclassified row must
 /// not fail the whole catalog, and must not vanish quietly either.
-fn entry_for(model: models::LlmModelRecord, default_model: &str) -> Result<ChatModelEntry, String> {
+fn entry_for(
+    model: models::LlmModelRecord,
+    default_model: &str,
+    measured: &HashMap<String, f64>,
+) -> Result<ChatModelEntry, String> {
     let class = BillingClass::try_from(model.billing_class.as_str()).map_err(|e| {
         tracing::error!(
             model = %model.id,
@@ -67,6 +95,10 @@ fn entry_for(model: models::LlmModelRecord, default_model: &str) -> Result<ChatM
             Some(suffix) => format!("{} {suffix}", model.display_name),
             None => model.display_name.clone(),
         },
+        confirm_label: format!("{} {}", model.display_name, class.confirm_suffix()),
+        // `copied()` rather than a clone: `f64` is `Copy`, and the map outlives
+        // this call — it is borrowed once and read for every row.
+        measured_seconds_per_candidate: measured.get(&model.id).copied(),
         model_id: model.id,
         display_name: model.display_name,
         billing_class: class.code().to_string(),
@@ -78,11 +110,12 @@ fn entry_for(model: models::LlmModelRecord, default_model: &str) -> Result<ChatM
 fn classify(
     rows: Vec<models::LlmModelRecord>,
     default_model: &str,
+    measured: &HashMap<String, f64>,
 ) -> (Vec<ChatModelEntry>, Vec<String>) {
     let mut entries = Vec::with_capacity(rows.len());
     let mut warnings = Vec::new();
     for row in rows {
-        match entry_for(row, default_model) {
+        match entry_for(row, default_model, measured) {
             Ok(entry) => entries.push(entry),
             Err(warning) => warnings.push(warning),
         }
@@ -143,7 +176,11 @@ pub async fn list_chat_models(
     // turn is one), and quietly reordering the chat picker would be this task
     // editing a surface it was not asked about.
     let default_model = state.default_chat_model.clone();
-    let (models, warnings) = classify(rows, &default_model);
+    // No measured rates on the CHAT catalogue: a per-candidate rate is a property
+    // of a scan, and this endpoint serves a surface that runs none. The empty map
+    // leaves every entry's `measured_seconds_per_candidate` at `None`, which
+    // `skip_serializing_if` then omits — so chat's payload is unchanged.
+    let (models, warnings) = classify(rows, &default_model, &HashMap::new());
 
     Ok(Json(ChatModelsResponse {
         models,
@@ -219,7 +256,8 @@ pub async fn list_scan_models(
         "scan model catalogue: default resolved"
     );
 
-    let (entries, warnings) = classify(rows, &configured_default);
+    let measured = measured_rates(&state).await?;
+    let (entries, warnings) = classify(rows, &configured_default, &measured);
     let (models, default_model) = local_first(entries, configured_default);
 
     Ok(Json(ChatModelsResponse {
@@ -227,6 +265,47 @@ pub async fn list_scan_models(
         default_model,
         warnings,
     }))
+}
+
+/// How long each model has been measured to take, per candidate.
+///
+/// Split out of [`list_scan_models`] so that handler stays inside the 50-line
+/// limit, and because the decision inside is worth reading on its own.
+///
+/// ## Why a failure here fails the whole request
+///
+/// The alternative — degrading to an empty map and serving the catalogue with no
+/// estimates — makes an unreadable run history look exactly like a deployment
+/// that has simply never scanned. Both render as a confirmation with no time
+/// clause, and nobody ever learns which one they are looking at. The catalogue
+/// is on a page-load path, so a real failure here is visible immediately and
+/// says which read died (Standing Rule 1).
+///
+/// # Errors
+/// Returns a 500 carrying the database's own message, after logging the failed
+/// read with the operation it was part of.
+async fn measured_rates(state: &AppState) -> Result<HashMap<String, f64>, ApiError> {
+    seconds_per_candidate_by_model(&state.pipeline_pool)
+        .await
+        .map_err(|e| {
+            tracing::error!(
+                error = %e,
+                "failed to read measured scan rates while composing the scan model catalogue"
+            );
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    // The operation is named in the RESPONSE, not only in the
+                    // log. Whoever sees this sees it in a browser's network tab,
+                    // and "DB error: …" alone cannot tell a pipeline-pool
+                    // misconfiguration from a missing table — the rates come
+                    // from `scan_runs` on the PIPELINE pool, not the main one.
+                    error: format!(
+                        "DB error reading scan run measures from the pipeline pool: {e}"
+                    ),
+                }),
+            )
+        })
 }
 
 /// The scan picker's default, in the order a deployment can actually control it.

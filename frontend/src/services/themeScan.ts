@@ -156,6 +156,22 @@ export type ScanModel = {
   model_id: string;
   display_name: string;
   is_default: boolean;
+  /** The name as the scan CONFIRMATION says it, with the cost stated for BOTH
+   *  classes — "Qwen3.8 27B (NVFP4, local) (local · $0)". Composed by the
+   *  backend, like `display_label`, and deliberately worded differently: the
+   *  picker leaves the free case undecorated because a label on every row is a
+   *  label nobody reads, and the confirmation says `$0` out loud because "is
+   *  this the free one?" is the question it exists to answer. */
+  confirm_label: string;
+  /** Seconds per candidate this deployment has MEASURED for this model, from
+   *  its own completed runs — or `undefined` when nothing has timed it yet.
+   *
+   *  Absent rather than zero, and absent from the payload entirely: the
+   *  confirmation multiplies it by the candidate count to tell a human how long
+   *  their afternoon is about to be, and a defaulted `0` would promise "about 0
+   *  minutes" for a scan nobody has ever run on this model. The time clause is
+   *  dropped when this is absent (`estimatedMinutes`). */
+  measured_seconds_per_candidate?: number;
   /** `local` (self-hosted, no metered cost) or `billed` (third-party API).
    *  The STATE, carried beside the label so a client branches on the token
    *  rather than reading meaning out of display prose (task 1.7B). */
@@ -421,6 +437,39 @@ export type ScanWording = {
   /** The collapsed card's one line when the latest run FAILED. Carries `{when}`,
    *  `{model}` and `{count}` (the failed count). */
   card_collapsed_failed_template: string;
+
+  // ── The scenario-facts header (2026-09-11) ─────────────────────────────────
+  /** The left half of the split Scan|model pill. */
+  header_scan_label: string;
+  /** The pill that opens the run history. */
+  header_history_label: string;
+  /** Why the scan control is refused while a run is in flight. */
+  header_running_notice: string;
+  /** Why the scan control is refused when the catalogue offers nothing. */
+  header_no_model_notice: string;
+  /** The honest last-scan line. Carries `{when}`, `{status}` and `{count}`. */
+  header_last_scan_template: string;
+  /** The same line for a run that never reached its pool read. Carries
+   *  `{when}` and `{status}` — and deliberately no `{count}`, because a run
+   *  that died before reading the pool did not read zero of it. */
+  header_last_scan_no_count_template: string;
+  /** The four run states as the last-scan line says them. Lowercase: they sit
+   *  mid-sentence, where the `status_*_label` pills would read as proper nouns. */
+  header_status_completed: string;
+  header_status_cancelled: string;
+  header_status_failed: string;
+  header_status_running: string;
+  /** The confirmation with a measured estimate. Carries `{model}`, `{count}`
+   *  and `{minutes}`. */
+  header_confirm_timed_template: string;
+  /** The confirmation with no estimate. Carries `{model}` and `{count}`. */
+  header_confirm_template: string;
+  /** The confirmation with no candidate count. Carries `{model}`. */
+  header_confirm_no_count_template: string;
+  /** The button that starts the run — the only control wired to it. */
+  header_confirm_run_label: string;
+  /** The button that dismisses the confirmation. */
+  header_confirm_cancel_label: string;
 };
 
 // There is no merge client (2026-08-08). A completed run's admitted verdicts

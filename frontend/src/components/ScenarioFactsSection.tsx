@@ -417,11 +417,16 @@ const ScenarioFactsSection: React.FC<Props> = ({
         // counts together, without the page-level refresh that would reload the
         // queue's pool under a human ruling cards while the scan works.
         onCandidatesChanged={onFactRemoved}
+        // The served never-scanned sentence goes to the PANEL, not to the
+        // header (2026-09-11). The panel holds the run history, so it is the
+        // only place that can choose between this sentence and the last-scan
+        // line from one read — which is what stops the two being rendered
+        // together, as they were on PROD S-13. See `factsHeaderLine`.
+        neverScannedNotice={neverScannedNotice}
         header={(scan) => (
           <>
             <ScenarioFactsHeader
               scan={scan}
-              neverScannedNotice={neverScannedNotice}
               historyOpen={historyOpen}
               onToggleHistory={() => setHistoryOpen(!historyOpen)}
               grammar={options?.card_grammar ?? null}

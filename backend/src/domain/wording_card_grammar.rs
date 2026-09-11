@@ -134,7 +134,22 @@ pub struct CardGrammarWording {
     pub weight_changed_template: String,
     /// The control that takes a weight change back.
     pub weight_undo_label: String,
-    /// The section-header control that forgets every human placement.
+    /// The overflow control that holds the section's rarely-used actions
+    /// (2026-09-11). Its only item today is Reset order.
+    ///
+    /// ## Why a glyph still needs a stored word
+    ///
+    /// `⋯` is a shape, and the shape stays in code with the other glyphs. But a
+    /// button whose visible content is a shape has no accessible NAME, and a
+    /// screen reader reaching it announces "button" — so the name is supplied,
+    /// and a name a human hears is a sentence a human reads (v2 §2b). It is a
+    /// row here, with Reset order, because the menu belongs to this section and
+    /// not to the scan.
+    pub more_actions_label: String,
+    /// The section-header control that forgets every human placement. Since
+    /// 2026-09-11 it is reached through the overflow above rather than sitting
+    /// on the header row: it discards weeks of curation and it was one
+    /// mis-click from the fold.
     pub reset_order_label: String,
     /// The question asked before it runs.
     ///
@@ -183,6 +198,7 @@ pub(crate) const KEY_LINK_WOKE_RULING: &str = "card_link_woke_ruling_template";
 pub(crate) const KEY_WEIGHT_PICKER: &str = "card_weight_picker_label";
 pub(crate) const KEY_WEIGHT_CHANGED: &str = "card_weight_changed_template";
 pub(crate) const KEY_WEIGHT_UNDO: &str = "card_weight_undo_label";
+pub(crate) const KEY_MORE_ACTIONS: &str = "card_more_actions_label";
 pub(crate) const KEY_RESET_ORDER: &str = "card_reset_order_label";
 pub(crate) const KEY_RESET_ORDER_CONFIRM: &str = "card_reset_order_confirm";
 pub(crate) const KEY_RESET_ORDER_YES: &str = "card_reset_order_confirm_yes";
@@ -228,6 +244,7 @@ pub const CARD_GRAMMAR_WORDING_KEYS: &[&str] = &[
     KEY_RESET_ORDER_CANCEL,
     KEY_RESET_ORDER_DONE,
     KEY_RESET_ORDER_FAILED,
+    KEY_MORE_ACTIONS,
     KEY_ALREADY_LINKED_NOTE,
     KEY_CHIP_FILTER_HINT,
     KEY_CHIP_FILTER_CLEAR,
@@ -286,6 +303,7 @@ pub fn build_card_grammar_wording<E>(
         reset_order_confirm_cancel: read(KEY_RESET_ORDER_CANCEL)?,
         reset_order_done_template: read(KEY_RESET_ORDER_DONE)?,
         reset_order_failed_template: read(KEY_RESET_ORDER_FAILED)?,
+        more_actions_label: read(KEY_MORE_ACTIONS)?,
         chip_filter_hint_template: read(KEY_CHIP_FILTER_HINT)?,
         chip_filter_clear_template: read(KEY_CHIP_FILTER_CLEAR)?,
     })

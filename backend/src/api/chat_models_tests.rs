@@ -31,8 +31,14 @@ fn model(id: &str, display: &str, billing_class: &str) -> LlmModelRecord {
     }
 }
 
+/// No model has been timed. The overwhelmingly common fixture — only the two
+/// estimate tests below care, and they pass their own.
+fn untimed() -> HashMap<String, f64> {
+    HashMap::new()
+}
+
 fn entries(rows: Vec<LlmModelRecord>, default: &str) -> Vec<ChatModelEntry> {
-    classify(rows, default).0
+    classify(rows, default, &untimed()).0
 }
 
 // ── The label ────────────────────────────────────────────────────────────────
@@ -87,6 +93,7 @@ fn a_dropped_model_comes_back_as_a_warning_naming_it() {
             model("mystery", "Mystery", "free-tier"),
         ],
         "x",
+        &untimed(),
     );
 
     assert_eq!(listed.len(), 1);
@@ -105,8 +112,73 @@ fn a_healthy_catalog_carries_no_warnings() {
             model("opus", "Opus", "billed"),
         ],
         "x",
+        &untimed(),
     );
     assert!(warnings.is_empty(), "{warnings:?}");
+}
+
+// ── The confirmation label and the measured estimate ─────────────────────────
+
+/// The confirmation names the cost for BOTH classes, unlike the picker.
+///
+/// The picker leaves local undecorated because a label on every row is a label
+/// nobody reads. The confirmation is read at the instant a human commits to
+/// spending, where "is this the free one?" is the question being asked — so
+/// silence there is the wrong answer, and the free case says `$0` out loud.
+#[test]
+fn the_confirmation_label_states_the_cost_for_both_classes() {
+    let listed = entries(
+        vec![
+            model("qwen-32b", "Qwen 32B", "local"),
+            model("claude-opus-4-8", "Opus 4.8", "billed"),
+        ],
+        "x",
+    );
+    assert_eq!(listed[0].confirm_label, "Qwen 32B (local · $0)");
+    assert_eq!(listed[1].confirm_label, "Opus 4.8 (API — billed)");
+    // And the picker's label is unchanged by any of it — the local row is still
+    // bare there, which is the distinction the two fields exist to keep.
+    assert_eq!(listed[0].display_label, "Qwen 32B");
+}
+
+/// A model nothing has timed carries NO estimate — not a zero.
+///
+/// A defaulted `0.0` would let the confirmation promise "about 0 minutes" for a
+/// 313-candidate scan that has never been run on this model. Absent is the only
+/// honest value, and `skip_serializing_if` keeps it off the wire entirely.
+#[test]
+fn a_model_nothing_has_timed_has_no_estimate() {
+    let listed = entries(vec![model("qwen-32b", "Qwen 32B", "local")], "x");
+    assert_eq!(listed[0].measured_seconds_per_candidate, None);
+}
+
+/// The measured rate reaches the entry it was measured for, and only that one.
+#[test]
+fn a_measured_rate_is_carried_on_its_own_model_and_no_other() {
+    let measured = HashMap::from([("qwen-32b".to_string(), 10.5_f64)]);
+    let (listed, _) = classify(
+        vec![
+            model("qwen-32b", "Qwen 32B", "local"),
+            model("qwen-14b", "Qwen 14B", "local"),
+        ],
+        "x",
+        &measured,
+    );
+
+    let timed = listed
+        .iter()
+        .find(|e| e.model_id == "qwen-32b")
+        .expect("the timed model is listed");
+    let untimed_row = listed
+        .iter()
+        .find(|e| e.model_id == "qwen-14b")
+        .expect("the untimed model is listed");
+
+    assert_eq!(timed.measured_seconds_per_candidate, Some(10.5));
+    assert_eq!(
+        untimed_row.measured_seconds_per_candidate, None,
+        "one model's measurement must never price another's scan"
+    );
 }
 
 // ── The ordering ─────────────────────────────────────────────────────────────

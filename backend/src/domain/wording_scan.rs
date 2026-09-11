@@ -18,6 +18,20 @@
 // move (it just did), and it should be able to move without touching a row the
 // curation queue renders.
 //
+// ## The facts-header rows (2026-09-11)
+//
+// Fifteen more, for the scan controls as they appear on the SCENARIO FACTS
+// header — the split Scan|model pill, the confirmation bar it opens, and the
+// honest last-scan line beside the heading. They join this bundle rather than
+// starting a sixth because they pass the same test the header above sets: the
+// surface is the scan, read by an operator deciding whether to spend, and its
+// language moves when the scan's mechanics move.
+//
+// The four they replace were literals in `ScenarioFactsHeader.tsx`, listed in
+// that file as rows it OWED. Two of them changed wording in the rebuild ("Scan
+// again" → "Scan", "history" → "History"), and a changed sentence is exactly
+// what may not go back into a component as a literal.
+//
 // ## The pre-existing literals in `ThemeScanPanel.tsx` are LEFT ALONE
 //
 // That component predates the configuration law and carries dozens of them
@@ -115,6 +129,73 @@ pub struct ScanWording {
     /// scenario reading "0 proposed" looks scanned and empty; it was not scanned
     /// at all.
     pub card_collapsed_failed_template: String,
+
+    // ── The scenario-facts header (2026-09-11) ───────────────────────────────
+    /// The left half of the split pill. Was "Scan again", a literal in the
+    /// component.
+    ///
+    /// Domain note: the word lost "again" when the control stopped starting a
+    /// run. It now OPENS A CONFIRMATION, and "Scan again" on a button that does
+    /// not scan is the kind of small lie a human only discovers by clicking it.
+    pub header_scan_label: String,
+    /// The pill that opens the run history. Was the lowercase inline link
+    /// "history"; it is a pill beside the others now, so it is capitalised.
+    pub header_history_label: String,
+    /// Why the scan control is refused while a run is in flight.
+    pub header_running_notice: String,
+    /// Why the scan control is refused when the catalogue offers nothing.
+    ///
+    /// Distinct from the notice above because the two are different problems
+    /// with different fixes — one resolves itself in minutes, the other needs an
+    /// operator — and a control that refuses without saying which reads as
+    /// broken.
+    pub header_no_model_notice: String,
+    /// The honest last-scan line. Carries `{when}`, `{status}` and `{count}`.
+    ///
+    /// Domain note: this sentence replaces a pair that could contradict each
+    /// other. Until 2026-09-11 the header showed "No scan has run yet" whenever
+    /// no run had COMPLETED — so a scenario whose only run was cancelled said
+    /// nothing had ever run, three lines above the history table listing it
+    /// (PROD S-13). The status is now part of the sentence, which is what lets
+    /// one line describe every settled run truthfully.
+    pub header_last_scan_template: String,
+    /// The same line for a run that never reached its pool read. Carries
+    /// `{when}` and `{status}`.
+    ///
+    /// A separate sentence rather than `{count}` filled with `0`: "0 candidates"
+    /// claims the run looked and found nothing, and a run that died before
+    /// reading the pool did not look.
+    pub header_last_scan_no_count_template: String,
+    /// The four run states as the last-scan line says them, mid-sentence.
+    ///
+    /// Lowercase, and deliberately NOT the `status_*_label` pills above: those
+    /// are chips on the history table where a capital reads as a badge, and
+    /// "Last scan Sep 11 · Complete · 313 candidates" reads as a proper noun
+    /// dropped into a sentence. Same states, two registers, two rows.
+    pub header_status_completed: String,
+    pub header_status_cancelled: String,
+    pub header_status_failed: String,
+    pub header_status_running: String,
+    /// The confirmation, when both the pool size and a measured rate are known.
+    /// Carries `{model}`, `{count}` and `{minutes}`.
+    pub header_confirm_timed_template: String,
+    /// The confirmation when nothing has timed this model yet. Carries `{model}`
+    /// and `{count}`.
+    ///
+    /// Domain note: three sentences rather than one with optional slots, because
+    /// an estimate is either measured or absent. A template with an empty
+    /// `{minutes}` would leave "about  minutes" on screen the first time a model
+    /// was used, and a defaulted number would promise an afternoon it had never
+    /// measured.
+    pub header_confirm_template: String,
+    /// The confirmation when the candidate count could not be read. Carries
+    /// `{model}` alone — with no pool size there is no estimate either, since
+    /// the estimate is the pool size times the rate.
+    pub header_confirm_no_count_template: String,
+    /// The button that actually starts the run. The ONLY control wired to it.
+    pub header_confirm_run_label: String,
+    /// The button that dismisses the confirmation without running anything.
+    pub header_confirm_cancel_label: String,
 }
 
 // KEYS: the stable identifiers of the three stored strings. Renaming one is a
@@ -135,6 +216,21 @@ pub(crate) const KEY_REPORT_TILE_FAILED: &str = "scan_report_tile_failed";
 pub(crate) const KEY_STATUS_COMPLETE_LABEL: &str = "scan_status_complete_label";
 pub(crate) const KEY_STATUS_FAILED_LABEL: &str = "scan_status_failed_label";
 pub(crate) const KEY_CARD_COLLAPSED_FAILED: &str = "scan_card_collapsed_failed_template";
+pub(crate) const KEY_HEADER_SCAN_LABEL: &str = "scan_header_scan_label";
+pub(crate) const KEY_HEADER_HISTORY_LABEL: &str = "scan_header_history_label";
+pub(crate) const KEY_HEADER_RUNNING_NOTICE: &str = "scan_header_running_notice";
+pub(crate) const KEY_HEADER_NO_MODEL_NOTICE: &str = "scan_header_no_model_notice";
+pub(crate) const KEY_HEADER_LAST_SCAN: &str = "scan_header_last_scan_template";
+pub(crate) const KEY_HEADER_LAST_SCAN_NO_COUNT: &str = "scan_header_last_scan_no_count_template";
+pub(crate) const KEY_HEADER_STATUS_COMPLETED: &str = "scan_header_status_completed";
+pub(crate) const KEY_HEADER_STATUS_CANCELLED: &str = "scan_header_status_cancelled";
+pub(crate) const KEY_HEADER_STATUS_FAILED: &str = "scan_header_status_failed";
+pub(crate) const KEY_HEADER_STATUS_RUNNING: &str = "scan_header_status_running";
+pub(crate) const KEY_HEADER_CONFIRM_TIMED: &str = "scan_header_confirm_timed_template";
+pub(crate) const KEY_HEADER_CONFIRM: &str = "scan_header_confirm_template";
+pub(crate) const KEY_HEADER_CONFIRM_NO_COUNT: &str = "scan_header_confirm_no_count_template";
+pub(crate) const KEY_HEADER_CONFIRM_RUN: &str = "scan_header_confirm_run_label";
+pub(crate) const KEY_HEADER_CONFIRM_CANCEL: &str = "scan_header_confirm_cancel_label";
 
 /// Every scan-wording key this build reads, so a missing one is caught at boot BY
 /// NAME rather than as a blank control in front of a human mid-scan.
@@ -155,6 +251,21 @@ pub const SCAN_WORDING_KEYS: &[&str] = &[
     KEY_STATUS_COMPLETE_LABEL,
     KEY_STATUS_FAILED_LABEL,
     KEY_CARD_COLLAPSED_FAILED,
+    KEY_HEADER_SCAN_LABEL,
+    KEY_HEADER_HISTORY_LABEL,
+    KEY_HEADER_RUNNING_NOTICE,
+    KEY_HEADER_NO_MODEL_NOTICE,
+    KEY_HEADER_LAST_SCAN,
+    KEY_HEADER_LAST_SCAN_NO_COUNT,
+    KEY_HEADER_STATUS_COMPLETED,
+    KEY_HEADER_STATUS_CANCELLED,
+    KEY_HEADER_STATUS_FAILED,
+    KEY_HEADER_STATUS_RUNNING,
+    KEY_HEADER_CONFIRM_TIMED,
+    KEY_HEADER_CONFIRM,
+    KEY_HEADER_CONFIRM_NO_COUNT,
+    KEY_HEADER_CONFIRM_RUN,
+    KEY_HEADER_CONFIRM_CANCEL,
 ];
 
 /// Build a [`ScanWording`] from the stored rows, or say which key is wrong.
@@ -185,6 +296,21 @@ pub fn build_scan_wording<E>(read: impl Fn(&str) -> Result<String, E>) -> Result
         status_complete_label: read(KEY_STATUS_COMPLETE_LABEL)?,
         status_failed_label: read(KEY_STATUS_FAILED_LABEL)?,
         card_collapsed_failed_template: read(KEY_CARD_COLLAPSED_FAILED)?,
+        header_scan_label: read(KEY_HEADER_SCAN_LABEL)?,
+        header_history_label: read(KEY_HEADER_HISTORY_LABEL)?,
+        header_running_notice: read(KEY_HEADER_RUNNING_NOTICE)?,
+        header_no_model_notice: read(KEY_HEADER_NO_MODEL_NOTICE)?,
+        header_last_scan_template: read(KEY_HEADER_LAST_SCAN)?,
+        header_last_scan_no_count_template: read(KEY_HEADER_LAST_SCAN_NO_COUNT)?,
+        header_status_completed: read(KEY_HEADER_STATUS_COMPLETED)?,
+        header_status_cancelled: read(KEY_HEADER_STATUS_CANCELLED)?,
+        header_status_failed: read(KEY_HEADER_STATUS_FAILED)?,
+        header_status_running: read(KEY_HEADER_STATUS_RUNNING)?,
+        header_confirm_timed_template: read(KEY_HEADER_CONFIRM_TIMED)?,
+        header_confirm_template: read(KEY_HEADER_CONFIRM)?,
+        header_confirm_no_count_template: read(KEY_HEADER_CONFIRM_NO_COUNT)?,
+        header_confirm_run_label: read(KEY_HEADER_CONFIRM_RUN)?,
+        header_confirm_cancel_label: read(KEY_HEADER_CONFIRM_CANCEL)?,
     })
 }
 

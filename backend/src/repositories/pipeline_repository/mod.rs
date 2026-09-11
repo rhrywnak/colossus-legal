@@ -90,6 +90,7 @@ pub mod review_actions;
 pub mod review_edit_history;
 pub mod review_grounding;
 pub mod review_items;
+pub mod scan_run_measures;
 pub mod scan_run_merges;
 pub mod scan_run_projection;
 pub mod scan_run_state;
@@ -123,6 +124,7 @@ pub use report_queries::{
     get_per_pass_relationship_breakdown, get_relationship_breakdown_by_type, PerPassRunMetadata,
     RelationshipTypeCount,
 };
+pub use scan_run_measures::*;
 pub use scan_run_merges::*;
 pub use scan_run_projection::*;
 pub use scan_run_state::*;

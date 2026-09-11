@@ -5,7 +5,7 @@
 // (CLAUDE.md frontend test pattern: pure-helper tests + service tests).
 // =============================================================================
 
-import type { ThemeScanSummary } from "../services/themeScan";
+import type { ScanRunHeader, ScanWording, ThemeScanSummary } from "../services/themeScan";
 
 /** Format elapsed milliseconds as `m:ss` for the running timer / durations. */
 export function formatElapsed(ms: number): string {
@@ -214,4 +214,53 @@ export function collapsedFailedSummary(
     .replace("{when}", when)
     .replace("{model}", model)
     .replace("{count}", String(failedCount));
+}
+
+/**
+ * The ONE line a collapsed scan card shows, or `null` when there is nothing to
+ * fold — no settled run yet, or the words have not loaded.
+ *
+ * Lifted out of `ThemeScanPanel` on 2026-09-11. It belongs here beside the two
+ * templates it fills, and it had to leave: that component is pre-existing debt
+ * at 853 non-comment lines against a 300-line limit (ruling R6 → task 3.14),
+ * and the facts-header rebuild added lines to it. This is what pays them back,
+ * so the panel comes out of the change no larger than it went in.
+ *
+ * ## Why a FAILED run outranks a completed one
+ *
+ * They are found separately and the failed branch wins. A run whose every judged
+ * call failed records `failed` (ruling R3), so it is invisible to a search for
+ * the latest COMPLETED run — correctly, because it projects nothing. But it is
+ * the run the human just watched, and a card that quietly described the one
+ * before it would report a scan that worked to someone who had just seen one
+ * fail. Only the most recent SETTLED run can claim the line.
+ */
+export function collapsedCardSummary(input: {
+  runs: ScanRunHeader[];
+  wording: ScanWording | null;
+  proposedCount: number | null;
+  formatWhen: (isoDate: string) => string;
+  modelName: (modelId: string) => string;
+}): string | null {
+  const { runs, wording, proposedCount, formatWhen, modelName } = input;
+  if (wording === null) return null;
+
+  const settled = runs.find((r) => r.status !== "running") ?? null;
+  if (settled?.status === "failed") {
+    return collapsedFailedSummary(
+      wording.card_collapsed_failed_template,
+      formatWhen(settled.started_at),
+      modelName(settled.model_id),
+      settled.failed_count,
+    );
+  }
+
+  const completed = runs.find((r) => r.status === "completed") ?? null;
+  if (completed === null) return null;
+  return collapsedScanSummary(
+    wording.card_collapsed_summary_template,
+    formatWhen(completed.started_at),
+    modelName(completed.model_id),
+    proposedCount,
+  );
 }

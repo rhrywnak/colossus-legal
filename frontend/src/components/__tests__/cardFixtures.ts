@@ -140,6 +140,7 @@ export function optionsFixture(): AllegationOptions {
       weight_picker_label: "Weight",
       weight_changed_template: "Weight set: {code} now reads {tier}.",
       weight_undo_label: "undo",
+      more_actions_label: "More actions",
       reset_order_label: "Reset order",
       reset_order_confirm: "Forget where you have placed every fact?",
       reset_order_confirm_yes: "Reset the order",

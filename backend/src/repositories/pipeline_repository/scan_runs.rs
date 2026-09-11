@@ -549,30 +549,37 @@ pub async fn list_scan_runs(
     Ok(rows)
 }
 
-/// How many COMPLETED runs one scenario has (task 2.15, piece 3).
+/// How many runs of ANY status one scenario has (task 2.15 piece 3; widened
+/// 2026-09-11).
 ///
-/// ## Why completed, and not "any run"
+/// ## Why "any run", and no longer "completed only"
 ///
-/// The question the caller is asking is "has anything ever judged this
-/// scenario's pool?" — because the answer decides whether the page may describe
-/// its candidates as scan output. A run that failed at the vLLM gate judged
-/// nothing, so counting it would let a scenario claim a scan parentage no verdict
-/// supports. The failed run is still visible in the history, which is where it
-/// belongs.
+/// It counted `status = 'completed'` until 2026-09-11, and the reasoning was
+/// sound for the question it was then answering: "has anything ever JUDGED this
+/// pool?", because a run that failed at the vLLM gate judged nothing and must not
+/// let a scenario claim a scan parentage no verdict supports.
+///
+/// What that reasoning missed is what the page does with the answer. The caller
+/// is choosing between two sentences, and the false one was reachable: on PROD
+/// S-13 a scenario whose only run was CANCELLED counted zero and was told "No scan
+/// has run yet" — three lines above a history table listing the run. The notice
+/// was arithmetically correct and the screen was a lie.
+///
+/// The parentage argument survives intact, because the sentence that replaces the
+/// notice claims no parentage: the header now reads "Last scan … · cancelled ·
+/// 313 candidates", which says a scan happened and says what became of it. So the
+/// question this count answers is narrowed to the one the caller actually has —
+/// "is this scenario's history EMPTY?" — and the two sentences are now decided by
+/// one read, which is what makes the contradictory pair impossible to render.
 ///
 /// A COUNT rather than reusing `list_scan_runs`: the caller needs one number on a
 /// page-load path that already makes six reads, and shipping every header row to
 /// discard all but the length is work nobody uses.
-pub async fn count_completed_scan_runs(
-    pool: &PgPool,
-    scenario_id: Uuid,
-) -> Result<i64, PipelineRepoError> {
-    let count: i64 =
-        sqlx::query_scalar("SELECT count(*) FROM scan_runs WHERE scenario_id = $1 AND status = $2")
-            .bind(scenario_id)
-            .bind(SCAN_STATUS_COMPLETED)
-            .fetch_one(pool)
-            .await?;
+pub async fn count_scan_runs(pool: &PgPool, scenario_id: Uuid) -> Result<i64, PipelineRepoError> {
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM scan_runs WHERE scenario_id = $1")
+        .bind(scenario_id)
+        .fetch_one(pool)
+        .await?;
     Ok(count)
 }
 

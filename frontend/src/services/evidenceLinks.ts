@@ -349,6 +349,10 @@ export type CardGrammarWording = {
   /** Carries `{code}` and `{tier}`. */
   weight_changed_template: string;
   weight_undo_label: string;
+  /** The accessible name of the ⋯ overflow on the Scenario facts header. A
+   *  glyph button has no name of its own, and a screen reader reaching one
+   *  announces "button" and nothing else. */
+  more_actions_label: string;
   reset_order_label: string;
   reset_order_confirm: string;
   reset_order_confirm_yes: string;

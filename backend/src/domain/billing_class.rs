@@ -72,6 +72,40 @@ impl BillingClass {
         }
     }
 
+    /// What the scan CONFIRMATION says about the cost, in parentheses.
+    ///
+    /// ## Why this is a second vocabulary and not [`Self::suffix`]
+    ///
+    /// The two answer different questions at different moments. `suffix` labels a
+    /// row in a picker a human is scrolling, where a label on every row is a label
+    /// nobody reads — so the unremarkable case (local) is left undecorated.
+    ///
+    /// This one is read at the instant a human is about to spend, in a sentence
+    /// that exists only to make them stop and look. There, silence about the local
+    /// case is the wrong default: "is this the free one?" is exactly the question
+    /// the confirmation is for, and a parenthesis that appears only when the answer
+    /// is bad teaches the reader to skim past it. So BOTH classes speak here, and
+    /// the free one says so in the only terms that cannot be misread — the price.
+    ///
+    /// Domain note: `$0` is not a price lookup. `Local` is DEFINED as self-hosted
+    /// with no metered cost per call (see the variant above and migration
+    /// `20260802134438`), so the zero is this vocabulary's own statement about what
+    /// the class means, exactly as "(API — billed)" is. A model whose real cost is
+    /// unknown is `Billed`, never `Local`, and never reaches the `$0` arm.
+    pub fn confirm_suffix(self) -> &'static str {
+        // STRUCTURAL: these two strings are what the variants MEAN, not an
+        // operator-editable label. `Local` is DEFINED by migration
+        // 20260802134438 as self-hosted with no metered cost per call, so "$0"
+        // restates the definition rather than quoting a price — a model whose
+        // real cost is unknown is `Billed`, and never reaches the first arm. A
+        // deployment that wanted different words here would be renaming the
+        // billing classes themselves, which is this enum, not a settings row.
+        match self {
+            BillingClass::Local => "(local · $0)",
+            BillingClass::Billed => "(API — billed)",
+        }
+    }
+
     /// Sort key — local first (v2 §2c scan control, Roman's 2026-08-02 ruling).
     ///
     /// ## Rust Learning: an explicit key instead of `#[derive(Ord)]`
