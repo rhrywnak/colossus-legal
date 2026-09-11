@@ -49,6 +49,7 @@ import {
   formatElapsed,
   lastRunSummary,
 } from "./themeScanFormat";
+import { isExpanded } from "./themeScanExpansion";
 import { gatherCandidates } from "../services/scenarioGather";
 import type { ProposalSource } from "../services/scenarioCards";
 import {
@@ -715,12 +716,23 @@ const ThemeScanPanel: React.FC<Props> = ({
           )
         : null;
 
-  // Default: COLLAPSED once a run has completed, EXPANDED before that. The
-  // human's own click wins from then on, and is deliberately NOT persisted — the
-  // same ruling (R7) that keeps the queue's own collapse un-remembered, for the
-  // same reason: a card that remembers "folded" through a scan the human then
-  // cannot find is a silent failure wearing a preference's clothes.
-  const expanded = expandOverride ?? collapsedSummary === null;
+  // Default: COLLAPSED once a run has settled, EXPANDED before that. The human's
+  // own click wins from then on, and is deliberately NOT persisted — the same
+  // ruling (R7) that keeps the queue's own collapse un-remembered, for the same
+  // reason: a card that remembers "folded" through a scan the human then cannot
+  // find is a silent failure wearing a preference's clothes.
+  //
+  // Two things override all of that, and both are in `isExpanded` with the DEV
+  // measurement that forced them: a RUNNING scan always shows, because the header
+  // promises its progress is below; and a card whose header the caller drew always
+  // shows, because that layout has no collapse control to undo a fold with. See
+  // `themeScanExpansion`.
+  const expanded = isExpanded({
+    expandOverride,
+    collapsedSummary,
+    running,
+    headerLent: header !== undefined,
+  });
 
   // ── The lent-out controls (v2.1, change D) ─────────────────────────────────
   //
