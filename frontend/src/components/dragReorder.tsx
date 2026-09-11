@@ -32,11 +32,47 @@
 
 import React, { type CSSProperties, type HTMLAttributes } from "react";
 
+// The grip's target box, EXPORTED so a test can assert it — these two numbers are
+// the fix, and a constant nothing asserts drifts back. (The same reason
+// `deckSortable.ts` exports `SENSOR_CONSTRAINTS`.)
+//
+// 44 is Apple's HIG minimum touch target (44pt), and the
+// same figure WCAG 2.5.5 and Material name; NN/g's drag guidance asks separately
+// for a grab handle that is VISIBLY grabbable, which is what the glyph size and
+// the hover tint below are for.
+//
+// STRUCTURAL: a human-factors constant, not deployment configuration. It
+// describes the size of a fingertip, which is the same on Chuck's iPad and on a
+// machine nobody has built yet. See `deckSortable.ts` SENSOR_CONSTRAINTS for the
+// same judgment applied to the timing side of the same gesture — and the same
+// caveat: what would make it vary is an ACCESSIBILITY preference, which is
+// per-person and belongs with the others whenever those exist.
+export const GRIP_TARGET_PX = 44;
+
+// The glyph inside it. 13 px — what the practice row asked for until 2026-09-10 —
+// is a mark you aim at; 20 px is one you can see you are aiming at.
+export const GRIP_GLYPH_PX = 20;
+
 /**
- * The ⠿ grip, exactly as the facts table draws it.
+ * The ⠿ grip — the one thing you take hold of to re-order a row.
  *
  * A `<span>` and not a `<button>`: it is not a control that does something when
- * pressed, it is the part of the row you take hold of.
+ * pressed, it is the part of the row you take hold of. (dnd-kit's `attributes`
+ * put `role="button"` and a `tabIndex` on it anyway, which is what a screen
+ * reader and the keyboard sensor need; the element stays a span so nothing
+ * submits a form or steals a click.)
+ *
+ * ## It is a TARGET, not a mark (2026-09-10)
+ *
+ * It rendered at `fontSize: 13` inside a `minWidth: 24` box — about 13×16 px of
+ * actual hittable area — against a 44pt minimum in Apple's HIG and the same
+ * figure in WCAG 2.5.5. On an iPad it was not reliably hittable at all, and with
+ * a mouse it wanted aiming. It is now a 44×44 box around a 20 px glyph, with a
+ * tint that answers a pointer so a person can see what they have got hold of —
+ * NN/g's "visible grab handle".
+ *
+ * Nothing at rest, deliberately: eleven rows each carrying a permanent grey patch
+ * would read as a column of buttons rather than as a texture you can grab.
  *
  * ## `handleProps` — what changed on 2026-09-10
  *
@@ -67,23 +103,88 @@ export const DragHandle: React.FC<{
   hint: string;
   style?: CSSProperties;
   handleProps?: HTMLAttributes<HTMLSpanElement>;
-}> = ({ hint, style, handleProps }) => (
-  <span
-    aria-label={hint}
-    title={hint}
-    {...handleProps}
-    style={{
-      cursor: handleProps ? "grab" : "default",
-      color: "var(--text-secondary)",
-      // A grip you can put a finger on. 24 px is the minimum touch target every
-      // one of the cited guidelines names, and the ⠿ glyph alone is about eight.
-      ...(handleProps ? { display: "inline-block", minWidth: 24, touchAction: "none" } : {}),
-      ...style,
-    }}
-  >
-    ⠿
-  </span>
-);
+}> = ({ hint, style, handleProps }) => {
+  const [hovered, setHovered] = React.useState(false);
+  const [pressed, setPressed] = React.useState(false);
+  const grabbable = handleProps !== undefined;
+
+  return (
+    <span
+      aria-label={hint}
+      title={hint}
+      {...handleProps}
+      // ⚑ Every handler below is COMPOSED, never replaced. `handleProps` carries
+      // dnd-kit's `onPointerDown` (and `onKeyDown` from the keyboard sensor), and
+      // an `onPointerDown` of our own written after the spread would silently
+      // shadow it — the hover tint would work and the drag would stop. dnd-kit's
+      // runs first in every one of these.
+      onMouseEnter={(event) => {
+        handleProps?.onMouseEnter?.(event);
+        setHovered(true);
+      }}
+      onMouseLeave={(event) => {
+        handleProps?.onMouseLeave?.(event);
+        setHovered(false);
+        setPressed(false);
+      }}
+      onPointerDown={(event) => {
+        handleProps?.onPointerDown?.(event);
+        setPressed(true);
+      }}
+      onPointerUp={(event) => {
+        handleProps?.onPointerUp?.(event);
+        setPressed(false);
+      }}
+      // A drag that ends outside the grip — which is every successful drag —
+      // fires neither `pointerup` here nor `mouseleave` reliably, so without this
+      // the grip would stay visibly pressed after the row was dropped.
+      onPointerCancel={(event) => {
+        handleProps?.onPointerCancel?.(event);
+        setPressed(false);
+      }}
+      onLostPointerCapture={(event) => {
+        handleProps?.onLostPointerCapture?.(event);
+        setPressed(false);
+      }}
+      style={{
+        // The TARGET, sized the same whether or not it is currently grabbable.
+        // `canDrag` goes false for the moment a write is in flight, and a box
+        // that resized on that would make the row jump on every save.
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        minWidth: GRIP_TARGET_PX,
+        minHeight: GRIP_TARGET_PX,
+        fontSize: GRIP_GLYPH_PX,
+        lineHeight: 1,
+        borderRadius: 8,
+        // Nothing at rest: eleven rows each with a grey patch would read as a
+        // column of buttons. The tint is the answer to a pointer arriving.
+        background: pressed
+          ? "var(--border-default)"
+          : hovered
+            ? "var(--bg-page)"
+            : "transparent",
+        color: hovered || pressed ? "var(--text-primary)" : "var(--text-secondary)",
+        transition: "background 120ms ease, color 120ms ease",
+        // Dragging a glyph otherwise selects it, and the selection survives the
+        // drop as a blue smear across the grip.
+        userSelect: "none",
+        ...(grabbable
+          ? {
+              cursor: pressed ? "grabbing" : "grab",
+              // Without this the browser claims the gesture for scrolling and
+              // the touch sensor never sees it. It is what makes the iPad work.
+              touchAction: "none",
+            }
+          : { cursor: "default" }),
+        ...style,
+      }}
+    >
+      ⠿
+    </span>
+  );
+};
 
 /**
  * Where a dropped row lands: the ids of `items`, re-sequenced.
