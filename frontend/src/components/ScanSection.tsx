@@ -284,6 +284,13 @@ const ScanSection: React.FC<Props> = ({
             scenarioId={scenarioId}
             onFactsChanged={onFactsChanged}
             proposalSource={proposalSource}
+            /* This mount lends no header, so nothing here composes the facts
+               header's one sentence — the notice this section shows is the one
+               it already renders itself, above the queue (`neverScanned`). The
+               prop is passed as `null` rather than threaded through: a value
+               the card-mode panel would read and never use is a value a reader
+               has to go and check. */
+            neverScannedNotice={null}
           />
         </div>
 

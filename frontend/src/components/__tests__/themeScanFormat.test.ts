@@ -4,6 +4,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  collapsedCardSummary,
   collapsedScanSummary,
   computeAgreement,
   costLabel,
@@ -12,7 +13,8 @@ import {
   formatRunTimestamp,
   lastRunSummary,
 } from "../themeScanFormat";
-import type { ThemeScanSummary } from "../../services/themeScan";
+import type { ScanRunHeader, ThemeScanSummary } from "../../services/themeScan";
+import { run, wording } from "./scanHeaderFixtures";
 
 function summary(overrides: Partial<ThemeScanSummary>): ThemeScanSummary {
   return {
@@ -276,5 +278,69 @@ describe("scan_card_collapsed_summary_reports_run_model_and_proposed_count", () 
     expect(collapsedScanSummary("{count} waiting — {model}, {when}", "Aug 7", "Qwen", 4)).toBe(
       "4 waiting — Qwen, Aug 7",
     );
+  });
+});
+
+describe("which run the collapsed card describes", () => {
+  // The branching that used to sit inline in `ThemeScanPanel`'s JSX and moved
+  // here on 2026-09-11. Extracting it is what made it testable; these are the
+  // four answers it can give.
+  const words = wording();
+  const when = () => "Sep 11, 12:06 AM";
+  const name = (id: string) => (id === "qwen" ? "Qwen3.8 27B" : id);
+  const line = (runs: ScanRunHeader[], proposedCount: number | null = 30) =>
+    collapsedCardSummary({ runs, wording: words, proposedCount, formatWhen: when, modelName: name });
+
+  it("says nothing until the words have loaded", () => {
+    // The absent-not-fake law. A card with no stored template renders no
+    // summary, rather than one composed here.
+    expect(
+      collapsedCardSummary({
+        runs: [run()],
+        wording: null,
+        proposedCount: 30,
+        formatWhen: when,
+        modelName: name,
+      }),
+    ).toBeNull();
+  });
+
+  it("says nothing when no run has settled", () => {
+    // A running run is not a summary — the card shows its progress instead, and
+    // `null` here is what keeps the card expanded while it works.
+    expect(line([run({ status: "running" })])).toBeNull();
+    expect(line([])).toBeNull();
+  });
+
+  it("describes the newest run when it FAILED, not the last one that worked", () => {
+    // Ruling R3: a run whose every judged call failed records `failed`, so it is
+    // invisible to a search for the latest COMPLETED run. It is still the run
+    // the human just watched, and describing the one before it would report a
+    // scan that worked to someone who had just seen one fail.
+    const summary = line([
+      run({ status: "failed", failed_count: 104, model_id: "qwen" }),
+      run({ status: "completed", model_id: "opus" }),
+    ]);
+    expect(summary).toContain("Failed");
+    expect(summary).toContain("Qwen3.8 27B");
+    expect(summary).not.toContain("opus");
+  });
+
+  it("describes the latest COMPLETED run when the newest settled one is not failed", () => {
+    // A cancelled run settles but proposes nothing, so the collapsed card still
+    // describes the completed run behind it. (The facts HEADER makes the other
+    // choice and names the cancelled one — two surfaces, two questions: this one
+    // is "what is in the queue below", the header's is "what happened last".)
+    const summary = line([
+      run({ status: "cancelled", model_id: "qwen" }),
+      run({ status: "completed", model_id: "opus" }),
+    ]);
+    expect(summary).toBe("Last scan Sep 11, 12:06 AM · opus · 30 proposed");
+  });
+
+  it("leaves no placeholder unfilled in either branch", () => {
+    for (const runs of [[run({ status: "failed" })], [run({ status: "completed" })]]) {
+      expect(line(runs)).not.toMatch(/\{[a-z]+\}/);
+    }
   });
 });

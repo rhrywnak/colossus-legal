@@ -43,13 +43,10 @@ import PipelineProgressBar from "./pipeline/PipelineProgressBar";
 import ScanHistoryTable from "./ScanHistoryTable";
 import ScenarioDeleteConfirm from "./ScenarioDeleteConfirm";
 import ScanControlLine from "./ScanControlLine";
-import {
-  collapsedFailedSummary,
-  collapsedScanSummary,
-  formatElapsed,
-  lastRunSummary,
-} from "./themeScanFormat";
+import { collapsedCardSummary, formatElapsed, lastRunSummary } from "./themeScanFormat";
 import { isExpanded } from "./themeScanExpansion";
+import { factsHeaderLine } from "./factsHeaderLine";
+import type { ScanHeaderApi } from "./scanHeaderApi";
 import { gatherCandidates } from "../services/scenarioGather";
 import type { ProposalSource } from "../services/scenarioCards";
 import {
@@ -125,46 +122,18 @@ const STOP_PENDING_NOTICE =
 // that remembers "folded" through a run the human then cannot find is a silent
 // failure wearing a preference's clothes. Nothing here changed.
 
-/**
- * What this panel hands a caller that wants to draw the scan controls itself.
- *
- * ## Why the panel STAYS MOUNTED and lends out its controls (v2.1, change D)
- *
- * The scenario page has no scan CARD any more: the mockup puts the last-run
- * sentence, `Scan again` and the history link on the Scenario facts header row.
- * The obvious implementation — draw them in `ScenarioFactsSection` and delete
- * this panel's chrome — would have to re-fetch the model catalogue and the run
- * history to know what to draw, which is two readers of one payload and the
- * exact way two surfaces come to disagree about which run was last.
- *
- * Worse, it would UNMOUNT this component, and architect ruling R3 is explicit
- * about what that costs: the mount effect below calls `gatherCandidates`, and
- * gather is the ONE place candidate ordinals are minted — every card's `C-14`
- * handle. A proposed card would arrive with `code: null`, which §2a forbids
- * ("pull up C-14" must be speakable).
- *
- * So the panel keeps its state, its fetches and its mount effect, and lends the
- * three controls out through this shape. Nothing is derived by the caller.
- */
-export type ScanHeaderApi = {
-  /**
-   * The stored sentence naming the last settled run, or `null`.
-   *
-   * Already composed from the settings store and already carrying the date in
-   * the reader's locale. A FAILED run gets its own sentence — see
-   * `collapsedFailedSummary` — so this never describes a scan that did not work
-   * as though it had.
-   */
-  summary: string | null;
-  /** A run is in flight. The caller withholds `Scan again` rather than queueing. */
-  running: boolean;
-  /** A model is selected and a run can start. False while the catalogue loads. */
-  canRun: boolean;
-  /** Start a scan with the selected model — what `ScanControlLine`'s Run fires. */
-  onRun: () => void;
-  /** The run-history disclosure, ready to mount wherever the caller puts it. */
-  history: React.ReactNode;
-};
+// `ScanHeaderApi` — the shape this panel lends a caller that draws the scan
+// controls itself — moved to `scanHeaderApi.ts` on 2026-09-11. The type had to
+// grow (the header gained a model picker and a confirmation), and this file is
+// pre-existing debt at 853 non-comment lines against a 300-line limit that
+// ruling R6 remediates in task 3.14. It may not GROW, so the type left instead.
+//
+// Re-exported here so existing importers are unaffected, and because this is
+// still the component the shape belongs to. The reasoning that used to live in
+// this comment — why the panel stays mounted and lends its controls rather than
+// being replaced by the header — went with it, and is the first thing a reader
+// of that file meets.
+export type { ScanHeaderApi } from "./scanHeaderApi";
 
 interface Props {
   slug: string;
@@ -181,6 +150,25 @@ interface Props {
    * component and its behaviour are kept, exactly as `AccusationSection` is.
    */
   header?: (api: ScanHeaderApi) => React.ReactNode;
+  /**
+   * The served "nothing has ever scanned this" sentence, or `null`.
+   *
+   * ## Why it comes DOWN here instead of straight to the header (2026-09-11)
+   *
+   * It used to be handed to `ScenarioFactsHeader` directly, beside the summary
+   * this panel composed — two sentences for one slot, decided in two places.
+   * The header rendered the notice whenever it was non-null, and the backend
+   * sent it whenever no run had COMPLETED, so a scenario whose only run was
+   * cancelled showed "No scan has run yet" above the history table listing it
+   * (PROD S-13).
+   *
+   * Routing it through the panel is what makes that pair impossible: the panel
+   * holds the run history, so `factsHeaderLine` can decide between the notice
+   * and the last-scan line from ONE array, and the header is handed the single
+   * string that comes out. The notice is still SERVED, never inferred — this
+   * changes where the choice is made, not who writes the words.
+   */
+  neverScannedNotice: string | null;
   /** Which completed run is proposing candidates below, or `null` (2026-08-08).
    *  Served with the cards; the panel uses it for the collapsed one-liner and to
    *  decide which history row may show a proposed count. */
@@ -230,6 +218,7 @@ const ThemeScanPanel: React.FC<Props> = ({
   onCandidatesChanged,
   proposalSource,
   header,
+  neverScannedNotice,
 }) => {
   const [models, setModels] = useState<ScanModel[]>([]);
   const [selectedModel, setSelectedModel] = useState<string | null>(null);
@@ -286,6 +275,14 @@ const ThemeScanPanel: React.FC<Props> = ({
   // cache of each run's full result, filled by clicking a row (getScanRun).
   // `selectedRunIds` (0 or 1 — single-select) drives which run renders.
   const [runs, setRuns] = useState<ScanRunHeader[]>([]);
+  // Whether the history has been READ, as distinct from being empty.
+  //
+  // `runs` starts `[]`, and an empty array is the one state that earns the
+  // never-scanned notice — so without this flag every scenario would flash "No
+  // scan has run yet" for as long as its history took to arrive, which is the
+  // PROD S-13 defect reintroduced as a race. `factsHeaderLine` is handed `null`
+  // until this turns true, and says nothing at all in the meantime.
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   // The words the history's own controls speak, served with the list. `null`
   // until it loads — the table renders no control it has no words for, rather
   // than falling back to a literal (the configuration law).
@@ -304,6 +301,7 @@ const ThemeScanPanel: React.FC<Props> = ({
       .then((list) => {
         setRuns(list.runs);
         setHistoryWording(list.wording);
+        setHistoryLoaded(true);
         setHistoryError(null);
       })
       .catch((e: unknown) => {
@@ -459,20 +457,29 @@ const ThemeScanPanel: React.FC<Props> = ({
     return () => clearInterval(id);
   }, [activeRun]);
 
-  const onRun = useCallback(async () => {
-    if (!selectedModel) return;
+  /**
+   * Start a scan with an EXPLICITLY named model (2026-09-11).
+   *
+   * It used to close over `selectedModel` and read it at call time. That was
+   * safe while the only caller was a Run button sitting beside the picker, and
+   * stopped being safe when a confirmation bar arrived between the two: the
+   * sentence a human agrees to names a model, and a run that re-read the
+   * dropdown afterwards could start a different one than the sentence promised.
+   * The id is now an argument, so what was confirmed is what runs.
+   */
+  const onRun = useCallback(async (modelId: string) => {
     setStartError(null);
     setStopError(null);
     startedAtRef.current = Date.now();
     setElapsedMs(0);
     try {
       const started = await startThemeScan(slug, scenarioId, {
-        model_id: selectedModel,
+        model_id: modelId,
       });
       setCandidateCount(started.candidates_total);
       setPoll(null);
       setStopping(false);
-      setActiveRun({ runId: started.run_id, modelId: selectedModel });
+      setActiveRun({ runId: started.run_id, modelId });
     } catch (e) {
       // A REFUSAL, not a failure (task SCAN_SERVER_STATE, part E10). The backend
       // answers a second start with a 409 carrying the run that is already going,
@@ -486,7 +493,7 @@ const ThemeScanPanel: React.FC<Props> = ({
         settledRuns.current.delete(e.runId);
         setPoll(null);
         setStopping(false);
-        setActiveRun({ runId: e.runId, modelId: selectedModel });
+        setActiveRun({ runId: e.runId, modelId });
         refreshRuns();
         return;
       }
@@ -500,7 +507,7 @@ const ThemeScanPanel: React.FC<Props> = ({
       // looks like it never happened. That was the eleven-day symptom.
       refreshRuns();
     }
-  }, [selectedModel, slug, scenarioId, refreshRuns]);
+  }, [slug, scenarioId, refreshRuns]);
 
   // ── Stop the scan that is running (task SCAN_SERVER_STATE, part E11) ────────
   //
@@ -691,30 +698,15 @@ const ThemeScanPanel: React.FC<Props> = ({
   //
   // Composed from the STORED template. A card that invented its own summary would
   // be the one sentence on this screen the configuration law does not reach.
-  const latestCompleted = runs.find((r) => r.status === "completed") ?? null;
-  // The most recent SETTLED run, which is not always the same row. A run whose
-  // every judged call failed now records `failed` (ruling R3), so it is invisible
-  // to the line above — correctly, because it projects nothing — but it is the run
-  // the human just watched, and the folded card has to say what happened to it
-  // rather than quietly describing the one before it.
-  const latestSettled = runs.find((r) => r.status !== "running") ?? null;
-  const latestFailed = latestSettled?.status === "failed" ? latestSettled : null;
-  const collapsedSummary =
-    historyWording && latestFailed
-      ? collapsedFailedSummary(
-          historyWording.card_collapsed_failed_template,
-          formatRunDate(latestFailed.started_at),
-          modelName(latestFailed.model_id),
-          latestFailed.failed_count,
-        )
-      : historyWording && latestCompleted
-        ? collapsedScanSummary(
-            historyWording.card_collapsed_summary_template,
-            formatRunDate(latestCompleted.started_at),
-            modelName(latestCompleted.model_id),
-            proposalSource?.proposed_count ?? null,
-          )
-        : null;
+  // Which run gets the line — and why a FAILED one outranks a completed one —
+  // moved to `collapsedCardSummary` with the two templates it fills.
+  const collapsedSummary = collapsedCardSummary({
+    runs,
+    wording: historyWording,
+    proposedCount: proposalSource?.proposed_count ?? null,
+    formatWhen: formatRunDate,
+    modelName,
+  });
 
   // Default: COLLAPSED once a run has settled, EXPANDED before that. The human's
   // own click wins from then on, and is deliberately NOT persisted — the same
@@ -787,16 +779,35 @@ const ThemeScanPanel: React.FC<Props> = ({
       {/* THE CALLER'S HEADER (v2.1). It renders in the caller's own row and this
           component's box is `display: contents`, so nothing wraps it. */}
       {header?.({
-        summary: collapsedSummary,
+        // ONE sentence, decided here, from the history this component holds.
+        // Handing the header a pair — a summary and the never-scanned notice —
+        // is what let PROD S-13 render both halves of a contradiction; see
+        // `factsHeaderLine`. `historyLoaded` is what keeps `[]` from meaning
+        // "never scanned" before the read has happened.
+        headerLine: factsHeaderLine({
+          runs: historyLoaded ? runs : null,
+          wording: historyWording,
+          neverScannedNotice,
+          formatWhen: formatRunDate,
+        }),
         running,
-        // A model is chosen by the catalogue's own `is_default` — the scan row's
-        // picker is gone with the card, so `Scan again` runs the deployment's
-        // default rather than a choice this header no longer offers. Which
-        // models cost money is a deployment fact (`billing_class`) and the
-        // ordering that keeps a billed model off the default is the SERVER's.
         canRun: selectedModel !== null && !running,
-        onRun: () => void onRun(),
+        onRun: (modelId: string) => void onRun(modelId),
         history: historySlot,
+        // The catalogue, LENT. The picker returned to the header on 2026-09-11
+        // and it reads this list rather than calling `fetchScanModels` again —
+        // two readers of one payload is how two surfaces come to disagree about
+        // which models this deployment offers. Ordering and the billing labels
+        // are the server's; nothing here re-decides them.
+        models,
+        selectedModel,
+        onSelect: setSelectedModel,
+        // `null` when the count read FAILED as well as when it has not arrived.
+        // The confirmation drops the count and the estimate together rather
+        // than offering a scan of "0 candidates" — `countError` is what keeps
+        // the failure itself visible, on the card-mode row.
+        candidateCount: countError ? null : candidateCount,
+        wording: historyWording,
       })}
 
       {/* Everything else the lent-out panel draws — the running view, the
@@ -833,7 +844,13 @@ const ThemeScanPanel: React.FC<Props> = ({
                  SAME element the header borrows — one table, one selection. */
               historySlot={historySlot}
               onSelect={setSelectedModel}
-              onRun={onRun}
+              /* The card-mode row has no confirmation; it runs the picker's own
+                 choice, which is what its own Run button has always meant. The
+                 guard that used to live inside `onRun` lives here instead, at
+                 the one call site that can still reach it with nothing chosen. */
+              onRun={() => {
+                if (selectedModel !== null) void onRun(selectedModel);
+              }}
             />
           )}
 

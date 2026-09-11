@@ -21,6 +21,9 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260809121531_one_card_grammar_wording_and_settings.sql",
     // Ruling (a), 2026-08-12: `card_already_linked_note`.
     "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
+    // The facts-header rebuild, 2026-09-11: `card_more_actions_label`, the
+    // accessible name of the ⋯ overflow that Reset order moved inside.
+    "pipeline_migrations/20260911144911_scan_header_confirm_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -78,6 +81,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_WEIGHT_PICKER, "Weight"),
     (KEY_WEIGHT_CHANGED, "Weight set: {code} now reads {tier}."),
     (KEY_WEIGHT_UNDO, "undo"),
+    (KEY_MORE_ACTIONS, "More actions"),
     (KEY_RESET_ORDER, "Reset order"),
     (
         KEY_RESET_ORDER_CONFIRM,

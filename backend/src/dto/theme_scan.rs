@@ -268,6 +268,97 @@ pub struct ScanPanelWording {
     /// The collapsed card's line when the latest run FAILED. Carries `{when}`,
     /// `{model}` and `{count}`.
     pub card_collapsed_failed_template: String,
+
+    // ── The scenario-facts header (2026-09-11) ───────────────────────────────
+    //
+    // These ride the history payload rather than getting an endpoint of their
+    // own for the reason the block above does: the header renders the newest
+    // RUN, so the words and the rows they describe are useless apart, and a
+    // second round-trip would let the header paint before it had words — which
+    // is how a button ships blank.
+    /// The left half of the split Scan|model pill.
+    pub header_scan_label: String,
+    /// The pill that opens the run history.
+    pub header_history_label: String,
+    /// Why the scan control is refused mid-run.
+    pub header_running_notice: String,
+    /// Why the scan control is refused with an empty catalogue.
+    pub header_no_model_notice: String,
+    /// The last-scan line. Carries `{when}`, `{status}` and `{count}`.
+    pub header_last_scan_template: String,
+    /// The last-scan line for a run that never read the pool. Carries `{when}`
+    /// and `{status}`.
+    pub header_last_scan_no_count_template: String,
+    /// The four run states as the last-scan line says them — lowercase, because
+    /// they sit mid-sentence rather than in a badge.
+    pub header_status_completed: String,
+    pub header_status_cancelled: String,
+    pub header_status_failed: String,
+    pub header_status_running: String,
+    /// The confirmation with a measured estimate. Carries `{model}`, `{count}`
+    /// and `{minutes}`.
+    pub header_confirm_timed_template: String,
+    /// The confirmation with no estimate. Carries `{model}` and `{count}`.
+    pub header_confirm_template: String,
+    /// The confirmation with no candidate count. Carries `{model}`.
+    pub header_confirm_no_count_template: String,
+    /// The button that starts the run.
+    pub header_confirm_run_label: String,
+    /// The button that dismisses the confirmation.
+    pub header_confirm_cancel_label: String,
+}
+
+/// ## Rust Learning: `From` as the seam between a domain type and its wire shape
+///
+/// `ScanWording` is what the settings store produces; `ScanPanelWording` is what
+/// the browser receives. They carry the same strings and they are deliberately
+/// two types — the domain struct is free to gain a field no client should see,
+/// and the wire struct is free to be reordered or renamed without touching the
+/// store.
+///
+/// Implementing `From` rather than writing the mapping at the call site means
+/// there is exactly ONE place the correspondence is stated. The previous version
+/// spelled all fourteen clones out inside `list_scenario_scan_runs`, and adding
+/// fifteen more would have pushed that function past the 50-line limit while
+/// burying its actual job — reading the history — under a wall of `.clone()`.
+///
+/// Taking `&ScanWording` (a reference) rather than the value: the store hands out
+/// a borrowed snapshot that other requests are reading concurrently, so this
+/// copies the strings out and leaves the snapshot alone.
+impl From<&crate::domain::wording_scan::ScanWording> for ScanPanelWording {
+    fn from(words: &crate::domain::wording_scan::ScanWording) -> Self {
+        Self {
+            view_label: words.history_view_label.clone(),
+            delete_confirm_template: words.history_delete_confirm_template.clone(),
+            card_collapsed_summary_template: words.card_collapsed_summary_template.clone(),
+            report_advisory_note: words.report_advisory_note.clone(),
+            report_proposed_line_template: words.report_proposed_line_template.clone(),
+            report_tile_gathered: words.report_tile_gathered.clone(),
+            report_tile_folded: words.report_tile_folded.clone(),
+            report_tile_set_aside: words.report_tile_set_aside.clone(),
+            report_tile_judged: words.report_tile_judged.clone(),
+            report_tile_proposed: words.report_tile_proposed.clone(),
+            report_tile_failed: words.report_tile_failed.clone(),
+            status_complete_label: words.status_complete_label.clone(),
+            status_failed_label: words.status_failed_label.clone(),
+            card_collapsed_failed_template: words.card_collapsed_failed_template.clone(),
+            header_scan_label: words.header_scan_label.clone(),
+            header_history_label: words.header_history_label.clone(),
+            header_running_notice: words.header_running_notice.clone(),
+            header_no_model_notice: words.header_no_model_notice.clone(),
+            header_last_scan_template: words.header_last_scan_template.clone(),
+            header_last_scan_no_count_template: words.header_last_scan_no_count_template.clone(),
+            header_status_completed: words.header_status_completed.clone(),
+            header_status_cancelled: words.header_status_cancelled.clone(),
+            header_status_failed: words.header_status_failed.clone(),
+            header_status_running: words.header_status_running.clone(),
+            header_confirm_timed_template: words.header_confirm_timed_template.clone(),
+            header_confirm_template: words.header_confirm_template.clone(),
+            header_confirm_no_count_template: words.header_confirm_no_count_template.clone(),
+            header_confirm_run_label: words.header_confirm_run_label.clone(),
+            header_confirm_cancel_label: words.header_confirm_cancel_label.clone(),
+        }
+    }
 }
 
 /// Result of one Theme Scan run.
@@ -503,6 +594,67 @@ pub struct ThemeScanRejected {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Every scan-wording key this build declares reaches the browser, except
+    /// the two composed server-side.
+    ///
+    /// The card-grammar mirror carries this test and it is the one that catches
+    /// the real mistake: a row added to the domain struct and to the migration,
+    /// and then forgotten in the `From` impl, is a stored word that renders as a
+    /// blank control with nothing on the page to say why. Both sides are DERIVED
+    /// — the field count from the serialized DTO, the key count from the boot
+    /// loader's list — so it cannot be satisfied by editing a number.
+    ///
+    /// ## Why two keys are subtracted rather than the count hardcoded
+    ///
+    /// `scan_conservation_line_template` and its `{failed}` clause are filled
+    /// BACKEND-side into a run's stored summary; the browser receives the
+    /// finished sentence, never the template. They are the only two, they are
+    /// named here rather than counted, and a third one appearing would have to
+    /// be argued for in this list rather than absorbed by an arithmetic fudge.
+    #[test]
+    fn every_scan_word_reaches_the_browser_except_the_two_composed_here() {
+        use crate::domain::wording_scan::{ScanWording, SCAN_WORDING_KEYS};
+
+        const COMPOSED_SERVER_SIDE: &[&str] = &[
+            "scan_conservation_line_template",
+            "scan_conservation_failed_clause_template",
+        ];
+
+        let dto = ScanPanelWording::from(&ScanWording::for_test());
+        let value = serde_json::to_value(&dto).expect("the mirror serializes");
+        let object = value.as_object().expect("a struct serializes to an object");
+
+        let expected = SCAN_WORDING_KEYS.len() - COMPOSED_SERVER_SIDE.len();
+        assert_eq!(
+            object.len(),
+            expected,
+            "the wire mirror has {} fields but {} keys are declared to the boot \
+             loader and only {:?} are composed server-side",
+            object.len(),
+            SCAN_WORDING_KEYS.len(),
+            COMPOSED_SERVER_SIDE,
+        );
+    }
+
+    /// No field crosses the wire empty.
+    ///
+    /// A `From` impl that assigned one field from the wrong source — or from a
+    /// `String::new()` while it was being written — would still serialize the
+    /// right number of keys and pass the test above. This asserts the values are
+    /// real, which is what a human in front of the header actually depends on.
+    #[test]
+    fn no_mirrored_scan_word_is_blank() {
+        let dto = ScanPanelWording::from(&crate::domain::wording_scan::ScanWording::for_test());
+        let value = serde_json::to_value(&dto).expect("the mirror serializes");
+
+        for (key, word) in value.as_object().expect("an object") {
+            assert!(
+                word.as_str().is_some_and(|s| !s.trim().is_empty()),
+                "{key} crosses the wire blank"
+            );
+        }
+    }
 
     #[test]
     fn running_status_omits_error_and_summary_keys() {

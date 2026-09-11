@@ -148,26 +148,11 @@ pub async fn list_scenario_scan_runs(
     // history at once (task 1.7C, R2) — a single row cannot know how much bigger
     // its pool read was than the one before it.
     let runs = with_pool_deltas(rows.into_iter().map(scan_run_header_from_row).collect());
-    let words = &state.settings.current().scan_wording;
-    Ok(ScanRunListResponse {
-        runs,
-        wording: ScanPanelWording {
-            view_label: words.history_view_label.clone(),
-            delete_confirm_template: words.history_delete_confirm_template.clone(),
-            card_collapsed_summary_template: words.card_collapsed_summary_template.clone(),
-            report_advisory_note: words.report_advisory_note.clone(),
-            report_proposed_line_template: words.report_proposed_line_template.clone(),
-            report_tile_gathered: words.report_tile_gathered.clone(),
-            report_tile_folded: words.report_tile_folded.clone(),
-            report_tile_set_aside: words.report_tile_set_aside.clone(),
-            report_tile_judged: words.report_tile_judged.clone(),
-            report_tile_proposed: words.report_tile_proposed.clone(),
-            report_tile_failed: words.report_tile_failed.clone(),
-            status_complete_label: words.status_complete_label.clone(),
-            status_failed_label: words.status_failed_label.clone(),
-            card_collapsed_failed_template: words.card_collapsed_failed_template.clone(),
-        },
-    })
+    // The field-by-field mapping lives in `impl From<&ScanWording>` beside the
+    // wire type, not here: this function's job is reading the history, and
+    // twenty-nine `.clone()` lines in the middle of it hide that.
+    let wording = ScanPanelWording::from(&state.settings.current().scan_wording);
+    Ok(ScanRunListResponse { runs, wording })
 }
 
 /// Delete one of a scenario's scan runs.

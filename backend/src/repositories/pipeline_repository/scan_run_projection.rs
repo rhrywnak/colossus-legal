@@ -298,9 +298,14 @@ mod tests {
     #[test]
     fn a_failed_run_projects_nothing() {
         // A run that died at the vLLM gate judged nothing. Putting its proposals in
-        // front of a human would claim a scan parentage no verdict supports — the
-        // same reasoning `count_completed_scan_runs` states for the never-scanned
-        // notice, and ruling R3's reason for recording an all-errored run `failed`.
+        // front of a human would claim a scan parentage no verdict supports —
+        // ruling R3's reason for recording an all-errored run `failed`.
+        //
+        // The never-scanned notice used to cite the same argument. It no longer
+        // does (2026-09-11, `count_scan_runs`): the parentage rule binds what may
+        // be PROJECTED, which is this query, and not what the header may SAY
+        // happened. A failed run still projects nothing and is still named on the
+        // page as a failed run.
         //
         // Asserted as an ABSENCE, because that is how the query excludes it: the
         // `IN` list above names three states and `failed` is not one of them, so a

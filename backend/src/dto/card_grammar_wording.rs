@@ -69,6 +69,9 @@ pub struct CardGrammarWordingDto {
     /// Carries `{code}` and `{tier}`.
     pub weight_changed_template: String,
     pub weight_undo_label: String,
+    /// The accessible name of the ⋯ overflow the header's rare actions moved
+    /// into (2026-09-11). A glyph button has no name of its own.
+    pub more_actions_label: String,
     pub reset_order_label: String,
     pub reset_order_confirm: String,
     pub reset_order_confirm_yes: String,
@@ -120,6 +123,7 @@ impl From<&CardGrammarWording> for CardGrammarWordingDto {
             weight_picker_label: w.weight_picker_label.clone(),
             weight_changed_template: w.weight_changed_template.clone(),
             weight_undo_label: w.weight_undo_label.clone(),
+            more_actions_label: w.more_actions_label.clone(),
             reset_order_label: w.reset_order_label.clone(),
             reset_order_confirm: w.reset_order_confirm.clone(),
             reset_order_confirm_yes: w.reset_order_confirm_yes.clone(),

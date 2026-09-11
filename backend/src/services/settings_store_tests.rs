@@ -754,19 +754,23 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         SCAN_WORDING_KEYS.len(),
-        16,
+        31,
         "2.15 Tier 2's conservation line and two history controls, the \
          projection's eight (the collapsed summary and the seven strings of the \
-         numbers-only report), and the failure honesty five: the failed clause, \
-         the failed tile, the two status pills and the failed collapsed line"
+         numbers-only report), the failure honesty five (the failed clause, the \
+         failed tile, the two status pills and the failed collapsed line), and \
+         the facts-header rebuild's FIFTEEN: the split pill's two labels and two \
+         refusals, the two last-scan sentences and the four lowercase states \
+         they name, and the confirmation bar's three sentences and two buttons"
     );
     assert_eq!(
         CARD_GRAMMAR_WORDING_KEYS.len(),
-        33,
+        34,
         "ONE_CARD_GRAMMAR: the queue frame's seven, the card body's eleven, \
          linking's four, the fact wrapper's nine, the two chip-filter \
-         sentences, and .396's already-linked note — the sentence the panel \
-         speaks now that it stays after the first link"
+         sentences, .396's already-linked note — the sentence the panel speaks \
+         now that it stays after the first link — and the facts header's ⋯ \
+         overflow, whose glyph has no accessible name of its own"
     );
     assert_eq!(
         MODEL_PARAMS_WORDING_KEYS.len(),

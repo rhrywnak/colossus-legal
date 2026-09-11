@@ -31,6 +31,10 @@ const PROJECTION_MIGRATION: &str = "pipeline_migrations/20260808141052_scan_to_r
 /// `PROJECTION_MIGRATION` is consulted before the seed.
 const FAILED_HONESTY_MIGRATION: &str = "pipeline_migrations/\
                                         20260809153630_seed_opus_5_temperature_mode_and_failed_honesty_wording.sql";
+/// The facts-header migration: sixteen more rows (fifteen of them this bundle's),
+/// seeded 2026-09-11 for the rebuilt Scenario-facts header. No CORRECTION — every
+/// key in it is new, and the four literals it retires were never rows.
+const HEADER_MIGRATION: &str = "pipeline_migrations/20260911144911_scan_header_confirm_wording.sql";
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -74,6 +78,39 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_CARD_COLLAPSED_FAILED,
         "Last scan {when} · {model} · Failed — {count} calls errored",
     ),
+    (KEY_HEADER_SCAN_LABEL, "Scan"),
+    (KEY_HEADER_HISTORY_LABEL, "History"),
+    (
+        KEY_HEADER_RUNNING_NOTICE,
+        "A scan is running — its progress is below.",
+    ),
+    (
+        KEY_HEADER_NO_MODEL_NOTICE,
+        "No scan-eligible model is available.",
+    ),
+    (
+        KEY_HEADER_LAST_SCAN,
+        "Last scan {when} · {status} · {count} candidates",
+    ),
+    (KEY_HEADER_LAST_SCAN_NO_COUNT, "Last scan {when} · {status}"),
+    (KEY_HEADER_STATUS_COMPLETED, "completed"),
+    (KEY_HEADER_STATUS_CANCELLED, "cancelled"),
+    (KEY_HEADER_STATUS_FAILED, "failed"),
+    (KEY_HEADER_STATUS_RUNNING, "running"),
+    (
+        KEY_HEADER_CONFIRM_TIMED,
+        "Run a theme scan with {model}? {count} candidates, about {minutes} minutes.",
+    ),
+    (
+        KEY_HEADER_CONFIRM,
+        "Run a theme scan with {model}? {count} candidates.",
+    ),
+    (
+        KEY_HEADER_CONFIRM_NO_COUNT,
+        "Run a theme scan with {model}?",
+    ),
+    (KEY_HEADER_CONFIRM_RUN, "Run scan"),
+    (KEY_HEADER_CONFIRM_CANCEL, "Cancel"),
 ];
 
 impl ScanWording {
@@ -137,6 +174,8 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the scan-to-ruling wording migration is on disk");
     let honesty = std::fs::read_to_string(root.join(FAILED_HONESTY_MIGRATION))
         .expect("the failure-honesty migration is on disk");
+    let header = std::fs::read_to_string(root.join(HEADER_MIGRATION))
+        .expect("the facts-header wording migration is on disk");
 
     let fixture = ScanWording::for_test_values();
 
@@ -148,6 +187,7 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
             .or_else(|| corrected_value_in(&projection, key))
             .or_else(|| seeded_value_in(&honesty, key))
             .or_else(|| seeded_value_in(&projection, key))
+            .or_else(|| seeded_value_in(&header, key))
             .or_else(|| seeded_value_in(&sql, key))
             .unwrap_or_else(|| {
                 panic!("{key} is declared to the boot loader but no migration seeds a row for it")
@@ -197,6 +237,85 @@ fn no_key_collides_with_another_surface_s_key() {
             "{key} is also a scenario-authoring key"
         );
     }
+}
+
+/// The header's status words are the LOWERCASE register, not the pills.
+///
+/// Two rows say "a run finished" and they are not interchangeable: one is a chip
+/// on the history table, one sits mid-sentence in "Last scan Sep 11 · completed ·
+/// 313 candidates". A seed that copied the pill's capital into the sentence would
+/// read as a proper noun and nothing would fail — which is why it is asserted.
+#[test]
+fn the_header_status_words_are_not_the_history_pills() {
+    let w = ScanWording::for_test();
+    for (header, pill) in [
+        (&w.header_status_completed, &w.status_complete_label),
+        (&w.header_status_failed, &w.status_failed_label),
+    ] {
+        assert_ne!(
+            header, pill,
+            "the mid-sentence status word must not be the badge's"
+        );
+        assert!(
+            header.chars().next().is_some_and(char::is_lowercase),
+            "'{header}' sits mid-sentence and must not be capitalised"
+        );
+    }
+}
+
+/// Every confirmation sentence names the model, and only the timed one promises
+/// a duration.
+///
+/// The three exist precisely so that an unmeasured model gets no number. A seed
+/// that put `{minutes}` into the untimed sentence would render "about  minutes"
+/// the first time a new model was picked — visible to a human, invisible to a
+/// compiler.
+#[test]
+fn only_the_timed_confirmation_promises_minutes() {
+    let w = ScanWording::for_test();
+    for sentence in [
+        &w.header_confirm_timed_template,
+        &w.header_confirm_template,
+        &w.header_confirm_no_count_template,
+    ] {
+        assert!(
+            sentence.contains("{model}"),
+            "a confirmation that does not name the model is asking about nothing: \
+             {sentence}"
+        );
+    }
+    assert!(w.header_confirm_timed_template.contains("{minutes}"));
+    assert!(!w.header_confirm_template.contains("{minutes}"));
+    assert!(!w.header_confirm_no_count_template.contains("{minutes}"));
+    // And the one with no pool size promises no count either — the estimate IS
+    // the count times the rate, so a sentence without the first cannot carry it.
+    assert!(!w.header_confirm_no_count_template.contains("{count}"));
+}
+
+/// The last-scan line carries the status, which is the whole of the fix.
+///
+/// Without `{status}` the sentence is "Last scan Sep 11 · 313 candidates" — which
+/// describes a cancelled run as though it had finished, and is the PROD S-13
+/// defect wearing a different sentence.
+#[test]
+fn the_last_scan_line_says_what_became_of_the_run() {
+    let w = ScanWording::for_test();
+    for token in ["{when}", "{status}"] {
+        assert!(
+            w.header_last_scan_template.contains(token),
+            "the last-scan line must contain {token}"
+        );
+        assert!(
+            w.header_last_scan_no_count_template.contains(token),
+            "the count-less last-scan line must contain {token}"
+        );
+    }
+    assert!(w.header_last_scan_template.contains("{count}"));
+    assert!(
+        !w.header_last_scan_no_count_template.contains("{count}"),
+        "the count-less sentence exists so that a run which never read the pool \
+         is not reported as having read zero of it"
+    );
 }
 
 /// The conservation template keeps every number it promises to reconcile.
