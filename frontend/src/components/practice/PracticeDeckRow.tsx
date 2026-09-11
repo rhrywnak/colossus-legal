@@ -149,9 +149,14 @@ const PracticeDeckRow: React.FC<Props> = ({
               where the listeners are: Space lifts the row, the arrows move it,
               Space drops it. The ▲▼ buttons are the simpler path and are not
               being replaced — one moves a row a step, the other carries it. */}
+          {/* No `style` override any more. The 13 px it used to ask for made the
+              grip about 13x16 px of hittable area — under a third of the 44pt
+              Apple's HIG and WCAG 2.5.5 both name, and not reliably hittable on
+              the iPad this drag was built for. The size now belongs to
+              `DragHandle`, so every caller gets a real target rather than each
+              one guessing. */}
           <DragHandle
             hint={w("editor_drag_hint")}
-            style={{ fontSize: 13 }}
             handleProps={canDrag ? { ...attributes, ...listeners } : undefined}
           />
           <button
