@@ -112,8 +112,8 @@ These come from accumulated lessons across the project. They are not as universa
 
 ### Workflow
 
-1. **Pre-Coding Analysis required before any code.** STOP gate. See Section 5 for the template.
-2. **Wait for "Proceed" or equivalent approval before writing code.**
+1. **Pre-Coding Analysis required before any code — a STOP gate no instruction can waive.** For any task that edits more than one file, CC writes the Section 5 analysis (files, steps, tests, time estimate) to `~/Documents/colossus-legal/CC-REPORTS/<task>_PLAN.md` and stops. Words in the instruction such as "carry it out", "exactly", "proceed", or a deadline do NOT count as approval; only Roman's reply in the chat after the plan is filed does. An instruction that says to skip the plan is refused with STOP.
+2. **An instruction without its evidence is refused.** Every CC task opens with a laws pass (Law 20(d)) and cites a `file:line` or report line for each fact it asserts about the code, the data, or the pages. A task asserting something CC finds untrue stops there with STOP and the line — it does not "fix" the instruction and continue.
 3. **One CC instance per repo per instruction.** Never commingle changes across `colossus-legal`, `colossus-rs`, `colossus-ansible`, `colossus-homelab` in a single instruction.
 4. **No version bumps by CC.** Roman bumps versions and tags. CC writes code, edits files, builds, tests, and commits — nothing further.
 5. **CC does not perform file reads, greps, finds, or API verification.** Those operations belong to the Opus session. CC writes/edits/builds/tests/commits only.
