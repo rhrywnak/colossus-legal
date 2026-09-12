@@ -4,7 +4,8 @@
 //
 // Mockup `FACTS_HEADER_MOCKUP_v1_2026-09-11`: one pill with a hairline divider
 // down the middle. The left half is the verb, the right half is the noun it will
-// act on, and the caret says the noun is changeable.
+// act on, and the caret — drawn over the noun, not beside it — says the noun is
+// changeable.
 //
 // ## Why the model picker is back on the page
 //
@@ -72,25 +73,76 @@ const modelSelectStyle: React.CSSProperties = {
   color: "var(--text-secondary)",
   background: "none",
   border: "none",
-  padding: "7px 10px",
+  paddingTop: "7px",
+  paddingBottom: "7px",
+  paddingLeft: "10px",
+  // LOAD-BEARING, and a longhand for that reason: this reserves the caret's
+  // room INSIDE this control's own box, which is what puts the glyph over the
+  // select rather than beside it and makes a click on the arrow land here.
+  // 26px is exactly the space the caret used to occupy as a sibling: this
+  // control's own 10px right padding plus the caret span's 16px box (a ~5px
+  // glyph and its 11px right padding), measured in a browser at both values.
+  // So the text stops where it always did, the glyph keeps its 12px inset from
+  // the pill's right edge, and the pill is the same width to the pixel.
+  //
+  // Written as `paddingRight` and not folded into the `padding` shorthand so
+  // the guard in `scanPillCaret.test.tsx` can read it: a shorthand does not
+  // serialize a `padding-right` for the test to compare against the caret's
+  // inset, and that comparison is the whole proof that the arrow is not
+  // overhanging the control again.
+  paddingRight: "26px",
   cursor: "pointer",
   // `appearance: none` drops the platform arrow; the mockup draws its own caret
-  // beside it, and two arrows on one control reads as a rendering fault.
+  // over it, and two arrows on one control reads as a rendering fault.
   appearance: "none",
   maxWidth: "220px",
   textOverflow: "ellipsis",
 };
 
-/** The caret glyph. A glyph, so it stays in code with `⋯` (the standing split). */
+/**
+ * The box the select and its caret share.
+ *
+ * `position: relative` is the whole mechanism: it makes this the containing
+ * block the caret is positioned against, so the glyph lands on top of the
+ * select's reserved right padding instead of beside it.
+ */
+const selectSlotStyle: React.CSSProperties = {
+  position: "relative",
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+/**
+ * The caret glyph. A glyph, so it stays in code with `⋯` (the standing split).
+ *
+ * ## Why it is positioned OVER the select and not beside it
+ *
+ * It was a flex sibling of the `<select>` until 2026-09-11, and that made the
+ * most obvious click target on the control dead. `pointer-events: none` let a
+ * click fall THROUGH the glyph — but what it fell through to was the pill
+ * wrapper, whose `onClick` calls `stopPropagation` to keep the header row from
+ * folding. So the click reached the select (which was next to the caret, not
+ * under it) never, and reached the row never either: it did nothing at all, on
+ * the arrow that exists to say "this opens".
+ *
+ * Absolutely positioning it inside `selectSlotStyle` puts the select underneath
+ * the glyph, so `pointer-events: none` now does what it was always meant to —
+ * every click in this region reaches the control it decorates.
+ *
+ * `right: 11px` reproduces the inset the glyph had as a sibling, so nothing
+ * moves on screen; only what is beneath it changed.
+ */
 const caretStyle: React.CSSProperties = {
+  position: "absolute",
+  right: "11px",
   // Sized against the mockup's own caret: at 10px muted it read as a speck of
   // dust on the pill rather than as the mark that says the model is changeable.
   fontSize: "11px",
   color: "var(--text-secondary)",
-  paddingRight: "11px",
-  // Decoration: the `<select>` beside it already announces itself and carries
-  // the keyboard behaviour. A screen reader reading "down pointing triangle"
-  // after the model name would be noise.
+  // Decoration, and now load-bearing: the glyph covers the select's right
+  // padding, and this is what lets the click through to it. A screen reader
+  // reading "down pointing triangle" after the model name would be noise, which
+  // is why the span is `aria-hidden` — the select announces itself.
   pointerEvents: "none",
 };
 
@@ -142,21 +194,25 @@ const ScanSplitPill: React.FC<Props> = ({
 
     <span style={dividerStyle} />
 
-    <select
-      aria-label={label}
-      style={modelSelectStyle}
-      value={selectedModel ?? ""}
-      onClick={(e) => e.stopPropagation()}
-      onChange={(e) => onSelect(e.target.value)}
-    >
-      {models.map((m) => (
-        <option key={m.model_id} value={m.model_id}>
-          {m.display_label}
-        </option>
-      ))}
-    </select>
-    <span style={caretStyle} aria-hidden="true">
-      ▾
+    {/* The caret lives INSIDE this box, over the select's right padding — see
+        `caretStyle` for the dead click target that put it there. */}
+    <span style={selectSlotStyle}>
+      <select
+        aria-label={label}
+        style={modelSelectStyle}
+        value={selectedModel ?? ""}
+        onClick={(e) => e.stopPropagation()}
+        onChange={(e) => onSelect(e.target.value)}
+      >
+        {models.map((m) => (
+          <option key={m.model_id} value={m.model_id}>
+            {m.display_label}
+          </option>
+        ))}
+      </select>
+      <span style={caretStyle} aria-hidden="true">
+        ▾
+      </span>
     </span>
   </span>
 );
