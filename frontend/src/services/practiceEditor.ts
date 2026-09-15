@@ -96,7 +96,16 @@ export function signedInAs(user: AuthUser | null): string {
 }
 
 /** Which field of a question the editor is changing. */
-export type EditableField = "text" | "tactic" | "follows" | "watch_for" | "stronger";
+export type EditableField =
+  | "text"
+  | "tactic"
+  | "follows"
+  | "watch_for"
+  | "stronger"
+  // The `Built from: …` line, editable from 2026-09-15. Blank clears it, like
+  // every other optional field; the server maps it to the `receipt` column and
+  // records the change like any other.
+  | "receipt";
 
 /** Throw with the status, or return the decoded body. */
 async function orThrow<T>(response: Response, what: string): Promise<T> {

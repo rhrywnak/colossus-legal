@@ -22,7 +22,7 @@ use crate::domain::settings::Settings;
 use crate::domain::wording_practice::PracticeWording;
 use crate::domain::wording_templates::render;
 use crate::dto::practice::{
-    OpenSessionDto, PracticeDeckPayload, PracticePointDto, PracticeQuestionDto,
+    OpenSessionDto, PracticeDeckPayload, PracticePointDto, PracticeQuestionDto, TacticCardDto,
 };
 use crate::dto::practice_wording::PracticeWordingDto;
 use crate::repositories::pipeline_repository::practice::{
@@ -52,6 +52,53 @@ pub fn tactic_name(settings: &Settings, tactic: Option<i16>) -> Option<String> {
     // best-effort: a card number the store cannot name yields no tag, never a guess.
     let index = usize::try_from(card).ok()?.checked_sub(1)?;
     settings.practice_read.tactic_names.get(index).cloned()
+}
+
+/// The seven cards as the editor's dropdown offers them: number and name.
+///
+/// ## ⚑ THE SAME LIST `tactic_name` INDEXES INTO — deliberately, and once
+///
+/// `enumerate` pairs each name with its POSITION, and the position plus one is
+/// the card number the column stores. So the list that names card 3 in a pill
+/// and the list that offers card 3 in a form are the same `Vec<String>`, read in
+/// the same order, in the same function call. A second list — in this file, or
+/// worse in the browser — would be correct until somebody renamed a card, and
+/// then both would render and only one would be right.
+///
+/// ## Domain note: a trimmed settings row shortens the dropdown, honestly
+///
+/// `practice_tactic_names` is a stored vocabulary someone can shorten. When it
+/// is short, `tactic_name` renders NO TAG for the cards it cannot name (see its
+/// own doc), and this offers no option for them either — the form cannot set a
+/// card the store has no word for. The two behaviours agree because they read
+/// the same row.
+///
+/// ## Rust Learning: `i16::try_from` on a `usize`
+///
+/// `enumerate` yields `usize`, and the column is `SMALLINT`. The conversion is
+/// fallible in the type system and unreachable in practice — the vocabulary is
+/// seven names — so a card whose number will not fit is DROPPED rather than
+/// wrapped or unwrapped: an option nobody can choose is better than a panic on a
+/// page, and better than an option that would send a number the column refuses.
+fn tactic_cards(settings: &Settings) -> Vec<TacticCardDto> {
+    settings
+        .practice_read
+        .tactic_names
+        .iter()
+        .enumerate()
+        .filter_map(|(index, name)| {
+            // best-effort: a card whose number will not fit a SMALLINT is
+            // DROPPED from the options rather than wrapped or unwrapped — an
+            // option nobody can choose beats a panic on a page, and beats an
+            // option that would send a number the column refuses. Unreachable
+            // while the vocabulary is seven names; see this function's doc.
+            let card = i16::try_from(index + 1).ok()?;
+            Some(TacticCardDto {
+                card,
+                name: name.clone(),
+            })
+        })
+        .collect()
 }
 
 /// The tag a question wears: the card's name, plus the braid suffix when it
@@ -147,6 +194,11 @@ fn question_dto(
         .map(|a| answered_on_line(settings, a.answered_at));
     PracticeQuestionDto {
         tactic: tactic_tag(settings, &record),
+        // The NUMBER, untouched — what the editor's dropdown selects and sends
+        // back. `tactic_tag` above is the same fact composed for a READER, braid
+        // suffix and all; the two must not be derived from one another outside
+        // this file. See the DTO field's own doc.
+        tactic_card: record.tactic,
         braid: record.braid_rows.is_some(),
         id: record.id,
         side: record.side,
@@ -362,6 +414,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         ),
         receipts: picker,
         attach_options,
+        tactic_cards: tactic_cards(settings),
         open_session: open.map(|record| OpenSessionDto {
             session_id: record.id,
             detail: open_session_detail(settings, record),
@@ -376,6 +429,10 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
 #[cfg(test)]
 #[path = "practice_page_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "practice_page_cards_tests.rs"]
+mod cards_tests;
 
 #[cfg(test)]
 #[path = "practice_picker_tests.rs"]

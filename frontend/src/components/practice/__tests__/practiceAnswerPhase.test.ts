@@ -22,38 +22,49 @@ import { describe, expect, it } from "vitest";
 
 import { answerChrome, waitingLineKey, LONG_WAIT_MS } from "../practiceAnswerPhase";
 
+/**
+ * The Answer-analysis switch, as these two worlds are named below.
+ *
+ * Every claim in the first block was written when there was only one world —
+ * the read always ran — so they are the ON world, spelled out rather than
+ * defaulted. A default here would let the OFF world go untested while every
+ * line still read as if it covered both.
+ */
+const ON = true;
+const OFF = false;
+
 describe("while the read is running", () => {
   // MUTATION: leave the button enabled → `buttonDisabled` false → red.
   it("disables the button so it cannot be pressed twice", () => {
-    expect(answerChrome("working").buttonDisabled).toBe(true);
-    expect(answerChrome("idle").buttonDisabled).toBe(false);
+    expect(answerChrome("working", ON).buttonDisabled).toBe(true);
+    expect(answerChrome("idle", ON).buttonDisabled).toBe(false);
   });
 
   // MUTATION: keep the idle label → the two keys match → red.
   it("relabels the button, so the page says what it is doing", () => {
-    expect(answerChrome("working").buttonLabelKey).toBe("read_working_label");
-    expect(answerChrome("working").buttonLabelKey).not.toBe(
-      answerChrome("idle").buttonLabelKey,
+    expect(answerChrome("working", ON).buttonLabelKey).toBe("read_working_label");
+    expect(answerChrome("working", ON).buttonLabelKey).not.toBe(
+      answerChrome("idle", ON).buttonLabelKey,
     );
   });
 
   // MUTATION: leave the box editable → `boxLocked` false → red.
   it("locks the answer box", () => {
-    expect(answerChrome("working").boxLocked).toBe(true);
-    expect(answerChrome("idle").boxLocked).toBe(false);
+    expect(answerChrome("working", ON).boxLocked).toBe(true);
+    expect(answerChrome("idle", ON).boxLocked).toBe(false);
   });
 
   // ⚑ MUTATION: render the block only once the promise resolves → this is the
   // defect Roman actually reported, and it is the claim most easily tested into
   // nothing. `critiquePresent` false while working → red.
   it("puts the critique block on screen EMPTY, before anything returns", () => {
-    expect(answerChrome("working").critiquePresent).toBe(true);
-    expect(answerChrome("idle").critiquePresent).toBe(false);
+    expect(answerChrome("working", ON).critiquePresent).toBe(true);
+    expect(answerChrome("idle", ON).critiquePresent).toBe(false);
   });
 
   it("offers Stop waiting only while there is something to stop", () => {
-    expect(answerChrome("working").stopOffered).toBe(true);
-    expect(answerChrome("idle").stopOffered).toBe(false);
+    expect(answerChrome("working", ON).stopOffered).toBe(true);
+    expect(answerChrome("idle", ON).stopOffered).toBe(false);
   });
 });
 
@@ -76,5 +87,50 @@ describe("the ten-second line", () => {
     // A `>` instead of `>=` would leave the two lines disagreeing about the
     // instant they swap — invisible on screen, and a test would have to guess.
     expect(waitingLineKey(LONG_WAIT_MS - 1)).not.toBe(waitingLineKey(LONG_WAIT_MS));
+  });
+});
+
+// =============================================================================
+// The same working state with the analysis OFF
+// =============================================================================
+//
+// CC_TASK_PRACTICE_POLISH_v1 item 3, ruled 2026-09-15. Off means no model is
+// asked at all, so three of the five claims above would be the screen saying
+// something untrue. The other two still hold: the answer is being SAVED, and a
+// save is still a round trip she must not start twice.
+describe("while the answer is saving and nothing is being read", () => {
+  // ⚑ MUTATION: leave the working label in place → the button says "Reading
+  // your answer" while no model was asked → red. This is the whole point of
+  // Roman's Q1 ruling: no sixth wording row, the idle label instead.
+  it("does not claim to be reading anything", () => {
+    expect(answerChrome("working", OFF).buttonLabelKey).toBe("answer_button");
+    expect(answerChrome("working", OFF).buttonLabelKey).toBe(
+      answerChrome("idle", OFF).buttonLabelKey,
+    );
+    expect(answerChrome("working", OFF).buttonLabelKey).not.toBe(
+      answerChrome("working", ON).buttonLabelKey,
+    );
+  });
+
+  // MUTATION: keep the block present → an empty bordered box invites her to
+  // wait for a read she switched off → red.
+  it("draws no critique block, because nothing is coming", () => {
+    expect(answerChrome("working", OFF).critiquePresent).toBe(false);
+  });
+
+  it("offers no Stop waiting, because nothing is being waited for", () => {
+    expect(answerChrome("working", OFF).stopOffered).toBe(false);
+  });
+
+  // The two that are about the SAVE, and are true in both worlds. Without
+  // these, a change that turned the whole working state off when the analysis
+  // was off would pass the three above — and double-press would be back.
+  it("still guards the write itself", () => {
+    expect(answerChrome("working", OFF).buttonDisabled).toBe(true);
+    expect(answerChrome("working", OFF).boxLocked).toBe(true);
+  });
+
+  it("is the idle state either way once the write is done", () => {
+    expect(answerChrome("idle", OFF)).toEqual(answerChrome("idle", ON));
   });
 });

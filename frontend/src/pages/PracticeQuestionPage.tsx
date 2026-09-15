@@ -43,6 +43,7 @@ import {
   openAnswerSession,
   type QuestionAnswers,
 } from "../services/practiceAnswers";
+import { browserStore, readAnalysis } from "../components/practice/answerAnalysis";
 import { practicePath } from "../utils/routePaths";
 import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
@@ -66,6 +67,15 @@ const PracticeQuestionPage: React.FC = () => {
   const [result, setResult] = React.useState<AnswerResult | null>(null);
   const [writeError, setWriteError] = React.useState<string | null>(null);
   const [showEarlier, setShowEarlier] = React.useState(false);
+
+  // The Answer-analysis switch, as this browser left it on the deck page. Read
+  // ONCE on mount: the switch is set on another address, and re-reading storage
+  // mid-answer would let the value change between the request and the screen
+  // that renders its result.
+  //
+  // OFF is the default and off means NO MODEL IS ASKED — the flag rides the
+  // answer request itself, because saving and reading are one call.
+  const analysisOn = React.useMemo(() => readAnalysis(browserStore()), []);
 
   // `abandoned` and not a cancelled request: Stop waiting must not cancel the
   // POST. The answer is written before the read runs, so aborting mid-flight
@@ -138,6 +148,7 @@ const PracticeQuestionPage: React.FC = () => {
           answerText: draft,
           dontRecall: false,
           pointsTo: null,
+          wantRead: analysisOn,
         }),
       )
       .then((answered) => {
@@ -163,7 +174,7 @@ const PracticeQuestionPage: React.FC = () => {
   // ⚑ The working state's three visible facts come from ONE pure decision, so
   // that something can test them: nothing in this project can render a
   // component, so a claim living only in this file is a claim nothing checks.
-  const chrome = answerChrome(working ? "working" : "idle");
+  const chrome = answerChrome(working ? "working" : "idle", analysisOn);
   const view = critiqueFor(result);
 
   return (

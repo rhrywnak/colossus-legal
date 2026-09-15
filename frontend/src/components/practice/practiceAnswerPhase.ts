@@ -36,15 +36,33 @@ export type AnswerChrome = {
  * the page showed nothing until the read returned, so it looked inert while it
  * worked and she pressed again. A block that appears only on resolution is the
  * defect, not a lesser version of the fix.
+ *
+ * ## ⚑ WITH THE ANALYSIS OFF, THE WORKING STATE SAYS LESS — because less is true
+ *
+ * `analysis` is the practice bar's switch. When it is off nothing is being read:
+ * the round trip is a SAVE, and three of the five claims above would be false.
+ *
+ *   · the label stays the idle one. `read_working_label` is "Reading your
+ *     answer", and a button that says so while no model has been asked is the
+ *     screen lying about the one thing this switch exists to control. Ruled
+ *     2026-09-15: keep the idle label rather than seed a sixth wording row.
+ *   · no critique block. There is nothing coming, and an empty bordered box
+ *     says "something should be here" — it would invite her to wait for a read
+ *     she switched off.
+ *   · no *Stop waiting*. It abandons a read in flight; with no read in flight it
+ *     is a control that does nothing to a thing that is not happening.
+ *
+ * The other two hold either way: the answer is still being written, so the
+ * button must not be pressable twice and the box must not move under her.
  */
-export function answerChrome(phase: AnswerPhase): AnswerChrome {
+export function answerChrome(phase: AnswerPhase, analysis: boolean): AnswerChrome {
   if (phase === "working") {
     return {
       buttonDisabled: true,
-      buttonLabelKey: "read_working_label",
+      buttonLabelKey: analysis ? "read_working_label" : "answer_button",
       boxLocked: true,
-      critiquePresent: true,
-      stopOffered: true,
+      critiquePresent: analysis,
+      stopOffered: analysis,
     };
   }
   return {

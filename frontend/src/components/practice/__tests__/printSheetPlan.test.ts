@@ -52,6 +52,9 @@ function q(over: Partial<PracticeQuestion> & { kind: string }): PracticeQuestion
     braid: false,
     text: `question ${seq}`,
     tactic: null,
+    // The card NUMBER, which is what an editor sets; `tactic` above is the name
+    // a reader sees. Neither of these fixtures exercises a tagged question.
+    tactic_card: null,
     receipt: null,
     braid_rows: null,
     watch_for: null,

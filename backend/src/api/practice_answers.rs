@@ -26,44 +26,26 @@ use uuid::Uuid;
 use crate::{
     auth::AuthUser,
     dto::practice::{
-        AnswerRequest, AnswerResponse, CloseAnswerRequest, ReadPartsDto, ReadSourceDto,
-        SkipQuestionRequest,
+        AnswerRequest, AnswerResponse, CloseAnswerRequest, ReadPartsDto, SkipQuestionRequest,
     },
     error::AppError,
     repositories::pipeline_repository::{
         practice::{get_question, list_deck, session_scenario, PracticeQuestionRecord},
-        practice_answers::{attach_read, close_answer, insert_answer, mark_help_opened, NewAnswer},
+        practice_answers::{close_answer, insert_answer, mark_help_opened, NewAnswer},
         practice_flow::current_answer_for,
     },
     services::{
-        practice_answer_version::is_reread, practice_read::read_answer,
-        practice_read_gather::gather_payload, practice_read_outcome::ReadOutcome,
+        practice_answer_version::is_reread,
+        practice_read_outcome::{ReadOutcome, READ_NOT_REQUESTED},
     },
     state::AppState,
 };
 
 use super::practice::repo_error;
+// The read itself, and the marker a row wears while it is happening — one module
+// along since 2026-09-15 (Rule 17). See that module's header for the seam.
+use super::practice_answer_read::{read_and_attach, READ_IN_FLIGHT};
 use super::practice_fences::fence_answer_text;
-
-/// Why a row that has just been opened carries no read.
-///
-/// ## Domain note: the state the two-write shape creates, named rather than blank
-///
-/// Before T1 a row with `read_text IS NULL` always had `read_error IS NOT NULL` —
-/// every failure arm filled it, so "no read and no reason" was unreachable
-/// **[measured: 0 of 12 rows on DEV]**. Writing the answer before the call makes
-/// that combination the shape of a read IN FLIGHT — and also the shape of a
-/// backend that died mid-read. Two operationally distinct states sharing one
-/// observable is what Standing Rule 1 forbids, so the insert says which it is and
-/// `attach_read` clears it.
-///
-/// STRUCTURAL, like the skip marker below it: a DIAGNOSTIC in a log column, not a
-/// sentence anybody reads on a screen, and composed by this build from a fact it
-/// knows about itself. A settings row here would let an operator edit what a past
-/// crash is recorded as having been.
-// STRUCTURAL: a diagnostic marker in a log column, never wording on a screen.
-// CONST: structural — see the doc comment above for why it is not a settings row.
-const READ_IN_FLIGHT: &str = "no read yet: the answer was recorded and the model is being asked";
 
 /// The four boxes as an answer row OPENS: none ticked.
 ///
@@ -181,39 +163,43 @@ pub async fn post_practice_answer(
                 // question she was never asked.
                 question_text: question.text.clone(),
                 mark: "fine".to_string(),
-                read_error: Some(READ_IN_FLIGHT.to_string()),
+                // WHICH marker is the fourth state of an answer row, named:
+                // in-flight means a model is being asked right now, and
+                // not-requested means nobody asked. Sharing one marker would
+                // send an operator hunting a vendor outage that never happened.
+                read_error: Some(
+                    if body.want_read {
+                        READ_IN_FLIGHT
+                    } else {
+                        READ_NOT_REQUESTED
+                    }
+                    .to_string(),
+                ),
             },
         )
         .await
         .map_err(|e| repo_error("insert_answer", e))?
     };
 
-    // STEP TWO: the read.
-    let (outcome, read_sources) = read_for(
-        &state,
-        scenario_id,
-        &question,
-        &body.answer_text,
-        body.points_to.as_ref(),
-    )
-    .await;
-
-    // STEP THREE: attach it. A failure HERE must not 500 — her answer is already
-    // committed, and telling her it was lost would be the exact lie the two-write
-    // shape exists to prevent. The row keeps its in-flight marker, which is the
-    // honest record of what happened, and she sees the same "no read" surface as
-    // every other read failure.
-    match attach_read(&state.pipeline_pool, answer_id, &outcome.to_row()).await {
-        Ok(true) => {}
-        Ok(false) => tracing::error!(
+    // STEPS TWO AND THREE — or NEITHER. `want_read` is Marie's switch, and off
+    // means no model is asked at all rather than one asked and ignored.
+    //
+    // ⚑ THE RE-READ ARM IS WHY THE SKIP IS HERE AND NOT INSIDE `read_and_attach`.
+    // Pressing Answer on unchanged text re-uses the standing row. With the switch
+    // off, attaching ANYTHING to that row would overwrite a critique she already
+    // has with a "nobody asked" marker — deleting her own past read as a side
+    // effect of a switch about future ones. Skipping both steps leaves the row
+    // exactly as it stands.
+    let (outcome, read_sources) = if body.want_read {
+        read_and_attach(&state, scenario_id, &question, &body, answer_id).await
+    } else {
+        tracing::info!(
+            question_id = %question.id,
             %answer_id,
-            "practice: the read named an answer row that vanished between two writes"
-        ),
-        Err(e) => tracing::error!(
-            %answer_id, error = %e,
-            "practice: her answer is recorded and its read could not be attached"
-        ),
-    }
+            "practice: answer analysis is off — the answer is recorded and no model was asked"
+        );
+        (ReadOutcome::not_requested(), Vec::new())
+    };
 
     Ok(Json(AnswerResponse {
         answer_id,
@@ -229,102 +215,6 @@ pub async fn post_practice_answer(
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
-}
-
-/// Ask the model to read one typed answer — or decline, honestly, without one.
-///
-/// Three arms, and the first two never reach a model:
-///
-/// 1. **The stored "I don't recall." line.** No call. See [`ReadOutcome::stored`].
-/// 2. **An input that failed to load.** No call, and an ABSTAIN rather than a
-///    read composed against material that silently went missing.
-/// 3. Everything else, including a one-word answer like `test`, which goes to the
-///    model and comes back on the abstain arm. A length rule here would be wrong:
-///    `"Yes."` is a complete answer on direct.
-///
-/// Never fails: every arm is inside the returned outcome.
-async fn read_for(
-    state: &AppState,
-    scenario_id: Uuid,
-    question: &PracticeQuestionRecord,
-    answer_text: &str,
-    points_to: Option<&Vec<String>>,
-) -> (ReadOutcome, Vec<ReadSourceDto>) {
-    let settings = state.settings.current();
-
-    if is_stored_dont_recall(&settings.practice_wording.dont_recall_text, answer_text) {
-        tracing::info!(
-            question = %question.id,
-            "practice read: the stored don't-recall line — no model call"
-        );
-        // No model call, so nothing was cited and there is nothing to footnote.
-        return (
-            ReadOutcome::stored(
-                settings
-                    .practice_report_wording
-                    .read_dont_recall_line
-                    .clone(),
-            ),
-            Vec::new(),
-        );
-    }
-
-    match gather_payload(state, scenario_id, question, answer_text, points_to).await {
-        Ok(payload) => {
-            // The sources are taken from the payload that was SENT, not from the
-            // reply: a key the model invented is already refused upstream, and a
-            // footnote list built from the reply could only ever agree with
-            // itself. These are the words Marie was judged against.
-            // ⚑ ONE AUTHORITY. `citable_sources` is the same function the
-            // prompt's key line is built from, so the footnote list cannot
-            // disagree with what the model was allowed to cite. It used to be
-            // assembled here by hand from points and receipts, and it omitted
-            // the sworn pair — a read could cite S2 and the screen would show
-            // that key with nothing under it, silently, on every sworn-pair
-            // question.
-            //
-            // These are the words that were SENT. Never words that came back:
-            // a list built from the reply would let a hallucinated citation
-            // render its own supporting evidence.
-            let sources = payload
-                .citable_sources()
-                .into_iter()
-                .map(|(key, text)| ReadSourceDto { key, text })
-                .collect();
-            (read_answer(state, &payload).await, sources)
-        }
-        Err(failure) => {
-            tracing::error!(
-                question = %question.id, %scenario_id, reason = %failure,
-                "practice read: abstaining — an input the read is judged against did not load"
-            );
-            // An abstain cites nothing, so it footnotes nothing.
-            (
-                ReadOutcome::from_payload_failure(
-                    &settings.practice_report_wording.read_abstain_line,
-                    &failure,
-                ),
-                Vec::new(),
-            )
-        }
-    }
-}
-
-/// Is this answer the sentence the "I don't recall." button sends?
-///
-/// ## Domain note: TRIMMED equality, and nothing looser
-///
-/// The comparison is against the stored line and no other rule. Not a prefix, not
-/// a case-insensitive match, not "contains" — because an answer that BEGINS with
-/// "I don't recall" and goes on to say something is a real answer and must be
-/// read. Only the exact stored sentence, which this system wrote and this system
-/// therefore has nothing to learn from.
-///
-/// Trimmed because a browser may send a trailing newline, and a short-circuit
-/// defeated by one whitespace character would be a silent per-click cost nobody
-/// would ever notice.
-pub(super) fn is_stored_dont_recall(stored: &str, answer_text: &str) -> bool {
-    answer_text.trim() == stored.trim()
 }
 
 /// Prove the answer belongs where it says it does, and return what it is about.

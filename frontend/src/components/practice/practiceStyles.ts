@@ -524,3 +524,73 @@ export const practiceBarGo: CSSProperties = {
 };
 
 export const practiceBarHint: CSSProperties = { color: "var(--practice-muted)", fontSize: 12.5 };
+
+/**
+ * The switch's own row, under the first one (mockup PRACTICE_DEFAULTS_v1).
+ *
+ * `flexBasis: "100%"` makes it take a line of its own inside the bar's existing
+ * `flexWrap` rather than trailing after the hint: the bar is one control group
+ * about starting a walk, and the switch is a standing choice about every answer
+ * Marie writes. Two rows say that; one row would read as a fourth control in the
+ * walk's sequence.
+ */
+export const practiceBarSwitchRow: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: 9,
+  flexBasis: "100%",
+  marginTop: 2,
+};
+
+/**
+ * The switch itself: a pill with a knob that slides.
+ *
+ * ## Why a button and not a checkbox
+ *
+ * It is drawn, and a native checkbox cannot be drawn like this without being
+ * hidden behind a label — which is how a control ends up unreachable from a
+ * keyboard. A `<button>` with `role="switch"` and `aria-checked` is the shape
+ * that keeps the keyboard and the screen reader working while the paint is ours.
+ *
+ * `transition` on the background and the knob, so flicking it reads as a state
+ * that MOVED rather than two different screens.
+ */
+export const practiceBarSwitch = (on: boolean): CSSProperties => ({
+  position: "relative",
+  width: 38,
+  height: 21,
+  flexShrink: 0,
+  borderRadius: 999,
+  border: "1px solid var(--practice-control-border)",
+  background: on ? "var(--practice-blue)" : "var(--practice-paper)",
+  cursor: "pointer",
+  padding: 0,
+  transition: "background 120ms ease",
+});
+
+/** The knob, parked left when off and right when on. */
+export const practiceBarSwitchKnob = (on: boolean): CSSProperties => ({
+  position: "absolute",
+  top: 2,
+  left: on ? 19 : 2,
+  width: 15,
+  height: 15,
+  borderRadius: "50%",
+  background: on ? "var(--practice-paper)" : "var(--practice-control-border)",
+  transition: "left 120ms ease, background 120ms ease",
+});
+
+/** The label beside the switch — the same weight as the bar's own label. */
+export const practiceBarSwitchLabel: CSSProperties = { fontSize: 14 };
+
+/**
+ * The state word. Muted, because it REPORTS rather than invites.
+ *
+ * It is the one word on this page that says whether anything Marie types is
+ * sent to a model, so it sits beside the switch and not under it: a state word
+ * a reader has to look for is a state word they will assume.
+ */
+export const practiceBarSwitchState: CSSProperties = {
+  color: "var(--practice-muted)",
+  fontSize: 13,
+};

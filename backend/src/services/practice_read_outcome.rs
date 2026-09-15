@@ -69,6 +69,26 @@ pub struct ReadOutcome {
 /// from a judgement without re-reading the text.
 pub const STORED_READ_VERSION: &str = "stored:dont-recall";
 
+/// What a row wears when NOBODY ASKED for a read.
+///
+/// ## Domain note: the fourth state of an answer row, named rather than implied
+///
+/// Three already existed: a read that succeeded, a read that abstained, and a
+/// read IN FLIGHT (`practice_answer_read::READ_IN_FLIGHT`, which is also the shape of
+/// a backend that died mid-read). The Answer-analysis switch creates a fourth —
+/// the answer was recorded and no model was ever asked — and it must not borrow
+/// the in-flight marker: an operator reading `no read yet: … the model is being
+/// asked` on a row nobody asked anything about would go looking for a vendor
+/// outage that never happened.
+///
+/// STRUCTURAL, exactly like its sibling above: a DIAGNOSTIC in a log column, not
+/// a sentence anybody reads on a screen. Nothing on the wire carries it, and the
+/// browser draws no critique block at all for such a row — see
+/// `practiceCritique::critiqueFor`, whose `none` arm is this state's rendering.
+// STRUCTURAL: a diagnostic marker in a log column, never wording on a screen.
+pub const READ_NOT_REQUESTED: &str =
+    "no read: the answer analysis switch was off, so no model was asked";
+
 impl ReadOutcome {
     /// A read this build wrote itself, with no model call.
     ///
@@ -92,6 +112,26 @@ impl ReadOutcome {
             ok: Some(true),
             parts: Some(parts),
             version: Some(STORED_READ_VERSION.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// A read nobody asked for: the switch was off.
+    ///
+    /// ## ⚑ Every field but the marker is `None`, and that is the whole point
+    ///
+    /// No text, no verdict, no parts, no prompt version, no tokens, no model —
+    /// because none of those happened. `ok: None` is the neutral rail, which the
+    /// screen renders as nothing at all rather than as a judgement. The one thing
+    /// the row records is WHY there is nothing: [`READ_NOT_REQUESTED`].
+    ///
+    /// Domain note: this is written when a NEW answer version is stored with the
+    /// switch off. It is never attached over an existing row — see
+    /// `post_practice_answer`, whose re-read arm leaves a standing read alone
+    /// rather than erasing a critique Marie already has.
+    pub fn not_requested() -> Self {
+        ReadOutcome {
+            error: Some(READ_NOT_REQUESTED.to_string()),
             ..Default::default()
         }
     }

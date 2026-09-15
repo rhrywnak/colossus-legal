@@ -35,6 +35,26 @@ pub struct PracticeQuestionDto {
     /// question that carries none, which withdraws the tag rather than printing
     /// an empty one.
     pub tactic: Option<String>,
+    /// The tactic's CARD NUMBER, 1–7, or `None` when it carries none.
+    ///
+    /// ## Why both this and `tactic`, which is the same fact
+    ///
+    /// They are not the same fact. `tactic` is what a READER sees — a name, with
+    /// the braid suffix appended when the question braids — and `tactic_card` is
+    /// what an EDITOR sets. The deck editor's dropdown cannot be built from the
+    /// name: `compound · braid` is not a card, and matching it back to a number
+    /// in the browser would be a second, weaker copy of the resolution
+    /// `practice_page::tactic_name` already does. So the name ships for the pill
+    /// and the number ships for the form, and neither is derived from the other
+    /// anywhere but here.
+    ///
+    /// ## Rust Learning: `Option<i16>` rather than a sentinel
+    ///
+    /// The column is `SMALLINT` with `CHECK (tactic IS NULL OR tactic BETWEEN 1
+    /// AND 7)`, so "no card" is a NULL and not a zero. `Option<i16>` carries that
+    /// across the wire as `null` — a value the browser can test for — where a `0`
+    /// would be a magic number both sides had to agree to ignore.
+    pub tactic_card: Option<i16>,
     /// The "Built from: …" line, or `None` — which the screen leaves empty
     /// rather than inventing a source.
     pub receipt: Option<String>,
@@ -164,7 +184,38 @@ pub struct PracticeDeckPayload {
     /// What the editor's add form may attach a new question to — this
     /// scenario's ruled instances and talking points, already labelled.
     pub attach_options: Vec<super::practice_review::PracticeAttachOptionDto>,
+    /// The seven TACTIC_DECK_v1 cards, in card order — the dropdown's options.
+    ///
+    /// ## ⚑ ONE AUTHORITY, and this is it reaching the browser
+    ///
+    /// These are `settings.practice_read.tactic_names`, the same row
+    /// `practice_page::tactic_name` indexes into for the pills. The editor's
+    /// dropdown is built from this list rather than from a list of its own, so a
+    /// card renamed in the store renames it in the tag and in the form at once.
+    /// A second list in the frontend would disagree the first time one was
+    /// edited, and the disagreement would be invisible: both would render.
+    ///
+    /// Shorter than seven when somebody has trimmed the settings row — the same
+    /// state `tactic_name` answers with no tag at all. The dropdown then offers
+    /// what the vocabulary can name and nothing else.
+    pub tactic_cards: Vec<TacticCardDto>,
     pub wording: PracticeWordingDto,
+}
+
+/// One TACTIC_DECK_v1 card: the number that is stored, the name that is shown.
+///
+/// A pair rather than a bare list of names because the POSITION is the stored
+/// value — card 3 is `false premise` only for as long as the settings row lists
+/// it third — and an option element that carried the name alone would make the
+/// browser count the list to work out what to send.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TacticCardDto {
+    /// 1–7. What `practice_questions.tactic` stores.
+    pub card: i16,
+    /// The card's name as the store holds it. Never the braid suffix: that is
+    /// composed for the TAG, and a form must not offer it as a choice.
+    pub name: String,
 }
 
 /// The unfinished sitting the start card offers back.
@@ -267,11 +318,39 @@ pub struct AnswerRequest {
     pub question_id: Uuid,
     pub answer_text: String,
     pub dont_recall: bool,
+    /// Whether to ask a model to read this answer. `false` means NO CALL.
+    ///
+    /// ## Why the browser decides this and the server obeys it
+    ///
+    /// Saving an answer and reading it are one request — see
+    /// `api::practice_answers::post_practice_answer`, whose three steps write the
+    /// row, call the model and attach the result. A browser that does not want
+    /// the read therefore cannot decline it by staying silent: the call is on the
+    /// far side of the request it has to make to save at all. So the wish travels
+    /// WITH the answer, and "Answer analysis · off" on the practice bar means no
+    /// model is asked — not a model asked and its answer discarded.
+    ///
+    /// ## Rust Learning: `#[serde(default = "…")]` and why the default is TRUE
+    ///
+    /// `#[serde(default)]` would give `bool`'s own default, `false`, and silently
+    /// turn the read off for any caller that predates this field. A named default
+    /// function makes ABSENT mean what it meant yesterday — a read was wanted —
+    /// so the new field changes behaviour only for a caller that asked it to.
+    #[serde(default = "want_read_by_default")]
+    pub want_read: bool,
     /// The receipts she said she would point to. ABSENT when she never opened
     /// the control, an empty array when she opened it and picked nothing —
     /// two different facts, and the column keeps them different.
     #[serde(default)]
     pub points_to: Option<Vec<String>>,
+}
+
+/// What an [`AnswerRequest`] with no `want_read` field means: ask for the read.
+///
+/// The behaviour every caller had before the switch existed. See the field's own
+/// doc for why this is a function and not `#[serde(default)]`.
+fn want_read_by_default() -> bool {
+    true
 }
 
 /// One question she was dealt and set aside mid-sitting.

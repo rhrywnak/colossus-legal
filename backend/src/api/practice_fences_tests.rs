@@ -19,6 +19,10 @@ fn body(answer_text: &str, dont_recall: bool) -> AnswerRequest {
         answer_text: answer_text.to_string(),
         dont_recall,
         points_to: None,
+        // The fences under test read neither the switch nor the picker. `true` is
+        // what an absent field decodes to (`want_read_by_default`), so this
+        // fixture is the request these fences have always been handed.
+        want_read: true,
     }
 }
 

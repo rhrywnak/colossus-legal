@@ -25,6 +25,9 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260823164454_practice_one_page_l3_question_page_and_walk.sql",
     // The side picker: one side at a time, in the authored story order.
     "pipeline_migrations/20260823231335_practice_list_side_picker.sql",
+    // The practice polish: the answer-analysis switch's label and its two
+    // state words.
+    "pipeline_migrations/20260915075001_practice_polish_wording.sql",
 ];
 
 /// Migrations that CORRECT a value one of the seeds above already wrote.
@@ -103,6 +106,9 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_DECK_DEFENSE_COUNTLINE, "The defense's cross — top to bottom, the order they will press her in."),
     (KEY_DECK_CHUCK_COUNTLINE, "Chuck's questions — the direct tells the jury the story in order; the redirects repair the defense's questions."),
     (KEY_DIRECTS_SUBHEADER, "The direct — the story, in order"),
+    (KEY_ANSWER_ANALYSIS_LABEL, "Answer analysis"),
+    (KEY_ANSWER_ANALYSIS_ON, "on"),
+    (KEY_ANSWER_ANALYSIS_OFF, "off"),
 ];
 
 impl PracticeListWording {

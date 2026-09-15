@@ -71,6 +71,29 @@ describe("editQuestion", () => {
     });
   });
 
+  // ⚑ The receipt became editable on 2026-09-15 (CC_TASK_PRACTICE_POLISH_v1).
+  // It is the only field the deck row PRINTS under the question, so an edit of
+  // it changes what Marie reads under every question it backs.
+  it("POSTs a receipt edit like any other field", async () => {
+    const mock = okFetch({ question_id: QUESTION });
+
+    await editQuestion(QUESTION, "receipt", "Built from: Supp. Brief p.4");
+
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({
+      field: "receipt",
+      value: "Built from: Supp. Brief p.4",
+    });
+  });
+
+  it("clears the receipt with null, not with an empty string", async () => {
+    // The column's CHECK refuses a blank string outright — `receipt IS NULL OR
+    // btrim(receipt) <> ''` — so an empty string here would be a 500 where the
+    // person meant "remove this line".
+    const mock = okFetch({ question_id: QUESTION });
+    await editQuestion(QUESTION, "receipt", null);
+    expect(JSON.parse(mock.mock.calls[0][1].body).value).toBeNull();
+  });
+
   it("sends null to CLEAR an optional field", async () => {
     // A blank watch-for is a watch-for somebody decided was wrong. The server
     // clears on null and refuses a blank question text; this only sends what it

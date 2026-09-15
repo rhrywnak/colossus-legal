@@ -23,6 +23,7 @@ function question(id: string): PracticeQuestion {
     braid: false,
     text: `question ${id}`,
     tactic: null,
+    tactic_card: null,
     receipt: null,
     braid_rows: null,
     watch_for: null,

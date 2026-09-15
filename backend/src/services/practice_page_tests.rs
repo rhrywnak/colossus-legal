@@ -105,10 +105,25 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
 
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
+    // ⚑ AND THE NUMBER RIDES BESIDE THE NAME, unsuffixed. The editor's dropdown
+    // selects by this; `compound · braid` is not a card, and a form that had to
+    // match the tag back to a number would be a second, weaker copy of the
+    // resolution above it. That is exactly what the edit form used to do, and
+    // any edit of its tactic box was refused with a 400.
+    assert_eq!(dto.tactic_card, Some(5));
 
     let plain = question_dto(&s, &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
+    assert_eq!(
+        plain.tactic_card,
+        Some(5),
+        "the same card, tagged differently"
+    );
     assert!(!plain.braid);
+
+    // No card, no number — `None` and not a zero the browser would have to know
+    // to ignore.
+    assert_eq!(question_dto(&s, &[], record(None, None)).tactic_card, None);
 }
 
 /// The last-session line is composed, with every slot filled.
