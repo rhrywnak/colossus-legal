@@ -23,6 +23,7 @@ import React from "react";
 import type {
   PracticeAttachOption,
   PracticeWording,
+  TacticCard,
 } from "../../services/practice";
 import type { NewQuestion } from "../../services/practiceEditor";
 import { wordingOf } from "../../services/practice";
@@ -32,6 +33,8 @@ import * as s from "./practiceStyles";
 interface Props {
   wording: PracticeWording;
   attachOptions: PracticeAttachOption[];
+  /** The seven cards, from the payload — see `PracticeDeck.tactic_cards`. */
+  tacticCards: TacticCard[];
   onAdd: (question: NewQuestion) => void;
   onCancel: () => void;
   /** True when a write may be attempted — somebody is signing, none in flight. */
@@ -48,6 +51,7 @@ const KINDS: Array<{ value: NewQuestion["kind"]; key: string }> = [
 const PracticeAddQuestion: React.FC<Props> = ({
   wording,
   attachOptions,
+  tacticCards,
   onAdd,
   onCancel,
   ready,
@@ -87,7 +91,12 @@ const PracticeAddQuestion: React.FC<Props> = ({
 
         <div>
           <label style={e.editLabel}>{w("editor_field_tactic")}</label>
-          <input
+          {/* The same dropdown the edit form draws, over the same payload list.
+              A card is a choice from a fixed vocabulary — typing a number was
+              asking a person to know that "3" means "false premise", which is
+              knowledge that lives in a settings row nobody editing a deck has
+              open. */}
+          <select
             style={e.editInput}
             value={tactic}
             // A tactic belongs to a cross question and nowhere else; the server
@@ -96,7 +105,14 @@ const PracticeAddQuestion: React.FC<Props> = ({
             disabled={kind !== "cross"}
             onChange={(event) => setTactic(event.target.value)}
             aria-label={w("editor_field_tactic")}
-          />
+          >
+            <option value="">{w("editor_tactic_none")}</option>
+            {tacticCards.map((card) => (
+              <option key={card.card} value={String(card.card)}>
+                {card.name}
+              </option>
+            ))}
+          </select>
         </div>
 
         <div>

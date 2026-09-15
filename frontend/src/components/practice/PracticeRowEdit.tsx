@@ -19,7 +19,11 @@
 
 import React from "react";
 
-import type { PracticeQuestion, PracticeWording } from "../../services/practice";
+import type {
+  PracticeQuestion,
+  PracticeWording,
+  TacticCard,
+} from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { EditableField } from "../../services/practiceEditor";
 import { useAuth } from "../../context/AuthContext";
@@ -32,6 +36,8 @@ interface Props {
   question: PracticeQuestion;
   wording: PracticeWording;
   editor: PracticeEditor;
+  /** The seven cards, from the payload — see `PracticeDeck.tactic_cards`. */
+  tacticCards: TacticCard[];
   onClose: () => void;
 }
 
@@ -46,25 +52,52 @@ const Field: React.FC<{ label: string; children: React.ReactNode }> = ({
   </div>
 );
 
-const PracticeRowEdit: React.FC<Props> = ({ question, wording, editor, onClose }) => {
+const PracticeRowEdit: React.FC<Props> = ({
+  question,
+  wording,
+  editor,
+  tacticCards,
+  onClose,
+}) => {
   const { user } = useAuth();
   const w = (key: string) => wordingOf(wording, key);
 
   // The stored values as they stand, so Save can tell what actually moved.
   const [text, setText] = React.useState(question.text);
-  const [tactic, setTactic] = React.useState(question.tactic ?? "");
+  // ⚑ THE CARD NUMBER, as a string because that is what a `<select>` value is.
+  //
+  // It used to be seeded from `question.tactic`, which is the RESOLVED NAME —
+  // `false premise`, or `compound · braid` on a braid row. The box therefore
+  // opened showing a word in a control the server only accepts a number in, and
+  // any edit of it was a 400. The number is its own field on the wire now, for
+  // exactly this: a form sets cards, a pill shows names.
+  const [tactic, setTactic] = React.useState(
+    question.tactic_card === null ? "" : String(question.tactic_card),
+  );
   const [follows, setFollows] = React.useState(question.follows_key ?? "");
   const [watchFor, setWatchFor] = React.useState(question.watch_for ?? "");
   const [stronger, setStronger] = React.useState(question.stronger ?? "");
+  const [receipt, setReceipt] = React.useState(question.receipt ?? "");
 
   const save = () => {
     // `null` clears an optional field; the server refuses a blank question text.
     const touched: Array<[EditableField, string, string]> = [
       ["text", text, question.text],
-      ["tactic", String(tactic), question.tactic ?? ""],
+      // Compared against the NUMBER it was, not the name it displays — the two
+      // are different strings for the same card, and comparing across them would
+      // post an edit every time the form was opened and saved untouched.
+      [
+        "tactic",
+        tactic,
+        question.tactic_card === null ? "" : String(question.tactic_card),
+      ],
       ["follows", follows, question.follows_key ?? ""],
       ["watch_for", watchFor, question.watch_for ?? ""],
       ["stronger", stronger, question.stronger ?? ""],
+      // Blank CLEARS it, like every other optional field: the loop below sends
+      // `null`, and the server writes SQL NULL rather than the empty string the
+      // column's CHECK refuses.
+      ["receipt", receipt, question.receipt ?? ""],
     ];
     for (const [field, next, before] of touched) {
       if (next.trim() === before.trim()) continue;
@@ -88,12 +121,24 @@ const PracticeRowEdit: React.FC<Props> = ({ question, wording, editor, onClose }
           question has no trap in it, and the server refuses one on it. */}
       {question.kind === "cross" && (
         <Field label={w("editor_field_tactic")}>
-          <input
+          {/* A DROPDOWN of the seven cards, not a number box. The options are
+              the payload's list — the store's own vocabulary, resolved once on
+              the server for both the pills and this. The VALUE is the card
+              number, which is what the column holds; the blank option clears
+              the tag. */}
+          <select
             style={e.editInput}
             value={tactic}
             onChange={(event) => setTactic(event.target.value)}
             aria-label={w("editor_field_tactic")}
-          />
+          >
+            <option value="">{w("editor_tactic_none")}</option>
+            {tacticCards.map((card) => (
+              <option key={card.card} value={String(card.card)}>
+                {card.name}
+              </option>
+            ))}
+          </select>
         </Field>
       )}
 
@@ -124,6 +169,19 @@ const PracticeRowEdit: React.FC<Props> = ({ question, wording, editor, onClose }
           value={stronger}
           onChange={(event) => setStronger(event.target.value)}
           aria-label={w("editor_field_stronger")}
+        />
+      </Field>
+
+      {/* The `Built from: …` line the row prints under its question. A TEXTAREA
+          and not an input, like the question above it: a receipt cites a page of
+          the record and runs longer than a line, and a box that shows a fifth of
+          what it holds is a box nobody can proof-read. */}
+      <Field label={w("editor_field_receipt")}>
+        <textarea
+          style={e.editTextarea}
+          value={receipt}
+          onChange={(event) => setReceipt(event.target.value)}
+          aria-label={w("editor_field_receipt")}
         />
       </Field>
 

@@ -223,7 +223,7 @@ fn a_sitting_naming_a_question_outside_the_deck_is_refused() {
 ///   and nobody would ever notice.
 #[test]
 fn the_dont_recall_short_circuit_matches_the_stored_line_and_nothing_looser() {
-    use crate::api::practice_answers::is_stored_dont_recall;
+    use crate::api::practice_answer_read::is_stored_dont_recall;
     const STORED: &str = "I don't recall.";
 
     assert!(

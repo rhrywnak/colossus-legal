@@ -825,15 +825,18 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
-        46,
+        48,
         "PRACTICE v1 Part B (45), plus the nav cleanup's drag grip. Part B's two \
          'Editing as' strings were retired with the picker and the hotfix's busy \
          hint and discard confirm took their places, so the hotfix was net zero; \
-         the drag grip is the one addition on top"
+         the drag grip is the one addition on top. Plus the practice polish's two \
+         (2026-09-15): the receipt's field label, now that the Built-from line is \
+         editable, and the tactic dropdown's blank option — which is NOT the \
+         attach control's `no receipt`, one field along"
     );
     assert_eq!(
         PRACTICE_LIST_WORDING_KEYS.len(),
-        37,
+        40,
         "PRACTICE one-page L2 (4): the practice bar's label, button and hint, plus \
          the footnote that explains why a row now carries at most a date. Plus \
          L3's line under a one-sentence critique, which is the COMMON rendering: \
@@ -841,7 +844,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          Plus the side picker's four (.409): its button template, the line under \
          each of the two sides, and the heading above Chuck's directs — the \
          heading above his redirects already existed and was CORRECTED rather \
-         than replaced, which is why this is four and not five"
+         than replaced, which is why this is four and not five. Plus the \
+         answer-analysis switch's three (2026-09-15): its label and the two \
+         state words — two rows rather than one template, because the bar shows \
+         the state the switch is IN and composes nothing"
     );
     assert_eq!(
         PRACTICE_PRINT_WORDING_KEYS.len(),

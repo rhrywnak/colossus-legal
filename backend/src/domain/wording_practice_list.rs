@@ -134,6 +134,26 @@ pub struct PracticeListWording {
     /// Shown only when the list holds both kinds — see `redirects_subheader`,
     /// whose own text stopped naming an internal database value on 2026-08-23.
     pub directs_subheader: String,
+
+    // ── The answer-analysis switch (mockup PRACTICE_DEFAULTS_v1) ─────────
+    /// The label beside the switch on the practice bar.
+    ///
+    /// ## Domain note: the one control on this page that withholds a model call
+    ///
+    /// OFF — the default — means the read is NEVER REQUESTED: no call is made,
+    /// not a call whose answer is hidden. The switch is a fact about what leaves
+    /// the building, which is why its words are rows an operator can correct and
+    /// not literals compiled into a bundle.
+    pub answer_analysis_label: String,
+    /// The state word when the analysis is on.
+    ///
+    /// Two rows and not one template with a slot: the screen reads whichever
+    /// state holds, one at a time. A template would make the page compose a word
+    /// out of a boolean, and the two halves of that composition would then live
+    /// in different places.
+    pub answer_analysis_on: String,
+    /// The state word when the analysis is off — the default.
+    pub answer_analysis_off: String,
 }
 
 pub(crate) const KEY_PRACTICE_MODE_LABEL: &str = "practice_practice_mode_label";
@@ -173,6 +193,9 @@ pub(crate) const KEY_DECK_SIDE_TAB_TEMPLATE: &str = "practice_deck_side_tab_temp
 pub(crate) const KEY_DECK_DEFENSE_COUNTLINE: &str = "practice_deck_defense_countline";
 pub(crate) const KEY_DECK_CHUCK_COUNTLINE: &str = "practice_deck_chuck_countline";
 pub(crate) const KEY_DIRECTS_SUBHEADER: &str = "practice_directs_subheader";
+pub(crate) const KEY_ANSWER_ANALYSIS_LABEL: &str = "practice_answer_analysis_label";
+pub(crate) const KEY_ANSWER_ANALYSIS_ON: &str = "practice_answer_analysis_on";
+pub(crate) const KEY_ANSWER_ANALYSIS_OFF: &str = "practice_answer_analysis_off";
 
 /// Declared to the boot loader. A key here with no row in any migration makes
 /// the backend REFUSE TO START — which is what the sibling test file exists to
@@ -215,6 +238,9 @@ pub(crate) const PRACTICE_LIST_WORDING_KEYS: &[&str] = &[
     KEY_DECK_DEFENSE_COUNTLINE,
     KEY_DECK_CHUCK_COUNTLINE,
     KEY_DIRECTS_SUBHEADER,
+    KEY_ANSWER_ANALYSIS_LABEL,
+    KEY_ANSWER_ANALYSIS_ON,
+    KEY_ANSWER_ANALYSIS_OFF,
 ];
 
 /// Build a [`PracticeListWording`] from the stored rows, or say which key is
@@ -271,6 +297,9 @@ pub fn build_practice_list_wording<E>(
         deck_defense_countline: read(KEY_DECK_DEFENSE_COUNTLINE)?,
         deck_chuck_countline: read(KEY_DECK_CHUCK_COUNTLINE)?,
         directs_subheader: read(KEY_DIRECTS_SUBHEADER)?,
+        answer_analysis_label: read(KEY_ANSWER_ANALYSIS_LABEL)?,
+        answer_analysis_on: read(KEY_ANSWER_ANALYSIS_ON)?,
+        answer_analysis_off: read(KEY_ANSWER_ANALYSIS_OFF)?,
     })
 }
 

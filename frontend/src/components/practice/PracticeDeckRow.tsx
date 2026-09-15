@@ -35,7 +35,11 @@
 
 import React from "react";
 
-import type { PracticeQuestion, PracticeWording } from "../../services/practice";
+import type {
+  PracticeQuestion,
+  PracticeWording,
+  TacticCard,
+} from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
 import { useSortable } from "@dnd-kit/sortable";
@@ -66,6 +70,8 @@ interface Props {
   last: boolean;
   wording: PracticeWording;
   editor: PracticeEditor;
+  /** The tactic cards the inline edit form's dropdown offers. */
+  tacticCards: TacticCard[];
   /** Where this question's own page lives. Composed by the page above, so
       the row holds no route knowledge of its own. */
   questionHref: string;
@@ -83,6 +89,7 @@ const PracticeDeckRow: React.FC<Props> = ({
   last,
   wording,
   editor,
+  tacticCards,
   questionHref,
   onDelete,
   deleting,
@@ -223,6 +230,7 @@ const PracticeDeckRow: React.FC<Props> = ({
             question={question}
             wording={wording}
             editor={editor}
+            tacticCards={tacticCards}
             onClose={onToggleFields}
           />
         )}

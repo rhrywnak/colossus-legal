@@ -49,6 +49,7 @@ import type {
   PracticeAttachOption,
   PracticeQuestion,
   PracticeWording,
+  TacticCard,
 } from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import { wordingOf } from "../../services/practice";
@@ -79,6 +80,9 @@ interface Props {
   editor: PracticeEditor;
   /** What a new question may attach to. */
   attachOptions: PracticeAttachOption[];
+  /** The tactic cards both editor forms offer, from the payload. Threaded
+      rather than fetched: one list, read where the pills are resolved. */
+  tacticCards: TacticCard[];
   /** Remove a question from the deck. The mechanism is the existing hide. */
   onDelete: (question: PracticeQuestion) => void;
   /** Put back the question the last Delete removed. */
@@ -119,6 +123,7 @@ const PracticeDeckList: React.FC<Props> = ({
   wording,
   editor,
   attachOptions,
+  tacticCards,
   onDelete,
   onUndoDelete,
   deletingId,
@@ -323,6 +328,7 @@ const PracticeDeckList: React.FC<Props> = ({
                     }}
                     wording={wording}
                     attachOptions={attachOptions}
+                    tacticCards={tacticCards}
                     ready={editor.ready}
                   />
                 )}
@@ -367,6 +373,7 @@ const PracticeDeckList: React.FC<Props> = ({
                     last={question.id === rows[rows.length - 1]?.id}
                     wording={wording}
                     editor={editor}
+                    tacticCards={tacticCards}
                     questionHref={questionHref(question)}
                     onDelete={() => {
                       onDelete(question);
@@ -393,6 +400,7 @@ const PracticeDeckList: React.FC<Props> = ({
             <PracticeAddQuestion
               wording={wording}
               attachOptions={attachOptions}
+              tacticCards={tacticCards}
               ready={editor.ready}
               onAdd={(question) => {
                 editor.add(question);

@@ -47,12 +47,29 @@ pub struct PracticeEditorWording {
     pub editor_field_follows: String,
     pub editor_field_watch_for: String,
     pub editor_field_stronger: String,
+    /// The label of the receipt box — the `Built from: …` line a deck row
+    /// prints under its question.
+    ///
+    /// ## Domain note: the receipt is AUTHORED, and now says so
+    ///
+    /// It names the part of the record a question was drafted from, and until
+    /// this task it was the one authored field on the row that no editor could
+    /// touch. A label row rather than a literal because every other field in
+    /// this stack has one, and a stack with one uneditable label is a stack an
+    /// operator cannot finish correcting.
+    pub editor_field_receipt: String,
     pub editor_field_side: String,
     pub editor_field_attach: String,
     pub editor_side_cross: String,
     pub editor_side_direct: String,
     pub editor_side_redirect: String,
     pub editor_attach_none: String,
+    /// The blank option of the tactic dropdown: a cross question with no card.
+    ///
+    /// ⚑ NOT `editor_attach_none`, whose value is the words `no receipt`. That
+    /// row belongs to the attach control one field along; sharing it would put
+    /// "no receipt" in a dropdown about cross-examination tactics.
+    pub editor_tactic_none: String,
     pub editor_attach_instance_template: String,
     pub editor_attach_point_template: String,
     pub editor_add_label: String,
@@ -99,12 +116,14 @@ pub(crate) const KEY_EDITOR_FIELD_TACTIC: &str = "practice_editor_field_tactic";
 pub(crate) const KEY_EDITOR_FIELD_FOLLOWS: &str = "practice_editor_field_follows";
 pub(crate) const KEY_EDITOR_FIELD_WATCH_FOR: &str = "practice_editor_field_watch_for";
 pub(crate) const KEY_EDITOR_FIELD_STRONGER: &str = "practice_editor_field_stronger";
+pub(crate) const KEY_EDITOR_FIELD_RECEIPT: &str = "practice_editor_field_receipt";
 pub(crate) const KEY_EDITOR_FIELD_SIDE: &str = "practice_editor_field_side";
 pub(crate) const KEY_EDITOR_FIELD_ATTACH: &str = "practice_editor_field_attach";
 pub(crate) const KEY_EDITOR_SIDE_CROSS: &str = "practice_editor_side_cross";
 pub(crate) const KEY_EDITOR_SIDE_DIRECT: &str = "practice_editor_side_direct";
 pub(crate) const KEY_EDITOR_SIDE_REDIRECT: &str = "practice_editor_side_redirect";
 pub(crate) const KEY_EDITOR_ATTACH_NONE: &str = "practice_editor_attach_none";
+pub(crate) const KEY_EDITOR_TACTIC_NONE: &str = "practice_editor_tactic_none";
 pub(crate) const KEY_EDITOR_ATTACH_INSTANCE_TEMPLATE: &str =
     "practice_editor_attach_instance_template";
 pub(crate) const KEY_EDITOR_ATTACH_POINT_TEMPLATE: &str = "practice_editor_attach_point_template";
@@ -155,12 +174,14 @@ pub const PRACTICE_EDITOR_WORDING_KEYS: &[&str] = &[
     KEY_EDITOR_FIELD_FOLLOWS,
     KEY_EDITOR_FIELD_WATCH_FOR,
     KEY_EDITOR_FIELD_STRONGER,
+    KEY_EDITOR_FIELD_RECEIPT,
     KEY_EDITOR_FIELD_SIDE,
     KEY_EDITOR_FIELD_ATTACH,
     KEY_EDITOR_SIDE_CROSS,
     KEY_EDITOR_SIDE_DIRECT,
     KEY_EDITOR_SIDE_REDIRECT,
     KEY_EDITOR_ATTACH_NONE,
+    KEY_EDITOR_TACTIC_NONE,
     KEY_EDITOR_ATTACH_INSTANCE_TEMPLATE,
     KEY_EDITOR_ATTACH_POINT_TEMPLATE,
     KEY_EDITOR_ADD_LABEL,
@@ -212,12 +233,14 @@ pub fn build_practice_editor_wording<E>(
         editor_field_follows: read(KEY_EDITOR_FIELD_FOLLOWS)?,
         editor_field_watch_for: read(KEY_EDITOR_FIELD_WATCH_FOR)?,
         editor_field_stronger: read(KEY_EDITOR_FIELD_STRONGER)?,
+        editor_field_receipt: read(KEY_EDITOR_FIELD_RECEIPT)?,
         editor_field_side: read(KEY_EDITOR_FIELD_SIDE)?,
         editor_field_attach: read(KEY_EDITOR_FIELD_ATTACH)?,
         editor_side_cross: read(KEY_EDITOR_SIDE_CROSS)?,
         editor_side_direct: read(KEY_EDITOR_SIDE_DIRECT)?,
         editor_side_redirect: read(KEY_EDITOR_SIDE_REDIRECT)?,
         editor_attach_none: read(KEY_EDITOR_ATTACH_NONE)?,
+        editor_tactic_none: read(KEY_EDITOR_TACTIC_NONE)?,
         editor_attach_instance_template: read(KEY_EDITOR_ATTACH_INSTANCE_TEMPLATE)?,
         editor_attach_point_template: read(KEY_EDITOR_ATTACH_POINT_TEMPLATE)?,
         editor_add_label: read(KEY_EDITOR_ADD_LABEL)?,

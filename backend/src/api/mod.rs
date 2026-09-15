@@ -41,6 +41,7 @@ pub mod logout;
 pub mod persons;
 pub mod pipeline;
 pub mod practice;
+pub mod practice_answer_read;
 pub mod practice_answers;
 pub mod practice_editor;
 pub mod practice_editor_add;

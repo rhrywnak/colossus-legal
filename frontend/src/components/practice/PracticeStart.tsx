@@ -17,6 +17,7 @@ import type {
   PracticeAttachOption,
   PracticeQuestion,
   PracticeWording,
+  TacticCard,
 } from "../../services/practice";
 import type { PracticeEditor } from "../../pages/usePracticeEditor";
 import type { DeckView } from "../../pages/usePracticeDeckControls";
@@ -49,6 +50,15 @@ interface Props {
   editor: PracticeEditor;
   /** What a new question may attach to. */
   attachOptions: PracticeAttachOption[];
+  /** The seven tactic cards the editor's two dropdowns offer. From the payload:
+      the store's own vocabulary, never a list this bundle carries. */
+  tacticCards: TacticCard[];
+  /** Whether a model is asked to read each answer. OFF is the default, and off
+      means no call is made at all — see `answerAnalysis.ts`. */
+  analysisOn: boolean;
+  /** Flick the switch. The page owns the state because the storage write is the
+      page's to make, and this component may not decide when it happens. */
+  onAnalysis: (on: boolean) => void;
   /** Remove a question from the deck. The mechanism is the existing hide. */
   onDelete: (question: PracticeQuestion) => void;
   /** Put a deleted question back. */
@@ -106,6 +116,9 @@ const PracticeStart: React.FC<Props> = ({
   view,
   editor,
   attachOptions,
+  tacticCards,
+  analysisOn,
+  onAnalysis,
   onDelete,
   onUndoDelete,
   deletingId,
@@ -213,6 +226,34 @@ const PracticeStart: React.FC<Props> = ({
             silent. This one replaces a Start button that opened a sitting and
             wrote rows, in the same position on the same page. */}
         <span style={s.practiceBarHint}>{w("practice_hint")}</span>
+
+        {/* ⚑ THE ANSWER-ANALYSIS SWITCH. Default OFF, and off means NO MODEL IS
+            ASKED — not a model asked and its reading hidden. The wish travels
+            with the answer (`want_read`), because saving and reading are one
+            request and a browser cannot decline a call by staying silent.
+
+            Its own row inside the bar: starting a walk is a sequence of three
+            controls, and this is a standing choice about every answer she
+            writes. Remembered per browser, not per scenario — she either wants
+            her answers read tonight or she does not. */}
+        <div style={s.practiceBarSwitchRow}>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={analysisOn}
+            aria-label={w("answer_analysis_label")}
+            style={s.practiceBarSwitch(analysisOn)}
+            onClick={() => onAnalysis(!analysisOn)}
+          >
+            <span style={s.practiceBarSwitchKnob(analysisOn)} />
+          </button>
+          <span style={s.practiceBarSwitchLabel}>{w("answer_analysis_label")}</span>
+          {/* The state it is IN, in the store's own words. Two keys rather than
+              one template: the page reads whichever holds and composes nothing. */}
+          <span style={s.practiceBarSwitchState}>
+            {analysisOn ? w("answer_analysis_on") : w("answer_analysis_off")}
+          </span>
+        </div>
       </div>
 
       <PracticeDeckList
@@ -222,6 +263,7 @@ const PracticeStart: React.FC<Props> = ({
         wording={wording}
         editor={editor}
         attachOptions={attachOptions}
+        tacticCards={tacticCards}
         onDelete={onDelete}
         onUndoDelete={onUndoDelete}
         deletingId={deletingId}

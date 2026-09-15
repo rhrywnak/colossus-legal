@@ -91,6 +91,25 @@ fn without_comments(source: &str) -> String {
         .join("\n")
 }
 
+/// The READ module's source — `read_and_attach` and `read_for` live there.
+///
+/// ## Why a second file to read (2026-09-15)
+///
+/// The Answer-analysis switch took `practice_answers.rs` past the 300-line limit,
+/// and the seam Rule 17 forced is the honest one: that module ROUTES, and
+/// `practice_answer_read` is the one thing that happens at one of its addresses.
+/// The claims below did not change when the code moved; only where they are read
+/// from did, which is the standing cost of a scanner and is stated at the top of
+/// this file.
+fn read_module() -> String {
+    without_comments(
+        &std::fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("src/api/practice_answer_read.rs"),
+        )
+        .expect("the read module is on disk"),
+    )
+}
+
 /// The body of `post_practice_answer`, from its signature to the next `pub fn`,
 /// with comments stripped — see [`without_comments`].
 fn post_answer_body() -> String {
@@ -222,10 +241,19 @@ fn a_re_read_reuses_the_standing_answer_row() {
         "the re-read branch must reuse the standing answer's id, or it writes a \
          second row and the ruling is undone: {after}"
     );
+    // The attach moved into `read_and_attach` on 2026-09-15; the CLAIM is
+    // unchanged — the re-read path must still reach it, and it must still
+    // attach. Asserted in two halves because it now spans two modules, and
+    // either half alone would be satisfied by a path that called nothing.
     assert!(
-        after.contains("attach_read"),
-        "the read must still be attached on the re-read path — otherwise \
-         pressing Answer on unchanged text runs a read nobody ever sees"
+        after.contains("read_and_attach("),
+        "the re-read path must still reach the read — otherwise pressing Answer \
+         on unchanged text runs nothing and shows her the last critique: {after}"
+    );
+    assert!(
+        read_module().contains("attach_read("),
+        "the read is no longer attached to any row — a critique that is computed \
+         and never written is one nobody sees twice"
     );
 }
 
@@ -268,7 +296,9 @@ fn both_arms_of_the_version_decision_are_logged() {
 /// What is left to guard is that nobody rebuilds it by hand.
 #[test]
 fn the_footnote_list_comes_from_the_single_authority() {
-    let body = post_answer_body();
+    // The read moved one module along (Rule 17, 2026-09-15). Same claim, same
+    // words, read from where the code now is.
+    let body = read_module();
 
     assert!(
         body.contains("citable_sources()"),
@@ -284,5 +314,170 @@ fn the_footnote_list_comes_from_the_single_authority() {
         !body.contains(".chain(payload.receipts.iter())"),
         "points and receipts are being assembled here again rather than taken \
          from the authority: {body}"
+    );
+}
+
+// =============================================================================
+// The Answer-analysis switch: off means NO MODEL WAS ASKED
+// =============================================================================
+//
+// CC_TASK_PRACTICE_POLISH_v1 item 3. The ruling is absolute — "off ⇒ the read is
+// NEVER requested — no model call, nothing in flight" — and it cannot be kept by
+// the browser alone: saving an answer and reading it are ONE request, so a
+// browser that wants no read still has to make the call that would produce one.
+// The wish therefore travels with the answer and the handler obeys it, and these
+// pin that it does.
+//
+// Same limit as every scan above: the shape, not the behaviour. A database tier
+// would assert the row instead.
+
+/// The handler function ALONE — signature to its own closing brace.
+///
+/// ## Why not [`post_answer_body`]
+///
+/// That one runs to the next `pub async fn`, so it also swallows the private
+/// helpers declared after the handler — `read_and_attach` and `read_for` among
+/// them. That is what its own assertions want (they are about what those helpers
+/// do). These assertions are about WHERE a call sits relative to a branch, and a
+/// helper's own definition inside the slice would satisfy "the call is present"
+/// while proving nothing about the branch.
+fn post_answer_fn() -> String {
+    let source = handler();
+    let from = source
+        .find("pub async fn post_practice_answer(")
+        .expect("the answer handler is declared");
+    let rest = &source[from..];
+    // The first line that is a brace in column zero closes the function: this
+    // file's own style puts every nested brace under at least four spaces.
+    let to = rest.find("\n}").map(|i| i + 2).unwrap_or(rest.len());
+    without_comments(&rest[..to])
+}
+
+/// The model is asked ONLY on the branch where a read was wanted.
+///
+/// The one assertion this whole feature rests on. A `read_and_attach` call that
+/// drifted above the `if` — a refactor, a merge — would restore the model call
+/// for every answer while every other test in this repository stayed green, and
+/// the only visible symptom would be a bill.
+#[test]
+fn the_model_is_asked_only_when_a_read_was_requested() {
+    let body = post_answer_fn();
+
+    let branch = body
+        .find("if body.want_read {")
+        .expect("the switch must be a branch in the handler, not a filter elsewhere");
+    let calls: Vec<usize> = body
+        .match_indices("read_and_attach(")
+        .map(|(i, _)| i)
+        .collect();
+
+    assert_eq!(
+        calls.len(),
+        1,
+        "the read is reached from exactly one place, or the branch above it \
+         guards only one of several doors: {body}"
+    );
+    assert!(
+        calls[0] > branch,
+        "the read is asked for BEFORE the switch is consulted — off would then \
+         mean a model call whose answer is thrown away: {body}"
+    );
+    assert!(
+        body.contains("ReadOutcome::not_requested()"),
+        "the off arm must return the NAMED no-read outcome, so the response \
+         carries no verdict and the row's reason has a name: {body}"
+    );
+}
+
+/// Nothing is attached to an existing row when nobody asked for a read.
+///
+/// ## ⚑ The defect this exists to prevent
+///
+/// Pressing Answer on unchanged text re-uses the standing answer row. If the off
+/// arm attached anything to it, Marie would lose a critique she already had —
+/// silently, and as a side effect of a switch about FUTURE reads. The attach
+/// lives inside `read_and_attach`, which the off arm never reaches; this asserts
+/// the handler itself never attaches.
+#[test]
+fn the_off_arm_cannot_overwrite_a_read_that_already_stands() {
+    let body = post_answer_fn();
+
+    assert!(
+        !body.contains("attach_read("),
+        "the handler attaches a read directly again — the off arm must be \
+         unable to reach any write to an existing row: {body}"
+    );
+}
+
+/// The two "no read yet" markers are chosen by the switch, at INSERT time.
+///
+/// Standing Rule 1: a row nobody asked a question about must not wear the marker
+/// that means "a model is being asked right now", which is also the shape of a
+/// backend that died mid-read.
+#[test]
+fn a_new_row_records_which_kind_of_no_read_it_is() {
+    let body = post_answer_fn();
+
+    assert!(
+        body.contains("READ_IN_FLIGHT"),
+        "the in-flight marker is gone from the insert: {body}"
+    );
+    assert!(
+        body.contains("READ_NOT_REQUESTED"),
+        "a row written with the switch off must say nobody asked, not that a \
+         model is being asked: {body}"
+    );
+}
+
+/// An absent `want_read` means what it meant before the field existed.
+///
+/// `#[serde(default)]` on a `bool` yields FALSE, which would turn the read off
+/// for every caller that predates the switch — a behaviour change nobody asked
+/// for, delivered silently. The named default says `true`.
+#[test]
+fn a_request_that_does_not_mention_the_switch_still_gets_its_read() {
+    let dto =
+        std::fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dto/practice.rs"))
+            .expect("the practice DTOs are on disk");
+    let dto = without_comments(&dto);
+
+    assert!(
+        dto.contains("#[serde(default = \"want_read_by_default\")]"),
+        "want_read must default through a NAMED function — bare #[serde(default)] \
+         on a bool is false, which silently retires the read for old callers"
+    );
+    assert!(
+        dto.contains("fn want_read_by_default() -> bool {\n    true\n}"),
+        "the default must be TRUE: absent means what it meant yesterday"
+    );
+
+    // A request the browser sends with the switch ON decodes as a read wanted,
+    // and one with it OFF decodes as no read — the serde contract itself, not a
+    // scan of it.
+    let asked: crate::dto::practice::AnswerRequest = serde_json::from_str(
+        r#"{"session_id":"00000000-0000-0000-0000-000000000000",
+             "question_id":"00000000-0000-0000-0000-000000000000",
+             "answer_text":"I filed it.","dont_recall":false,"want_read":true}"#,
+    )
+    .expect("a request naming the switch decodes");
+    assert!(asked.want_read);
+
+    let declined: crate::dto::practice::AnswerRequest = serde_json::from_str(
+        r#"{"session_id":"00000000-0000-0000-0000-000000000000",
+             "question_id":"00000000-0000-0000-0000-000000000000",
+             "answer_text":"I filed it.","dont_recall":false,"want_read":false}"#,
+    )
+    .expect("a request declining the read decodes");
+    assert!(!declined.want_read);
+
+    let silent: crate::dto::practice::AnswerRequest = serde_json::from_str(
+        r#"{"session_id":"00000000-0000-0000-0000-000000000000",
+             "question_id":"00000000-0000-0000-0000-000000000000",
+             "answer_text":"I filed it.","dont_recall":false}"#,
+    )
+    .expect("a request that predates the switch decodes");
+    assert!(
+        silent.want_read,
+        "a caller that never heard of the switch must still get its read"
     );
 }

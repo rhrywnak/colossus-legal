@@ -50,6 +50,7 @@ import {
   type SelfCheck,
 } from "../services/practice";
 import { fetchSitting, skipPracticeQuestion, type Sitting } from "../services/practiceFlow";
+import { browserStore, readAnalysis } from "../components/practice/answerAnalysis";
 import { practicePath } from "../utils/routePaths";
 import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 import { requeue } from "./practiceQueue";
@@ -210,6 +211,12 @@ const PracticeSessionPage: React.FC = () => {
       // this build has no third state to distinguish, and it says so by
       // sending null rather than an empty array she never saw.
       pointsTo: pointsTo.length > 0 ? pointsTo : null,
+      // ⚑ THE SWITCH REACHES THIS SCREEN TOO. The sitting is retired from the
+      // interface but its route is still served, so an answer written here would
+      // otherwise be the one address where "Answer analysis · off" was not true.
+      // Read at the moment of the write: this screen has no bar of its own to
+      // mirror, so the browser's own value is the only honest source.
+      wantRead: readAnalysis(browserStore()),
     })
       .then((answered) => {
         setResult(answered);

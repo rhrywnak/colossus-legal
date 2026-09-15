@@ -47,6 +47,17 @@ export type PracticeQuestion = {
   text: string;
   /** The tactic's NAME, already resolved. `null` withdraws the tag. */
   tactic: string | null;
+  /**
+   * The tactic's CARD NUMBER, 1–7, or `null`.
+   *
+   * ⚑ NOT a duplicate of `tactic` above. That one is what a READER sees — a
+   * name, carrying the braid suffix when the question braids — and this is what
+   * an EDITOR sets. The deck editor's dropdown selects by this number and sends
+   * it back; it cannot select by the name, because `compound · braid` is not a
+   * card and matching it back to a number here would be a second, weaker copy of
+   * a resolution the server already does.
+   */
+  tactic_card: number | null;
   /** The "Built from: …" line. `null` renders no source line. */
   receipt: string | null;
   braid_rows: string | null;
@@ -173,7 +184,29 @@ export type PracticeDeck = {
   open_session: OpenSession | null;
   /** What the editor's add form may attach a new question to. */
   attach_options: PracticeAttachOption[];
+  /**
+   * The seven tactic cards, in card order — the editor dropdowns' options.
+   *
+   * ## ⚑ THE ONLY LIST OF CARD NAMES THIS BUILD HAS
+   *
+   * They come from the stored vocabulary the server already resolves pills
+   * against. Nothing in `frontend/` names a tactic: a list here would be correct
+   * until somebody renamed a card in Settings, and then the tag and the form
+   * would disagree with each other while both rendered perfectly.
+   *
+   * Shorter than seven when the settings row has been trimmed — the same state
+   * in which a question wears no tag at all.
+   */
+  tactic_cards: TacticCard[];
   wording: PracticeWording;
+};
+
+/** One tactic card: the number that is stored, the name that is shown. */
+export type TacticCard = {
+  /** 1–7 — what `practice_questions.tactic` holds. */
+  card: number;
+  /** The card's name as the store has it, with no braid suffix. */
+  name: string;
 };
 
 /** Her four self-check boxes. */
@@ -364,6 +397,10 @@ export async function fetchPracticeDeck(
     !Array.isArray(parsed.points) ||
     !Array.isArray(parsed.receipts) ||
     !Array.isArray(parsed.attach_options) ||
+    // The dropdown has no fallback list to fall back TO — see `tactic_cards`.
+    // An absent array would render two empty selects and silently retire the
+    // only control that can set a tactic.
+    !Array.isArray(parsed.tactic_cards) ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {
@@ -465,6 +502,18 @@ export async function submitPracticeAnswer(input: {
    * answer; `null` says the question of what she would point to never came up.
    */
   pointsTo: string[] | null;
+  /**
+   * Whether to ask a model to read this answer. `false` means NO CALL IS MADE.
+   *
+   * ## ⚑ REQUIRED, deliberately — no default lives here
+   *
+   * Saving and reading are one request, so every caller is choosing on Marie's
+   * behalf whether a model sees what she typed. A default would let a new call
+   * site make that choice by not thinking about it, which is the one way the
+   * Answer-analysis switch could quietly stop meaning anything. TypeScript
+   * refuses the call instead.
+   */
+  wantRead: boolean;
 }): Promise<AnswerResult> {
   const response = await authFetch(`${API_BASE_URL}/api/practice/answers`, {
     method: "POST",
@@ -475,6 +524,7 @@ export async function submitPracticeAnswer(input: {
       answer_text: input.answerText,
       dont_recall: input.dontRecall,
       points_to: input.pointsTo,
+      want_read: input.wantRead,
     }),
     timeoutMs: READ_TIMEOUT_MS,
   });

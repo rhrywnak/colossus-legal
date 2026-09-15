@@ -28,6 +28,11 @@ import React from "react";
 import { useParams } from "react-router-dom";
 
 import PracticeStart, { type PracticeWho } from "../components/practice/PracticeStart";
+import {
+  browserStore,
+  readAnalysis,
+  writeAnalysis,
+} from "../components/practice/answerAnalysis";
 import * as f from "../components/practice/practiceFlowStyles";
 import * as s from "../components/practice/practiceStyles";
 import {
@@ -71,7 +76,37 @@ const PracticePage: React.FC = () => {
   // it because the same hook serves the editor's "all questions" view.
   // Which side the LIST and the practice bar are showing — two controls on one
   // value, so choosing a side to read also aims the button that practises it.
-  const [side, setSide] = React.useState<"george" | "chuck">("george");
+  //
+  // ⚑ CHUCK'S SIDE OPENS THE PAGE (Roman, 2026-09-15, from Marie's first week).
+  // She practises the direct far more often than the cross — it is the half she
+  // will actually be led through — and the page opened on the defense's every
+  // time, which is one control to change before every single sitting. ONE state
+  // and therefore one default: the picker and the tabs cannot disagree about
+  // which side she is looking at.
+  const [side, setSide] = React.useState<"george" | "chuck">("chuck");
+
+  // The Answer-analysis switch. Its VALUE lives in the browser, not here — see
+  // `answerAnalysis.ts` — and this state is the copy the current screen renders.
+  // Read once on mount rather than on every render: reading storage is a
+  // side-effecting call that can throw, and a render is not the place for one.
+  const analysisStore = React.useMemo(() => browserStore(), []);
+  const [analysisOn, setAnalysisOn] = React.useState(() => readAnalysis(analysisStore));
+
+  /**
+   * Flick the switch: remember it, then show it.
+   *
+   * The write is best-effort (a browser may refuse storage) and the screen
+   * follows the state EITHER WAY — a switch that would not move because the
+   * browser would not remember it is a control that appears broken over a
+   * preference nobody can see. The warning is `writeAnalysis`'s own.
+   */
+  const onAnalysis = React.useCallback(
+    (on: boolean) => {
+      writeAnalysis(analysisStore, on);
+      setAnalysisOn(on);
+    },
+    [analysisStore],
+  );
   // `view` stays on `mixed` deliberately. It feeds the title row's print lock
   // and the editor's own deck, both of which are about the WHOLE deck: a print
   // button that locked itself because the side currently on screen happens to
@@ -224,6 +259,9 @@ const PracticePage: React.FC = () => {
         view={view}
         editor={editor}
         attachOptions={deck.attach_options}
+        tacticCards={deck.tactic_cards}
+        analysisOn={analysisOn}
+        onAnalysis={onAnalysis}
         onDelete={remove}
         onUndoDelete={putBack}
         deletingId={deletingId}

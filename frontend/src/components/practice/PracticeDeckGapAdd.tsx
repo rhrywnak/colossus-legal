@@ -27,6 +27,7 @@ import React from "react";
 import type {
   PracticeAttachOption,
   PracticeWording,
+  TacticCard,
 } from "../../services/practice";
 import type { NewQuestion } from "../../services/practiceEditor";
 import PracticeAddQuestion from "./PracticeAddQuestion";
@@ -58,6 +59,8 @@ interface Props {
   onAdd: (question: NewQuestion) => void;
   wording: PracticeWording;
   attachOptions: PracticeAttachOption[];
+  /** The tactic cards the form's dropdown offers. */
+  tacticCards: TacticCard[];
   /** True when a write may be attempted — none is in flight. */
   ready: boolean;
 }
@@ -83,12 +86,14 @@ const PracticeDeckGapAdd: React.FC<Props> = ({
   onAdd,
   wording,
   attachOptions,
+  tacticCards,
   ready,
 }) =>
   open ? (
     <PracticeAddQuestion
       wording={wording}
       attachOptions={attachOptions}
+      tacticCards={tacticCards}
       ready={ready}
       onAdd={(question) =>
         onAdd({ ...question, after: anchor, at_start: anchor === null })

@@ -74,6 +74,11 @@ fn column_for(field: &str) -> Option<&'static str> {
         "watch_for" => Some("watch_for"),
         "stronger" => Some("stronger"),
         "follows" => Some("follows_key"),
+        // The `Built from: …` line. Authored like the three above it, and
+        // editable from 2026-09-15: it was the one authored field on a row that
+        // no editor could correct. Its column CHECK refuses a BLANK string, which
+        // the handler never sends — a blank clears the field to NULL.
+        "receipt" => Some("receipt"),
         _ => None,
     }
 }
@@ -97,6 +102,7 @@ fn current(question: &PracticeQuestionRecord, field: &str) -> Option<String> {
         "watch_for" => question.watch_for.clone(),
         "stronger" => question.stronger.clone(),
         "follows" => question.follows_key.clone(),
+        "receipt" => question.receipt.clone(),
         "tactic" => question.tactic.map(|t| t.to_string()),
         _ => None,
     }
@@ -121,12 +127,28 @@ async fn write_field(
         // The only editable column that is not TEXT. A value that will not parse
         // is a 400 rather than a silent clear: "tactic: banana" is a client bug,
         // and clearing the card it names would hide it.
+        //
+        // ## ⚑ THE RANGE IS CHECKED HERE, not left to the column (2026-09-15)
+        //
+        // Until today this arm parsed and stopped. `8` parses, so it reached the
+        // UPDATE and was refused by `CHECK (tactic BETWEEN 1 AND 7)` — arriving at
+        // the screen as a 500, which says "this system broke" about a value the
+        // message one line below already calls invalid. Same rule, same words and
+        // a 400, exactly as `practice_editor_add_fences::fence_tactic` has always
+        // done on the add path.
+        let refuse = |raw: &str| AppError::BadRequest {
+            message: format!("tactic must be a card number from 1 to {TACTIC_CARD_MAX}"),
+            details: serde_json::json!({ "field": "value", "value": raw }),
+        };
         let tactic = match value {
             None => None,
-            Some(raw) => Some(raw.parse::<i16>().map_err(|_| AppError::BadRequest {
-                message: format!("tactic must be a card number from 1 to {TACTIC_CARD_MAX}"),
-                details: serde_json::json!({ "field": "value", "value": raw }),
-            })?),
+            Some(raw) => {
+                let card = raw.parse::<i16>().map_err(|_| refuse(raw))?;
+                if !(1..=TACTIC_CARD_MAX).contains(&card) {
+                    return Err(refuse(raw));
+                }
+                Some(card)
+            }
         };
         return set_tactic(tx, question_id, tactic)
             .await
@@ -385,3 +407,7 @@ pub async fn post_hide_question(
     tracing::info!(%question_id, hidden = body.hidden, by = %by, "practice deck: a question was hidden or restored");
     Ok(Json(DeckChangeResponse { question_id }))
 }
+
+#[cfg(test)]
+#[path = "practice_editor_tests.rs"]
+mod tests;

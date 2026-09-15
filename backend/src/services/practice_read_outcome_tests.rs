@@ -193,11 +193,32 @@ fn every_read_outcome_writes_a_distinguishable_row() {
         &PayloadFailure::TacticUnnamed { card: 5 },
     );
     let stored = ReadOutcome::stored("Fine. \"I don't recall\" is a complete answer.".to_string());
+    // The fifth state, added with the Answer-analysis switch: NOBODY ASKED. It
+    // joins this walk rather than sitting beside it, because the state it is
+    // most easily confused with — a read in flight — is the one an operator
+    // would chase a vendor outage over.
+    let not_requested = ReadOutcome::not_requested();
+    // And the in-flight row, which is what the INSERT writes while a model is
+    // being asked. It is not a `ReadOutcome` — the handler writes the marker
+    // straight onto `NewAnswer` — so it is built here in the shape it lands in.
+    let in_flight = ReadOutcome {
+        error: Some(
+            "no read yet: the answer was recorded and the model is being asked".to_string(),
+        ),
+        ..Default::default()
+    };
 
-    let rows: Vec<String> = [&accepted, &model_abstained, &load_failed, &stored]
-        .iter()
-        .map(|outcome| format!("{:?}", outcome.to_row()))
-        .collect();
+    let rows: Vec<String> = [
+        &accepted,
+        &model_abstained,
+        &load_failed,
+        &stored,
+        &not_requested,
+        &in_flight,
+    ]
+    .iter()
+    .map(|outcome| format!("{:?}", outcome.to_row()))
+    .collect();
 
     for (i, left) in rows.iter().enumerate() {
         for (j, right) in rows.iter().enumerate() {
@@ -209,6 +230,63 @@ fn every_read_outcome_writes_a_distinguishable_row() {
             }
         }
     }
+}
+
+/// A read nobody asked for records WHY there is nothing, and nothing else.
+///
+/// ## Domain note: what an operator must be able to tell apart
+///
+/// A row with no read text has four possible histories: the model was asked and
+/// is still answering, the model was asked and failed, the model was never asked
+/// because an input would not load, and — from 2026-09-15 — the model was never
+/// asked because Marie turned the switch off. Only the last of those is NORMAL,
+/// and a marker shared with any of the other three would have somebody reading
+/// logs for a fault that does not exist.
+#[test]
+fn a_read_nobody_asked_for_says_so_and_claims_nothing_else() {
+    let row = ReadOutcome::not_requested().to_row();
+
+    assert_eq!(
+        row.read_error.as_deref(),
+        Some(READ_NOT_REQUESTED),
+        "the row must say WHY it carries no read"
+    );
+    // No judgement of any kind: the neutral rail, which the screen draws as
+    // nothing at all rather than as a verdict.
+    assert_eq!(row.read_text, None);
+    assert_eq!(row.read_ok, None, "no rail — not a green one");
+    assert_eq!(row.read_abstain_reason, None, "she was not told anything");
+    assert_eq!(row.read_call, None);
+    assert_eq!(row.read_why, None);
+    assert_eq!(row.read_pointers, None);
+    assert_eq!(row.read_keys, None);
+    // Nothing was asked, so nothing was spent and no prompt was used.
+    assert_eq!(row.read_version, None, "no prompt produced this");
+    assert_eq!(row.read_model, None);
+    assert_eq!(row.read_input_tokens, None);
+    assert_eq!(row.read_output_tokens, None);
+    assert_eq!(row.read_attempts, None, "the model was never asked");
+    assert_eq!(row.read_ms, None);
+    assert_eq!(row.read_raw_reply, None);
+}
+
+/// The two "no read yet" markers are different sentences.
+///
+/// They are the pair most easily collapsed into one — both mean an answer row
+/// with nothing attached — and collapsing them is exactly what Standing Rule 1
+/// forbids: one is a model being asked right now (or a backend that died
+/// mid-read), the other is a model nobody asked.
+#[test]
+fn the_not_requested_marker_is_not_the_in_flight_one() {
+    assert_ne!(
+        READ_NOT_REQUESTED,
+        crate::api::practice_answer_read::READ_IN_FLIGHT,
+        "the two markers must not be the same sentence"
+    );
+    assert!(
+        READ_NOT_REQUESTED.contains("switch"),
+        "the marker must name the switch, so an operator knows this was a choice"
+    );
 }
 
 /// An overrun kept "as returned" says so ON THE ROW, not only in a log.

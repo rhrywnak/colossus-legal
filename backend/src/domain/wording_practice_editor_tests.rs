@@ -36,6 +36,14 @@ const HOTFIX_MIGRATION: &str =
 const NAV_MIGRATION: &str =
     "pipeline_migrations/20260819152958_nav_cleanup_scenario_header_buttons.sql";
 
+/// The practice polish added two rows: the receipt's label and the tactic
+/// dropdown's blank option.
+///
+/// A fourth file, for the reason the third one is named — this block's rows
+/// arrive with the tasks that need them, and a test reading only the earlier
+/// files would call the newest two un-seeded.
+const POLISH_MIGRATION: &str = "pipeline_migrations/20260915075001_practice_polish_wording.sql";
+
 /// Migrations that CORRECT a value this block's seed already wrote.
 ///
 /// ## ⚑ Why this exists, and what its absence was doing
@@ -75,6 +83,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_EDITOR_FIELD_FOLLOWS, "Follows (George question)"),
     (KEY_EDITOR_FIELD_WATCH_FOR, "Watch for"),
     (KEY_EDITOR_FIELD_STRONGER, "Stronger answer"),
+    (KEY_EDITOR_FIELD_RECEIPT, "Built from"),
     (KEY_EDITOR_FIELD_SIDE, "Side"),
     (KEY_EDITOR_FIELD_ATTACH, "Attach to"),
     (KEY_EDITOR_SIDE_CROSS, "George's side (cross)"),
@@ -84,6 +93,7 @@ const TEST_SEED: &[(&str, &str)] = &[
         "Chuck (redirect — follows a George question)",
     ),
     (KEY_EDITOR_ATTACH_NONE, "no receipt"),
+    (KEY_EDITOR_TACTIC_NONE, "no tactic"),
     (KEY_EDITOR_ATTACH_INSTANCE_TEMPLATE, "instance {n} — {text}"),
     (KEY_EDITOR_ATTACH_POINT_TEMPLATE, "point {n} — {text}"),
     (KEY_EDITOR_ADD_LABEL, "+ Add a question"),
@@ -172,7 +182,9 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the attribution hotfix migration is on disk");
     let nav = std::fs::read_to_string(root.join(NAV_MIGRATION))
         .expect("the nav cleanup migration is on disk");
-    let sql = format!("{part_b}\n{nav}");
+    let polish = std::fs::read_to_string(root.join(POLISH_MIGRATION))
+        .expect("the practice polish migration is on disk");
+    let sql = format!("{part_b}\n{nav}\n{polish}");
     let corrections: String = CORRECTION_MIGRATIONS
         .iter()
         .map(|relative| {

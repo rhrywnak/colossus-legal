@@ -55,6 +55,10 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
     receipts: ["your certified letter, 16 Nov 2009"],
     open_session: null,
     attach_options: [],
+    tactic_cards: [
+      { card: 1, name: "false premise" },
+      { card: 2, name: "compound" },
+    ],
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -95,6 +99,16 @@ describe("fetchPracticeDeck", () => {
     // A missing `wording` would leave every label on all four screens blank —
     // silently, because React renders `undefined` as nothing at all.
     okFetch({ scenario_id: SCENARIO, code: "S-5", title: "x", questions: [], points: [] });
+    await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
+  });
+
+  it("refuses a payload with no tactic cards", async () => {
+    // ⚑ There is no fallback list to fall back TO: the seven card names live in
+    // the settings store and reach the browser only here. An absent array would
+    // render two empty dropdowns in the deck editor — the only control that can
+    // set a tactic, silently retired, on a page that otherwise looked perfect.
+    const { tactic_cards: _dropped, ...withoutCards } = deck();
+    okFetch(withoutCards);
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 });
@@ -154,6 +168,7 @@ describe("the write paths", () => {
       answerText: "I asked in writing.",
       dontRecall: false,
       pointsTo: ["your certified letter, 16 Nov 2009"],
+      wantRead: true,
     });
 
     const [url, options] = mock.mock.calls[0];
@@ -165,6 +180,7 @@ describe("the write paths", () => {
       answer_text: "I asked in writing.",
       dont_recall: false,
       points_to: ["your certified letter, 16 Nov 2009"],
+      want_read: true,
     });
     expect(result).toEqual({
       answer_id: ANSWER,
@@ -178,6 +194,38 @@ describe("the write paths", () => {
     });
   });
 
+  // =========================================================================
+  // ⚑ THE ANSWER-ANALYSIS SWITCH, ON THE WIRE
+  // =========================================================================
+  //
+  // The read is NOT a request of its own — it happens inside this POST — so
+  // "off means no model call" is a FIELD, and this is where that claim can be
+  // checked at all. A test that only watched for a second request would pass
+  // for ever while every answer was still being read.
+  it("asks for NO read when the answer-analysis switch is off", async () => {
+    const mock = okFetch({ answer_id: ANSWER });
+
+    await submitPracticeAnswer({
+      sessionId: SESSION,
+      questionId: "q1",
+      answerText: "I asked in writing.",
+      dontRecall: false,
+      pointsTo: null,
+      wantRead: false,
+    });
+
+    // MUTATION: drop `want_read` from the body, or send a constant true → the
+    // server reads every answer, the switch is decoration, and nothing else in
+    // this repository notices.
+    const body = JSON.parse(mock.mock.calls[0][1].body);
+    expect(body.want_read).toBe(false);
+    // And the answer itself still travels — off withholds the READ, never the
+    // write. A switch that quietly stopped saving her answers would be the
+    // worst possible reading of "off".
+    expect(body.answer_text).toBe("I asked in writing.");
+    expect(mock.mock.calls).toHaveLength(1);
+  });
+
   it("keeps a missing read as null rather than inventing a sentence", async () => {
     // The whole failure posture of the drill: no read is a THIRD state, and the
     // page shows the stored "no system read this time" line. A client-side
@@ -189,6 +237,7 @@ describe("the write paths", () => {
       answerText: "",
       dontRecall: false,
       pointsTo: null,
+      wantRead: true,
     });
     expect(result.read_text).toBeNull();
     expect(result.read_ok).toBeNull();
@@ -262,6 +311,7 @@ describe("the write paths", () => {
         answerText: "x",
         dontRecall: false,
         pointsTo: null,
+        wantRead: true,
       }),
     ).rejects.toThrow(/was not recorded/);
   });
