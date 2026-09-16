@@ -797,9 +797,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WAR_ROOM_WORDING_KEYS.len(),
-        4,
+        26,
         "task 396 P3b: the subtitle R2 ruled and never migrated, plus the three \
-         metric tile labels"
+         metric tile labels — and CC_TASK_WAR_ROOM_v1's twenty-two status-card \
+         words: two headers, six labels, the Matrix and deck templates with their \
+         em-dash rows, the scan line and its never-run line, the two halves of \
+         the answered line, the changed and up-to-date pills, and four actions"
     );
     assert_eq!(
         PRACTICE_WORDING_KEYS.len(),

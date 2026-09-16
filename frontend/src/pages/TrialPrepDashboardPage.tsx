@@ -20,8 +20,7 @@ import {
   MetricsBand,
 } from "../components/TrialPrepViews";
 import { listSubsets } from "../services/caseTimelineSubsets";
-import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
-import ScenarioCard from "../components/ScenarioCard";
+import WarRoomCard from "../components/WarRoomCard";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
@@ -40,9 +39,11 @@ const subtitleStyle: React.CSSProperties = {
   fontSize: "14px",
   color: "var(--text-secondary)",
 };
-const gridStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+// One horizontal status card per row (CC_TASK_WAR_ROOM_v1) — the grid of
+// 210px cards is gone with the card it laid out.
+const listStyle: React.CSSProperties = {
+  display: "flex",
+  flexDirection: "column",
   gap: "1rem",
 };
 // Loading + error styling reuse the SAME design tokens the Proof Matrix page's
@@ -263,35 +264,21 @@ const TrialPrepDashboardPage: React.FC = () => {
       {dashboard.scenarios.length === 0 ? (
         <EmptyState message="No scenarios generated yet." />
       ) : (
-        <div style={gridStyle}>
+        <div style={listStyle}>
+          {/* Sorted S-1 → S-14 by the backend. The timeline opener now lives in
+              each card's action row rather than beside the card, and only on a
+              scenario a subset carries — `carrying` is still the page's one read
+              of that, and the dock inside still hides itself if it disagrees. */}
           {dashboard.scenarios.map((s) => (
-            // The dock sits BESIDE the card rather than inside it: `ScenarioCard`
-            // is rendered from eleven places and none of the other ten wants a
-            // timeline button. Wrapping keeps its contract untouched.
-            <div key={s.id}>
-              <ScenarioCard scenario={s} slug={slug} onRequestDelete={setPendingDelete} />
-              {/* ⚑ NO STRIP HERE, AND IT IS NOT AN OVERSIGHT — measured, T5.
-                  Roman's ruling 6 puts the strip on four surfaces including
-                  "the dashboard row". This page has no row: `gridStyle` is a
-                  THREE-COLUMN grid of 230px cards. Measured on the running app,
-                  the strip's row 1 needs 378px of content in a 188px box — it
-                  overflows by two to one, and the title is the part that goes.
-                  `ScenarioCard` also already renders the code, the title, the
-                  status dot and Delete, so a strip beside it would say all of
-                  that twice — the duplication ruling 5 just removed from the
-                  rehearsal page.
-
-                  So this keeps what was here before: the card, and the dock for
-                  the View Timeline button. No regression, and no broken header
-                  on the war room. The choice between widening this grid to one
-                  column and giving the strip a narrow mode is a design call and
-                  it is in the T5 report under NEEDS A RULING. */}
-              {carrying.has(s.code) && (
-                <ScenarioTimelineDock slug={slug} scenarioId={s.id} />
-              )}
-            </div>
+            <WarRoomCard
+              key={s.id}
+              scenario={s}
+              slug={slug}
+              wording={dashboard.war_room_wording}
+              hasTimeline={carrying.has(s.code)}
+              onRequestDelete={setPendingDelete}
+            />
           ))}
-          {/* On-demand entry point — visual affordance only in Stage 1. */}
         </div>
       )}
 

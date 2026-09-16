@@ -168,12 +168,16 @@ impl ScenarioDashboardAssembler {
         create_wording: ScenarioCreateWordingDto,
         war_room_wording: WarRoomWordingDto,
     ) -> Result<TrialPrepDashboard, ScenarioDashboardError> {
-        let records = list_scenarios_for_case(&self.pipeline_pool, case_slug)
+        let mut records = list_scenarios_for_case(&self.pipeline_pool, case_slug)
             .await
             .map_err(|source| ScenarioDashboardError::Store {
                 case_slug: case_slug.to_string(),
                 source,
             })?;
+
+        // S-1 → S-14 (CC_TASK_WAR_ROOM_v1): the code's ordinal, not creation order,
+        // so a scenario sits where a human counting codes expects to find it.
+        records.sort_by_key(|r| r.code_ordinal);
 
         // Pure shaping, no I/O. Until 2026-08-07 this loop ran one graph read per
         // anchor allegation per scenario to compute a REBUTS count for the card —
@@ -370,6 +374,9 @@ fn record_to_card(record: &ScenarioRecord) -> Result<ScenarioSummary, ScenarioDa
         // Pattern analysis is not wired — `None` = "not yet analysed" (pending),
         // the correct state (distinct from `Some(0)` = "analysed, none found").
         baseless_repeat_count: None,
+        theme_statement: record.theme_statement.clone(),
+        // Filled by the handler from the status reads — see the field's doc.
+        progress: Default::default(),
     })
 }
 
@@ -456,6 +463,8 @@ mod tests {
             attack: "attack".to_string(),
             status,
             baseless_repeat_count: None,
+            theme_statement: None,
+            progress: Default::default(),
         }
     }
 

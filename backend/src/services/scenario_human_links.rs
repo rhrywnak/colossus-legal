@@ -264,7 +264,7 @@ pub(crate) fn link_summary(links: &[CardHumanLink], wording: &Wording) -> Option
     ))
 }
 
-/// The progress line for the stuck pile, or `None` when nothing is stuck.
+/// How much of the stuck pile a human has cleared: `(linked, stuck)`.
 ///
 /// ## What the two numbers actually count
 ///
@@ -274,15 +274,19 @@ pub(crate) fn link_summary(links: &[CardHumanLink], wording: &Wording) -> Option
 /// linked itself was never stuck and is in neither number, which is why this is
 /// not simply "cards with human links over pool size".
 ///
+/// ## Why the numbers are separate from the sentence (CC_TASK_WAR_ROOM_v1)
+///
+/// The War Room's status card shows the same two numbers and renders them from
+/// its own stored template. Counting here, once, and wording in two places is what
+/// keeps "4 of 99" on the dashboard and "4 of 99 linked." on the scenario page
+/// from ever disagreeing — there is one loop that decides what "stuck" means.
+///
 /// ## Domain note: pool truth, never keystrokes (the 1.7E-a ruling)
 ///
 /// Both numbers are derived from the payload being served. A count of "links
 /// saved this session" would read 0 after a refresh while the chips beside it said
 /// otherwise — two surfaces of one screen disagreeing about the same fact.
-pub(crate) fn link_progress<'a>(
-    cards: impl Iterator<Item = &'a ScenarioCard>,
-    wording: &Wording,
-) -> Option<String> {
+pub(crate) fn link_counts<'a>(cards: impl Iterator<Item = &'a ScenarioCard>) -> (usize, usize) {
     let mut stuck = 0usize;
     let mut linked = 0usize;
 
@@ -299,7 +303,17 @@ pub(crate) fn link_progress<'a>(
             linked += 1;
         }
     }
+    (linked, stuck)
+}
 
+/// The progress line for the stuck pile, or `None` when nothing is stuck.
+///
+/// The counting is [`link_counts`]; this only words it.
+pub(crate) fn link_progress<'a>(
+    cards: impl Iterator<Item = &'a ScenarioCard>,
+    wording: &Wording,
+) -> Option<String> {
+    let (linked, stuck) = link_counts(cards);
     if stuck == 0 {
         return None;
     }
@@ -315,4 +329,4 @@ pub(crate) fn link_progress<'a>(
 
 #[cfg(test)]
 #[path = "scenario_human_links_tests.rs"]
-mod tests;
+pub(crate) mod tests;

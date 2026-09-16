@@ -195,7 +195,9 @@ describe("Delete is a visible button, guarded by the dialog (D7 OVERRULED 2026-0
     // card's `onRequestDelete` — and neither may call the delete service itself.
     for (const [file, callback] of [
       ["scenario/ScenarioHeaderStrip.tsx", "onDelete"],
-      ["ScenarioCard.tsx", "onRequestDelete"],
+      // CC_TASK_WAR_ROOM_v1: the War Room card replaced `ScenarioCard.tsx` and
+      // keeps the same contract — it raises the request, the page confirms.
+      ["WarRoomCard.tsx", "onRequestDelete"],
     ]) {
       const source = read("components", file);
       expect(source, `${file} must raise the request, not perform it`).not.toContain(

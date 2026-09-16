@@ -12,6 +12,14 @@ use crate::api::scenario_cards_hydrate::refs_outside_pool;
 use crate::bias::dto::DocumentRef;
 use crate::repositories::pipeline_repository::ScenarioFactRefRecord;
 use crate::services::scenario_card_assembly::apply_display_order;
+// The route's assembly imports moved to `scenario_cards_core` with the read they
+// serve (CC_TASK_WAR_ROOM_v1); these tests still drive that assembly directly.
+use std::collections::HashMap;
+
+use crate::bias::dto::BiasInstance;
+use crate::services::scenario_card_assembly::{
+    assemble, build_ref_states, page_key, HumanTouchIndex, PoolIndexes,
+};
 
 fn instance(id: &str, page: Option<i64>) -> BiasInstance {
     BiasInstance {

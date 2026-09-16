@@ -118,3 +118,4 @@ pub mod theme_scan_run;
 pub mod theme_scan_start;
 pub mod theme_scan_validate;
 pub mod vllm_model_gate;
+pub mod war_room_progress;

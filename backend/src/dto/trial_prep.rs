@@ -21,6 +21,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
+use crate::dto::war_room_progress::ScenarioProgress;
 use crate::dto::war_room_wording::WarRoomWordingDto;
 
 /// Scenario lifecycle — drives the status dot and labels on each card.
@@ -71,6 +72,17 @@ pub struct ScenarioSummary {
     /// "no data sent" state — exactly the kind of indistinguishable failure
     /// Standing Rule 1 forbids. `null` and `0` must stay distinguishable.
     pub baseless_repeat_count: Option<u32>,
+
+    /// The scenario's theme statement — our answer in one sentence — or `null`
+    /// when none is written. The card renders nothing for `null` (ruling Q3).
+    pub theme_statement: Option<String>,
+
+    /// Where the scenario stands: the status card's numbers (CC_TASK_WAR_ROOM_v1).
+    ///
+    /// `record_to_card` starts it at zero and the dashboard handler REPLACES it
+    /// with the reads, failing the request for any scenario the reads did not
+    /// cover — so a zero card on screen is a measured zero, never an unfilled one.
+    pub progress: ScenarioProgress,
 }
 
 /// A single living-binder notice ("N new instances …").
@@ -283,14 +295,46 @@ mod tests {
                         "id": "marie-obstructive",
                         "attack": "Marie is obstructive",
                         "status": "needs_evidence",
-                        "baseless_repeat_count": 3
+                        "baseless_repeat_count": 3,
+                        "theme_statement": null,
+                        "progress": {
+                            "facts_included": 0,
+                            "candidates_to_rule": 0,
+                            "matrix_linked": { "linked": 0, "total": 0 },
+                            "last_scan": null,
+                            "talking_points": 0,
+                            "watch_items": 0,
+                            "deck": { "questions": 0, "built_on": null },
+                            "answered": {
+                                "total": 0, "of": 0,
+                                "chuck_answered": 0, "chuck_total": 0,
+                                "defense_answered": 0, "defense_total": 0
+                            },
+                            "marie_changed": 0
+                        }
                     },
                     {
                         "code": "S-2",
                         "id": "selective-sanctions",
                         "attack": "Selective sanctions",
                         "status": "draft",
-                        "baseless_repeat_count": null
+                        "baseless_repeat_count": null,
+                        "theme_statement": null,
+                        "progress": {
+                            "facts_included": 0,
+                            "candidates_to_rule": 0,
+                            "matrix_linked": { "linked": 0, "total": 0 },
+                            "last_scan": null,
+                            "talking_points": 0,
+                            "watch_items": 0,
+                            "deck": { "questions": 0, "built_on": null },
+                            "answered": {
+                                "total": 0, "of": 0,
+                                "chuck_answered": 0, "chuck_total": 0,
+                                "defense_answered": 0, "defense_total": 0
+                            },
+                            "marie_changed": 0
+                        }
                     }
                 ],
                 "create_wording": {
@@ -306,7 +350,29 @@ mod tests {
                     "subtitle": "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
                     "metric_scenarios_label": "Scenarios",
                     "metric_ready_label": "Ready",
-                    "metric_draft_label": "Draft"
+                    "metric_draft_label": "Draft",
+                    "card_evidence_heading": "Evidence",
+                    "card_prep_heading": "Prep & rehearsal",
+                    "card_facts_included_label": "Facts included",
+                    "card_candidates_label": "Candidates to rule",
+                    "card_matrix_linked_label": "Matrix linked",
+                    "card_matrix_linked_template": "{linked} of {total}",
+                    "card_matrix_linked_none": "—",
+                    "card_scan_template": "Scan: {model} · {date} · {relevant} relevant of {total}",
+                    "card_scan_never": "Scan: never run",
+                    "card_talking_points_label": "Talking points",
+                    "card_watch_items_label": "Watch items",
+                    "card_deck_label": "Deck",
+                    "card_deck_template": "{count} questions · {date}",
+                    "card_deck_none": "—",
+                    "card_answered_count_template": "{answered} of {total}",
+                    "card_answered_split_template": "answered · Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total}",
+                    "card_changed_template": "{count} new or changed for Marie",
+                    "card_up_to_date": "Up to date",
+                    "card_open_action": "Open scenario",
+                    "card_practice_action": "Practice",
+                    "card_timeline_action": "Timeline",
+                    "card_delete_action": "Delete"
                 }
             })
         );
@@ -354,6 +420,8 @@ mod tests {
                     attack: "Marie is obstructive".to_string(),
                     status: ScenarioStatus::NeedsEvidence,
                     baseless_repeat_count: Some(3),
+                    theme_statement: None,
+                    progress: Default::default(),
                 },
                 ScenarioSummary {
                     code: "S-2".to_string(),
@@ -362,6 +430,8 @@ mod tests {
                     status: ScenarioStatus::Draft,
                     // Analysis pending → must serialize as null, not be omitted.
                     baseless_repeat_count: None,
+                    theme_statement: None,
+                    progress: Default::default(),
                 },
             ],
             create_wording: ScenarioCreateWordingDto {
@@ -426,6 +496,8 @@ mod tests {
             attack: "Selective sanctions".to_string(),
             status: ScenarioStatus::Draft,
             baseless_repeat_count: None,
+            theme_statement: None,
+            progress: Default::default(),
         };
 
         let value = serde_json::to_value(&card).expect("card serializes");

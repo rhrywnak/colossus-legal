@@ -67,6 +67,7 @@ pub mod scenario_augmentation_read;
 pub mod scenario_card_edit;
 pub mod scenario_card_fact_cards;
 pub mod scenario_cards;
+pub mod scenario_cards_core;
 pub mod scenario_cards_hydrate;
 pub mod scenario_fact_curation;
 pub mod scenario_fact_curation_reads;
@@ -84,6 +85,7 @@ pub mod timeline;
 pub mod timeline_subsets;
 pub mod timeline_write;
 pub mod trial_prep;
+pub mod war_room_progress;
 
 /// API router — all routes are relative (no `/api/` prefix).
 ///

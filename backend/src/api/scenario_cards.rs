@@ -23,8 +23,6 @@
 //! (`colossus_legal_v2`), so those reads use `&state.pipeline_pool`, NOT
 //! `state.pg_pool`.
 
-use std::collections::HashMap;
-
 use axum::{
     extract::{Path, State},
     Json,
@@ -32,32 +30,15 @@ use axum::{
 
 use crate::{
     auth::AuthUser,
-    bias::{dto::BiasInstance, repository::BiasRepository},
     dto::scenario_card::{ProposalSource, ScenarioCardsResponse},
     error::AppError,
-    repositories::{
-        allegation_options_repository::fetch_allegation_options,
-        pipeline_repository::{
-            get_document_text, list_candidate_ordinals, list_fact_refs_for_scenario,
-            list_links_for_nodes, list_ruled_card_reasons, list_summary_overrides,
-        },
-        scenario_card_repository::fetch_card_extras,
-    },
-    services::scenario_card::collapse_extras,
-    services::scenario_card_assembly::{
-        assemble, attach_ruled_reasons, build_ref_states, count_proposed, page_key,
-        ruled_reason_keys, HumanTouchIndex, PoolIndexes, ProposalIndex,
-    },
-    services::scenario_card_projection::index_by_covered_node,
+    services::scenario_card_assembly::count_proposed,
     services::scenario_cards_scan_state::never_scanned_notice,
-    services::scenario_human_links::resolve_links,
-    services::scenario_link_options::label_index,
-    services::scenario_proposal_lookup::{load_projecting_run, project_run},
     state::AppState,
 };
 
 use super::scenario_card_fact_cards::attach_scenario_fact_cards;
-use super::scenario_cards_hydrate::append_refs_outside_pool;
+use super::scenario_cards_core::{assemble_cards, read_candidate_pool, CardDetail, CardsCore};
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 use super::scenario_gather::resolve_gather_subject;
 
@@ -108,146 +89,14 @@ pub async fn get_scenario_cards(
         )));
     };
 
-    let mut pool = BiasRepository::new(state.graph.clone())
-        .all_evidence_about_subject(&subject_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, subject_id = %subject_id,
-                "failed to read candidate pool for cards");
-            AppError::Internal {
-                message: "failed to read candidate pool".to_string(),
-            }
-        })?;
-
-    // The refs are read BEFORE `node_ids` is computed, because a ruled fact whose
-    // node the gather no longer reaches has to join the pool before anything else
-    // in this handler measures it. See `append_refs_outside_pool` for why that
-    // matters and what it fixes.
-    let refs = list_fact_refs_for_scenario(&state.pipeline_pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to list scenario fact refs for cards");
-            AppError::Internal {
-                message: "failed to list scenario fact refs".to_string(),
-            }
-        })?;
-    append_refs_outside_pool(state.graph.clone(), id, &refs, &mut pool).await?;
-
-    let node_ids: Vec<String> = pool.iter().map(|c| c.evidence_id.clone()).collect();
-
-    let extras = fetch_card_extras(&state.graph, &node_ids)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to read card extras from graph");
-            AppError::Internal {
-                message: "failed to read candidate details".to_string(),
-            }
-        })?;
-    let extras = collapse_extras(extras);
-
-    let ordinals = list_candidate_ordinals(&state.pipeline_pool, id)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to read candidate ordinals for cards");
-            AppError::Internal {
-                message: "failed to read candidate identifiers".to_string(),
-            }
-        })?;
-
-    // Ruling R3: which (run, node) pairs a ruled card could carry a reason for.
-    // Taken BEFORE `build_ref_states` consumes the rows — the decoder does not
-    // keep `source_run_id`, and re-reading the refs to get it back would be a
-    // second query for a column already in hand.
-    let (reason_runs, reason_nodes) = ruled_reason_keys(&refs);
-
-    let mut ref_states = build_ref_states(refs)?;
-
-    // The scan's reason for the cards a human has already ruled.
-    //
-    // ## Why a failure here degrades and does not propagate
-    //
-    // The same test `load_page_text` applies: a card without its reason still
-    // carries the quote, the pinpoint, the chips and every control — it is
-    // poorer, not wrong. Failing the whole request would hide forty-six working
-    // facts to protect one missing sentence. The absence stays observable: the
-    // `warn` names the scenario and the count, and the card simply shows no
-    // reason, which is the same shape as a card nothing ever judged.
-    if !reason_runs.is_empty() {
-        match list_ruled_card_reasons(&state.pipeline_pool, &reason_runs, &reason_nodes).await {
-            Ok(rows) => attach_ruled_reasons(&mut ref_states, rows),
-            Err(e) => tracing::warn!(
-                error = %e,
-                scenario_id = %id,
-                cited_runs = reason_runs.len(),
-                "failed to read the judging reasons behind the already-ruled \
-                 cards; those cards render without the scan's reason. The rest of \
-                 the payload is unaffected — if this recurs, check the pipeline \
-                 database (scan_run_verdicts) rather than the graph"
-            ),
-        }
-    }
-    // Task 2.13c: the list's ORDER is decided here, once, and travels as a single
-    // number per card. Doing it server-side is what stopped the browser and the
-    // backend disagreeing about where a newly included fact belongs — they did,
-    // and a re-included card came back fourth instead of last.
-    crate::services::scenario_card_assembly::apply_display_order(&mut ref_states, &ordinals);
-
-    // Task 1.7F Part B: the humans' corrections for this pool, in ONE query.
-    // Read here beside the other joins rather than inside the assembler, which is
-    // documented pure and must stay that way.
-    let overrides = list_summary_overrides(&state.pipeline_pool, &node_ids)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, scenario_id = %id, "failed to read evidence summary overrides for cards");
-            AppError::Internal {
-                message: "failed to read the corrected questions".to_string(),
-            }
-        })?;
-    let overrides: HashMap<String, _> = overrides
-        .into_iter()
-        .map(|row| (row.graph_node_id.clone(), row))
-        .collect();
-
-    let page_text = load_page_text(&state, &pool).await;
-
-    // One snapshot for the whole payload: read once here so every card is banded
-    // by the same cutoffs, and so the pure assembler stays pure (v2 §2b).
+    // One snapshot for the whole payload: the cards and the fact-card sentences
+    // laid over them below are banded and worded from the same read (v2 §2b).
     let settings = state.settings.current();
-
-    let human_links = load_human_links(&state, &node_ids, &subject_id, &settings).await?;
-
-    // The projection (2026-08-08): what the latest COMPLETED run proposes to this
-    // queue right now. Read before assembly because a proposal is part of a card's
-    // state, not an annotation layered on afterwards.
-    let projecting_run = load_projecting_run(&state, id).await?;
-    let groups = match &projecting_run {
-        None => Vec::new(),
-        Some(run) => project_run(&state, run, &pool, &ref_states, &ordinals).await?,
-    };
-    let proposals: ProposalIndex<'_> = index_by_covered_node(&groups)
-        .into_iter()
-        // Only the REPRESENTATIVE carries the card. Its covered twins stay ordinary
-        // unruled pool rows — the ruling settles them, so proposing them a second
-        // time would ask the human to decide the same sentence twice, which is the
-        // duplicate work the fold exists to end.
-        .filter(|(node, group)| *node == group.representative)
-        .collect();
-
-    let mut response = assemble(
-        pool,
-        &extras,
-        &ref_states,
-        &ordinals,
-        &page_text,
-        &settings,
-        PoolIndexes {
-            human: HumanTouchIndex {
-                question_overrides: &overrides,
-                links: &human_links,
-            },
-            proposals: &proposals,
-        },
-    );
+    let pool = read_candidate_pool(&state, &subject_id).await?;
+    let CardsCore {
+        mut response,
+        projecting_run,
+    } = assemble_cards(&state, id, &subject_id, pool, &settings, CardDetail::Full).await?;
 
     // Attach the run's identity to the count the assembly produced.
     //
@@ -330,65 +179,6 @@ fn no_target_response(notice: &str) -> ScenarioCardsResponse {
     }
 }
 
-/// The accusations humans have linked, display-ready, by node (task 2.10).
-///
-/// ## Why the graph read is conditional and the Postgres read is not
-///
-/// The link rows are one indexed `= ANY($1)` and answer the question "is anything
-/// linked?", so they are always read. LABELLING those links needs the accusation
-/// catalogue — 120 rows on DEV — and a pool where nobody has linked anything has
-/// nothing to label, which is every pool on the day this ships. So the catalogue
-/// is fetched only when there is at least one link to spell out. That keeps the
-/// card path exactly as expensive as it was until the feature is used.
-///
-/// ## Why a failure here is fatal to the request, unlike page text
-///
-/// Quote-in-context degrades: a card without it still carries everything needed to
-/// rule. A card silently missing its human links does not degrade — it reports
-/// itself DEFER-ONLY, which is a false statement about what the human may do, and
-/// it would be indistinguishable from a card nobody has linked. So this
-/// propagates (Standing Rule 1: an operationally distinct state gets a distinct
-/// observable, and "the link read failed" must never look like "there are no
-/// links").
-async fn load_human_links(
-    state: &AppState,
-    node_ids: &[String],
-    subject_id: &str,
-    settings: &crate::domain::settings::Settings,
-) -> Result<HashMap<String, Vec<crate::dto::scenario_card::CardHumanLink>>, AppError> {
-    let rows = list_links_for_nodes(&state.pipeline_pool, node_ids)
-        .await
-        .map_err(|e| {
-            tracing::error!(error = %e, "failed to read the human accusation links for cards");
-            AppError::Internal {
-                message: "failed to read the accusation links".to_string(),
-            }
-        })?;
-
-    if rows.is_empty() {
-        return Ok(HashMap::new());
-    }
-
-    let options = fetch_allegation_options(&state.graph, subject_id)
-        .await
-        .map_err(|e| {
-            tracing::error!(
-                error = %e,
-                %subject_id,
-                "failed to read the accusation catalogue needed to label human links"
-            );
-            AppError::Internal {
-                message: "failed to read the accusations".to_string(),
-            }
-        })?;
-
-    Ok(resolve_links(
-        rows,
-        &label_index(&options),
-        &settings.wording,
-    ))
-}
-
 /// How many served cards carry a quote but no surrounding context (§7.1).
 ///
 /// ## Why this is counted rather than logged per card
@@ -421,79 +211,6 @@ fn cards_without_context(response: &ScenarioCardsResponse) -> usize {
                 && card.quote.context_after.is_empty()
         })
         .count()
-}
-
-/// Read the page text backing every candidate's quote, keyed `doc_id:page`.
-///
-/// ## Why a failure here is a degraded card, not a failed request
-///
-/// Quote-in-context is the one §7 element with a soft failure mode: without it
-/// the card still carries the quote, the pinpoint and the viewer link, so the
-/// human can read the passage in the PDF. Failing the whole request because one
-/// document's text is unavailable would hide every OTHER card too — a worse
-/// outcome than a card with empty context, and the reason this read is the only
-/// one that logs-and-continues rather than propagating.
-///
-/// The absence stays observable in BOTH shapes: a `warn` names the document
-/// whether the read failed or simply returned no pages, and the card's empty
-/// context is visible on screen.
-///
-/// ## The third shape, corrected in task 1.7A
-///
-/// A quote the loaded page text does not contain used to be described here as
-/// carrying "its own signal — `grounding_status: not_found`". That was only ever
-/// true of one case. A quote that spans a page BOUNDARY grounds perfectly well —
-/// the verifier matches across an adjacent page pair and records the LEFT page —
-/// but this function loads that one page, so the words are not all there and the
-/// card renders bare while reporting itself grounded. Nothing on the card says
-/// which of the two happened.
-///
-/// That shape is now counted rather than inferred: `cards_without_context`
-/// reports it on the "served scenario cards" line, so a rise in bare cards is
-/// visible without anyone having to notice it on screen first.
-async fn load_page_text(state: &AppState, pool: &[BiasInstance]) -> HashMap<String, String> {
-    // One read per distinct document, not per candidate: a deposition contributes
-    // dozens of candidates from the same file.
-    let mut document_ids: Vec<String> = pool
-        .iter()
-        .filter_map(|c| c.document.as_ref().map(|d| d.id.clone()))
-        .collect();
-    document_ids.sort();
-    document_ids.dedup();
-
-    let mut by_key = HashMap::new();
-    for document_id in document_ids {
-        match get_document_text(&state.pipeline_pool, &document_id).await {
-            Ok(pages) => {
-                // An EMPTY result is a different fact from a failed read, and it
-                // was silent until 2026-08-01: a document that was never OCR'd into
-                // `document_text` produced context-less cards with nothing in the
-                // log to say why. Both cases now name the document.
-                if pages.is_empty() {
-                    tracing::warn!(
-                        %document_id,
-                        "no page text is stored for this document; its cards will \
-                         carry the quote without surrounding context"
-                    );
-                }
-                for page in pages {
-                    by_key.insert(
-                        page_key(&document_id, i64::from(page.page_number)),
-                        page.text_content,
-                    );
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    %document_id,
-                    "no stored page text for this document; its cards will carry the \
-                     quote without surrounding context"
-                );
-            }
-        }
-    }
-    by_key
 }
 
 #[cfg(test)]

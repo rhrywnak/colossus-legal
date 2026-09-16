@@ -23,6 +23,42 @@ export interface ScenarioSummary {
   status: ScenarioStatus;
   /** null = pattern analysis pending; 0 = analysed, no baseless repeat. */
   baseless_repeat_count: number | null;
+  /** Our answer in one sentence, or null when none is written. The card
+   *  renders NOTHING for null — no filler line (ruling Q3). */
+  theme_statement: string | null;
+  /** Where the scenario stands — the status card's numbers. */
+  progress: ScenarioProgress;
+}
+
+/**
+ * The War Room status card's numbers (CC_TASK_WAR_ROOM_v1). Mirrors the backend
+ * `dto::war_room_progress::ScenarioProgress`.
+ *
+ * Numbers, dates and a model name only — every sentence the card prints is a
+ * stored template on `WarRoomWording`, filled in `warRoomCardView.ts`.
+ */
+export interface ScenarioProgress {
+  facts_included: number;
+  candidates_to_rule: number;
+  /** `total` is the cards the extraction left unlinked; 0 = nothing stuck. */
+  matrix_linked: { linked: number; total: number };
+  /** null = no scan has ever run on this scenario. */
+  last_scan: { model_name: string; when: string; relevant: number; total: number } | null;
+  talking_points: number;
+  watch_items: number;
+  /** Visible questions, and the day the deck last changed (null = no deck). */
+  deck: { questions: number; built_on: string | null };
+  /** `total` answered `of` the visible questions, split by who asks. */
+  answered: {
+    total: number;
+    of: number;
+    chuck_answered: number;
+    chuck_total: number;
+    defense_answered: number;
+    defense_total: number;
+  };
+  /** Visible questions new or changed since Marie last answered this deck. */
+  marie_changed: number;
 }
 
 /** The dashboard payload: metrics band + alerts strip + scenario cards. */
@@ -59,6 +95,30 @@ export interface WarRoomWording {
   metric_scenarios_label: string;
   metric_ready_label: string;
   metric_draft_label: string;
+  // The status card's words (CC_TASK_WAR_ROOM_v1), each its stored key without
+  // the `war_room_` prefix. Templates carry `{name}` placeholders.
+  card_evidence_heading: string;
+  card_prep_heading: string;
+  card_facts_included_label: string;
+  card_candidates_label: string;
+  card_matrix_linked_label: string;
+  card_matrix_linked_template: string;
+  card_matrix_linked_none: string;
+  card_scan_template: string;
+  card_scan_never: string;
+  card_talking_points_label: string;
+  card_watch_items_label: string;
+  card_deck_label: string;
+  card_deck_template: string;
+  card_deck_none: string;
+  card_answered_count_template: string;
+  card_answered_split_template: string;
+  card_changed_template: string;
+  card_up_to_date: string;
+  card_open_action: string;
+  card_practice_action: string;
+  card_timeline_action: string;
+  card_delete_action: string;
 }
 
 /**

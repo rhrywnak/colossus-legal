@@ -26,6 +26,8 @@ use crate::repositories::scenario_repository::ScenarioRepository;
 use crate::services::scenario_dashboard::ScenarioDashboardAssembler;
 use crate::state::AppState;
 
+use super::war_room_progress::read_progress;
+
 /// Error type for the trial-prep endpoints.
 ///
 /// The dashboard read only ever fails internally (it always has a valid payload
@@ -107,12 +109,75 @@ pub async fn get_trial_prep_dashboard(
     let create_wording = create_wording(&settings.scenario_authoring_wording);
     let war_room_wording = WarRoomWordingDto::from(&settings.war_room_wording);
 
-    let dashboard = assembler
+    let started = std::time::Instant::now();
+    let mut dashboard = assembler
         .assemble(&slug, create_wording, war_room_wording)
         .await
         .map_err(internal("assemble trial-prep dashboard"))?;
 
+    // CC_TASK_WAR_ROOM_v1: each card's status, read for every scenario at once.
+    attach_progress(&state, &mut dashboard).await?;
+
+    // Ruling Q1, condition 2: the whole handler is timed, so the cost of the
+    // status card is a number in the log rather than a guess.
+    tracing::info!(
+        %slug,
+        scenarios = dashboard.scenarios.len(),
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "served the trial-prep dashboard"
+    );
     Ok(Json(dashboard))
+}
+
+/// Replace every card's zeroed `progress` with the status reads.
+///
+/// ## Why a scenario the reads did not cover fails the request
+///
+/// `record_to_card` starts each card at zero. If this left one untouched, the page
+/// would show a scenario with no facts, no deck and "Up to date" — a confident,
+/// false card. So a card with no entry, or an id that does not parse, is a logged
+/// 500 naming the scenario, never a quiet zero (Standing Rule 1).
+async fn attach_progress(
+    state: &AppState,
+    dashboard: &mut TrialPrepDashboard,
+) -> Result<(), TrialPrepEndpointError> {
+    let ids = card_ids(dashboard)?;
+    let progress = read_progress(state, &ids).await.map_err(|e| {
+        tracing::error!(error = ?e, "the war room's status reads failed");
+        TrialPrepEndpointError::Internal
+    })?;
+    fill_progress(dashboard, &ids, progress)
+}
+
+/// Every card's id as a UUID, or a logged 500 naming the one that is not.
+fn card_ids(dashboard: &TrialPrepDashboard) -> Result<Vec<Uuid>, TrialPrepEndpointError> {
+    dashboard
+        .scenarios
+        .iter()
+        .map(|card| {
+            Uuid::parse_str(&card.id).map_err(|e| {
+                tracing::error!(error = %e, id = %card.id, "a dashboard card carries an id that is not a UUID");
+                TrialPrepEndpointError::Internal
+            })
+        })
+        .collect()
+}
+
+/// Put each scenario's progress on its card; a card left without one is a 500.
+///
+/// `ids` is `card_ids(dashboard)`, in card order — the zip pairs them.
+fn fill_progress(
+    dashboard: &mut TrialPrepDashboard,
+    ids: &[Uuid],
+    mut progress: std::collections::HashMap<Uuid, crate::dto::war_room_progress::ScenarioProgress>,
+) -> Result<(), TrialPrepEndpointError> {
+    for (card, id) in dashboard.scenarios.iter_mut().zip(ids) {
+        card.progress = progress.remove(id).ok_or_else(|| {
+            tracing::error!(scenario_id = %id, "the status reads returned nothing for this card");
+            TrialPrepEndpointError::Internal
+        })?;
+    }
+    Ok(())
 }
 
 /// `GET /api/cases/:slug/trial-prep/scenarios/:scenario_id` — one scenario's
@@ -212,5 +277,106 @@ mod tests {
         }
         .into_response();
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+    }
+
+    // ── attach_progress's pure halves (CC_TASK_WAR_ROOM_v1) ─────────────────────
+
+    use crate::dto::scenario_authoring_wording::ScenarioCreateWordingDto;
+    use crate::dto::trial_prep::{ScenarioStatus, ScenarioSummary, TrialPrepMetrics};
+    use crate::dto::war_room_progress::ScenarioProgress;
+    use std::collections::HashMap;
+
+    const S1: &str = "00000000-0000-0000-0000-000000000001";
+    const S2: &str = "00000000-0000-0000-0000-000000000002";
+
+    fn card(id: &str) -> ScenarioSummary {
+        ScenarioSummary {
+            id: id.to_string(),
+            code: "S-1".to_string(),
+            attack: "attack".to_string(),
+            status: ScenarioStatus::Draft,
+            baseless_repeat_count: None,
+            theme_statement: None,
+            progress: ScenarioProgress::default(),
+        }
+    }
+
+    fn dashboard(ids: &[&str]) -> TrialPrepDashboard {
+        let word = || "w".to_string();
+        TrialPrepDashboard {
+            metrics: TrialPrepMetrics {
+                scenarios: 0,
+                ready: 0,
+                drafted_or_review: 0,
+            },
+            alerts: Vec::new(),
+            scenarios: ids.iter().map(|id| card(id)).collect(),
+            create_wording: ScenarioCreateWordingDto {
+                target_label: word(),
+                target_helper: word(),
+                target_unset_option: word(),
+                accusation_label: word(),
+                accusation_helper: word(),
+                target_required: word(),
+                accusation_required: word(),
+            },
+            war_room_wording: WarRoomWordingDto::from(
+                &crate::domain::wording_war_room::WarRoomWording::for_test(),
+            ),
+        }
+    }
+
+    /// A card whose id is not a UUID is a 500, not a skipped card.
+    #[test]
+    fn a_card_with_a_non_uuid_id_is_an_internal_error() {
+        let d = dashboard(&[S1, "marie-obstructive"]);
+        assert!(matches!(
+            card_ids(&d),
+            Err(TrialPrepEndpointError::Internal)
+        ));
+    }
+
+    /// Well-formed ids come back in card order.
+    #[test]
+    fn card_ids_are_parsed_in_card_order() {
+        let ids = match card_ids(&dashboard(&[S2, S1])) {
+            Ok(ids) => ids,
+            Err(_) => panic!("both ids are UUIDs"),
+        };
+        assert_eq!(
+            ids.iter().map(Uuid::to_string).collect::<Vec<_>>(),
+            [S2, S1]
+        );
+    }
+
+    /// Each card receives ITS scenario's progress.
+    #[test]
+    fn fill_progress_puts_each_scenario_on_its_own_card() {
+        let mut d = dashboard(&[S1, S2]);
+        let ids: Vec<Uuid> = [S1, S2]
+            .iter()
+            .map(|s| Uuid::parse_str(s).expect("uuid"))
+            .collect();
+        let mut two = ScenarioProgress::default();
+        two.marie_changed = 2;
+        let map = HashMap::from([(ids[0], ScenarioProgress::default()), (ids[1], two)]);
+        assert!(fill_progress(&mut d, &ids, map).is_ok());
+        assert_eq!(d.scenarios[0].progress.marie_changed, 0);
+        assert_eq!(d.scenarios[1].progress.marie_changed, 2);
+    }
+
+    /// A card the reads returned nothing for is a 500, never a zero card.
+    #[test]
+    fn a_card_the_reads_missed_is_an_internal_error_not_a_zero_card() {
+        let mut d = dashboard(&[S1, S2]);
+        let ids: Vec<Uuid> = [S1, S2]
+            .iter()
+            .map(|s| Uuid::parse_str(s).expect("uuid"))
+            .collect();
+        let only_first = HashMap::from([(ids[0], ScenarioProgress::default())]);
+        assert!(matches!(
+            fill_progress(&mut d, &ids, only_first),
+            Err(TrialPrepEndpointError::Internal)
+        ));
     }
 }

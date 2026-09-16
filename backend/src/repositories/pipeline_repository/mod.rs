@@ -106,6 +106,7 @@ pub mod scenario_status_transitions;
 pub mod scenario_store;
 pub mod steps;
 pub mod users;
+pub mod war_room_status;
 
 pub use app_settings::*;
 pub use authored_entities::*;
