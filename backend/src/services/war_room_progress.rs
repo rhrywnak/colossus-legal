@@ -1,0 +1,219 @@
+//! The War Room status card's numbers, folded — pure, no I/O.
+//!
+//! CC_TASK_WAR_ROOM_v1. The reads live in `api::war_room_progress` (the evidence
+//! counts, which reuse the card queue's assembly) and
+//! `pipeline_repository::war_room_status` (the four Postgres families). This
+//! module turns what they return into one [`ScenarioProgress`] per scenario, and
+//! is where "a scenario the reads forgot" becomes an error rather than a card of
+//! zeroes.
+//!
+//! ## Why the fold is its own module
+//!
+//! Everything a test needs to assert about the card's numbers — the hidden
+//! question moves nothing, the no-deck scenario is zeroes not blanks, the counts
+//! equal the scenario page's — can be asserted here without a database or a
+//! graph. The handler only does I/O and calls these.
+
+use std::collections::HashMap;
+
+use uuid::Uuid;
+
+use crate::domain::fact_status::FactStatus;
+use crate::dto::scenario_card::ScenarioCardsResponse;
+use crate::dto::war_room_progress::{
+    AnsweredSplit, DeckSummary, LastScan, MatrixLinked, ScenarioProgress,
+};
+use crate::repositories::pipeline_repository::war_room_status::{
+    ChangedCountRow, DeckCountsRow, LastScanRow, PrepCountsRow,
+};
+use crate::services::scenario_card_assembly::count_proposed;
+use crate::services::scenario_human_links::link_counts;
+
+/// A read returned something the fold cannot turn into a card.
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub enum ProgressError {
+    /// A family read returned no row for a scenario it was asked about. Every
+    /// family except the scan starts from `unnest(ids)`, so this is a query
+    /// defect, never "that scenario has none" — and it must not render as zero.
+    #[error("the {family} read returned no row for scenario {scenario_id}")]
+    MissingRow {
+        family: &'static str,
+        scenario_id: Uuid,
+    },
+    /// A count did not fit the card's `u32` (negative, or absurdly large).
+    #[error("{field} for scenario {scenario_id} is {value}, which is not a count")]
+    NotACount {
+        field: &'static str,
+        scenario_id: Uuid,
+        value: i64,
+    },
+}
+
+/// The three evidence numbers, taken from one scenario's assembled cards.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct EvidenceCounts {
+    pub facts_included: usize,
+    pub candidates_to_rule: usize,
+    pub linked: usize,
+    pub stuck: usize,
+}
+
+/// Count the card payload the scenario page is served — the ONE authority.
+///
+/// - `facts_included` — working-pool cards with status Included (set-aside cards
+///   are Dropped by construction);
+/// - `candidates_to_rule` — `count_proposed`, the same number the route attaches
+///   to `proposal_source`;
+/// - `linked` / `stuck` — `link_counts`, the same loop `link_progress` words.
+pub fn evidence_counts(response: &ScenarioCardsResponse) -> EvidenceCounts {
+    let (linked, stuck) = link_counts(response.pool.iter().chain(response.set_aside.iter()));
+    EvidenceCounts {
+        facts_included: response
+            .pool
+            .iter()
+            .filter(|card| card.status == FactStatus::Included)
+            .count(),
+        candidates_to_rule: count_proposed(response),
+        linked,
+        stuck,
+    }
+}
+
+/// Everything the Postgres families returned, by family.
+pub struct FamilyRows {
+    pub scans: Vec<LastScanRow>,
+    pub prep: Vec<PrepCountsRow>,
+    pub deck: Vec<DeckCountsRow>,
+    pub changed: Vec<ChangedCountRow>,
+}
+
+/// One [`ScenarioProgress`] per scenario id, or the first thing that is wrong.
+///
+/// A scenario absent from `evidence` or from any unnest-first family is an error
+/// (see [`ProgressError::MissingRow`]); absent from `scans` is `last_scan: None`.
+///
+/// # Errors
+/// [`ProgressError`] naming the family or field and the scenario.
+pub fn fold_progress(
+    scenario_ids: &[Uuid],
+    evidence: &HashMap<Uuid, EvidenceCounts>,
+    rows: FamilyRows,
+) -> Result<HashMap<Uuid, ScenarioProgress>, ProgressError> {
+    // ## Rust Learning: collecting into a `HashMap` keyed by id
+    //
+    // Each family arrives as a `Vec` in whatever order Postgres chose. Turning each
+    // into a map once makes every per-scenario lookup O(1) and — more to the point
+    // — makes "no row for this id" a `None` the code has to handle, instead of an
+    // index that silently points at the wrong scenario.
+    let scans: HashMap<Uuid, LastScanRow> =
+        rows.scans.into_iter().map(|r| (r.scenario_id, r)).collect();
+    let prep: HashMap<Uuid, PrepCountsRow> =
+        rows.prep.into_iter().map(|r| (r.scenario_id, r)).collect();
+    let deck: HashMap<Uuid, DeckCountsRow> =
+        rows.deck.into_iter().map(|r| (r.scenario_id, r)).collect();
+    let changed: HashMap<Uuid, i64> = rows
+        .changed
+        .into_iter()
+        .map(|r| (r.scenario_id, r.changed))
+        .collect();
+
+    let mut out = HashMap::with_capacity(scenario_ids.len());
+    for &id in scenario_ids {
+        let missing = |family| ProgressError::MissingRow {
+            family,
+            scenario_id: id,
+        };
+        let one = OneScenario {
+            id,
+            evidence: evidence.get(&id).ok_or_else(|| missing("evidence"))?,
+            scan: scans.get(&id),
+            prep: prep.get(&id).ok_or_else(|| missing("prep"))?,
+            deck: deck.get(&id).ok_or_else(|| missing("deck"))?,
+            changed: *changed.get(&id).ok_or_else(|| missing("changed"))?,
+        };
+        out.insert(id, build_progress(&one)?);
+    }
+    Ok(out)
+}
+
+/// Everything read about ONE scenario, borrowed from the family maps.
+///
+/// ## Rust Learning: a struct of borrows (`&'a T`)
+///
+/// The rows stay owned by `fold_progress`'s maps; this only points at them, so
+/// building a card copies nothing. The lifetime `'a` says the struct cannot
+/// outlive the maps it points into — which the compiler checks for us.
+struct OneScenario<'a> {
+    id: Uuid,
+    evidence: &'a EvidenceCounts,
+    scan: Option<&'a LastScanRow>,
+    prep: &'a PrepCountsRow,
+    deck: &'a DeckCountsRow,
+    changed: i64,
+}
+
+/// One scenario's card numbers, every count checked on the way in.
+fn build_progress(one: &OneScenario<'_>) -> Result<ScenarioProgress, ProgressError> {
+    let id = one.id;
+    let count = |field, value: i64| to_count(id, field, value);
+    let (ev, p, d) = (one.evidence, one.prep, one.deck);
+    Ok(ScenarioProgress {
+        facts_included: count("facts_included", usize_to_i64(ev.facts_included))?,
+        candidates_to_rule: count("candidates_to_rule", usize_to_i64(ev.candidates_to_rule))?,
+        matrix_linked: MatrixLinked {
+            linked: count("matrix_linked.linked", usize_to_i64(ev.linked))?,
+            total: count("matrix_linked.total", usize_to_i64(ev.stuck))?,
+        },
+        last_scan: one.scan.map(|s| last_scan(id, s)).transpose()?,
+        talking_points: count("talking_points", p.talking_points)?,
+        watch_items: count("watch_items", p.watch_items)?,
+        deck: DeckSummary {
+            questions: count("deck.questions", d.questions)?,
+            built_on: d.built_on,
+        },
+        answered: AnsweredSplit {
+            total: count("answered.total", d.answered)?,
+            of: count("answered.of", d.questions)?,
+            chuck_answered: count("answered.chuck_answered", d.chuck_answered)?,
+            chuck_total: count("answered.chuck_total", d.chuck_total)?,
+            defense_answered: count("answered.defense_answered", d.defense_answered)?,
+            defense_total: count("answered.defense_total", d.defense_total)?,
+        },
+        marie_changed: count("marie_changed", one.changed)?,
+    })
+}
+
+/// The scan line's facts, with its two counts checked.
+fn last_scan(id: Uuid, row: &LastScanRow) -> Result<LastScan, ProgressError> {
+    Ok(LastScan {
+        model_name: row.model_name.clone(),
+        when: row.started_at,
+        relevant: to_count(id, "last_scan.relevant", i64::from(row.relevant))?,
+        total: to_count(id, "last_scan.total", i64::from(row.total))?,
+    })
+}
+
+/// A database count as the card's `u32`, or a named error.
+///
+/// ## Rust Learning: `TryFrom` instead of `as`
+///
+/// `value as u32` would turn `-1` into `4294967295` and print it on a card
+/// without complaint. `u32::try_from` returns an `Err` for anything out of range,
+/// which this maps to an error that names the field and the scenario.
+fn to_count(scenario_id: Uuid, field: &'static str, value: i64) -> Result<u32, ProgressError> {
+    u32::try_from(value).map_err(|_| ProgressError::NotACount {
+        field,
+        scenario_id,
+        value,
+    })
+}
+
+/// A `usize` count widened for [`to_count`]; saturates rather than wraps, and a
+/// saturated value then fails `to_count` loudly.
+fn usize_to_i64(n: usize) -> i64 {
+    i64::try_from(n).unwrap_or(i64::MAX)
+}
+
+#[cfg(test)]
+#[path = "war_room_progress_tests.rs"]
+mod tests;

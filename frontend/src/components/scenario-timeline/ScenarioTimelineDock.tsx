@@ -94,6 +94,14 @@ type Props = {
   previewSubsetId?: string | null;
   /** Preview mode hides the button; the section owns opening and closing. */
   onPreviewClosed?: () => void;
+  /**
+   * The War Room card's action row (CC_TASK_WAR_ROOM_v1) draws the opener as a
+   * text link beside Open scenario and Practice, in its own stored word. Both
+   * absent = the ordinary ghost button with the subsets block's own label.
+   * The window behaviour is identical either way — only the opener's dress moves.
+   */
+  buttonLabel?: string;
+  buttonStyle?: React.CSSProperties;
 };
 
 /** Read the remembered window, or null. Never throws — see the module header. */
@@ -127,6 +135,8 @@ const ScenarioTimelineDock: React.FC<Props> = ({
   scenarioId,
   previewSubsetId = null,
   onPreviewClosed,
+  buttonLabel,
+  buttonStyle,
 }) => {
   const [data, setData] = useState<ScenarioSubsets | null>(null);
   const [readError, setReadError] = useState<string | null>(null);
@@ -578,8 +588,8 @@ const ScenarioTimelineDock: React.FC<Props> = ({
           the two wording rows it spoke are retired in T5's migration. The dock
           now keeps only the button and the window. */}
       {attached.length > 0 && previewSubsetId === null && (
-        <button type="button" style={d.button} onClick={viewTimeline}>
-          {cw(wording, "scenario_view_timeline_button")}
+        <button type="button" style={buttonStyle ?? d.button} onClick={viewTimeline}>
+          {buttonLabel ?? cw(wording, "scenario_view_timeline_button")}
         </button>
       )}
 

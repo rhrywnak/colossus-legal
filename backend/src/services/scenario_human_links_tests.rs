@@ -13,7 +13,7 @@ use crate::domain::link_cut::LinkCut;
 use crate::domain::wording::Wording;
 use crate::dto::scenario_card::{CardConfidence, CardPinpoint, CardQuote, CardSpeaker};
 
-fn wording() -> Wording {
+pub(crate) fn wording() -> Wording {
     Wording::for_test()
 }
 
@@ -246,7 +246,7 @@ fn the_sentence_is_composed_from_the_stored_template() {
 /// Constructed as a literal rather than through `build_card`: `link_progress`
 /// reads exactly two fields, and routing through the full builder would make
 /// these tests fail for reasons that have nothing to do with counting.
-fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
+pub(crate) fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
     ScenarioCard {
         code: None,
         graph_node_id: node.to_string(),
@@ -305,7 +305,7 @@ fn stuck_card(node: &str, links: Vec<CardHumanLink>) -> ScenarioCard {
 }
 
 /// The same card, after a human linked it.
-fn linked(node: &str) -> ScenarioCard {
+pub(crate) fn linked(node: &str) -> ScenarioCard {
     let resolved = resolve_links(
         vec![row(node, "alleg-41", "against")],
         &labels(),
@@ -315,7 +315,7 @@ fn linked(node: &str) -> ScenarioCard {
 }
 
 /// A card the MACHINE linked — it was never stuck.
-fn machine_linked(node: &str) -> ScenarioCard {
+pub(crate) fn machine_linked(node: &str) -> ScenarioCard {
     let mut card = stuck_card(node, Vec::new());
     card.stance = Some(crate::dto::scenario_card::CardStance {
         verb: "supports".to_string(),
@@ -324,6 +324,23 @@ fn machine_linked(node: &str) -> ScenarioCard {
     });
     card.defer_required = false;
     card
+}
+
+/// The raw numbers the War Room reads: `(linked, stuck)`.
+///
+/// A machine-linked card is in neither number; a set-aside human-linked card
+/// counts in both. Asserted on the tuple itself, because the War Room renders
+/// these numbers from its own template and never sees `link_progress`'s sentence.
+#[test]
+fn link_counts_returns_linked_and_stuck() {
+    let cards = [
+        stuck_card("ev-1", Vec::new()),
+        linked("ev-2"),
+        machine_linked("ev-3"),
+        linked("ev-4"),
+    ];
+    assert_eq!(link_counts(cards.iter()), (2, 3));
+    assert_eq!(link_counts([machine_linked("ev-5")].iter()), (0, 0));
 }
 
 #[test]

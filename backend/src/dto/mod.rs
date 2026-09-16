@@ -51,6 +51,7 @@ pub mod schema;
 pub mod settings;
 pub mod theme_scan;
 pub mod trial_prep;
+pub mod war_room_progress;
 pub mod war_room_wording;
 
 // Re-export DTOs / request types from submodules

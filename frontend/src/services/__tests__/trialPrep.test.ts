@@ -14,6 +14,7 @@ import type {
   ScenarioDetail,
   TrialPrepDashboard,
 } from "../../pages/trialPrepData";
+import { bareProgress, warRoomWording } from "../../components/__tests__/warRoomFixtures";
 import { getScenarioDetailLive, getTrialPrepDashboard } from "../trialPrep";
 
 const SLUG = "awad_v_catholic_family_service";
@@ -27,13 +28,7 @@ const validResponse: TrialPrepDashboard = {
     drafted_or_review: 3,
   },
   alerts: [{ message: "an alert" }],
-  war_room_wording: {
-    subtitle:
-      "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
-    metric_scenarios_label: "Scenarios",
-    metric_ready_label: "Ready",
-    metric_draft_label: "Draft",
-  },
+  war_room_wording: warRoomWording,
   create_wording: {
     target_label: "Who this scenario is about",
     target_helper: "Evidence is gathered about this person and nobody else.",
@@ -50,6 +45,8 @@ const validResponse: TrialPrepDashboard = {
       attack: "Marie is obstructive and uncooperative",
       status: "draft",
       baseless_repeat_count: 3,
+      theme_statement: null,
+      progress: bareProgress(),
     },
   ],
 };

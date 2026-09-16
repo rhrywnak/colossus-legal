@@ -16,9 +16,12 @@ use super::*;
 use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
-/// The migration that seeds all four rows.
-const SEED_MIGRATION: &str = "pipeline_migrations/\
-                              20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql";
+/// The migrations that seed this block: the .396 batch's four rows, and the
+/// status card's twenty-two (CC_TASK_WAR_ROOM_v1).
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
+    "pipeline_migrations/20260916130121_war_room_status_card_wording.sql",
+];
 
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -30,6 +33,28 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_METRIC_SCENARIOS, "Scenarios"),
     (KEY_METRIC_READY, "Ready"),
     (KEY_METRIC_DRAFT, "Draft"),
+    (KEY_CARD_EVIDENCE_HEADING, "Evidence"),
+    (KEY_CARD_PREP_HEADING, "Prep & rehearsal"),
+    (KEY_CARD_FACTS_INCLUDED_LABEL, "Facts included"),
+    (KEY_CARD_CANDIDATES_LABEL, "Candidates to rule"),
+    (KEY_CARD_MATRIX_LINKED_LABEL, "Matrix linked"),
+    (KEY_CARD_MATRIX_LINKED_TEMPLATE, "{linked} of {total}"),
+    (KEY_CARD_MATRIX_LINKED_NONE, "—"),
+    (KEY_CARD_SCAN_TEMPLATE, "Scan: {model} · {date} · {relevant} relevant of {total}"),
+    (KEY_CARD_SCAN_NEVER, "Scan: never run"),
+    (KEY_CARD_TALKING_POINTS_LABEL, "Talking points"),
+    (KEY_CARD_WATCH_ITEMS_LABEL, "Watch items"),
+    (KEY_CARD_DECK_LABEL, "Deck"),
+    (KEY_CARD_DECK_TEMPLATE, "{count} questions · {date}"),
+    (KEY_CARD_DECK_NONE, "—"),
+    (KEY_CARD_ANSWERED_COUNT_TEMPLATE, "{answered} of {total}"),
+    (KEY_CARD_ANSWERED_SPLIT_TEMPLATE, "answered · Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total}"),
+    (KEY_CARD_CHANGED_TEMPLATE, "{count} new or changed for Marie"),
+    (KEY_CARD_UP_TO_DATE, "Up to date"),
+    (KEY_CARD_OPEN_ACTION, "Open scenario"),
+    (KEY_CARD_PRACTICE_ACTION, "Practice"),
+    (KEY_CARD_TIMELINE_ACTION, "Timeline"),
+    (KEY_CARD_DELETE_ACTION, "Delete"),
 ];
 
 impl WarRoomWording {
@@ -58,8 +83,16 @@ impl WarRoomWording {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .expect("the .396 batch migration is on disk");
+    // Concatenated so a key is found wherever it is seeded; which file seeds it
+    // is migration history, and only its VALUE is what this pins.
+    let sql = SEED_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
 
     let fixture = WarRoomWording::for_test_values();
 
