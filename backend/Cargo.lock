@@ -748,7 +748,7 @@ dependencies = [
 
 [[package]]
 name = "colossus-legal-backend"
-version = "2.1.10"
+version = "2.1.11"
 dependencies = [
  "anyhow",
  "async-trait",
