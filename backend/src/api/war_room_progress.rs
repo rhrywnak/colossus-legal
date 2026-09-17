@@ -27,9 +27,11 @@ use crate::{
     bias::dto::BiasInstance,
     dto::war_room_progress::ScenarioProgress,
     error::AppError,
-    repositories::pipeline_repository::review_cursor::new_answers_for_viewer,
+    repositories::pipeline_repository::review_cursor::awaiting_review,
     repositories::pipeline_repository::war_room_status::{changed_counts, deck_counts, last_scans},
-    services::war_room_progress::{evidence_counts, fold_progress, EvidenceCounts, FamilyRows},
+    services::war_room_progress::{
+        evidence_counts, fold_progress, review_queue_reviewer, EvidenceCounts, FamilyRows,
+    },
     state::AppState,
 };
 
@@ -38,9 +40,9 @@ use super::scenario_gather::resolve_gather_subject;
 
 /// Every scenario's [`ScenarioProgress`], keyed by id.
 ///
-/// `viewer` is the signed-in user's `username` — the same id `attribution`
-/// stamps — or `None` for a request with no user, which makes the viewer's badge
-/// `0` everywhere (decided in the query; see `review_cursor::new_answers_for_viewer`).
+/// The review queue is counted against the `practice_reviewer_username`
+/// settings row — never the signed-in user — so every viewer is served the same
+/// numbers (CC_TASK_SIMPLE_COUNTS_v1).
 ///
 /// ## Rust Learning: `tokio::try_join!`
 ///
@@ -55,18 +57,19 @@ use super::scenario_gather::resolve_gather_subject;
 pub(crate) async fn read_progress(
     state: &AppState,
     scenario_ids: &[Uuid],
-    viewer: Option<&str>,
 ) -> Result<HashMap<Uuid, ScenarioProgress>, AppError> {
     let started = Instant::now();
     let pool = &state.pipeline_pool;
-    let (evidence, scans, deck, changed, viewer_new) = tokio::try_join!(
+    let settings = state.settings.current();
+    let reviewer = review_queue_reviewer(&settings);
+    let (evidence, scans, deck, changed, awaiting) = tokio::try_join!(
         read_evidence_counts(state, scenario_ids),
         family("last scan", last_scans(pool, scenario_ids)),
         family("deck counts", deck_counts(pool, scenario_ids)),
         family("changed counts", changed_counts(pool, scenario_ids)),
         family(
-            "viewer new answers",
-            new_answers_for_viewer(pool, scenario_ids, viewer)
+            "awaiting review",
+            awaiting_review(pool, scenario_ids, reviewer)
         ),
     )?;
 
@@ -77,7 +80,7 @@ pub(crate) async fn read_progress(
             scans,
             deck,
             changed,
-            viewer_new,
+            awaiting,
         },
     )
     .map_err(|e| {
@@ -89,7 +92,7 @@ pub(crate) async fn read_progress(
 
     tracing::info!(
         scenarios = scenario_ids.len(),
-        viewer = viewer.unwrap_or("<none>"),
+        reviewer,
         elapsed_ms = started.elapsed().as_millis() as u64,
         "read the war room's scenario status"
     );

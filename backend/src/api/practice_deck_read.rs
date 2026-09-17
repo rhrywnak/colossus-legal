@@ -61,7 +61,8 @@ pub(super) fn log_served(
         receipts = payload.receipts.len(),
         open_sessions,
         changes_since_last,
-        new_since_you_reviewed = payload.new_since_you_reviewed,
+        awaiting_review = payload.review.awaiting,
+        can_mark_reviewed = payload.review.can_mark_reviewed,
         "served the practice deck"
     );
 }
@@ -124,8 +125,8 @@ pub(super) struct DeckRead {
     pub(super) open_total: i64,
     /// Every note on the scenario — each row shows its own (CC_TASK_REVIEW_LOOP_v1).
     pub(super) notes: Vec<crate::repositories::pipeline_repository::practice_notes::NoteRecord>,
-    /// The review bar's number for THIS viewer, derived from their cursor.
-    pub(super) new_since_you_reviewed: u32,
+    /// The review bar: the reviewer's backlog, and whether THIS user may clear it.
+    pub(super) review: crate::dto::practice_review::DeckReviewDto,
 }
 
 /// Read all eight, or fail naming the read that did.
@@ -165,11 +166,6 @@ pub(super) async fn read_deck_sources(
         notes: list_notes(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("list_notes", format!("scenario {scenario_id}: {e}")))?,
-        new_since_you_reviewed: super::practice_review_cursor::viewer_new_count(
-            state,
-            scenario_id,
-            user_id,
-        )
-        .await?,
+        review: super::practice_review_cursor::deck_review(state, scenario_id, user_id).await?,
     })
 }

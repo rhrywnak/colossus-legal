@@ -42,6 +42,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
     // The review bar and the notes (CC_TASK_REVIEW_LOOP_v1).
     "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
+    // SIMPLE_COUNTS: the bar's owned-count pair.
+    "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -67,8 +69,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     // The one status a one-page deck row carries. `{when}` is filled by
     // `practice_clock::local_day_month` — no weekday, deliberately.
     (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
-    (KEY_DECK_REVIEW_NEW_TEMPLATE, "{count} new since you last reviewed"),
-    (KEY_DECK_REVIEW_NEW_ONE, "{count} new since you last reviewed"),
+    (KEY_DECK_REVIEW_AWAITING_TEMPLATE, "{count} answers awaiting {reviewer}'s review"),
+    (KEY_DECK_REVIEW_AWAITING_ONE, "{count} answer awaiting {reviewer}'s review"),
     (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
     (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
     (KEY_NOTE_ADD_LABEL, "Add a note"),
@@ -198,14 +200,14 @@ fn every_template_carries_its_placeholders() {
             vec!["{n}"],
         ),
         (
-            "deck_review_new_template",
-            &w.deck_review_new_template,
-            vec!["{count}"],
+            "deck_review_awaiting_template",
+            &w.deck_review_awaiting_template,
+            vec!["{count}", "{reviewer}"],
         ),
         (
-            "deck_review_new_one",
-            &w.deck_review_new_one,
-            vec!["{count}"],
+            "deck_review_awaiting_one",
+            &w.deck_review_awaiting_one,
+            vec!["{count}", "{reviewer}"],
         ),
         (
             "note_struck_template",

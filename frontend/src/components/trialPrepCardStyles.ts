@@ -181,10 +181,10 @@ export function warRoomBarFillStyle(fraction: number): React.CSSProperties {
 
 /** A pill: amber for owed work, gray for not started, green for nothing owed. */
 export function warRoomBadgeStyle(
-  kind: "viewer" | "marie" | "not_started" | "up_to_date",
+  kind: "review" | "marie" | "not_started" | "up_to_date",
 ): React.CSSProperties {
   const [bg, ink] =
-    kind === "viewer" || kind === "marie"
+    kind === "review" || kind === "marie"
       ? ["var(--burden-warning-bg)", "var(--burden-warning-text)"]
       : kind === "not_started"
         ? ["var(--burden-neutral-bg)", "var(--burden-neutral-text)"]

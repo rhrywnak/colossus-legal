@@ -3,7 +3,8 @@
 // =============================================================================
 //
 // The wording block is the MIGRATIONS' values — 20260916130121 as corrected and
-// extended by 20260917080207_review_loop_cursor_and_wording.sql — so a test
+// extended by 20260917080207_review_loop_cursor_and_wording.sql and
+// 20260917104454_simple_counts_reviewer_and_summary_wording.sql — so a test
 // asserting a rendered string is asserting what DEV will actually print.
 
 import type { ScenarioProgress, ScenarioSummary, WarRoomWording } from "../../pages/trialPrepData";
@@ -29,19 +30,34 @@ export const warRoomWording: WarRoomWording = {
   card_prep_meta_template:
     "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
   card_changed_template: "{count} new or changed for Marie",
-  card_viewer_new_template: "{count} answers you haven't reviewed",
-  card_viewer_new_one: "{count} answer you haven't reviewed",
+  card_review_template: "{count} answers awaiting {reviewer}'s review",
+  card_review_one: "{count} answer awaiting {reviewer}'s review",
   card_changed_one: "{count} new or changed for Marie",
   card_not_started: "Not started",
   card_up_to_date: "Up to date",
   card_practice_action: "Practice →",
   card_timeline_action: "Timeline",
   card_delete_action: "Delete",
-  strip_answered_label: "Questions answered",
-  strip_answered_template: "{answered} of {total}",
-  strip_waiting_label: "Waiting for Marie",
-  strip_new_for_you_label: "New answers for you",
-  strip_candidates_label: "Candidates for Roman",
+  summary_answered_label: "Questions answered",
+  summary_answered_rest_template: "of {total} · {pct}%",
+  summary_unanswered_label: "Unanswered questions",
+  summary_review_label: "Answers requiring review",
+  summary_candidates_label: "Candidates to rule",
+  owner_marie: "Marie",
+  owner_roman: "Roman",
+  summary_unanswered_context_template: "across {n} scenarios · {codes} untouched",
+  summary_unanswered_context_one: "across {n} scenario · {codes} untouched",
+  summary_unanswered_context_none_untouched: "across {n} scenarios",
+  summary_unanswered_context_none_untouched_one: "across {n} scenario",
+  summary_review_context_template: "oldest waiting since {date} · {code} has {n}",
+  summary_candidates_pile_template: "{codes} {n}",
+  summary_list_joiner: "·",
+  summary_tie_joiner: "&",
+  summary_code_joiner: ",",
+  summary_unanswered_zero: "every question answered",
+  summary_review_zero: "nothing waiting",
+  summary_candidates_zero: "nothing to rule",
+  reviewer_display_name: "Chuck",
 };
 
 /** A scenario with nothing yet: every count zero, never scanned, no deck. */
@@ -61,7 +77,8 @@ export function bareProgress(): ScenarioProgress {
       defense_total: 0,
     },
     marie_changed: 0,
-    new_answers_for_viewer: 0,
+    awaiting_review: 0,
+    oldest_awaiting_review: null,
   };
 }
 
@@ -89,7 +106,8 @@ export function s1(overrides: Partial<ScenarioProgress> = {}): ScenarioSummary {
         defense_total: 30,
       },
       marie_changed: 0,
-      new_answers_for_viewer: 42,
+      awaiting_review: 42,
+      oldest_awaiting_review: "2026-09-15T15:00:00Z",
       ...overrides,
     },
   };
@@ -117,7 +135,8 @@ export function s11(overrides: Partial<ScenarioProgress> = {}): ScenarioSummary 
         defense_total: 5,
       },
       marie_changed: 0,
-      new_answers_for_viewer: 0,
+      awaiting_review: 0,
+      oldest_awaiting_review: null,
       ...overrides,
     },
   };

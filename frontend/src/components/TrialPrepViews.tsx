@@ -15,40 +15,13 @@ import React from "react";
 
 import { pdfHref } from "./evidenceLocator";
 import { pillStyle } from "./trialPrepCardStyles";
-import type {
-  ExchangeTurn,
-  MarieResponse,
-  WarRoomWording,
-} from "../pages/trialPrepData";
+import type { ExchangeTurn, MarieResponse } from "../pages/trialPrepData";
 import { isAnticipated, showsRepeatFlag } from "../pages/trialPrepHelpers";
 
 const EMDASH = "—";
 
 // ─── Styles (design tokens only) ─────────────────────────────────────────────
 
-const cardRow: React.CSSProperties = {
-  display: "flex",
-  gap: "1rem",
-  marginBottom: "1.5rem",
-  flexWrap: "wrap",
-};
-const metricCard: React.CSSProperties = {
-  flex: "1 1 140px",
-  padding: "0.75rem 1rem",
-  backgroundColor: "var(--bg-surface)",
-  borderRadius: "8px",
-  border: "1px solid var(--border-default)",
-};
-const metricValue: React.CSSProperties = {
-  fontSize: "1.5rem",
-  fontWeight: 700,
-  color: "var(--text-primary)",
-};
-const metricLabel: React.CSSProperties = {
-  fontSize: "0.76rem",
-  color: "var(--text-muted)",
-  marginTop: "0.1rem",
-};
 const alertRow: React.CSSProperties = {
   padding: "0.6rem 0.9rem",
   marginBottom: "0.5rem",
@@ -92,67 +65,12 @@ export const EmptyState: React.FC<{ message: string }> = ({ message }) => (
   <div style={emptyStyle}>{message}</div>
 );
 
-// ─── Metrics band ────────────────────────────────────────────────────────────
-
-const MetricCard: React.FC<{
-  value: number;
-  label: string;
-  emphasized?: boolean;
-  hint?: string;
-}> = ({ value, label, emphasized, hint }) => (
-  <div
-    style={{
-      ...metricCard,
-      ...(emphasized
-        ? { backgroundColor: "var(--state-info-bg-soft)", borderColor: "var(--accent-primary)" }
-        : {}),
-    }}
-  >
-    <div style={metricValue}>{value}</div>
-    <div style={metricLabel}>{label}</div>
-    {hint ? (
-      <div style={{ fontSize: "0.7rem", color: "var(--accent-primary)", marginTop: "0.15rem" }}>
-        {hint}
-      </div>
-    ) : null}
-  </div>
-);
-
-/**
- * The metrics band.
- *
- * Two cards were removed on 2026-07-27 — "Baseless-repeat patterns" (the Count IV
- * signal) and "No response yet". Both were derived from card fields that are
- * hardcoded stubs, so one was structurally always 0 and the other always equalled
- * the scenario count: constants rendered as measurements, indistinguishable on
- * screen from real results. They come back when pattern analysis and responses
- * have real sources.
- *
- * "Instances" went on 2026-08-07, for a different reason. It was a REAL
- * measurement — a live REBUTS count across each scenario's anchor allegations —
- * of something nobody could act on, and its name collided with task 2.11's
- * unrelated "accusation instances". Roman ruled it earns nothing. Unlike the
- * other two it is not coming back when a source appears; it had one.
- */
-export const MetricsBand: React.FC<{
-  metrics: {
-    scenarios: number;
-    ready: number;
-    drafted_or_review: number;
-  };
-  /**
-   * The three tile labels, from the store (R2 §3, built .396). The third one
-   * used to read "Drafted / in review" — two words for one number, which invited
-   * a reader to look for a second figure that was never there.
-   */
-  wording: WarRoomWording;
-}> = ({ metrics, wording }) => (
-  <div style={cardRow}>
-    <MetricCard value={metrics.scenarios} label={wording.metric_scenarios_label} />
-    <MetricCard value={metrics.ready} label={wording.metric_ready_label} />
-    <MetricCard value={metrics.drafted_or_review} label={wording.metric_draft_label} />
-  </div>
-);
+// ─── Metrics band — RETIRED (CC_TASK_SIMPLE_COUNTS_v1) ───────────────────────
+//
+// The three metric tiles now live in the War Room summary card's top row
+// (`WarRoomSummaryCard`). The history of what the band used to carry — the two
+// stub-derived tiles removed 2026-07-27 and "Instances" removed 2026-08-07 — is
+// in git; none of it comes back.
 
 /** The alerts strip (living-binder notices). Caller omits it when empty. */
 export const AlertsStrip: React.FC<{ alerts: { message: string }[] }> = ({ alerts }) => (

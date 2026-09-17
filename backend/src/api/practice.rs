@@ -220,7 +220,7 @@ pub async fn get_practice_deck(
             open: read.open.as_ref(),
             attach_options: attach,
             notes: &read.notes,
-            new_since_you_reviewed: read.new_since_you_reviewed,
+            review: read.review,
         },
     );
 

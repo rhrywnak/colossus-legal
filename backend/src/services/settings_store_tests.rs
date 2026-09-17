@@ -45,6 +45,7 @@ use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
 use crate::domain::wording_war_room::WAR_ROOM_WORDING_KEYS;
+use crate::domain::wording_war_room_summary::WAR_ROOM_SUMMARY_WORDING_KEYS;
 
 use chrono::Utc;
 
@@ -125,6 +126,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_chronology::ChronologyWording::for_test_values())
         .chain(crate::domain::wording_matrix::MatrixWording::for_test_values())
         .chain(crate::domain::wording_war_room::WarRoomWording::for_test_values())
+        .chain(crate::domain::wording_war_room_summary::WarRoomSummaryWording::for_test_values())
         .chain(crate::domain::wording_practice::PracticeWording::for_test_values())
         // PRACTICE flow v1 (mockup v3): nested inside `PracticeWording` on the
         // struct, but a SEPARATE table here — the store keys one flat table, and
@@ -192,6 +194,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // data, so a stored row (hotfix, 2026-08-19); Postgres does the
             // comparing, which is why nothing parses it here.
             ("practice_case_timezone", "America/Detroit".to_string()),
+            // SIMPLE_COUNTS: who reviews Marie's answers, and the name screens print.
+            // Case data, not wording — the first is a login.
+            ("practice_reviewer_username", "cpenzien".to_string()),
+            ("practice_reviewer_display_name", "Chuck".to_string()),
             // The OK word, coupled to the prompt file. Text, and not wording:
             // nobody reads it on a screen — the model writes it and the parser
             // recognises it.
@@ -683,8 +689,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         REQUIRED_KEYS.len() + PRACTICE_PARAM_KEYS.len(),
         // 38 on `.422`. PROOF_MATRIX_v2 added one and FACT_CARD_v2 two, on
         // separate branches off the same 38 — so each branch asserted its own
-        // sum and this is where they are added together.
-        41,
+        // sum and this is where they are added together. SIMPLE_COUNTS added
+        // two: the reviewer's login and display name.
+        43,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -797,7 +804,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WAR_ROOM_WORDING_KEYS.len(),
-        31,
+        26,
         "task 396 P3b: the subtitle R2 ruled and never migrated, plus the three \
          metric tile labels — and CC_TASK_WAR_ROOM_v1's twenty-two status-card \
          words: two headers, six labels, the Matrix and deck templates with their \
@@ -806,7 +813,16 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          CC_TASK_REVIEW_LOOP_v1 then retired six (talking points, watch items, \
          deck label and template, answered split, open action) and added nine \
          (answered word, prep meta line, viewer pill, not-started pill, and the \
-         strip's five words), and GO v3's two singular pills"
+         strip's five words), and GO v3's two singular pills. SIMPLE_COUNTS \
+         retired the strip's five and the viewer pill pair and added the review \
+         pill pair; the summary card's nineteen are their own nested block"
+    );
+    assert_eq!(
+        WAR_ROOM_SUMMARY_WORDING_KEYS.len(),
+        19,
+        "SIMPLE_COUNTS: the summary card — top row two, three cell labels, two \
+         owner chips, seven context templates, three joiners and three zero-state \
+         lines"
     );
     assert_eq!(
         PRACTICE_WORDING_KEYS.len(),
@@ -899,6 +915,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + MODEL_PARAMS_WORDING_KEYS.len()
             + MATRIX_WORDING_KEYS.len()
             + WAR_ROOM_WORDING_KEYS.len()
+            + WAR_ROOM_SUMMARY_WORDING_KEYS.len()
             + PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
@@ -1410,6 +1427,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // Marie and her counsel (ruling R3), and the correction pass below is
         // what sees it.
         "pipeline_migrations/20260906203730_fact_card_event_note_and_our_side_speakers.sql",
+        // SIMPLE_COUNTS: the reviewer's login and display name.
+        "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
     ]
     .iter()
     .map(|relative| {

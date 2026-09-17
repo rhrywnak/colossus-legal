@@ -1,7 +1,8 @@
 //! The review loop's read cursor — when each person last finished reviewing a deck.
 //!
 //! CC_TASK_REVIEW_LOOP_v1 §1–§2. One table, `practice_review_cursor`, holding one
-//! row per (user, scenario), and the ONE derived count that reads it.
+//! row per (user, scenario), and the ONE derived queue that reads it — against
+//! the REVIEWER's row only, since CC_TASK_SIMPLE_COUNTS_v1.
 //!
 //! ## Domain note: events and read-state are separate
 //!
@@ -60,44 +61,57 @@ pub async fn mark_reviewed(
     Ok(row.0)
 }
 
-/// How many answers are new for one viewer, per scenario.
+/// The review queue for one scenario: how many answers wait, and since when.
 #[derive(Debug, Clone, PartialEq, sqlx::FromRow)]
-pub struct ViewerNewRow {
+pub struct AwaitingReviewRow {
     pub scenario_id: Uuid,
-    pub new_answers: i64,
+    /// Answers the reviewer has not reviewed.
+    pub awaiting: i64,
+    /// When the OLDEST of those was written; `None` when nothing waits.
+    pub oldest: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// Chuck's badge: answers by someone else since the viewer last finished reviewing.
+/// The reviewer's queue: answers by someone else since the REVIEWER last pressed
+/// Done reviewing (CC_TASK_SIMPLE_COUNTS_v1).
 ///
 /// A visible question counts when its CURRENT answer
 /// - exists,
-/// - is newer than the viewer's cursor (no cursor row = `-infinity`, so every
+/// - is newer than the reviewer's cursor (no cursor row = `-infinity`, so every
 ///   answer is newer), and
-/// - was written by someone other than the viewer.
+/// - was written by someone other than the reviewer.
 ///
-/// `viewer = None` (no signed-in user) is `0` for every scenario — decided in the
-/// SQL by `$2::text IS NOT NULL`, so there is no Rust branch that could drift from
-/// the query.
+/// ## Domain note: one queue, the same for every viewer
+///
+/// `reviewer` is the `practice_reviewer_username` settings row — never the
+/// signed-in user. Anyone may read an answer or press Done reviewing, but only
+/// the reviewer's cursor row is read here, so nobody else's press moves this
+/// number. Until v2.1.10 this counted against the VIEWER, which gave three
+/// people three different truths about one deck.
 ///
 /// ## Domain note: `IS DISTINCT FROM`, not `<>`
 ///
 /// Sessions from before 2026-08-19 carry `user_id = NULL`. With `<>`, `NULL <>
-/// 'chuck'` is NULL — neither true nor false — and the FILTER would silently drop
-/// those answers. `IS DISTINCT FROM` treats NULL as a value, so an unattributed
-/// answer counts as "not you" (GO v1 ruling 1: a false "new" is honest; a silent
-/// miss is not).
+/// 'cpenzien'` is NULL — neither true nor false — and the FILTER would silently
+/// drop those answers. `IS DISTINCT FROM` treats NULL as a value, so an
+/// unattributed answer counts as "not the reviewer".
+///
+/// ## SQL note: the date rides the same pass
+///
+/// `MIN(cur.answered_at) FILTER (…)` uses the SAME predicate as the count, so the
+/// summary card's "oldest waiting since" can never name an answer the count
+/// excluded — and it costs no second query.
 ///
 /// Starts `FROM unnest($1)` for the reason `war_room_status` gives: one row per
 /// scenario asked for, zero included.
 ///
 /// # Errors
 /// [`PipelineRepoError`] for a failed statement.
-pub async fn new_answers_for_viewer(
+pub async fn awaiting_review(
     pool: &PgPool,
     scenario_ids: &[Uuid],
-    viewer: Option<&str>,
-) -> Result<Vec<ViewerNewRow>, PipelineRepoError> {
-    sqlx::query_as::<_, ViewerNewRow>(
+    reviewer: &str,
+) -> Result<Vec<AwaitingReviewRow>, PipelineRepoError> {
+    sqlx::query_as::<_, AwaitingReviewRow>(&format!(
         "WITH cur AS ( \
             SELECT DISTINCT ON (a.question_id) a.question_id, a.answered_at, s.user_id AS author_id \
             FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
@@ -107,23 +121,32 @@ pub async fn new_answers_for_viewer(
             SELECT scenario_id, looked_at FROM practice_review_cursor \
             WHERE user_id = $2 AND scenario_id = ANY($1)) \
          SELECT ids.scenario_id, \
-                COUNT(q.id) FILTER (WHERE $2::text IS NOT NULL \
-                    AND cur.answered_at IS NOT NULL \
-                    AND cur.answered_at > COALESCE(mark.looked_at, '-infinity'::timestamptz) \
-                    AND cur.author_id IS DISTINCT FROM $2) AS new_answers \
+                COUNT(q.id) FILTER (WHERE {WAITING}) AS awaiting, \
+                MIN(cur.answered_at) FILTER (WHERE {WAITING}) AS oldest \
          FROM unnest($1::uuid[]) AS ids(scenario_id) \
          LEFT JOIN mark ON mark.scenario_id = ids.scenario_id \
          LEFT JOIN practice_questions q \
                 ON q.scenario_id = ids.scenario_id AND q.hidden_at IS NULL \
          LEFT JOIN cur ON cur.question_id = q.id \
-         GROUP BY ids.scenario_id",
-    )
+         GROUP BY ids.scenario_id"
+    ))
     .bind(scenario_ids)
-    .bind(viewer)
+    .bind(reviewer)
     .fetch_all(pool)
     .await
     .map_err(PipelineRepoError::from)
 }
+
+/// The one predicate the count and the oldest date share — see
+/// [`awaiting_review`]'s SQL note.
+// STRUCTURAL: this IS the definition of an answer awaiting review — it exists,
+// it post-dates the reviewer's cursor, and the reviewer did not write it. Not a
+// threshold or a limit: changing it changes what the review queue MEANS, which is
+// a ruling and a code change, never a deployment value. Shared so the count and
+// the oldest date cannot disagree.
+const WAITING: &str = "cur.answered_at IS NOT NULL \
+    AND cur.answered_at > COALESCE(mark.looked_at, '-infinity'::timestamptz) \
+    AND cur.author_id IS DISTINCT FROM $2";
 
 #[cfg(test)]
 #[path = "review_cursor_live_tests.rs"]

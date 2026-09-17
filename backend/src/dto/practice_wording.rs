@@ -187,8 +187,8 @@ pub struct PracticeWordingDto {
     /// `Answered on {when}` — the one status a one-page deck row carries.
     pub row_answered_on_template: String,
     // The review loop (CC_TASK_REVIEW_LOOP_v1): the deck's review bar and notes.
-    pub deck_review_new_template: String,
-    pub deck_review_new_one: String,
+    pub deck_review_awaiting_template: String,
+    pub deck_review_awaiting_one: String,
     pub deck_review_done_label: String,
     pub deck_review_failed: String,
     pub row_note_add_label: String,

@@ -269,6 +269,25 @@ pub struct NoteTextRequest {
     pub text: String,
 }
 
+/// The deck's review bar, decided on the server (CC_TASK_SIMPLE_COUNTS_v1).
+///
+/// ## Domain note: the browser renders a boolean, never compares identities
+///
+/// Whether the signed-in user may press Done reviewing is an action-availability
+/// decision, so it is made here (CLAUDE.md rule 12, GO ruling 1): the reviewer's
+/// username never reaches the page, and the page cannot get the comparison wrong.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DeckReviewDto {
+    /// Answers awaiting the reviewer on this deck — the same for every viewer.
+    /// The bar is not drawn at `0`.
+    pub awaiting: u32,
+    /// True only when the signed-in user IS the reviewer.
+    pub can_mark_reviewed: bool,
+    /// The reviewer's name as the bar prints it (`{reviewer}`).
+    pub reviewer_display_name: String,
+}
+
 /// What "Done reviewing" recorded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]

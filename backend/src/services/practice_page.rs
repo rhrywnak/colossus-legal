@@ -371,8 +371,8 @@ pub struct DeckSources<'a> {
     pub attach_options: Vec<crate::dto::practice_review::PracticeAttachOptionDto>,
     /// Every note on this scenario, oldest first — filtered per row.
     pub notes: &'a [NoteRecord],
-    /// The viewer's unreviewed answers on this deck (`review_cursor`).
-    pub new_since_you_reviewed: u32,
+    /// The review bar, decided by the handler (`practice_review_cursor::deck_review`).
+    pub review: crate::dto::practice_review::DeckReviewDto,
 }
 
 /// Build the whole payload.
@@ -393,7 +393,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         open,
         attach_options,
         notes,
-        new_since_you_reviewed,
+        review,
     } = sources;
 
     let picker = picker_receipts(&deck, receipts);
@@ -402,7 +402,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
     // seeded: there is no date on which nothing last changed.
     let deck_as_of = deck.iter().map(|q| q.updated_at).max();
     PracticeDeckPayload {
-        new_since_you_reviewed,
+        review,
         deck_as_of,
         scenario_id,
         code,

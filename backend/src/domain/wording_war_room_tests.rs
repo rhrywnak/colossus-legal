@@ -23,6 +23,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260916130121_war_room_status_card_wording.sql",
     // The review loop: eleven new rows (CC_TASK_REVIEW_LOOP_v1, GO v3 singulars).
     "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
+    // SIMPLE_COUNTS: the review pill pair.
+    "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
 ];
 
 /// The migrations that CORRECT a row of this block in place. Read with
@@ -54,29 +56,28 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_CARD_ANSWERED_WORD, "answered"),
     (KEY_CARD_PREP_META_TEMPLATE, "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}"),
     (KEY_CARD_CHANGED_TEMPLATE, "{count} new or changed for Marie"),
-    (KEY_CARD_VIEWER_NEW_TEMPLATE, "{count} answers you haven't reviewed"),
-    (KEY_CARD_VIEWER_NEW_ONE, "{count} answer you haven't reviewed"),
+    (KEY_CARD_REVIEW_TEMPLATE, "{count} answers awaiting {reviewer}'s review"),
+    (KEY_CARD_REVIEW_ONE, "{count} answer awaiting {reviewer}'s review"),
     (KEY_CARD_CHANGED_ONE, "{count} new or changed for Marie"),
     (KEY_CARD_NOT_STARTED, "Not started"),
     (KEY_CARD_UP_TO_DATE, "Up to date"),
     (KEY_CARD_PRACTICE_ACTION, "Practice →"),
     (KEY_CARD_TIMELINE_ACTION, "Timeline"),
     (KEY_CARD_DELETE_ACTION, "Delete"),
-    (KEY_STRIP_ANSWERED_LABEL, "Questions answered"),
-    (KEY_STRIP_ANSWERED_TEMPLATE, "{answered} of {total}"),
-    (KEY_STRIP_WAITING_LABEL, "Waiting for Marie"),
-    (KEY_STRIP_NEW_FOR_YOU_LABEL, "New answers for you"),
-    (KEY_STRIP_CANDIDATES_LABEL, "Candidates for Roman"),
 ];
 
 impl WarRoomWording {
     /// The fixture, built through the PRODUCTION builder.
     pub fn for_test() -> Self {
+        // The nested summary block's keys live in its own fixture.
+        let summary =
+            crate::domain::wording_war_room_summary::WarRoomSummaryWording::for_test_values();
         build_war_room_wording::<String>(|key| {
             TEST_SEED
                 .iter()
                 .find(|(k, _)| *k == key)
                 .map(|(_, v)| (*v).to_string())
+                .or_else(|| summary.get(key).cloned())
                 .ok_or_else(|| format!("{key} is missing from TEST_SEED"))
         })
         .expect("every key in WAR_ROOM_WORDING_KEYS is in TEST_SEED")

@@ -59,7 +59,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
       { card: 1, name: "false premise" },
       { card: 2, name: "compound" },
     ],
-    new_since_you_reviewed: 0,
+    review: { awaiting: 0, can_mark_reviewed: false, reviewer_display_name: "Chuck" },
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -113,14 +113,16 @@ describe("fetchPracticeDeck", () => {
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 
-  it("refuses a payload with no new_since_you_reviewed — a silent zero hides the review bar", async () => {
-    // An absent count would read as "nothing new" and the bar would never draw
-    // (CC_TASK_REVIEW_LOOP_v1). A complete deck accepts; the same deck without
-    // the one field refuses.
+  it("refuses a payload with no review block — a silent zero hides the review bar", async () => {
+    // An absent block would read as "nothing waiting" and the bar would never
+    // draw (CC_TASK_SIMPLE_COUNTS_v1). A complete deck accepts; the same deck
+    // without the block, or with a non-boolean button flag, refuses.
     okFetch(deck());
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).resolves.toBeDefined();
-    const { new_since_you_reviewed: _dropped, ...withoutCount } = deck();
-    okFetch(withoutCount);
+    const { review: _dropped, ...withoutReview } = deck();
+    okFetch(withoutReview);
+    await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
+    okFetch({ ...deck(), review: { awaiting: 1, reviewer_display_name: "Chuck" } });
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 });

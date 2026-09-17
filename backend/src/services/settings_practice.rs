@@ -17,7 +17,8 @@ use crate::domain::practice_params::{
     KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, KEY_PRACTICE_READ_MODEL,
-    KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_TACTIC_NAMES,
+    KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
+    KEY_PRACTICE_REVIEWER_USERNAME, KEY_PRACTICE_TACTIC_NAMES,
 };
 use crate::domain::settings::SettingError;
 use crate::repositories::pipeline_repository::AppSettingRecord;
@@ -54,5 +55,7 @@ pub(crate) fn build_practice_read_params(
         fine_token: text_of(require(rows, KEY_PRACTICE_READ_FINE_TOKEN)?)?,
         tactic_names: token_list_of(require(rows, KEY_PRACTICE_TACTIC_NAMES)?)?,
         case_timezone: text_of(require(rows, KEY_PRACTICE_CASE_TIMEZONE)?)?,
+        reviewer_username: text_of(require(rows, KEY_PRACTICE_REVIEWER_USERNAME)?)?,
+        reviewer_display_name: text_of(require(rows, KEY_PRACTICE_REVIEWER_DISPLAY_NAME)?)?,
     })
 }

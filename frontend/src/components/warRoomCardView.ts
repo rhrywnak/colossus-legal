@@ -13,7 +13,7 @@
 //
 // Amber = something is owed by someone; gray = nothing has started; green =
 // started and nothing owed. Candidates to rule above zero, a scan that never ran,
-// answers the viewer has not reviewed, and questions new or changed for Marie
+// answers awaiting the reviewer, and questions new or changed for Marie
 // are owed work. Everything else is ink.
 
 import { fill } from "../services/caseTimeline";
@@ -41,11 +41,12 @@ export interface AnsweredLine {
 }
 
 /**
- * One pill. `viewer` and `marie` are amber (owed work); `not_started` is gray;
- * `up_to_date` is green.
+ * One pill. `review` and `marie` are amber (owed work); `not_started` is gray;
+ * `up_to_date` is green. `review` is the reviewer's queue on this scenario — the
+ * same for every viewer (CC_TASK_SIMPLE_COUNTS_v1).
  */
 export type CardBadge =
-  | { kind: "viewer"; text: string }
+  | { kind: "review"; text: string }
   | { kind: "marie"; text: string }
   | { kind: "not_started"; text: string }
   | { kind: "up_to_date"; text: string };
@@ -158,13 +159,13 @@ export function cardBadges(scenario: ScenarioSummary, wording: WarRoomWording): 
   if (p.answered.total === 0) return [{ kind: "not_started", text: wording.card_not_started }];
 
   const owed: CardBadge[] = [];
-  if (p.new_answers_for_viewer > 0) {
+  if (p.awaiting_review > 0) {
     owed.push({
-      kind: "viewer",
-      text: fill(
-        pickByCount(p.new_answers_for_viewer, wording.card_viewer_new_one, wording.card_viewer_new_template),
-        { count: p.new_answers_for_viewer },
-      ),
+      kind: "review",
+      text: fill(pickByCount(p.awaiting_review, wording.card_review_one, wording.card_review_template), {
+        count: p.awaiting_review,
+        reviewer: wording.reviewer_display_name,
+      }),
     });
   }
   if (p.marie_changed > 0) {

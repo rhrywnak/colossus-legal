@@ -279,6 +279,33 @@ mod tests {
         let dashboard = sample_dashboard();
 
         let value = serde_json::to_value(&dashboard).expect("dashboard serializes");
+        // A raw JSON literal, not `json!`: forty-six keys exceed that macro's
+        // recursion limit. Parsed, so a typo here fails loudly, not silently.
+        let wording: serde_json::Value = serde_json::from_str(
+            r#"{
+            "subtitle": "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
+            "metric_scenarios_label": "Scenarios", "metric_ready_label": "Ready", "metric_draft_label": "Draft",
+            "card_evidence_heading": "Evidence", "card_prep_heading": "Prep & rehearsal",
+            "card_facts_included_label": "Facts included",
+            "card_candidates_label": "Candidates to rule",
+            "card_matrix_linked_label": "Matrix linked",
+            "card_matrix_linked_template": "{linked} of {total}",
+            "card_matrix_linked_none": "—",
+            "card_scan_template": "Last scan {date}", "card_scan_never": "Never scanned", "card_deck_none": "—",
+            "card_answered_count_template": "{answered} of {total}",
+            "card_answered_word": "answered",
+            "card_prep_meta_template": "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
+            "card_changed_template": "{count} new or changed for Marie",
+            "card_review_template": "{count} answers awaiting {reviewer}'s review", "card_review_one": "{count} answer awaiting {reviewer}'s review", "card_changed_one": "{count} new or changed for Marie",
+            "card_not_started": "Not started", "card_up_to_date": "Up to date",
+            "card_practice_action": "Practice →", "card_timeline_action": "Timeline", "card_delete_action": "Delete",
+            "summary_answered_label": "Questions answered", "summary_answered_rest_template": "of {total} · {pct}%", "summary_unanswered_label": "Unanswered questions", "summary_review_label": "Answers requiring review", "summary_candidates_label": "Candidates to rule", "owner_marie": "Marie", "owner_roman": "Roman",
+            "summary_unanswered_context_template": "across {n} scenarios · {codes} untouched", "summary_unanswered_context_one": "across {n} scenario · {codes} untouched", "summary_unanswered_context_none_untouched": "across {n} scenarios", "summary_unanswered_context_none_untouched_one": "across {n} scenario",
+            "summary_review_context_template": "oldest waiting since {date} · {code} has {n}", "summary_candidates_pile_template": "{codes} {n}", "summary_list_joiner": "·", "summary_tie_joiner": "&", "summary_code_joiner": ",",
+            "summary_unanswered_zero": "every question answered", "summary_review_zero": "nothing waiting", "summary_candidates_zero": "nothing to rule", "reviewer_display_name": "Chuck"
+        }"#,
+        )
+        .expect("the wording fixture is valid JSON");
 
         assert_eq!(
             value,
@@ -308,7 +335,7 @@ mod tests {
                                 "chuck_answered": 0, "chuck_total": 0,
                                 "defense_answered": 0, "defense_total": 0
                             },
-                            "marie_changed": 0, "new_answers_for_viewer": 0
+                            "marie_changed": 0, "awaiting_review": 0, "oldest_awaiting_review": null
                         }
                     },
                     {
@@ -329,7 +356,7 @@ mod tests {
                                 "chuck_answered": 0, "chuck_total": 0,
                                 "defense_answered": 0, "defense_total": 0
                             },
-                            "marie_changed": 0, "new_answers_for_viewer": 0
+                            "marie_changed": 0, "awaiting_review": 0, "oldest_awaiting_review": null
                         }
                     }
                 ],
@@ -342,35 +369,7 @@ mod tests {
                     "target_required": "Choose who this scenario is about.",
                     "accusation_required": "Write the accusation in plain language."
                 },
-                "war_room_wording": {
-                    "subtitle": "The attacks and what we answer them with — built by you, gathered by the system, rehearsed by Marie.",
-                    "metric_scenarios_label": "Scenarios",
-                    "metric_ready_label": "Ready",
-                    "metric_draft_label": "Draft",
-                    "card_evidence_heading": "Evidence",
-                    "card_prep_heading": "Prep & rehearsal",
-                    "card_facts_included_label": "Facts included",
-                    "card_candidates_label": "Candidates to rule",
-                    "card_matrix_linked_label": "Matrix linked",
-                    "card_matrix_linked_template": "{linked} of {total}",
-                    "card_matrix_linked_none": "—",
-                    "card_scan_template": "Last scan {date}",
-                    "card_scan_never": "Never scanned",
-                    "card_deck_none": "—",
-                    "card_answered_count_template": "{answered} of {total}",
-                    "card_answered_word": "answered",
-                    "card_prep_meta_template": "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
-                    "card_changed_template": "{count} new or changed for Marie",
-                    "card_viewer_new_template": "{count} answers you haven't reviewed",
-                    "card_viewer_new_one": "{count} answer you haven't reviewed", "card_changed_one": "{count} new or changed for Marie",
-                    "card_not_started": "Not started", "card_up_to_date": "Up to date",
-                    "card_practice_action": "Practice →",
-                    "card_timeline_action": "Timeline",
-                    "card_delete_action": "Delete",
-                    "strip_answered_label": "Questions answered", "strip_answered_template": "{answered} of {total}",
-                    "strip_waiting_label": "Waiting for Marie", "strip_new_for_you_label": "New answers for you",
-                    "strip_candidates_label": "Candidates for Roman"
-                }
+                "war_room_wording": wording,
             })
         );
     }
@@ -440,8 +439,9 @@ mod tests {
                 target_required: "Choose who this scenario is about.".to_string(),
                 accusation_required: "Write the accusation in plain language.".to_string(),
             },
-            war_room_wording: WarRoomWordingDto::from(
+            war_room_wording: WarRoomWordingDto::new(
                 &crate::domain::wording_war_room::WarRoomWording::for_test(),
+                "Chuck",
             ),
         }
     }

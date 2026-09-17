@@ -192,7 +192,7 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
 
@@ -233,7 +233,7 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
     let json = serde_json::to_string(&payload).expect("the payload serializes");
@@ -280,7 +280,7 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
 
@@ -324,7 +324,7 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
 
@@ -358,7 +358,7 @@ fn a_point_with_neither_still_names_its_absence() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
 
@@ -406,7 +406,7 @@ fn the_deck_carries_the_date_of_its_newest_change() {
             open: None,
             attach_options: vec![],
             notes: &[],
-            new_since_you_reviewed: 0,
+            review: Default::default(),
         },
     );
 

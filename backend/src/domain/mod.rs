@@ -85,3 +85,4 @@ pub mod wording_scan;
 pub mod wording_scenario_authoring;
 pub mod wording_templates;
 pub mod wording_war_room;
+pub mod wording_war_room_summary;
