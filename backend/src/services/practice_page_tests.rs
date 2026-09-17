@@ -101,7 +101,12 @@ fn a_question_with_no_card_and_a_card_with_no_name_both_render_no_tag() {
 #[test]
 fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     let s = settings();
-    let dto = question_dto(&s, &[], record(Some(5), Some("Barrage rows 1 · 2 · 5")));
+    let dto = question_dto(
+        &s,
+        &[],
+        &[],
+        record(Some(5), Some("Barrage rows 1 · 2 · 5")),
+    );
 
     assert_eq!(dto.tactic.as_deref(), Some("compound · braid"));
     assert!(dto.braid, "the pill must change, not only the tag");
@@ -112,7 +117,7 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
     // any edit of its tactic box was refused with a 400.
     assert_eq!(dto.tactic_card, Some(5));
 
-    let plain = question_dto(&s, &[], record(Some(5), None));
+    let plain = question_dto(&s, &[], &[], record(Some(5), None));
     assert_eq!(plain.tactic.as_deref(), Some("compound"));
     assert_eq!(
         plain.tactic_card,
@@ -123,7 +128,10 @@ fn a_braid_wears_the_card_name_and_the_stored_suffix() {
 
     // No card, no number — `None` and not a zero the browser would have to know
     // to ignore.
-    assert_eq!(question_dto(&s, &[], record(None, None)).tactic_card, None);
+    assert_eq!(
+        question_dto(&s, &[], &[], record(None, None)).tactic_card,
+        None
+    );
 }
 
 /// The last-session line is composed, with every slot filled.
@@ -183,6 +191,8 @@ fn a_scenario_with_no_deck_still_yields_a_payload_with_its_words() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 
@@ -222,6 +232,8 @@ fn the_payload_carries_nothing_that_would_make_it_feel_like_a_test() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
     let json = serde_json::to_string(&payload).expect("the payload serializes");
@@ -267,6 +279,8 @@ fn a_point_with_no_pairing_shows_the_seeded_receipt() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 
@@ -309,6 +323,8 @@ fn a_real_pairing_supersedes_the_seeded_stand_in() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 
@@ -341,6 +357,8 @@ fn a_point_with_neither_still_names_its_absence() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 
@@ -387,6 +405,8 @@ fn the_deck_carries_the_date_of_its_newest_change() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 
@@ -411,6 +431,7 @@ fn the_deck_carries_the_date_of_its_newest_change() {
 fn current(question_id: Uuid, at: chrono::DateTime<Utc>) -> CurrentAnswerRecord {
     CurrentAnswerRecord {
         question_id,
+        answer_id: Uuid::from_u128(question_id.as_u128() ^ 0xA115),
         answer_text: "her words".to_string(),
         answered_at: at,
     }
@@ -439,6 +460,7 @@ fn a_row_with_an_answer_says_when_it_was_answered() {
                 .single()
                 .expect("an instant"),
         )],
+        &[],
         rec,
     );
 
@@ -459,7 +481,7 @@ fn a_row_with_no_answer_says_nothing_at_all() {
     // status that failed to load, which is a different fact from "not answered
     // yet" and the wrong one to show the person least able to diagnose it.
     let s = settings();
-    let dto = question_dto(&s, &[], record(Some(5), None));
+    let dto = question_dto(&s, &[], &[], record(Some(5), None));
 
     assert_eq!(dto.answered_on, None);
 }
@@ -473,7 +495,7 @@ fn the_line_carries_no_weekday() {
     let mut rec = record(Some(5), None);
     rec.id = id;
 
-    let line = question_dto(&s, &[current(id, late_night_utc())], rec)
+    let line = question_dto(&s, &[current(id, late_night_utc())], &[], rec)
         .answered_on
         .expect("an answered row carries the line");
 
@@ -497,7 +519,7 @@ fn the_day_is_the_case_s_day_and_not_utc_s() {
     let mut rec = record(Some(5), None);
     rec.id = id;
 
-    let line = question_dto(&s, &[current(id, late_night_utc())], rec)
+    let line = question_dto(&s, &[current(id, late_night_utc())], &[], rec)
         .answered_on
         .expect("an answered row carries the line");
 
@@ -518,7 +540,7 @@ fn one_question_s_answer_never_lands_on_another_s_row() {
     let mut rec = record(Some(5), None);
     rec.id = mine;
 
-    let dto = question_dto(&s, &[current(other, late_night_utc())], rec);
+    let dto = question_dto(&s, &[current(other, late_night_utc())], &[], rec);
 
     assert_eq!(
         dto.answered_on, None,
@@ -544,7 +566,7 @@ fn the_answers_sheet_and_the_row_speak_the_same_line() {
     let id = Uuid::from_u128(7);
     let mut rec = record(Some(5), None);
     rec.id = id;
-    let row_line = question_dto(&s, &[current(id, at)], rec)
+    let row_line = question_dto(&s, &[current(id, at)], &[], rec)
         .answered_on
         .expect("the answered row carries the line");
 

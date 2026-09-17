@@ -40,6 +40,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260819135156_practice_hotfix_attribution_from_login_and_case_timezone.sql",
     // `practice_row_answered_on_template` — the one status a one-page row carries.
     "pipeline_migrations/20260823123657_practice_one_page_l1_answered_on.sql",
+    // The review bar and the notes (CC_TASK_REVIEW_LOOP_v1).
+    "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -65,6 +67,16 @@ const TEST_SEED: &[(&str, &str)] = &[
     // The one status a one-page deck row carries. `{when}` is filled by
     // `practice_clock::local_day_month` — no weekday, deliberately.
     (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
+    (KEY_DECK_REVIEW_NEW_TEMPLATE, "{count} new since you last reviewed"),
+    (KEY_DECK_REVIEW_NEW_ONE, "{count} new since you last reviewed"),
+    (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
+    (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
+    (KEY_NOTE_ADD_LABEL, "Add a note"),
+    (KEY_NOTE_SAVE_LABEL, "Save note"),
+    (KEY_NOTE_CANCEL_LABEL, "Cancel"),
+    (KEY_NOTE_STRIKE_LABEL, "Strike"),
+    (KEY_NOTE_STRUCK_TEMPLATE, "struck {when}"),
+    (KEY_NOTE_FAILED, "The note could not be saved \u{2014} nothing was written."),
 ];
 
 impl PracticeRowWording {
@@ -185,6 +197,21 @@ fn every_template_carries_its_placeholders() {
             &w.attempt_suffix_template,
             vec!["{n}"],
         ),
+        (
+            "deck_review_new_template",
+            &w.deck_review_new_template,
+            vec!["{count}"],
+        ),
+        (
+            "deck_review_new_one",
+            &w.deck_review_new_one,
+            vec!["{count}"],
+        ),
+        (
+            "note_struck_template",
+            &w.note_struck_template,
+            vec!["{when}"],
+        ),
     ] {
         for placeholder in needed {
             assert!(
@@ -214,6 +241,13 @@ fn the_plain_labels_carry_no_placeholder() {
         ("points_to_reveal_prefix", &w.points_to_reveal_prefix),
         ("points_to_sheet_prefix", &w.points_to_sheet_prefix),
         ("unfinished_today_word", &w.unfinished_today_word),
+        ("deck_review_done_label", &w.deck_review_done_label),
+        ("deck_review_failed", &w.deck_review_failed),
+        ("note_add_label", &w.note_add_label),
+        ("note_save_label", &w.note_save_label),
+        ("note_cancel_label", &w.note_cancel_label),
+        ("note_strike_label", &w.note_strike_label),
+        ("note_failed", &w.note_failed),
     ] {
         assert!(
             !value.contains('{'),

@@ -52,6 +52,8 @@ fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) 
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     )
     .receipts
@@ -156,6 +158,7 @@ fn a_row_carries_its_answered_on_line_or_nothing_at_all() {
     };
     let current = vec![CurrentAnswerRecord {
         question_id: answered.id,
+        answer_id: Uuid::from_u128(0xA115),
         answer_text: "her words".to_string(),
         answered_at: now(),
     }];
@@ -173,6 +176,8 @@ fn a_row_carries_its_answered_on_line_or_nothing_at_all() {
             current: &current,
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 

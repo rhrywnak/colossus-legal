@@ -38,6 +38,7 @@ function question(id: string): PracticeQuestion {
     hidden: false,
     answered_on: null,
     draft_by: null,
+    notes: [],
   };
 }
 

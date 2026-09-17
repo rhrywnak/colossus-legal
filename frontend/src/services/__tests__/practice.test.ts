@@ -59,6 +59,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
       { card: 1, name: "false premise" },
       { card: 2, name: "compound" },
     ],
+    new_since_you_reviewed: 0,
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -109,6 +110,17 @@ describe("fetchPracticeDeck", () => {
     // set a tactic, silently retired, on a page that otherwise looked perfect.
     const { tactic_cards: _dropped, ...withoutCards } = deck();
     okFetch(withoutCards);
+    await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
+  });
+
+  it("refuses a payload with no new_since_you_reviewed — a silent zero hides the review bar", async () => {
+    // An absent count would read as "nothing new" and the bar would never draw
+    // (CC_TASK_REVIEW_LOOP_v1). A complete deck accepts; the same deck without
+    // the one field refuses.
+    okFetch(deck());
+    await expect(fetchPracticeDeck(SLUG, SCENARIO)).resolves.toBeDefined();
+    const { new_since_you_reviewed: _dropped, ...withoutCount } = deck();
+    okFetch(withoutCount);
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 });

@@ -62,36 +62,56 @@ pub struct WarRoomWording {
     pub card_matrix_linked_template: String,
     /// The Matrix value when nothing was left unlinked (ruling Q4: never "0 of 0").
     pub card_matrix_linked_none: String,
-    /// Template with `{model}`, `{date}`, `{relevant}` and `{total}`.
+    /// Template with `{date}` only — the model and relevant counts live on the
+    /// scenario page (CC_TASK_REVIEW_LOOP_v1 §5).
     pub card_scan_template: String,
     /// The scan line for a scenario no scan has touched.
     pub card_scan_never: String,
-    /// Label: talking points.
-    pub card_talking_points_label: String,
-    /// Label: watch-list items.
-    pub card_watch_items_label: String,
-    /// Label: the practice deck.
-    pub card_deck_label: String,
-    /// Template with `{count}` and `{date}`.
-    pub card_deck_template: String,
-    /// The deck value when there are no visible questions.
+    /// The prep headline when there are no visible questions.
     pub card_deck_none: String,
-    /// The bold half of the answered line: `{answered}` and `{total}`.
+    /// The bold half of the prep headline: `{answered}` and `{total}`.
     pub card_answered_count_template: String,
-    /// The rest of the answered line, by who asks.
-    pub card_answered_split_template: String,
+    /// The regular-weight word after it: "answered".
+    pub card_answered_word: String,
+    /// The one muted line under the headline: the side split, the deck size and
+    /// the deck's date (`{chuck_answered}`, `{chuck_total}`, `{defense_answered}`,
+    /// `{defense_total}`, `{count}`, `{date}`).
+    pub card_prep_meta_template: String,
     /// The amber pill: `{count}` questions new or changed since Marie last answered.
     pub card_changed_template: String,
+    /// The amber pill for the viewer: `{count}` answers by someone else since
+    /// this viewer last pressed Done reviewing (CC_TASK_REVIEW_LOOP_v1 §2).
+    pub card_viewer_new_template: String,
+    /// Its singular, read when the count is exactly 1 (GO v3: "1 answers" does
+    /// not ship).
+    pub card_viewer_new_one: String,
+    /// The singular of `card_changed_template`, read when the count is exactly 1.
+    pub card_changed_one: String,
+    /// The gray pill: nobody has answered anything on this deck.
+    pub card_not_started: String,
     /// The green pill.
     pub card_up_to_date: String,
-    /// Action: open the scenario page.
-    pub card_open_action: String,
     /// Action: open the practice deck.
     pub card_practice_action: String,
     /// Action: open the timeline window.
     pub card_timeline_action: String,
     /// Action: ask to delete (opens the confirm dialog).
     pub card_delete_action: String,
+
+    // ── The queue strip (CC_TASK_REVIEW_LOOP_v1 §5) ────────────────────────────
+    //
+    // Domain note: four queues, each naming WHO owes the work — the dashboard's
+    // decision value is "whose move is it", not a census of scenarios.
+    /// Tile 1's label.
+    pub strip_answered_label: String,
+    /// Tile 1's number: `{answered}` of `{total}`.
+    pub strip_answered_template: String,
+    /// Tile 2: unanswered visible questions, both sides.
+    pub strip_waiting_label: String,
+    /// Tile 3: the viewer's unreviewed answers, summed.
+    pub strip_new_for_you_label: String,
+    /// Tile 4: candidates to rule, summed.
+    pub strip_candidates_label: String,
 }
 
 // KEYS: the stable identifiers. Renaming one is a migration, and until it runs
@@ -109,19 +129,24 @@ pub(crate) const KEY_CARD_MATRIX_LINKED_TEMPLATE: &str = "war_room_card_matrix_l
 pub(crate) const KEY_CARD_MATRIX_LINKED_NONE: &str = "war_room_card_matrix_linked_none";
 pub(crate) const KEY_CARD_SCAN_TEMPLATE: &str = "war_room_card_scan_template";
 pub(crate) const KEY_CARD_SCAN_NEVER: &str = "war_room_card_scan_never";
-pub(crate) const KEY_CARD_TALKING_POINTS_LABEL: &str = "war_room_card_talking_points_label";
-pub(crate) const KEY_CARD_WATCH_ITEMS_LABEL: &str = "war_room_card_watch_items_label";
-pub(crate) const KEY_CARD_DECK_LABEL: &str = "war_room_card_deck_label";
-pub(crate) const KEY_CARD_DECK_TEMPLATE: &str = "war_room_card_deck_template";
 pub(crate) const KEY_CARD_DECK_NONE: &str = "war_room_card_deck_none";
 pub(crate) const KEY_CARD_ANSWERED_COUNT_TEMPLATE: &str = "war_room_card_answered_count_template";
-pub(crate) const KEY_CARD_ANSWERED_SPLIT_TEMPLATE: &str = "war_room_card_answered_split_template";
+pub(crate) const KEY_CARD_ANSWERED_WORD: &str = "war_room_card_answered_word";
+pub(crate) const KEY_CARD_PREP_META_TEMPLATE: &str = "war_room_card_prep_meta_template";
 pub(crate) const KEY_CARD_CHANGED_TEMPLATE: &str = "war_room_card_changed_template";
+pub(crate) const KEY_CARD_VIEWER_NEW_TEMPLATE: &str = "war_room_card_viewer_new_template";
+pub(crate) const KEY_CARD_VIEWER_NEW_ONE: &str = "war_room_card_viewer_new_one";
+pub(crate) const KEY_CARD_CHANGED_ONE: &str = "war_room_card_changed_one";
+pub(crate) const KEY_CARD_NOT_STARTED: &str = "war_room_card_not_started";
 pub(crate) const KEY_CARD_UP_TO_DATE: &str = "war_room_card_up_to_date";
-pub(crate) const KEY_CARD_OPEN_ACTION: &str = "war_room_card_open_action";
 pub(crate) const KEY_CARD_PRACTICE_ACTION: &str = "war_room_card_practice_action";
 pub(crate) const KEY_CARD_TIMELINE_ACTION: &str = "war_room_card_timeline_action";
 pub(crate) const KEY_CARD_DELETE_ACTION: &str = "war_room_card_delete_action";
+pub(crate) const KEY_STRIP_ANSWERED_LABEL: &str = "war_room_strip_answered_label";
+pub(crate) const KEY_STRIP_ANSWERED_TEMPLATE: &str = "war_room_strip_answered_template";
+pub(crate) const KEY_STRIP_WAITING_LABEL: &str = "war_room_strip_waiting_label";
+pub(crate) const KEY_STRIP_NEW_FOR_YOU_LABEL: &str = "war_room_strip_new_for_you_label";
+pub(crate) const KEY_STRIP_CANDIDATES_LABEL: &str = "war_room_strip_candidates_label";
 
 /// Every war-room key this build reads, so a missing one is caught at boot BY
 /// NAME rather than as an unlabelled tile.
@@ -139,19 +164,24 @@ pub const WAR_ROOM_WORDING_KEYS: &[&str] = &[
     KEY_CARD_MATRIX_LINKED_NONE,
     KEY_CARD_SCAN_TEMPLATE,
     KEY_CARD_SCAN_NEVER,
-    KEY_CARD_TALKING_POINTS_LABEL,
-    KEY_CARD_WATCH_ITEMS_LABEL,
-    KEY_CARD_DECK_LABEL,
-    KEY_CARD_DECK_TEMPLATE,
     KEY_CARD_DECK_NONE,
     KEY_CARD_ANSWERED_COUNT_TEMPLATE,
-    KEY_CARD_ANSWERED_SPLIT_TEMPLATE,
+    KEY_CARD_ANSWERED_WORD,
+    KEY_CARD_PREP_META_TEMPLATE,
     KEY_CARD_CHANGED_TEMPLATE,
+    KEY_CARD_VIEWER_NEW_TEMPLATE,
+    KEY_CARD_VIEWER_NEW_ONE,
+    KEY_CARD_CHANGED_ONE,
+    KEY_CARD_NOT_STARTED,
     KEY_CARD_UP_TO_DATE,
-    KEY_CARD_OPEN_ACTION,
     KEY_CARD_PRACTICE_ACTION,
     KEY_CARD_TIMELINE_ACTION,
     KEY_CARD_DELETE_ACTION,
+    KEY_STRIP_ANSWERED_LABEL,
+    KEY_STRIP_ANSWERED_TEMPLATE,
+    KEY_STRIP_WAITING_LABEL,
+    KEY_STRIP_NEW_FOR_YOU_LABEL,
+    KEY_STRIP_CANDIDATES_LABEL,
 ];
 
 /// Build a [`WarRoomWording`] from the stored rows, or say which key is wrong.
@@ -179,19 +209,24 @@ pub fn build_war_room_wording<E>(
         card_matrix_linked_none: read(KEY_CARD_MATRIX_LINKED_NONE)?,
         card_scan_template: read(KEY_CARD_SCAN_TEMPLATE)?,
         card_scan_never: read(KEY_CARD_SCAN_NEVER)?,
-        card_talking_points_label: read(KEY_CARD_TALKING_POINTS_LABEL)?,
-        card_watch_items_label: read(KEY_CARD_WATCH_ITEMS_LABEL)?,
-        card_deck_label: read(KEY_CARD_DECK_LABEL)?,
-        card_deck_template: read(KEY_CARD_DECK_TEMPLATE)?,
         card_deck_none: read(KEY_CARD_DECK_NONE)?,
         card_answered_count_template: read(KEY_CARD_ANSWERED_COUNT_TEMPLATE)?,
-        card_answered_split_template: read(KEY_CARD_ANSWERED_SPLIT_TEMPLATE)?,
+        card_answered_word: read(KEY_CARD_ANSWERED_WORD)?,
+        card_prep_meta_template: read(KEY_CARD_PREP_META_TEMPLATE)?,
         card_changed_template: read(KEY_CARD_CHANGED_TEMPLATE)?,
+        card_viewer_new_template: read(KEY_CARD_VIEWER_NEW_TEMPLATE)?,
+        card_viewer_new_one: read(KEY_CARD_VIEWER_NEW_ONE)?,
+        card_changed_one: read(KEY_CARD_CHANGED_ONE)?,
+        card_not_started: read(KEY_CARD_NOT_STARTED)?,
         card_up_to_date: read(KEY_CARD_UP_TO_DATE)?,
-        card_open_action: read(KEY_CARD_OPEN_ACTION)?,
         card_practice_action: read(KEY_CARD_PRACTICE_ACTION)?,
         card_timeline_action: read(KEY_CARD_TIMELINE_ACTION)?,
         card_delete_action: read(KEY_CARD_DELETE_ACTION)?,
+        strip_answered_label: read(KEY_STRIP_ANSWERED_LABEL)?,
+        strip_answered_template: read(KEY_STRIP_ANSWERED_TEMPLATE)?,
+        strip_waiting_label: read(KEY_STRIP_WAITING_LABEL)?,
+        strip_new_for_you_label: read(KEY_STRIP_NEW_FOR_YOU_LABEL)?,
+        strip_candidates_label: read(KEY_STRIP_CANDIDATES_LABEL)?,
     })
 }
 
@@ -229,25 +264,27 @@ mod tests {
         assert_eq!(w.card_matrix_linked_none, KEY_CARD_MATRIX_LINKED_NONE);
         assert_eq!(w.card_scan_template, KEY_CARD_SCAN_TEMPLATE);
         assert_eq!(w.card_scan_never, KEY_CARD_SCAN_NEVER);
-        assert_eq!(w.card_talking_points_label, KEY_CARD_TALKING_POINTS_LABEL);
-        assert_eq!(w.card_watch_items_label, KEY_CARD_WATCH_ITEMS_LABEL);
-        assert_eq!(w.card_deck_label, KEY_CARD_DECK_LABEL);
-        assert_eq!(w.card_deck_template, KEY_CARD_DECK_TEMPLATE);
         assert_eq!(w.card_deck_none, KEY_CARD_DECK_NONE);
         assert_eq!(
             w.card_answered_count_template,
             KEY_CARD_ANSWERED_COUNT_TEMPLATE
         );
-        assert_eq!(
-            w.card_answered_split_template,
-            KEY_CARD_ANSWERED_SPLIT_TEMPLATE
-        );
+        assert_eq!(w.card_answered_word, KEY_CARD_ANSWERED_WORD);
+        assert_eq!(w.card_prep_meta_template, KEY_CARD_PREP_META_TEMPLATE);
         assert_eq!(w.card_changed_template, KEY_CARD_CHANGED_TEMPLATE);
+        assert_eq!(w.card_viewer_new_template, KEY_CARD_VIEWER_NEW_TEMPLATE);
+        assert_eq!(w.card_viewer_new_one, KEY_CARD_VIEWER_NEW_ONE);
+        assert_eq!(w.card_changed_one, KEY_CARD_CHANGED_ONE);
+        assert_eq!(w.card_not_started, KEY_CARD_NOT_STARTED);
         assert_eq!(w.card_up_to_date, KEY_CARD_UP_TO_DATE);
-        assert_eq!(w.card_open_action, KEY_CARD_OPEN_ACTION);
         assert_eq!(w.card_practice_action, KEY_CARD_PRACTICE_ACTION);
         assert_eq!(w.card_timeline_action, KEY_CARD_TIMELINE_ACTION);
         assert_eq!(w.card_delete_action, KEY_CARD_DELETE_ACTION);
+        assert_eq!(w.strip_answered_label, KEY_STRIP_ANSWERED_LABEL);
+        assert_eq!(w.strip_answered_template, KEY_STRIP_ANSWERED_TEMPLATE);
+        assert_eq!(w.strip_waiting_label, KEY_STRIP_WAITING_LABEL);
+        assert_eq!(w.strip_new_for_you_label, KEY_STRIP_NEW_FOR_YOU_LABEL);
+        assert_eq!(w.strip_candidates_label, KEY_STRIP_CANDIDATES_LABEL);
     }
 
     /// A key the builder reads but the list omits would be missing from
@@ -270,19 +307,24 @@ mod tests {
             w.card_matrix_linked_none,
             w.card_scan_template,
             w.card_scan_never,
-            w.card_talking_points_label,
-            w.card_watch_items_label,
-            w.card_deck_label,
-            w.card_deck_template,
             w.card_deck_none,
             w.card_answered_count_template,
-            w.card_answered_split_template,
+            w.card_answered_word,
+            w.card_prep_meta_template,
             w.card_changed_template,
+            w.card_viewer_new_template,
+            w.card_viewer_new_one,
+            w.card_changed_one,
+            w.card_not_started,
             w.card_up_to_date,
-            w.card_open_action,
             w.card_practice_action,
             w.card_timeline_action,
             w.card_delete_action,
+            w.strip_answered_label,
+            w.strip_answered_template,
+            w.strip_waiting_label,
+            w.strip_new_for_you_label,
+            w.strip_candidates_label,
         ];
         assert_eq!(read_keys.len(), WAR_ROOM_WORDING_KEYS.len());
         for key in read_keys {

@@ -9,14 +9,15 @@
 //! weekly meeting. The composing functions went with the panels that called
 //! them.
 //!
-//! ## ⚑ The `practice_notes` TABLE IS UNTOUCHED
+//! ## ⚑ Notes are BACK on the interface (CC_TASK_REVIEW_LOOP_v1, 2026-09-17)
 //!
-//! Not one row was deleted, and none will be. The UI stops reading them; the
-//! table keeps what it has. (Measured 2026-08-23: it holds ZERO rows on DEV —
-//! every scenario, every level — so nothing is in fact being hidden.)
+//! The table was never touched while notes were retired, and the review loop
+//! routes them again for one purpose: Chuck writes on the answer he is reading,
+//! and Marie reads it under her deck row. Composition now lives in
+//! `services::practice_note_view`; the routes in `api::practice_notes_routes`.
 //!
-//! `attribution` stays because the deck EDITOR signs its changes with it, and
-//! the editor survives this task.
+//! `attribution` stays here because every stamped write — the deck editor, the
+//! notes, the review cursor — signs with it.
 
 use crate::auth::AuthUser;
 

@@ -177,8 +177,13 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// /cases/:slug/scenarios/:scenario_id/scan-runs/:run_id/cancel`, the stop a
 /// human can give a scan that is still judging. One line, not two — `POST` has
 /// no axum `HEAD` pair.
+///
+/// 311 since REVIEW_LOOP_v1, which added four, none with a `HEAD` pair: `POST
+/// /practice/answers/:answer_id/notes`, `POST /practice/questions/:question_id/notes`,
+/// `PUT /practice/notes/:note_id/strike`, and `PUT
+/// /cases/:slug/scenarios/:scenario_id/practice/review-cursor` (Done reviewing).
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 307;
+const EXPECTED_ROUTE_LINES: usize = 311;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

@@ -46,7 +46,7 @@ pub async fn init_pools(config: &AppConfig) -> DatabasePools {
         .await
         .expect("Failed to connect to PostgreSQL (main)");
 
-    sqlx::migrate!("./migrations")
+    rollback_tolerant(sqlx::migrate!("./migrations"))
         .run(&main_pool)
         .await
         .expect("Failed to run main database migrations");
@@ -61,10 +61,11 @@ pub async fn init_pools(config: &AppConfig) -> DatabasePools {
         .await
         .expect("Failed to connect to pipeline PostgreSQL database");
 
-    let pipeline_migrator =
+    let pipeline_migrator = rollback_tolerant(
         sqlx::migrate::Migrator::new(std::path::Path::new("./pipeline_migrations"))
             .await
-            .expect("Failed to load pipeline migrations");
+            .expect("Failed to load pipeline migrations"),
+    );
 
     pipeline_migrator
         .run(&pipeline_pool)
@@ -84,4 +85,33 @@ pub async fn init_pools(config: &AppConfig) -> DatabasePools {
         main_pool,
         pipeline_pool,
     }
+}
+
+/// Let a binary boot against a store that has migrations it does not carry.
+///
+/// ## Why (CC_TASK_REVIEW_LOOP_v1 §6)
+///
+/// By default sqlx refuses to run when the database records an APPLIED migration
+/// that is missing from this binary's set — `VersionMissing`, and the `.expect`
+/// above turns that into a boot panic. That default is what made a v2.1.9 → v2.1.8
+/// rollback impossible: the older image does not carry the newer migration, so it
+/// never starts. With `ignore_missing` set, an older image skips the check and
+/// runs its own (already applied) set — a version rollback becomes a redeploy
+/// rather than a database restore. It only helps images that contain THIS line;
+/// every image before it still panics against a newer store.
+///
+/// What it does NOT relax: a migration whose file CHANGED after it was applied
+/// still fails its checksum, and a migration this binary carries but the store
+/// lacks is still applied. Only "the store is ahead of me" is tolerated.
+///
+/// ## Rust Learning: taking `mut self` by value to call a `&mut self` setter
+///
+/// `Migrator::set_ignore_missing` takes `&mut self`, and `sqlx::migrate!(…)`
+/// produces a temporary value with no binding to borrow mutably. Taking the
+/// migrator by value as `mut migrator` gives it a mutable home for the duration
+/// of the call, and returning it moves it back out — so both call sites stay one
+/// expression instead of each growing a `let mut` and a separate statement.
+fn rollback_tolerant(mut migrator: sqlx::migrate::Migrator) -> sqlx::migrate::Migrator {
+    migrator.set_ignore_missing(true);
+    migrator
 }

@@ -13,7 +13,7 @@
 // fix nothing.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migrations that seed this block: the .396 batch's four rows, and the
@@ -21,7 +21,14 @@ use std::collections::HashMap;
 const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
     "pipeline_migrations/20260916130121_war_room_status_card_wording.sql",
+    // The review loop: eleven new rows (CC_TASK_REVIEW_LOOP_v1, GO v3 singulars).
+    "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
 ];
+
+/// The migrations that CORRECT a row of this block in place. Read with
+/// `corrected_value_in` first, so a corrected key is pinned to its NEW value.
+const CORRECTION_MIGRATIONS: &[&str] =
+    &["pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql"];
 
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -40,21 +47,26 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_CARD_MATRIX_LINKED_LABEL, "Matrix linked"),
     (KEY_CARD_MATRIX_LINKED_TEMPLATE, "{linked} of {total}"),
     (KEY_CARD_MATRIX_LINKED_NONE, "—"),
-    (KEY_CARD_SCAN_TEMPLATE, "Scan: {model} · {date} · {relevant} relevant of {total}"),
-    (KEY_CARD_SCAN_NEVER, "Scan: never run"),
-    (KEY_CARD_TALKING_POINTS_LABEL, "Talking points"),
-    (KEY_CARD_WATCH_ITEMS_LABEL, "Watch items"),
-    (KEY_CARD_DECK_LABEL, "Deck"),
-    (KEY_CARD_DECK_TEMPLATE, "{count} questions · {date}"),
+    (KEY_CARD_SCAN_TEMPLATE, "Last scan {date}"),
+    (KEY_CARD_SCAN_NEVER, "Never scanned"),
     (KEY_CARD_DECK_NONE, "—"),
     (KEY_CARD_ANSWERED_COUNT_TEMPLATE, "{answered} of {total}"),
-    (KEY_CARD_ANSWERED_SPLIT_TEMPLATE, "answered · Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total}"),
+    (KEY_CARD_ANSWERED_WORD, "answered"),
+    (KEY_CARD_PREP_META_TEMPLATE, "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}"),
     (KEY_CARD_CHANGED_TEMPLATE, "{count} new or changed for Marie"),
+    (KEY_CARD_VIEWER_NEW_TEMPLATE, "{count} answers you haven't reviewed"),
+    (KEY_CARD_VIEWER_NEW_ONE, "{count} answer you haven't reviewed"),
+    (KEY_CARD_CHANGED_ONE, "{count} new or changed for Marie"),
+    (KEY_CARD_NOT_STARTED, "Not started"),
     (KEY_CARD_UP_TO_DATE, "Up to date"),
-    (KEY_CARD_OPEN_ACTION, "Open scenario"),
-    (KEY_CARD_PRACTICE_ACTION, "Practice"),
+    (KEY_CARD_PRACTICE_ACTION, "Practice →"),
     (KEY_CARD_TIMELINE_ACTION, "Timeline"),
     (KEY_CARD_DELETE_ACTION, "Delete"),
+    (KEY_STRIP_ANSWERED_LABEL, "Questions answered"),
+    (KEY_STRIP_ANSWERED_TEMPLATE, "{answered} of {total}"),
+    (KEY_STRIP_WAITING_LABEL, "Waiting for Marie"),
+    (KEY_STRIP_NEW_FOR_YOU_LABEL, "New answers for you"),
+    (KEY_STRIP_CANDIDATES_LABEL, "Candidates for Roman"),
 ];
 
 impl WarRoomWording {
@@ -94,12 +106,25 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .collect::<Vec<_>>()
         .join("\n");
 
+    let corrections = CORRECTION_MIGRATIONS
+        .iter()
+        .map(|relative| {
+            std::fs::read_to_string(root.join(relative))
+                .unwrap_or_else(|_| panic!("{relative} is on disk"))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+
     let fixture = WarRoomWording::for_test_values();
 
     for key in WAR_ROOM_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key).unwrap_or_else(|| {
-            panic!("{key} is declared to the boot loader but no migration seeds a row for it")
-        });
+        // A correction wins over the original seed: the store holds the UPDATE's
+        // value once both have run.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| seeded_value_in(&sql, key))
+            .unwrap_or_else(|| {
+                panic!("{key} is declared to the boot loader but no migration seeds a row for it")
+            });
         let in_fixture = fixture
             .get(*key)
             .unwrap_or_else(|| panic!("{key} is missing from TEST_SEED"));

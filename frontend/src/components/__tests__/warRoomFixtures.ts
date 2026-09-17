@@ -2,9 +2,9 @@
 // warRoomFixtures.ts — the status card's test payloads
 // =============================================================================
 //
-// The wording block is the MIGRATION's values
-// (20260916130121_war_room_status_card_wording.sql), so a test asserting a
-// rendered string is asserting what DEV will actually print.
+// The wording block is the MIGRATIONS' values — 20260916130121 as corrected and
+// extended by 20260917080207_review_loop_cursor_and_wording.sql — so a test
+// asserting a rendered string is asserting what DEV will actually print.
 
 import type { ScenarioProgress, ScenarioSummary, WarRoomWording } from "../../pages/trialPrepData";
 
@@ -21,21 +21,27 @@ export const warRoomWording: WarRoomWording = {
   card_matrix_linked_label: "Matrix linked",
   card_matrix_linked_template: "{linked} of {total}",
   card_matrix_linked_none: "—",
-  card_scan_template: "Scan: {model} · {date} · {relevant} relevant of {total}",
-  card_scan_never: "Scan: never run",
-  card_talking_points_label: "Talking points",
-  card_watch_items_label: "Watch items",
-  card_deck_label: "Deck",
-  card_deck_template: "{count} questions · {date}",
+  card_scan_template: "Last scan {date}",
+  card_scan_never: "Never scanned",
   card_deck_none: "—",
   card_answered_count_template: "{answered} of {total}",
-  card_answered_split_template: "answered · Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total}",
+  card_answered_word: "answered",
+  card_prep_meta_template:
+    "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
   card_changed_template: "{count} new or changed for Marie",
+  card_viewer_new_template: "{count} answers you haven't reviewed",
+  card_viewer_new_one: "{count} answer you haven't reviewed",
+  card_changed_one: "{count} new or changed for Marie",
+  card_not_started: "Not started",
   card_up_to_date: "Up to date",
-  card_open_action: "Open scenario",
-  card_practice_action: "Practice",
+  card_practice_action: "Practice →",
   card_timeline_action: "Timeline",
   card_delete_action: "Delete",
+  strip_answered_label: "Questions answered",
+  strip_answered_template: "{answered} of {total}",
+  strip_waiting_label: "Waiting for Marie",
+  strip_new_for_you_label: "New answers for you",
+  strip_candidates_label: "Candidates for Roman",
 };
 
 /** A scenario with nothing yet: every count zero, never scanned, no deck. */
@@ -45,8 +51,6 @@ export function bareProgress(): ScenarioProgress {
     candidates_to_rule: 0,
     matrix_linked: { linked: 0, total: 0 },
     last_scan: null,
-    talking_points: 0,
-    watch_items: 0,
     deck: { questions: 0, built_on: null },
     answered: {
       total: 0,
@@ -57,36 +61,63 @@ export function bareProgress(): ScenarioProgress {
       defense_total: 0,
     },
     marie_changed: 0,
+    new_answers_for_viewer: 0,
   };
 }
 
-/** S-13 as the mockup draws it (PROD numbers, 16 Sep 2026). */
-export function s13(overrides: Partial<ScenarioProgress> = {}): ScenarioSummary {
+/** S-1 as the ruled mockup v3 draws it (DEV numbers, 17 Sep 2026), viewed by Chuck. */
+export function s1(overrides: Partial<ScenarioProgress> = {}): ScenarioSummary {
   return {
-    id: "00000000-0000-0000-0000-000000000013",
-    code: "S-13",
-    attack: "The SSA form — no living children",
+    id: "00000000-0000-0000-0000-000000000001",
+    code: "S-1",
+    attack: "Marie is obstructive and uncooperative",
     status: "ready",
     baseless_repeat_count: null,
-    theme_statement:
-      "A fiduciary who swore to the federal government that his ward's children did not exist.",
+    theme_statement: "Every act they call obstruction is a right the law gives an heir.",
+    progress: {
+      facts_included: 19,
+      candidates_to_rule: 0,
+      matrix_linked: { linked: 16, total: 142 },
+      last_scan: null,
+      deck: { questions: 42, built_on: "2026-09-15T15:00:00Z" },
+      answered: {
+        total: 42,
+        of: 42,
+        chuck_answered: 12,
+        chuck_total: 12,
+        defense_answered: 30,
+        defense_total: 30,
+      },
+      marie_changed: 0,
+      new_answers_for_viewer: 42,
+      ...overrides,
+    },
+  };
+}
+
+/** S-11 as the mockup draws it: scanned, a deck, nothing answered. */
+export function s11(overrides: Partial<ScenarioProgress> = {}): ScenarioSummary {
+  return {
+    ...s1(),
+    id: "00000000-0000-0000-0000-000000000011",
+    code: "S-11",
+    attack: "The $50,000",
     progress: {
       facts_included: 10,
-      candidates_to_rule: 33,
+      candidates_to_rule: 34,
       matrix_linked: { linked: 4, total: 99 },
-      last_scan: { model_name: "Qwen3.8", when: "2026-09-11T15:00:00Z", relevant: 43, total: 273 },
-      talking_points: 5,
-      watch_items: 5,
-      deck: { questions: 17, built_on: "2026-09-14T15:00:00Z" },
+      last_scan: { when: "2026-08-29T15:00:00Z" },
+      deck: { questions: 12, built_on: "2026-08-30T15:00:00Z" },
       answered: {
         total: 0,
-        of: 17,
+        of: 12,
         chuck_answered: 0,
         chuck_total: 7,
         defense_answered: 0,
-        defense_total: 10,
+        defense_total: 5,
       },
-      marie_changed: 3,
+      marie_changed: 0,
+      new_answers_for_viewer: 0,
       ...overrides,
     },
   };

@@ -49,6 +49,7 @@ pub mod practice_answer_version;
 pub mod practice_changes;
 pub mod practice_clock;
 pub mod practice_editor_options;
+pub mod practice_note_view;
 pub mod practice_notes;
 pub mod practice_page;
 pub mod practice_read;

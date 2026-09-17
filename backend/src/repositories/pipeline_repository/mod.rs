@@ -87,6 +87,7 @@ pub mod practice_reorder;
 pub mod report_queries;
 pub mod review;
 pub mod review_actions;
+pub mod review_cursor;
 pub mod review_edit_history;
 pub mod review_grounding;
 pub mod review_items;
