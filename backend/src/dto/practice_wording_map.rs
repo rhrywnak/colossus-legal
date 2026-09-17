@@ -171,6 +171,7 @@ impl PracticeWordingDto {
             answer_already_recorded: drill.row.answer_already_recorded.clone(),
             row_answered_on_template: drill.row.answered_on_template.clone(),
             deck_review_new_template: drill.row.deck_review_new_template.clone(),
+            deck_review_new_one: drill.row.deck_review_new_one.clone(),
             deck_review_done_label: drill.row.deck_review_done_label.clone(),
             deck_review_failed: drill.row.deck_review_failed.clone(),
             row_note_add_label: drill.row.note_add_label.clone(),

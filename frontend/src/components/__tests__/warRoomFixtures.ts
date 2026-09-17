@@ -30,6 +30,8 @@ export const warRoomWording: WarRoomWording = {
     "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
   card_changed_template: "{count} new or changed for Marie",
   card_viewer_new_template: "{count} answers you haven't reviewed",
+  card_viewer_new_one: "{count} answer you haven't reviewed",
+  card_changed_one: "{count} new or changed for Marie",
   card_not_started: "Not started",
   card_up_to_date: "Up to date",
   card_practice_action: "Practice →",

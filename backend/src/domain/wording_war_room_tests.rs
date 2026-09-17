@@ -21,7 +21,7 @@ use std::collections::HashMap;
 const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260813152536_tuesday_batch_396_matrix_strength_war_room_and_human_fact_completeness.sql",
     "pipeline_migrations/20260916130121_war_room_status_card_wording.sql",
-    // The review loop: nine new rows (CC_TASK_REVIEW_LOOP_v1).
+    // The review loop: eleven new rows (CC_TASK_REVIEW_LOOP_v1, GO v3 singulars).
     "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
 ];
 
@@ -55,6 +55,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_CARD_PREP_META_TEMPLATE, "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}"),
     (KEY_CARD_CHANGED_TEMPLATE, "{count} new or changed for Marie"),
     (KEY_CARD_VIEWER_NEW_TEMPLATE, "{count} answers you haven't reviewed"),
+    (KEY_CARD_VIEWER_NEW_ONE, "{count} answer you haven't reviewed"),
+    (KEY_CARD_CHANGED_ONE, "{count} new or changed for Marie"),
     (KEY_CARD_NOT_STARTED, "Not started"),
     (KEY_CARD_UP_TO_DATE, "Up to date"),
     (KEY_CARD_PRACTICE_ACTION, "Practice →"),

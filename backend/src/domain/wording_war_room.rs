@@ -82,6 +82,11 @@ pub struct WarRoomWording {
     /// The amber pill for the viewer: `{count}` answers by someone else since
     /// this viewer last pressed Done reviewing (CC_TASK_REVIEW_LOOP_v1 §2).
     pub card_viewer_new_template: String,
+    /// Its singular, read when the count is exactly 1 (GO v3: "1 answers" does
+    /// not ship).
+    pub card_viewer_new_one: String,
+    /// The singular of `card_changed_template`, read when the count is exactly 1.
+    pub card_changed_one: String,
     /// The gray pill: nobody has answered anything on this deck.
     pub card_not_started: String,
     /// The green pill.
@@ -130,6 +135,8 @@ pub(crate) const KEY_CARD_ANSWERED_WORD: &str = "war_room_card_answered_word";
 pub(crate) const KEY_CARD_PREP_META_TEMPLATE: &str = "war_room_card_prep_meta_template";
 pub(crate) const KEY_CARD_CHANGED_TEMPLATE: &str = "war_room_card_changed_template";
 pub(crate) const KEY_CARD_VIEWER_NEW_TEMPLATE: &str = "war_room_card_viewer_new_template";
+pub(crate) const KEY_CARD_VIEWER_NEW_ONE: &str = "war_room_card_viewer_new_one";
+pub(crate) const KEY_CARD_CHANGED_ONE: &str = "war_room_card_changed_one";
 pub(crate) const KEY_CARD_NOT_STARTED: &str = "war_room_card_not_started";
 pub(crate) const KEY_CARD_UP_TO_DATE: &str = "war_room_card_up_to_date";
 pub(crate) const KEY_CARD_PRACTICE_ACTION: &str = "war_room_card_practice_action";
@@ -163,6 +170,8 @@ pub const WAR_ROOM_WORDING_KEYS: &[&str] = &[
     KEY_CARD_PREP_META_TEMPLATE,
     KEY_CARD_CHANGED_TEMPLATE,
     KEY_CARD_VIEWER_NEW_TEMPLATE,
+    KEY_CARD_VIEWER_NEW_ONE,
+    KEY_CARD_CHANGED_ONE,
     KEY_CARD_NOT_STARTED,
     KEY_CARD_UP_TO_DATE,
     KEY_CARD_PRACTICE_ACTION,
@@ -206,6 +215,8 @@ pub fn build_war_room_wording<E>(
         card_prep_meta_template: read(KEY_CARD_PREP_META_TEMPLATE)?,
         card_changed_template: read(KEY_CARD_CHANGED_TEMPLATE)?,
         card_viewer_new_template: read(KEY_CARD_VIEWER_NEW_TEMPLATE)?,
+        card_viewer_new_one: read(KEY_CARD_VIEWER_NEW_ONE)?,
+        card_changed_one: read(KEY_CARD_CHANGED_ONE)?,
         card_not_started: read(KEY_CARD_NOT_STARTED)?,
         card_up_to_date: read(KEY_CARD_UP_TO_DATE)?,
         card_practice_action: read(KEY_CARD_PRACTICE_ACTION)?,
@@ -262,6 +273,8 @@ mod tests {
         assert_eq!(w.card_prep_meta_template, KEY_CARD_PREP_META_TEMPLATE);
         assert_eq!(w.card_changed_template, KEY_CARD_CHANGED_TEMPLATE);
         assert_eq!(w.card_viewer_new_template, KEY_CARD_VIEWER_NEW_TEMPLATE);
+        assert_eq!(w.card_viewer_new_one, KEY_CARD_VIEWER_NEW_ONE);
+        assert_eq!(w.card_changed_one, KEY_CARD_CHANGED_ONE);
         assert_eq!(w.card_not_started, KEY_CARD_NOT_STARTED);
         assert_eq!(w.card_up_to_date, KEY_CARD_UP_TO_DATE);
         assert_eq!(w.card_practice_action, KEY_CARD_PRACTICE_ACTION);
@@ -300,6 +313,8 @@ mod tests {
             w.card_prep_meta_template,
             w.card_changed_template,
             w.card_viewer_new_template,
+            w.card_viewer_new_one,
+            w.card_changed_one,
             w.card_not_started,
             w.card_up_to_date,
             w.card_practice_action,

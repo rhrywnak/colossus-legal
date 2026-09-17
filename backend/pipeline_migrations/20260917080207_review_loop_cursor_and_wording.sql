@@ -56,7 +56,7 @@ COMMENT ON TABLE practice_review_cursor IS
     'practice deck. Moved by that act alone. No row means nothing reviewed yet — '
     'every answer by someone else counts as new. Counts are derived, never stored.';
 
--- ─── 2 · New words ───────────────────────────────────────────────────────────
+-- ─── 2 · New words (singular siblings: CC_GO_REVIEW_LOOP_v3) ───────────────
 INSERT INTO app_settings
     (key, value, value_kind, default_value, min_value, max_value, meaning,
      consumed_by, updated_at, updated_by)
@@ -65,6 +65,18 @@ VALUES
      'The amber pill for the SIGNED-IN viewer: answers by someone else newer than '
      'the moment this viewer last pressed Done reviewing on the deck. Never shown '
      'at zero. Differs per viewer — Marie''s own answers never count for Marie.',
+     NULL, now(), 'migration'),
+
+    ('war_room_card_viewer_new_one', '{count} answer you haven''t reviewed', 'text', '{count} answer you haven''t reviewed', NULL, NULL,
+     'The singular of war_room_card_viewer_new_template, used when the count is '
+     'exactly 1 — "1 answers" does not ship (GO v3). Every other count reads the '
+     'plural row.',
+     NULL, now(), 'migration'),
+
+    ('war_room_card_changed_one', '{count} new or changed for Marie', 'text', '{count} new or changed for Marie', NULL, NULL,
+     'The singular of war_room_card_changed_template, used when exactly 1 question '
+     'is new or changed for Marie. Its own row even while it reads like the plural, '
+     'so either can be retuned without the other (GO v3).',
      NULL, now(), 'migration'),
 
     ('war_room_card_not_started', 'Not started', 'text', 'Not started', NULL, NULL,
@@ -109,6 +121,11 @@ VALUES
     ('practice_deck_review_new_template', '{count} new since you last reviewed', 'text', '{count} new since you last reviewed', NULL, NULL,
      'The review bar under the deck''s title: answers by someone else newer than '
      'the viewer''s last Done reviewing. The bar is not shown at zero.',
+     NULL, now(), 'migration'),
+
+    ('practice_deck_review_new_one', '{count} new since you last reviewed', 'text', '{count} new since you last reviewed', NULL, NULL,
+     'The singular of practice_deck_review_new_template, used when exactly 1 answer '
+     'is new for this viewer (GO v3).',
      NULL, now(), 'migration'),
 
     ('practice_deck_review_done_label', 'Done reviewing', 'text', 'Done reviewing', NULL, NULL,
@@ -208,6 +225,8 @@ BEGIN
       FROM app_settings
      WHERE key IN (
         'war_room_card_viewer_new_template',
+        'war_room_card_viewer_new_one',
+        'war_room_card_changed_one',
         'war_room_card_not_started',
         'war_room_card_answered_word',
         'war_room_card_prep_meta_template',
@@ -217,6 +236,7 @@ BEGIN
         'war_room_strip_new_for_you_label',
         'war_room_strip_candidates_label',
         'practice_deck_review_new_template',
+        'practice_deck_review_new_one',
         'practice_deck_review_done_label',
         'practice_deck_review_failed',
         'practice_row_note_add_label',
@@ -225,9 +245,9 @@ BEGIN
         'practice_row_note_strike_label',
         'practice_row_note_struck_template',
         'practice_row_note_failed');
-    IF present <> 18 THEN
+    IF present <> 21 THEN
         RAISE EXCEPTION
-            'review loop wording: expected 18 new settings rows, found %. The backend '
+            'review loop wording: expected 21 new settings rows, found %. The backend '
             'declares every one at boot and refuses to start without it.', present;
     END IF;
 

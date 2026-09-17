@@ -797,7 +797,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WAR_ROOM_WORDING_KEYS.len(),
-        29,
+        31,
         "task 396 P3b: the subtitle R2 ruled and never migrated, plus the three \
          metric tile labels — and CC_TASK_WAR_ROOM_v1's twenty-two status-card \
          words: two headers, six labels, the Matrix and deck templates with their \
@@ -806,7 +806,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          CC_TASK_REVIEW_LOOP_v1 then retired six (talking points, watch items, \
          deck label and template, answered split, open action) and added nine \
          (answered word, prep meta line, viewer pill, not-started pill, and the \
-         strip's five words)"
+         strip's five words), and GO v3's two singular pills"
     );
     assert_eq!(
         PRACTICE_WORDING_KEYS.len(),
@@ -823,13 +823,14 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        24,
+        25,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
          `answered_on_template`, which becomes the ONLY status a row carries \
          once the marks are retired from the interface. Plus the review loop's \
-         nine: the deck review bar (three) and the notes (six)"
+         nine: the deck review bar (three) and the notes (six), and GO v3's singular \
+         review-bar line"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),

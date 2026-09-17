@@ -24,6 +24,7 @@ import React from "react";
 
 import { wordingOf, type PracticeWording } from "../../services/practice";
 import { markDeckReviewed } from "../../services/practiceReviewLoop";
+import { pickByCount } from "../../utils/countWording";
 import * as r from "./practiceReviewLoopStyles";
 import * as s from "./practiceStyles";
 
@@ -35,6 +36,19 @@ interface Props {
   wording: PracticeWording;
   /** Re-read the deck after the mark moved. */
   onReviewed: () => void;
+}
+
+/**
+ * The bar's sentence: the singular row at exactly 1, the plural otherwise (GO v3).
+ * Exported so the pick is testable without rendering the bar.
+ */
+export function reviewBarLine(count: number, wording: PracticeWording): string {
+  const template = pickByCount(
+    count,
+    wordingOf(wording, "deck_review_new_one"),
+    wordingOf(wording, "deck_review_new_template"),
+  );
+  return template.replace("{count}", String(count));
 }
 
 const PracticeReviewBar: React.FC<Props> = ({ slug, scenarioId, count, wording, onReviewed }) => {
@@ -61,9 +75,7 @@ const PracticeReviewBar: React.FC<Props> = ({ slug, scenarioId, count, wording, 
 
   return (
     <div style={r.reviewBar} data-review-bar>
-      <span style={r.reviewCount}>
-        {w("deck_review_new_template").replace("{count}", String(count))}
-      </span>
+      <span style={r.reviewCount}>{reviewBarLine(count, wording)}</span>
       <button type="button" style={s.buttonPrimary} disabled={busy} onClick={onDone}>
         {w("deck_review_done_label")}
       </button>

@@ -114,6 +114,9 @@ export interface WarRoomWording {
   card_prep_meta_template: string;
   card_changed_template: string;
   card_viewer_new_template: string;
+  /** Singulars, read when the count is exactly 1 (GO v3). */
+  card_viewer_new_one: string;
+  card_changed_one: string;
   card_not_started: string;
   card_up_to_date: string;
   card_practice_action: string;

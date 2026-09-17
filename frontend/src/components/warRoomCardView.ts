@@ -17,6 +17,7 @@
 // are owed work. Everything else is ink.
 
 import { fill } from "../services/caseTimeline";
+import { pickByCount } from "../utils/countWording";
 import type { ScenarioSummary, WarRoomWording } from "../pages/trialPrepData";
 
 /** One label/value row in a pane. */
@@ -160,13 +161,19 @@ export function cardBadges(scenario: ScenarioSummary, wording: WarRoomWording): 
   if (p.new_answers_for_viewer > 0) {
     owed.push({
       kind: "viewer",
-      text: fill(wording.card_viewer_new_template, { count: p.new_answers_for_viewer }),
+      text: fill(
+        pickByCount(p.new_answers_for_viewer, wording.card_viewer_new_one, wording.card_viewer_new_template),
+        { count: p.new_answers_for_viewer },
+      ),
     });
   }
   if (p.marie_changed > 0) {
     owed.push({
       kind: "marie",
-      text: fill(wording.card_changed_template, { count: p.marie_changed }),
+      text: fill(
+        pickByCount(p.marie_changed, wording.card_changed_one, wording.card_changed_template),
+        { count: p.marie_changed },
+      ),
     });
   }
   return owed.length > 0 ? owed : [{ kind: "up_to_date", text: wording.card_up_to_date }];

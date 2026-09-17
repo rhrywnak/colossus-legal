@@ -68,6 +68,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     // `practice_clock::local_day_month` — no weekday, deliberately.
     (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
     (KEY_DECK_REVIEW_NEW_TEMPLATE, "{count} new since you last reviewed"),
+    (KEY_DECK_REVIEW_NEW_ONE, "{count} new since you last reviewed"),
     (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
     (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
     (KEY_NOTE_ADD_LABEL, "Add a note"),
@@ -199,6 +200,11 @@ fn every_template_carries_its_placeholders() {
         (
             "deck_review_new_template",
             &w.deck_review_new_template,
+            vec!["{count}"],
+        ),
+        (
+            "deck_review_new_one",
+            &w.deck_review_new_one,
             vec!["{count}"],
         ),
         (
