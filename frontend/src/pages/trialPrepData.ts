@@ -42,10 +42,8 @@ export interface ScenarioProgress {
   candidates_to_rule: number;
   /** `total` is the cards the extraction left unlinked; 0 = nothing stuck. */
   matrix_linked: { linked: number; total: number };
-  /** null = no scan has ever run on this scenario. */
-  last_scan: { model_name: string; when: string; relevant: number; total: number } | null;
-  talking_points: number;
-  watch_items: number;
+  /** null = no scan has ever run on this scenario. The card shows the day only. */
+  last_scan: { when: string } | null;
   /** Visible questions, and the day the deck last changed (null = no deck). */
   deck: { questions: number; built_on: string | null };
   /** `total` answered `of` the visible questions, split by who asks. */
@@ -57,8 +55,12 @@ export interface ScenarioProgress {
     defense_answered: number;
     defense_total: number;
   };
-  /** Visible questions new or changed since Marie last answered this deck. */
+  /** Visible questions new or changed since Marie last answered this deck —
+   *  deck changes AND unstruck notes (CC_TASK_REVIEW_LOOP_v1 §3). */
   marie_changed: number;
+  /** Answers by someone else since the SIGNED-IN viewer last pressed Done
+   *  reviewing on this deck. Differs per viewer; 0 with no user. */
+  new_answers_for_viewer: number;
 }
 
 /** The dashboard payload: metrics band + alerts strip + scenario cards. */
@@ -106,19 +108,23 @@ export interface WarRoomWording {
   card_matrix_linked_none: string;
   card_scan_template: string;
   card_scan_never: string;
-  card_talking_points_label: string;
-  card_watch_items_label: string;
-  card_deck_label: string;
-  card_deck_template: string;
   card_deck_none: string;
   card_answered_count_template: string;
-  card_answered_split_template: string;
+  card_answered_word: string;
+  card_prep_meta_template: string;
   card_changed_template: string;
+  card_viewer_new_template: string;
+  card_not_started: string;
   card_up_to_date: string;
-  card_open_action: string;
   card_practice_action: string;
   card_timeline_action: string;
   card_delete_action: string;
+  // The queue strip (CC_TASK_REVIEW_LOOP_v1 §5).
+  strip_answered_label: string;
+  strip_answered_template: string;
+  strip_waiting_label: string;
+  strip_new_for_you_label: string;
+  strip_candidates_label: string;
 }
 
 /**

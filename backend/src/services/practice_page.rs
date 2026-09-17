@@ -31,6 +31,8 @@ use crate::repositories::pipeline_repository::practice::{
 use crate::repositories::pipeline_repository::practice_flow::{
     CurrentAnswerRecord, OpenSessionRecord,
 };
+use crate::repositories::pipeline_repository::practice_notes::NoteRecord;
+use crate::services::practice_note_view::row_notes;
 use crate::services::practice_status::open_session_detail;
 
 /// The tactic's NAME for a card number, or `None` when the question carries none.
@@ -128,7 +130,7 @@ pub fn question_dto_for(
     settings: &Settings,
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    question_dto(settings, &[], record)
+    question_dto(settings, &[], &[], record)
 }
 
 /// One talking point with its receipt, for a caller outside this module.
@@ -182,17 +184,20 @@ pub fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
 fn question_dto(
     settings: &Settings,
     current: &[CurrentAnswerRecord],
+    notes: &[NoteRecord],
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
     // Composed here for the reason this module's header gives: the client holds
     // no templates and no date format, so how this line reads is a Settings
     // edit. `None` when nobody has answered — the row then renders NOTHING, and
     // an empty line under a question would read as a status that failed to load.
-    let answered_on = current
-        .iter()
-        .find(|a| a.question_id == record.id)
-        .map(|a| answered_on_line(settings, a.answered_at));
+    let standing = current.iter().find(|a| a.question_id == record.id);
+    let answered_on = standing.map(|a| answered_on_line(settings, a.answered_at));
+    // The notes Marie reads under this row: on the question, or on the answer
+    // that stands now (CC_TASK_REVIEW_LOOP_v1 §4).
+    let notes = row_notes(settings, notes, record.id, standing.map(|a| a.answer_id));
     PracticeQuestionDto {
+        notes,
         tactic: tactic_tag(settings, &record),
         // The NUMBER, untouched — what the editor's dropdown selects and sends
         // back. `tactic_tag` above is the same fact composed for a READER, braid
@@ -364,6 +369,10 @@ pub struct DeckSources<'a> {
     pub open: Option<&'a OpenSessionRecord>,
     /// What the editor's add form may attach a new question to.
     pub attach_options: Vec<crate::dto::practice_review::PracticeAttachOptionDto>,
+    /// Every note on this scenario, oldest first — filtered per row.
+    pub notes: &'a [NoteRecord],
+    /// The viewer's unreviewed answers on this deck (`review_cursor`).
+    pub new_since_you_reviewed: u32,
 }
 
 /// Build the whole payload.
@@ -383,6 +392,8 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         current,
         open,
         attach_options,
+        notes,
+        new_since_you_reviewed,
     } = sources;
 
     let picker = picker_receipts(&deck, receipts);
@@ -391,22 +402,16 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
     // seeded: there is no date on which nothing last changed.
     let deck_as_of = deck.iter().map(|q| q.updated_at).max();
     PracticeDeckPayload {
+        new_since_you_reviewed,
         deck_as_of,
         scenario_id,
         code,
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, current, record))
+            .map(|record| question_dto(settings, current, notes, record))
             .collect(),
-        points: points
-            .into_iter()
-            .map(|p| PracticePointDto {
-                position: p.position,
-                exhibit: point_receipt(&p, receipts),
-                text: p.text,
-            })
-            .collect(),
+        points: point_dtos(points, receipts),
         last_session_line: last_session_line(
             &settings.practice_wording,
             last,
@@ -424,6 +429,24 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
             &settings.practice_report_wording,
         ),
     }
+}
+
+/// Her talking points, each with the receipt `point_receipt` resolves for it.
+///
+/// Split from [`deck_payload`] under Rule 18 when the review loop's two fields
+/// took that function past fifty lines.
+fn point_dtos(
+    points: Vec<PracticePointRecord>,
+    receipts: &[PracticePointReceipt],
+) -> Vec<PracticePointDto> {
+    points
+        .into_iter()
+        .map(|p| PracticePointDto {
+            position: p.position,
+            exhibit: point_receipt(&p, receipts),
+            text: p.text,
+        })
+        .collect()
 }
 
 #[cfg(test)]

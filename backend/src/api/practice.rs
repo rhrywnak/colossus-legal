@@ -30,10 +30,11 @@ use axum::{
     Json, Router,
 };
 
-use uuid::Uuid;
-
 use super::practice_answers::{
     post_close_answer, post_help_opened, post_practice_answer, post_skip_question,
+};
+use super::practice_deck_read::{
+    log_served, read_deck_sources, read_what_changed, scenario_record,
 };
 use super::practice_editor::{post_edit_question, post_hide_question, post_move_question};
 use super::practice_editor_add::post_add_question;
@@ -46,15 +47,7 @@ use crate::{
     domain::scenario_code::scenario_code,
     dto::practice::{PracticeDeckPayload, StartSessionRequest, StartSessionResponse},
     error::AppError,
-    repositories::pipeline_repository::{
-        get_scenario,
-        practice::{
-            last_ended_session, list_deck, list_point_receipts, list_points, start_session,
-            NewSitting,
-        },
-        practice_editor::changes_since,
-        practice_flow::{current_answers, newest_open_session, open_session_count},
-    },
+    repositories::pipeline_repository::practice::{start_session, NewSitting},
     services::{
         practice_editor_options::attach_options,
         practice_notes::attribution,
@@ -110,6 +103,31 @@ pub fn routes() -> Router<AppState> {
             put(put_question_flag),
         )
         .merge(part_b_routes())
+        .merge(review_loop_routes())
+}
+
+/// The review loop's four routes (CC_TASK_REVIEW_LOOP_v1): Chuck's notes to
+/// Marie, and the one act that moves his read cursor. Handlers live in
+/// `practice_notes_routes` and `practice_review_cursor`.
+fn review_loop_routes() -> Router<AppState> {
+    Router::new()
+        .route(
+            "/practice/answers/:answer_id/notes",
+            post(super::practice_notes_routes::post_answer_note),
+        )
+        .route(
+            "/practice/questions/:question_id/notes",
+            post(super::practice_notes_routes::post_question_note),
+        )
+        // PUT: striking twice keeps the first striking — idempotent.
+        .route(
+            "/practice/notes/:note_id/strike",
+            put(super::practice_notes_routes::put_strike_note),
+        )
+        .route(
+            "/cases/:slug/scenarios/:scenario_id/practice/review-cursor",
+            put(super::practice_review_cursor::put_review_cursor),
+        )
 }
 
 /// Part B's seven routes, declared together.
@@ -169,12 +187,7 @@ pub async fn get_practice_deck(
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
 
-    let record = get_scenario(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("get_scenario", e))?
-        .ok_or_else(|| AppError::NotFound {
-            message: format!("scenario {scenario_id} not found"),
-        })?;
+    let record = scenario_record(&state, scenario_id).await?;
 
     let settings = state.settings.current();
     // Every per-user read on this page is keyed to the signed-in user, and every
@@ -206,111 +219,20 @@ pub async fn get_practice_deck(
             current: &read.current,
             open: read.open.as_ref(),
             attach_options: attach,
+            notes: &read.notes,
+            new_since_you_reviewed: read.new_since_you_reviewed,
         },
     );
 
-    tracing::info!(
-        slug = %slug,
-        %scenario_id,
-        questions = payload.questions.len(),
-        points = payload.points.len(),
-        answered_questions = read.current.len(),
-        receipts = payload.receipts.len(),
-        open_sessions = read.open_total,
-        changes_since_last = news.changes.len(),
-        "served the practice deck"
+    log_served(
+        &slug,
+        scenario_id,
+        &payload,
+        read.current.len(),
+        read.open_total,
+        news.changes.len(),
     );
     Ok(Json(payload))
-}
-
-/// What has happened to this scenario since her last finished sitting.
-struct WhatChanged {
-    changes: Vec<crate::repositories::pipeline_repository::practice_editor::DeckChangeRecord>,
-}
-
-/// Read the deck changes and count the notes that arrived since her last sitting.
-///
-/// ## Domain note: measured from the last ENDED session
-///
-/// The one she is in right now is not a sitting she has finished, and measuring
-/// from it would empty the box the moment she pressed Start — which is exactly
-/// when she has not yet read any of it.
-async fn read_what_changed(
-    state: &AppState,
-    scenario_id: Uuid,
-    read: &DeckRead,
-) -> Result<WhatChanged, AppError> {
-    let since = read.last.as_ref().map(|s| s.ended_at);
-    let changes = changes_since(&state.pipeline_pool, scenario_id, since)
-        .await
-        .map_err(|e| repo_error("changes_since", e))?;
-    Ok(WhatChanged { changes })
-}
-
-/// Everything one deck payload is read from, in one place.
-///
-/// Six reads, all against the pipeline pool, all fenced by the same scenario.
-/// Gathered into a function so [`get_practice_deck`] stays the four steps it
-/// reads as — fence the case, read the record, read the deck, say what was
-/// served — rather than a straight run of six near-identical `map_err` blocks.
-struct DeckRead {
-    deck: Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
-    points: Vec<crate::repositories::pipeline_repository::practice::PracticePointRecord>,
-    receipts: Vec<crate::repositories::pipeline_repository::practice::PracticePointReceipt>,
-    last: Option<crate::repositories::pipeline_repository::practice::LastSessionRecord>,
-    /// The answer that stands for each question now, for the row's `Answered on
-    /// …` line. Scenario-wide, unlike `statuses` — the one-page deck row is read
-    /// by two people and an answer belongs to the question, not to the reader.
-    current: Vec<crate::repositories::pipeline_repository::practice_flow::CurrentAnswerRecord>,
-    open: Option<crate::repositories::pipeline_repository::practice_flow::OpenSessionRecord>,
-    /// The deck again, kept whole for the two readers that need POSITIONS in
-    /// it — the change list's `Q3` and the add form's picker. `deck` itself is
-    /// consumed by the payload, and cloning once here is cheaper than the two
-    /// extra reads the alternative would cost.
-    deck_for_changes:
-        Vec<crate::repositories::pipeline_repository::practice::PracticeQuestionRecord>,
-    /// How many open sittings this scenario carries. Read, and LOGGED, before
-    /// anything closes one: nothing closed an abandoned sitting before Section
-    /// B, so a scenario can carry several — and an operator who only ever sees
-    /// the newest has no way to discover how many there were.
-    open_total: i64,
-}
-
-/// Read all six, or fail naming the read that did.
-///
-/// # Errors
-/// 500 (logged, with the operation named) for any read that fails.
-async fn read_deck_sources(
-    state: &AppState,
-    scenario_id: Uuid,
-    user_id: &str,
-    timezone: &str,
-) -> Result<DeckRead, AppError> {
-    let deck = list_deck(&state.pipeline_pool, scenario_id)
-        .await
-        .map_err(|e| repo_error("list_deck", e))?;
-    Ok(DeckRead {
-        deck_for_changes: deck.clone(),
-        deck,
-        points: list_points(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("list_points", e))?,
-        receipts: list_point_receipts(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("list_point_receipts", e))?,
-        last: last_ended_session(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("last_ended_session", e))?,
-        current: current_answers(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("current_answers", e))?,
-        open: newest_open_session(&state.pipeline_pool, scenario_id, user_id, timezone)
-            .await
-            .map_err(|e| repo_error("newest_open_session", e))?,
-        open_total: open_session_count(&state.pipeline_pool, scenario_id)
-            .await
-            .map_err(|e| repo_error("open_session_count", e))?,
-    })
 }
 
 /// Open a session. The client keeps the id for the rest of the sitting.

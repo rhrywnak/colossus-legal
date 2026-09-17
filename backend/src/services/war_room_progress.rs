@@ -2,7 +2,7 @@
 //!
 //! CC_TASK_WAR_ROOM_v1. The reads live in `api::war_room_progress` (the evidence
 //! counts, which reuse the card queue's assembly) and
-//! `pipeline_repository::war_room_status` (the four Postgres families). This
+//! `pipeline_repository::war_room_status` / `review_cursor` (the four Postgres families). This
 //! module turns what they return into one [`ScenarioProgress`] per scenario, and
 //! is where "a scenario the reads forgot" becomes an error rather than a card of
 //! zeroes.
@@ -23,8 +23,9 @@ use crate::dto::scenario_card::ScenarioCardsResponse;
 use crate::dto::war_room_progress::{
     AnsweredSplit, DeckSummary, LastScan, MatrixLinked, ScenarioProgress,
 };
+use crate::repositories::pipeline_repository::review_cursor::ViewerNewRow;
 use crate::repositories::pipeline_repository::war_room_status::{
-    ChangedCountRow, DeckCountsRow, LastScanRow, PrepCountsRow,
+    ChangedCountRow, DeckCountsRow, LastScanRow,
 };
 use crate::services::scenario_card_assembly::count_proposed;
 use crate::services::scenario_human_links::link_counts;
@@ -82,9 +83,10 @@ pub fn evidence_counts(response: &ScenarioCardsResponse) -> EvidenceCounts {
 /// Everything the Postgres families returned, by family.
 pub struct FamilyRows {
     pub scans: Vec<LastScanRow>,
-    pub prep: Vec<PrepCountsRow>,
     pub deck: Vec<DeckCountsRow>,
     pub changed: Vec<ChangedCountRow>,
+    /// The signed-in viewer's unreviewed answers (`review_cursor`).
+    pub viewer_new: Vec<ViewerNewRow>,
 }
 
 /// One [`ScenarioProgress`] per scenario id, or the first thing that is wrong.
@@ -107,14 +109,17 @@ pub fn fold_progress(
     // index that silently points at the wrong scenario.
     let scans: HashMap<Uuid, LastScanRow> =
         rows.scans.into_iter().map(|r| (r.scenario_id, r)).collect();
-    let prep: HashMap<Uuid, PrepCountsRow> =
-        rows.prep.into_iter().map(|r| (r.scenario_id, r)).collect();
     let deck: HashMap<Uuid, DeckCountsRow> =
         rows.deck.into_iter().map(|r| (r.scenario_id, r)).collect();
     let changed: HashMap<Uuid, i64> = rows
         .changed
         .into_iter()
         .map(|r| (r.scenario_id, r.changed))
+        .collect();
+    let viewer_new: HashMap<Uuid, i64> = rows
+        .viewer_new
+        .into_iter()
+        .map(|r| (r.scenario_id, r.new_answers))
         .collect();
 
     let mut out = HashMap::with_capacity(scenario_ids.len());
@@ -127,9 +132,11 @@ pub fn fold_progress(
             id,
             evidence: evidence.get(&id).ok_or_else(|| missing("evidence"))?,
             scan: scans.get(&id),
-            prep: prep.get(&id).ok_or_else(|| missing("prep"))?,
             deck: deck.get(&id).ok_or_else(|| missing("deck"))?,
             changed: *changed.get(&id).ok_or_else(|| missing("changed"))?,
+            viewer_new: *viewer_new
+                .get(&id)
+                .ok_or_else(|| missing("viewer new answers"))?,
         };
         out.insert(id, build_progress(&one)?);
     }
@@ -147,16 +154,16 @@ struct OneScenario<'a> {
     id: Uuid,
     evidence: &'a EvidenceCounts,
     scan: Option<&'a LastScanRow>,
-    prep: &'a PrepCountsRow,
     deck: &'a DeckCountsRow,
     changed: i64,
+    viewer_new: i64,
 }
 
 /// One scenario's card numbers, every count checked on the way in.
 fn build_progress(one: &OneScenario<'_>) -> Result<ScenarioProgress, ProgressError> {
     let id = one.id;
     let count = |field, value: i64| to_count(id, field, value);
-    let (ev, p, d) = (one.evidence, one.prep, one.deck);
+    let (ev, d) = (one.evidence, one.deck);
     Ok(ScenarioProgress {
         facts_included: count("facts_included", usize_to_i64(ev.facts_included))?,
         candidates_to_rule: count("candidates_to_rule", usize_to_i64(ev.candidates_to_rule))?,
@@ -164,9 +171,7 @@ fn build_progress(one: &OneScenario<'_>) -> Result<ScenarioProgress, ProgressErr
             linked: count("matrix_linked.linked", usize_to_i64(ev.linked))?,
             total: count("matrix_linked.total", usize_to_i64(ev.stuck))?,
         },
-        last_scan: one.scan.map(|s| last_scan(id, s)).transpose()?,
-        talking_points: count("talking_points", p.talking_points)?,
-        watch_items: count("watch_items", p.watch_items)?,
+        last_scan: one.scan.map(|s| LastScan { when: s.started_at }),
         deck: DeckSummary {
             questions: count("deck.questions", d.questions)?,
             built_on: d.built_on,
@@ -180,16 +185,7 @@ fn build_progress(one: &OneScenario<'_>) -> Result<ScenarioProgress, ProgressErr
             defense_total: count("answered.defense_total", d.defense_total)?,
         },
         marie_changed: count("marie_changed", one.changed)?,
-    })
-}
-
-/// The scan line's facts, with its two counts checked.
-fn last_scan(id: Uuid, row: &LastScanRow) -> Result<LastScan, ProgressError> {
-    Ok(LastScan {
-        model_name: row.model_name.clone(),
-        when: row.started_at,
-        relevant: to_count(id, "last_scan.relevant", i64::from(row.relevant))?,
-        total: to_count(id, "last_scan.total", i64::from(row.total))?,
+        new_answers_for_viewer: count("new_answers_for_viewer", one.viewer_new)?,
     })
 }
 

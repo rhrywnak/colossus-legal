@@ -48,6 +48,7 @@ function question(
     hidden: false,
     answered_on: null,
     draft_by: null,
+    notes: [],
   };
 }
 

@@ -13,18 +13,17 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::{changed_counts, deck_counts, last_scans, prep_counts};
+use super::{changed_counts, deck_counts, last_scans};
 use crate::config::AppConfig;
-use crate::domain::human_authored::HumanFactKind;
 use crate::repositories::pipeline_repository::scenario_store::{delete_scenario, insert_scenario};
 
-type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
+pub(crate) type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 fn test_slug(tag: &str) -> String {
     format!("awad_v_catholic_family_service__test_war_room_{tag}")
 }
 
-async fn pipeline_pool() -> TestResult<PgPool> {
+pub(crate) async fn pipeline_pool() -> TestResult<PgPool> {
     // best-effort: a missing .env is normal when the URL comes from the shell,
     // which is how a scratch database is pointed at; the connect below fails
     // loudly either way if it is unset.
@@ -36,7 +35,7 @@ async fn pipeline_pool() -> TestResult<PgPool> {
         .await?)
 }
 
-async fn scenario(pool: &PgPool, tag: &str) -> TestResult<Uuid> {
+pub(crate) async fn scenario(pool: &PgPool, tag: &str) -> TestResult<Uuid> {
     let (id, _code) = insert_scenario(
         pool,
         &format!("war room {tag}"),
@@ -51,7 +50,7 @@ async fn scenario(pool: &PgPool, tag: &str) -> TestResult<Uuid> {
     Ok(id)
 }
 
-async fn cleanup(pool: &PgPool, id: Uuid, tag: &str) -> TestResult<()> {
+pub(crate) async fn cleanup(pool: &PgPool, id: Uuid, tag: &str) -> TestResult<()> {
     // Answers RESTRICT their question, so they go first; everything else cascades.
     sqlx::query(
         "DELETE FROM practice_answers WHERE session_id IN \
@@ -64,7 +63,12 @@ async fn cleanup(pool: &PgPool, id: Uuid, tag: &str) -> TestResult<()> {
     Ok(())
 }
 
-async fn question(pool: &PgPool, scenario_id: Uuid, side: &str, order: i32) -> TestResult<Uuid> {
+pub(crate) async fn question(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    side: &str,
+    order: i32,
+) -> TestResult<Uuid> {
     let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_questions \
          (scenario_id, side, kind, text, source_kind, sort_order, created_by) \
@@ -80,7 +84,7 @@ async fn question(pool: &PgPool, scenario_id: Uuid, side: &str, order: i32) -> T
     Ok(row.0)
 }
 
-async fn hide(pool: &PgPool, question_id: Uuid) -> TestResult<()> {
+pub(crate) async fn hide(pool: &PgPool, question_id: Uuid) -> TestResult<()> {
     sqlx::query(
         "UPDATE practice_questions SET hidden_at = NOW(), hidden_by = 'chuck' WHERE id = $1",
     )
@@ -90,30 +94,43 @@ async fn hide(pool: &PgPool, question_id: Uuid) -> TestResult<()> {
     Ok(())
 }
 
-async fn answer(
+pub(crate) async fn answer(
     pool: &PgPool,
     scenario_id: Uuid,
     question_id: Uuid,
     at: DateTime<Utc>,
-) -> TestResult<()> {
+) -> TestResult<Uuid> {
+    answer_by(pool, scenario_id, question_id, at, Some("marie")).await
+}
+
+/// An answer written by a named user (or by an unattributed, pre-2026-08-19
+/// session when `user` is `None`). Returns the answer's id.
+pub(crate) async fn answer_by(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    question_id: Uuid,
+    at: DateTime<Utc>,
+    user: Option<&str>,
+) -> TestResult<Uuid> {
     let session: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_sessions (scenario_id, who, user_id) \
-         VALUES ($1, 'mixed', 'marie') RETURNING id",
+         VALUES ($1, 'mixed', $2) RETURNING id",
     )
     .bind(scenario_id)
+    .bind(user)
     .fetch_one(pool)
     .await?;
-    sqlx::query(
+    let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_answers \
          (session_id, question_id, answer_text, self_check, mark, answered_at) \
-         VALUES ($1, $2, 'her words', '{}'::jsonb, 'fine', $3)",
+         VALUES ($1, $2, 'her words', '{}'::jsonb, 'fine', $3) RETURNING id",
     )
     .bind(session.0)
     .bind(question_id)
     .bind(at)
-    .execute(pool)
+    .fetch_one(pool)
     .await?;
-    Ok(())
+    Ok(row.0)
 }
 
 async fn change(
@@ -137,7 +154,7 @@ async fn change(
     Ok(())
 }
 
-async fn changed(pool: &PgPool, id: Uuid) -> TestResult<i64> {
+pub(crate) async fn changed(pool: &PgPool, id: Uuid) -> TestResult<i64> {
     let rows = changed_counts(pool, &[id]).await?;
     assert_eq!(rows.len(), 1, "one row per scenario asked for");
     Ok(rows[0].changed)
@@ -157,9 +174,8 @@ async fn aggregate_returns_one_row_per_scenario_including_empty() -> TestResult<
     let ids = [bare, full];
 
     let deck = deck_counts(&pool, &ids).await?;
-    let prep = prep_counts(&pool, &ids, HumanFactKind::WatchList.code()).await?;
     let changed_rows = changed_counts(&pool, &ids).await?;
-    assert_eq!((deck.len(), prep.len(), changed_rows.len()), (2, 2, 2));
+    assert_eq!((deck.len(), changed_rows.len()), (2, 2));
 
     let d = deck
         .iter()
@@ -170,11 +186,6 @@ async fn aggregate_returns_one_row_per_scenario_including_empty() -> TestResult<
         (0, 0, 0, 0)
     );
     assert_eq!(d.built_on, None);
-    let p = prep
-        .iter()
-        .find(|r| r.scenario_id == bare)
-        .expect("bare has a prep row");
-    assert_eq!((p.talking_points, p.watch_items), (0, 0));
     assert!(
         last_scans(&pool, &ids).await?.is_empty(),
         "neither was ever scanned"

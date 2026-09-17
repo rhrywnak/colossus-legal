@@ -14,13 +14,11 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
-import {
-  AlertsStrip,
-  EmptyState,
-  MetricsBand,
-} from "../components/TrialPrepViews";
+import { AlertsStrip, EmptyState, MetricsBand } from "../components/TrialPrepViews";
 import { listSubsets } from "../services/caseTimelineSubsets";
 import WarRoomCard from "../components/WarRoomCard";
+import WarRoomQueueStrip from "../components/WarRoomQueueStrip";
+import { WAR_ROOM_CARD_CSS } from "../components/trialPrepCardStyles";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
 import { scenarioDeleteCopy } from "../components/scenarioDeleteCopy";
@@ -255,6 +253,8 @@ const TrialPrepDashboardPage: React.FC = () => {
         />
       )}
 
+      <style>{WAR_ROOM_CARD_CSS}</style>
+      <WarRoomQueueStrip scenarios={dashboard.scenarios} wording={dashboard.war_room_wording} />
       <MetricsBand metrics={dashboard.metrics} wording={dashboard.war_room_wording} />
 
       {dashboard.alerts.length > 0 && <AlertsStrip alerts={dashboard.alerts} />}

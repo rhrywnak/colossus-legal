@@ -388,6 +388,9 @@ pub async fn last_mark_in_session(
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CurrentAnswerRecord {
     pub question_id: Uuid,
+    /// The standing answer's own id — what tells a note on THIS answer from a
+    /// note on a superseded attempt (CC_TASK_REVIEW_LOOP_v1 §4).
+    pub answer_id: Uuid,
     /// Her words, as typed. Read here rather than fetched again per question:
     /// the same row feeds `Print answers` and practice mode's reveal.
     pub answer_text: String,
@@ -424,7 +427,7 @@ pub async fn current_answers(
 ) -> Result<Vec<CurrentAnswerRecord>, PipelineRepoError> {
     sqlx::query_as::<_, CurrentAnswerRecord>(
         "SELECT DISTINCT ON (a.question_id) \
-                a.question_id, a.answer_text, a.answered_at \
+                a.question_id, a.id AS answer_id, a.answer_text, a.answered_at \
          FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
          WHERE s.scenario_id = $1 \
          ORDER BY a.question_id, a.answered_at DESC, a.id DESC",

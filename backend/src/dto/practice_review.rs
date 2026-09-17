@@ -258,6 +258,26 @@ pub struct NewNoteRequest {
     pub text: String,
 }
 
+/// The body of a note written through a route that already names its target.
+///
+/// CC_TASK_REVIEW_LOOP_v1 §4. Not [`NewNoteRequest`], whose optional
+/// `question_id` / `answer_id` would let a body name a DIFFERENT question from
+/// the path — the route is the one authority on where the note lands.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NoteTextRequest {
+    pub text: String,
+}
+
+/// What "Done reviewing" recorded.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewCursorResponse {
+    pub scenario_id: Uuid,
+    /// The database's own clock at the moment the mark moved.
+    pub looked_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// Place one question at an arbitrary position in its side (nav cleanup Part 2).
 ///
 /// ## Why this is not a field on `MoveQuestionRequest`

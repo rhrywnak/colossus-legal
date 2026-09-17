@@ -48,6 +48,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { DragHandle } from "../dragReorder";
 import * as d from "./practiceDeckStyles";
 import * as e from "./practiceEditorStyles";
+import PracticeNoteList from "./PracticeNoteList";
 import PracticeRowEdit from "./PracticeRowEdit";
 import * as s from "./practiceStyles";
 
@@ -224,6 +225,9 @@ const PracticeDeckRow: React.FC<Props> = ({
         {question.answered_on !== null && (
           <div style={e.status}>{question.answered_on}</div>
         )}
+
+        {/* Notes on this question or its current answer (REVIEW_LOOP_v1 §4). */}
+        <PracticeNoteList notes={question.notes} wording={wording} />
 
         {fieldsOpen && (
           <PracticeRowEdit

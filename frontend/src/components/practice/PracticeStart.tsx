@@ -25,6 +25,7 @@ import { wordingOf } from "../../services/practice";
 import { sideSections } from "../../pages/practiceQueue";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
+import PracticeReviewBar from "./PracticeReviewBar";
 import PracticeTitleRow from "./PracticeTitleRow";
 
 /** Which deck she is choosing. The three values the backend accepts. */
@@ -88,6 +89,10 @@ interface Props {
       an already-interleaved array by side would not give back the authored
       order — it would give the interleave with one side's rows removed. */
   allQuestions: PracticeQuestion[];
+  /** The viewer's unreviewed answers (`new_since_you_reviewed`) and the re-read
+   *  after Done reviewing — the review bar's two inputs (REVIEW_LOOP_v1). */
+  reviewCount: number;
+  onReviewed: () => void;
 }
 
 /**
@@ -128,6 +133,8 @@ const PracticeStart: React.FC<Props> = ({
   side,
   onSide,
   allQuestions,
+  reviewCount,
+  onReviewed,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
   // Which row has its editor field stack open. Owned HERE because the control
@@ -192,6 +199,13 @@ const PracticeStart: React.FC<Props> = ({
         questions={view.all}
         editing={editor.editing}
         wording={wording}
+      />
+      <PracticeReviewBar
+        slug={slug}
+        scenarioId={scenarioId}
+        count={reviewCount}
+        wording={wording}
+        onReviewed={onReviewed}
       />
 
       {/* A WARNING, not an invitation. Every deck on this system is seeded from

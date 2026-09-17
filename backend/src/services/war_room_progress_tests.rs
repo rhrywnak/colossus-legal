@@ -130,20 +130,19 @@ fn deck_row(scenario_id: Uuid) -> DeckCountsRow {
 fn rows_for(ids: &[Uuid]) -> FamilyRows {
     FamilyRows {
         scans: Vec::new(),
-        prep: ids
-            .iter()
-            .map(|&scenario_id| PrepCountsRow {
-                scenario_id,
-                talking_points: 0,
-                watch_items: 0,
-            })
-            .collect(),
         deck: ids.iter().map(|&s| deck_row(s)).collect(),
         changed: ids
             .iter()
             .map(|&scenario_id| ChangedCountRow {
                 scenario_id,
                 changed: 0,
+            })
+            .collect(),
+        viewer_new: ids
+            .iter()
+            .map(|&scenario_id| ViewerNewRow {
+                scenario_id,
+                new_answers: 0,
             })
             .collect(),
     }
@@ -180,15 +179,7 @@ fn each_family_lands_in_its_own_field() {
     let rows = FamilyRows {
         scans: vec![LastScanRow {
             scenario_id: s,
-            model_name: "Qwen3.8".to_string(),
             started_at: built,
-            relevant: 43,
-            total: 273,
-        }],
-        prep: vec![PrepCountsRow {
-            scenario_id: s,
-            talking_points: 5,
-            watch_items: 4,
         }],
         deck: vec![DeckCountsRow {
             scenario_id: s,
@@ -204,6 +195,10 @@ fn each_family_lands_in_its_own_field() {
             scenario_id: s,
             changed: 3,
         }],
+        viewer_new: vec![ViewerNewRow {
+            scenario_id: s,
+            new_answers: 9,
+        }],
     };
     let p = fold_progress(&[s], &evidence, rows)
         .expect("folds")
@@ -217,16 +212,7 @@ fn each_family_lands_in_its_own_field() {
             total: 99
         }
     );
-    assert_eq!(
-        p.last_scan,
-        Some(LastScan {
-            model_name: "Qwen3.8".to_string(),
-            when: built,
-            relevant: 43,
-            total: 273
-        })
-    );
-    assert_eq!((p.talking_points, p.watch_items), (5, 4));
+    assert_eq!(p.last_scan, Some(LastScan { when: built }));
     assert_eq!(
         p.deck,
         DeckSummary {
@@ -246,6 +232,25 @@ fn each_family_lands_in_its_own_field() {
         }
     );
     assert_eq!(p.marie_changed, 3);
+    // Distinct from `marie_changed` on purpose, so a fold that crossed the two
+    // families could not pass.
+    assert_eq!(p.new_answers_for_viewer, 9);
+}
+
+/// The viewer family forgetting a scenario is an error, not a hidden badge.
+#[test]
+fn a_missing_viewer_row_is_an_error_not_a_zero() {
+    let a = id(1);
+    let evidence = HashMap::from([(a, EvidenceCounts::default())]);
+    let mut rows = rows_for(&[a]);
+    rows.viewer_new.clear();
+    assert_eq!(
+        fold_progress(&[a], &evidence, rows),
+        Err(ProgressError::MissingRow {
+            family: "viewer new answers",
+            scenario_id: a
+        })
+    );
 }
 
 /// A family that forgot a scenario is an error naming both — never a zero card.

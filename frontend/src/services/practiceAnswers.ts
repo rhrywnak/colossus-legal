@@ -14,7 +14,7 @@
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
-import { PRACTICE_TIMEOUT_MS } from "./practice";
+import { PRACTICE_TIMEOUT_MS, type PracticeNote } from "./practice";
 
 /** One question's current answer, as the printed answers sheet receives it. */
 export type PracticeAnswer = {
@@ -80,11 +80,13 @@ export async function fetchPracticeAnswers(
  *   pub answer_id: Uuid      → answer_id: string
  *   pub text: String         → text: string        (never null — the column is NOT NULL)
  *   pub answered_on: String  → answered_on: string (composed server-side, never empty)
+ *   pub notes: Vec<PracticeNoteDto> → notes: PracticeNote[] (on THIS attempt)
  */
 export type AnswerVersion = {
   answer_id: string;
   text: string;
   answered_on: string;
+  notes: PracticeNote[];
 };
 
 /**
@@ -94,6 +96,7 @@ export type AnswerVersion = {
  *
  *   pub current: Option<AnswerVersionDto> → current: AnswerVersion | null
  *   pub earlier: Vec<AnswerVersionDto>    → earlier: AnswerVersion[]
+ *   pub question_notes: Vec<PracticeNoteDto> → question_notes: PracticeNote[]
  *
  * `current` is NULLABLE and `earlier` is not: serde writes `null` for a `None`
  * and `[]` for an empty `Vec`. A type declaring `earlier` optional would invite
@@ -103,6 +106,8 @@ export type AnswerVersion = {
 export type QuestionAnswers = {
   current: AnswerVersion | null;
   earlier: AnswerVersion[];
+  /** Notes on the question itself rather than on one attempt (CC_TASK_REVIEW_LOOP_v1). */
+  question_notes: PracticeNote[];
 };
 
 /** One question's answers: what stands now, and what came before. */
@@ -123,13 +128,17 @@ export async function fetchQuestionAnswers(questionId: string): Promise<Question
   // `current` may legitimately be null — she has not answered yet. `earlier`
   // may legitimately be empty. Neither may be ABSENT: an absent `earlier` would
   // render "0 earlier versions" over a history the server never sent.
-  if (parsed.current === undefined || !Array.isArray(parsed.earlier)) {
+  if (
+    parsed.current === undefined ||
+    !Array.isArray(parsed.earlier) ||
+    !Array.isArray(parsed.question_notes)
+  ) {
     throw new Error(
-      "The answers response is missing current/earlier — " +
+      "The answers response is missing current/earlier/question_notes — " +
         "backend/frontend contract mismatch. Report it to the site administrator.",
     );
   }
-  return { current: parsed.current, earlier: parsed.earlier };
+  return { current: parsed.current, earlier: parsed.earlier, question_notes: parsed.question_notes };
 }
 
 /**

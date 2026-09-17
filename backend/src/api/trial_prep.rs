@@ -116,7 +116,10 @@ pub async fn get_trial_prep_dashboard(
         .map_err(internal("assemble trial-prep dashboard"))?;
 
     // CC_TASK_WAR_ROOM_v1: each card's status, read for every scenario at once.
-    attach_progress(&state, &mut dashboard).await?;
+    // The viewer's badge is per person: the same `username` that `attribution`
+    // stamps on every practice write. No user ⇒ `None` ⇒ that badge reads 0.
+    let viewer = user.as_ref().map(|u| u.username.as_str());
+    attach_progress(&state, &mut dashboard, viewer).await?;
 
     // Ruling Q1, condition 2: the whole handler is timed, so the cost of the
     // status card is a number in the log rather than a guess.
@@ -140,9 +143,10 @@ pub async fn get_trial_prep_dashboard(
 async fn attach_progress(
     state: &AppState,
     dashboard: &mut TrialPrepDashboard,
+    viewer: Option<&str>,
 ) -> Result<(), TrialPrepEndpointError> {
     let ids = card_ids(dashboard)?;
-    let progress = read_progress(state, &ids).await.map_err(|e| {
+    let progress = read_progress(state, &ids, viewer).await.map_err(|e| {
         tracing::error!(error = ?e, "the war room's status reads failed");
         TrialPrepEndpointError::Internal
     })?;

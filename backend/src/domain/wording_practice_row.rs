@@ -100,6 +100,32 @@ pub struct PracticeRowWording {
     /// status that failed to load, which is a different fact from "not answered
     /// yet" and the wrong one to show the person least able to diagnose it.
     pub answered_on_template: String,
+
+    // ── The review loop (CC_TASK_REVIEW_LOOP_v1) ─────────────────────────
+    //
+    // Domain note: two audiences, one question. Chuck writes a note on the
+    // answer he is reading and marks the deck reviewed; Marie reads the note
+    // under her deck row. Both are about ONE question's current answer, which
+    // is why they file here and not with the sitting blocks.
+    /// The review bar under the deck title: `{count}` answers by someone else
+    /// since this viewer last pressed Done reviewing.
+    pub deck_review_new_template: String,
+    /// The review bar's button.
+    pub deck_review_done_label: String,
+    /// Shown when Done reviewing fails; the count stays as it was.
+    pub deck_review_failed: String,
+    /// Opens the note box on the answers page.
+    pub note_add_label: String,
+    /// Writes the note.
+    pub note_save_label: String,
+    /// Closes the note box without writing.
+    pub note_cancel_label: String,
+    /// Withdraws a note (it stays visible, struck through).
+    pub note_strike_label: String,
+    /// `struck {when}` — composed server-side under a withdrawn note.
+    pub note_struck_template: String,
+    /// Shown when a note write or strike fails.
+    pub note_failed: String,
 }
 
 pub(crate) const KEY_PRACTICE_THIS_LABEL: &str = "practice_row_practice_this_label";
@@ -122,6 +148,16 @@ pub(crate) const KEY_ANSWER_EMPTY_HINT: &str = "practice_answer_empty_hint";
 pub(crate) const KEY_ANSWER_ALREADY_RECORDED: &str = "practice_answer_already_recorded";
 pub(crate) const KEY_ANSWERED_ON_TEMPLATE: &str = "practice_row_answered_on_template";
 
+pub(crate) const KEY_DECK_REVIEW_NEW_TEMPLATE: &str = "practice_deck_review_new_template";
+pub(crate) const KEY_DECK_REVIEW_DONE_LABEL: &str = "practice_deck_review_done_label";
+pub(crate) const KEY_DECK_REVIEW_FAILED: &str = "practice_deck_review_failed";
+pub(crate) const KEY_NOTE_ADD_LABEL: &str = "practice_row_note_add_label";
+pub(crate) const KEY_NOTE_SAVE_LABEL: &str = "practice_row_note_save_label";
+pub(crate) const KEY_NOTE_CANCEL_LABEL: &str = "practice_row_note_cancel_label";
+pub(crate) const KEY_NOTE_STRIKE_LABEL: &str = "practice_row_note_strike_label";
+pub(crate) const KEY_NOTE_STRUCK_TEMPLATE: &str = "practice_row_note_struck_template";
+pub(crate) const KEY_NOTE_FAILED: &str = "practice_row_note_failed";
+
 pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_ANSWER_ALREADY_RECORDED,
     KEY_ANSWER_EMPTY_HINT,
@@ -138,6 +174,15 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_POINTS_TO_REVEAL_PREFIX,
     KEY_POINTS_TO_SHEET_PREFIX,
     KEY_UNFINISHED_TODAY_WORD,
+    KEY_DECK_REVIEW_NEW_TEMPLATE,
+    KEY_DECK_REVIEW_DONE_LABEL,
+    KEY_DECK_REVIEW_FAILED,
+    KEY_NOTE_ADD_LABEL,
+    KEY_NOTE_SAVE_LABEL,
+    KEY_NOTE_CANCEL_LABEL,
+    KEY_NOTE_STRIKE_LABEL,
+    KEY_NOTE_STRUCK_TEMPLATE,
+    KEY_NOTE_FAILED,
 ];
 
 /// Build a [`PracticeRowWording`] from the stored rows, or say which key is
@@ -172,6 +217,15 @@ pub fn build_practice_row_wording<E>(
         points_to_reveal_prefix: read(KEY_POINTS_TO_REVEAL_PREFIX)?,
         points_to_sheet_prefix: read(KEY_POINTS_TO_SHEET_PREFIX)?,
         unfinished_today_word: read(KEY_UNFINISHED_TODAY_WORD)?,
+        deck_review_new_template: read(KEY_DECK_REVIEW_NEW_TEMPLATE)?,
+        deck_review_done_label: read(KEY_DECK_REVIEW_DONE_LABEL)?,
+        deck_review_failed: read(KEY_DECK_REVIEW_FAILED)?,
+        note_add_label: read(KEY_NOTE_ADD_LABEL)?,
+        note_save_label: read(KEY_NOTE_SAVE_LABEL)?,
+        note_cancel_label: read(KEY_NOTE_CANCEL_LABEL)?,
+        note_strike_label: read(KEY_NOTE_STRIKE_LABEL)?,
+        note_struck_template: read(KEY_NOTE_STRUCK_TEMPLATE)?,
+        note_failed: read(KEY_NOTE_FAILED)?,
     })
 }
 

@@ -5,8 +5,9 @@
 //! 1. **Evidence counts** (facts included, candidates to rule, Matrix linked) —
 //!    produced by the card queue's own assembly, `scenario_cards_core`, in its
 //!    `CountsOnly` mode. Never re-derived.
-//! 2. **The four Postgres families** (scan, prep, deck, changed) — one statement
-//!    each over every scenario id (`pipeline_repository::war_room_status`).
+//! 2. **The four Postgres families** (scan, deck, changed, and the viewer's new
+//!    answers) — one statement each over every scenario id
+//!    (`pipeline_repository::war_room_status`, `pipeline_repository::review_cursor`).
 //!
 //! The pure fold that turns both into cards is `services::war_room_progress`.
 //!
@@ -24,12 +25,10 @@ use uuid::Uuid;
 
 use crate::{
     bias::dto::BiasInstance,
-    domain::human_authored::HumanFactKind,
     dto::war_room_progress::ScenarioProgress,
     error::AppError,
-    repositories::pipeline_repository::war_room_status::{
-        changed_counts, deck_counts, last_scans, prep_counts,
-    },
+    repositories::pipeline_repository::review_cursor::new_answers_for_viewer,
+    repositories::pipeline_repository::war_room_status::{changed_counts, deck_counts, last_scans},
     services::war_room_progress::{evidence_counts, fold_progress, EvidenceCounts, FamilyRows},
     state::AppState,
 };
@@ -38,6 +37,10 @@ use super::scenario_cards_core::{assemble_cards, read_candidate_pool, CardDetail
 use super::scenario_gather::resolve_gather_subject;
 
 /// Every scenario's [`ScenarioProgress`], keyed by id.
+///
+/// `viewer` is the signed-in user's `username` — the same id `attribution`
+/// stamps — or `None` for a request with no user, which makes the viewer's badge
+/// `0` everywhere (decided in the query; see `review_cursor::new_answers_for_viewer`).
 ///
 /// ## Rust Learning: `tokio::try_join!`
 ///
@@ -52,18 +55,19 @@ use super::scenario_gather::resolve_gather_subject;
 pub(crate) async fn read_progress(
     state: &AppState,
     scenario_ids: &[Uuid],
+    viewer: Option<&str>,
 ) -> Result<HashMap<Uuid, ScenarioProgress>, AppError> {
     let started = Instant::now();
     let pool = &state.pipeline_pool;
-    let (evidence, scans, prep, deck, changed) = tokio::try_join!(
+    let (evidence, scans, deck, changed, viewer_new) = tokio::try_join!(
         read_evidence_counts(state, scenario_ids),
         family("last scan", last_scans(pool, scenario_ids)),
-        family(
-            "prep counts",
-            prep_counts(pool, scenario_ids, HumanFactKind::WatchList.code())
-        ),
         family("deck counts", deck_counts(pool, scenario_ids)),
         family("changed counts", changed_counts(pool, scenario_ids)),
+        family(
+            "viewer new answers",
+            new_answers_for_viewer(pool, scenario_ids, viewer)
+        ),
     )?;
 
     let progress = fold_progress(
@@ -71,9 +75,9 @@ pub(crate) async fn read_progress(
         &evidence,
         FamilyRows {
             scans,
-            prep,
             deck,
             changed,
+            viewer_new,
         },
     )
     .map_err(|e| {
@@ -85,6 +89,7 @@ pub(crate) async fn read_progress(
 
     tracing::info!(
         scenarios = scenario_ids.len(),
+        viewer = viewer.unwrap_or("<none>"),
         elapsed_ms = started.elapsed().as_millis() as u64,
         "read the war room's scenario status"
     );

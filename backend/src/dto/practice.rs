@@ -90,6 +90,10 @@ pub struct PracticeQuestionDto {
     /// Who drafted this question when nobody has reviewed it (`architect`), or
     /// `None`. The editor shows a draft badge while it is set.
     pub draft_by: Option<String>,
+    /// The notes Marie reads under this row: on the question, or on its CURRENT
+    /// answer, oldest first, struck ones included (struck through, with their
+    /// date). Empty on the answers page's own question read (CC_TASK_REVIEW_LOOP_v1).
+    pub notes: Vec<super::practice_review::PracticeNoteDto>,
     /// `Answered on 22 Aug`, ALREADY COMPOSED — or `None` when nobody has
     /// answered this question.
     ///
@@ -199,6 +203,10 @@ pub struct PracticeDeckPayload {
     /// state `tactic_name` answers with no tag at all. The dropdown then offers
     /// what the vocabulary can name and nothing else.
     pub tactic_cards: Vec<TacticCardDto>,
+    /// Answers by someone else since the SIGNED-IN viewer last pressed Done
+    /// reviewing on this deck — the review bar's number (CC_TASK_REVIEW_LOOP_v1,
+    /// GO v2). The bar is not drawn at `0`.
+    pub new_since_you_reviewed: u32,
     pub wording: PracticeWordingDto,
 }
 
@@ -521,6 +529,9 @@ pub struct AnswerVersionDto {
     pub text: String,
     /// `Answered on 22 Aug`, already composed — the same line the row shows.
     pub answered_on: String,
+    /// The notes on THIS attempt, oldest first, struck ones included
+    /// (CC_TASK_REVIEW_LOOP_v1 §4).
+    pub notes: Vec<super::practice_review::PracticeNoteDto>,
 }
 
 /// One question's answer history: what stands now, and what came before.
@@ -539,4 +550,6 @@ pub struct QuestionAnswersPayload {
     pub current: Option<AnswerVersionDto>,
     /// Everything before it, newest first. Empty when there is one answer or none.
     pub earlier: Vec<AnswerVersionDto>,
+    /// Notes on the question itself rather than on one attempt, oldest first.
+    pub question_notes: Vec<super::practice_review::PracticeNoteDto>,
 }

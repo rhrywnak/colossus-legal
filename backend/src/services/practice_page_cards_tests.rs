@@ -37,6 +37,8 @@ fn every_offered_card_resolves_back_to_its_own_name() {
             current: &[],
             open: None,
             attach_options: vec![],
+            notes: &[],
+            new_since_you_reviewed: 0,
         },
     );
 

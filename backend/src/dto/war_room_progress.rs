@@ -30,13 +30,16 @@ pub struct ScenarioProgress {
     /// the key would make it indistinguishable from a build that does not send the
     /// field at all (Standing Rule 1), so `None` goes out as JSON `null`.
     pub last_scan: Option<LastScan>,
-    pub talking_points: u32,
-    pub watch_items: u32,
     pub deck: DeckSummary,
     pub answered: AnsweredSplit,
     /// Visible questions new or changed since Marie last answered on this deck
     /// (CC_GO_WAR_ROOM_v3). `0` on a deck nobody has answered.
     pub marie_changed: u32,
+    /// Answers by someone else newer than the SIGNED-IN viewer's last "Done
+    /// reviewing" on this deck (CC_TASK_REVIEW_LOOP_v1 §2). Viewer-dependent, so
+    /// two people loading the same dashboard see different numbers here and
+    /// nowhere else. `0` when the request carries no user.
+    pub new_answers_for_viewer: u32,
 }
 
 /// `linked` of `total` — `total` is the cards the extraction left unlinked.
@@ -50,17 +53,13 @@ pub struct MatrixLinked {
     pub total: u32,
 }
 
-/// The scan line's four facts.
+/// The scan line's one fact: the day. The model and the relevant counts left the
+/// card for the scenario page (CC_TASK_REVIEW_LOOP_v1 §5).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct LastScan {
-    /// The display name the scan header resolves — see
-    /// `pipeline_repository::war_room_status::last_scans`.
-    pub model_name: String,
     /// When the run started. The browser formats the day.
     pub when: DateTime<Utc>,
-    pub relevant: u32,
-    pub total: u32,
 }
 
 /// The practice deck: visible questions, and the day it last changed.

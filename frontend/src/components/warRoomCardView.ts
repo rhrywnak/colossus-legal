@@ -2,17 +2,19 @@
 // warRoomCardView.ts — one scenario's status card, as strings and flags
 // =============================================================================
 //
-// CC_TASK_WAR_ROOM_v1. The card component renders what this returns and decides
-// nothing: every sentence is a stored template from `WarRoomWording` filled with
-// the payload's numbers, and every colour decision is a boolean computed here.
-// That split is what lets the tests assert "never scanned renders the never
-// line in the warning colour" without a DOM (CLAUDE.md rule 30).
+// CC_TASK_WAR_ROOM_v1, reshaped by CC_TASK_REVIEW_LOOP_v1 to the ruled mockup v3.
+// The card component renders what this returns and decides nothing: every
+// sentence is a stored template from `WarRoomWording` filled with the payload's
+// numbers, and every colour decision is a value computed here. That split is what
+// lets the tests assert "a deck nobody answered says Not started" without a DOM
+// (CLAUDE.md rule 30).
 //
-// ## The card's one colour rule (CC_GO_WAR_ROOM_v3)
+// ## The card's one colour rule
 //
-// Amber = something is owed by someone; green = nothing is owed. Candidates to
-// rule above zero, a scan that never ran, and questions new or changed for
-// Marie are owed work. Everything else is ink.
+// Amber = something is owed by someone; gray = nothing has started; green =
+// started and nothing owed. Candidates to rule above zero, a scan that never ran,
+// answers the viewer has not reviewed, and questions new or changed for Marie
+// are owed work. Everything else is ink.
 
 import { fill } from "../services/caseTimeline";
 import type { ScenarioSummary, WarRoomWording } from "../pages/trialPrepData";
@@ -25,19 +27,26 @@ export interface CardRow {
   warning: boolean;
 }
 
-/** The answered line and the bar under it. */
+/** The prep pane's headline, its muted line, and the bar under them. */
 export interface AnsweredLine {
-  /** The bold half — "0 of 17". */
+  /** The bold half — "42 of 42". */
   count: string;
-  /** The rest — "answered · Chuck 0/7 · defense 0/10". */
-  split: string;
+  /** The regular word after it — "answered". */
+  word: string;
+  /** ONE muted line — "Chuck 12/12 · defense 30/30 · deck 42 q · Sep 15". */
+  meta: string;
   /** 0‥1, the bar's fill. */
   fraction: number;
 }
 
-/** The badge row: exactly one pill, always. */
+/**
+ * One pill. `viewer` and `marie` are amber (owed work); `not_started` is gray;
+ * `up_to_date` is green.
+ */
 export type CardBadge =
-  | { kind: "changed"; text: string }
+  | { kind: "viewer"; text: string }
+  | { kind: "marie"; text: string }
+  | { kind: "not_started"; text: string }
   | { kind: "up_to_date"; text: string };
 
 /** Everything the card renders. */
@@ -51,12 +60,13 @@ export interface WarRoomCardView {
   scanLine: string;
   scanWarning: boolean;
   prepHeading: string;
-  prepRows: CardRow[];
-  /** null when the deck has no visible questions — "0 of 0" says nothing. */
+  /** null when the deck has no visible questions — the headline is `deckNone`. */
   answered: AnsweredLine | null;
-  badge: CardBadge;
+  /** The headline for a deck with no visible questions. */
+  deckNone: string;
+  /** Never empty: the amber pills that apply, or exactly one gray/green pill. */
+  badges: CardBadge[];
   actions: {
-    open: string;
     practice: string;
     /** null → no Timeline link (the scenario carries no subset). */
     timeline: string | null;
@@ -98,7 +108,7 @@ export function warRoomCardView(
     theme,
     evidenceHeading: wording.card_evidence_heading,
     evidenceRows: [
-      row(wording.card_facts_included_label, p.facts_included),
+      { label: wording.card_facts_included_label, value: String(p.facts_included), warning: false },
       {
         label: wording.card_candidates_label,
         value: String(p.candidates_to_rule),
@@ -114,39 +124,17 @@ export function warRoomCardView(
         warning: false,
       },
     ],
+    // Date only (task §5): the model and relevant counts live on the scenario page.
     scanLine:
       p.last_scan === null
         ? wording.card_scan_never
-        : fill(wording.card_scan_template, {
-            model: p.last_scan.model_name,
-            date: formatCardDay(p.last_scan.when),
-            relevant: p.last_scan.relevant,
-            total: p.last_scan.total,
-          }),
+        : fill(wording.card_scan_template, { date: formatCardDay(p.last_scan.when) }),
     scanWarning: p.last_scan === null,
     prepHeading: wording.card_prep_heading,
-    prepRows: [
-      row(wording.card_talking_points_label, p.talking_points),
-      row(wording.card_watch_items_label, p.watch_items),
-      {
-        label: wording.card_deck_label,
-        value:
-          p.deck.questions === 0 || p.deck.built_on === null
-            ? wording.card_deck_none
-            : fill(wording.card_deck_template, {
-                count: p.deck.questions,
-                date: formatCardDay(p.deck.built_on),
-              }),
-        warning: false,
-      },
-    ],
     answered: answeredLine(scenario, wording),
-    badge:
-      p.marie_changed > 0
-        ? { kind: "changed", text: fill(wording.card_changed_template, { count: p.marie_changed }) }
-        : { kind: "up_to_date", text: wording.card_up_to_date },
+    deckNone: wording.card_deck_none,
+    badges: cardBadges(scenario, wording),
     actions: {
-      open: wording.card_open_action,
       practice: wording.card_practice_action,
       timeline: hasTimeline ? wording.card_timeline_action : null,
       delete: wording.card_delete_action,
@@ -154,18 +142,48 @@ export function warRoomCardView(
   };
 }
 
-/** A plain count row — never owed work. */
-function row(label: string, count: number): CardRow {
-  return { label, value: String(count), warning: false };
+/**
+ * The pills, in the order the mockup stacks them.
+ *
+ * ## Why "Not started" is decided first
+ *
+ * "Up to date" on a deck nobody has answered claimed a state the deck never
+ * reached — the defect this replaces. With nothing answered, neither amber count
+ * can be above zero (both are counts OF answers), so gray is the whole story.
+ * Green needs BOTH: started, and nothing pending for either badge.
+ */
+export function cardBadges(scenario: ScenarioSummary, wording: WarRoomWording): CardBadge[] {
+  const p = scenario.progress;
+  if (p.answered.total === 0) return [{ kind: "not_started", text: wording.card_not_started }];
+
+  const owed: CardBadge[] = [];
+  if (p.new_answers_for_viewer > 0) {
+    owed.push({
+      kind: "viewer",
+      text: fill(wording.card_viewer_new_template, { count: p.new_answers_for_viewer }),
+    });
+  }
+  if (p.marie_changed > 0) {
+    owed.push({
+      kind: "marie",
+      text: fill(wording.card_changed_template, { count: p.marie_changed }),
+    });
+  }
+  return owed.length > 0 ? owed : [{ kind: "up_to_date", text: wording.card_up_to_date }];
 }
 
-/** The answered line, or null for a deck with no visible questions. */
+/** The prep headline and its one muted line, or null for a deck with no questions. */
 function answeredLine(scenario: ScenarioSummary, wording: WarRoomWording): AnsweredLine | null {
-  const a = scenario.progress.answered;
-  if (a.of === 0) return null;
+  const { answered: a, deck } = scenario.progress;
+  if (a.of === 0 || deck.built_on === null) return null;
   return {
     count: fill(wording.card_answered_count_template, { answered: a.total, total: a.of }),
-    split: fill(wording.card_answered_split_template, a),
+    word: wording.card_answered_word,
+    meta: fill(wording.card_prep_meta_template, {
+      ...a,
+      count: deck.questions,
+      date: formatCardDay(deck.built_on),
+    }),
     // Clamped: a count above its denominator would be a backend defect, and a
     // bar drawn past its track would hide that behind a layout glitch.
     fraction: Math.min(1, Math.max(0, a.total / a.of)),

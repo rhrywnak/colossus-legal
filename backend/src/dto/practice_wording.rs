@@ -186,6 +186,16 @@ pub struct PracticeWordingDto {
     pub answer_already_recorded: String,
     /// `Answered on {when}` — the one status a one-page deck row carries.
     pub row_answered_on_template: String,
+    // The review loop (CC_TASK_REVIEW_LOOP_v1): the deck's review bar and notes.
+    pub deck_review_new_template: String,
+    pub deck_review_done_label: String,
+    pub deck_review_failed: String,
+    pub row_note_add_label: String,
+    pub row_note_save_label: String,
+    pub row_note_cancel_label: String,
+    pub row_note_strike_label: String,
+    pub row_note_struck_template: String,
+    pub row_note_failed: String,
 
     // ── The one-page list: the practice bar, and the footnote under it ────
     // Wire names are the stored keys without their `practice_` prefix, as

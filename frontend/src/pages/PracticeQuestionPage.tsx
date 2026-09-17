@@ -25,6 +25,7 @@
 import React from "react";
 import { useParams } from "react-router-dom";
 
+import PracticeAnswerNotes from "../components/practice/PracticeAnswerNotes";
 import Critique from "../components/practice/PracticeCritiqueBlock";
 import { critiqueFor } from "../components/practice/practiceCritique";
 import { answerChrome, LONG_WAIT_MS } from "../components/practice/practiceAnswerPhase";
@@ -266,6 +267,14 @@ const PracticeQuestionPage: React.FC = () => {
         <Critique
           view={chrome.critiquePresent ? { kind: "working", longWait } : view}
           wording={deck.wording}
+        />
+
+        {/* Chuck's notes to Marie on this answer (REVIEW_LOOP_v1 §4). */}
+        <PracticeAnswerNotes
+          questionId={question.id}
+          answers={answers}
+          wording={deck.wording}
+          onChanged={setAnswers}
         />
       </section>
     </div>

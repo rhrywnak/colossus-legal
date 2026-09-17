@@ -142,6 +142,60 @@ pub async fn note_scenario(
     Ok(row.map(|r| r.0))
 }
 
+/// Every note on one question — on the question itself and on any attempt at it —
+/// oldest first. The answers page's read (CC_TASK_REVIEW_LOOP_v1 §4): it has the
+/// question's id and nothing else, and the partition by `answer_id` is the
+/// caller's, exactly as for [`list_notes`].
+pub async fn notes_for_question(
+    pool: &PgPool,
+    question_id: Uuid,
+) -> Result<Vec<NoteRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, NoteRecord>(
+        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by \
+         FROM practice_notes WHERE question_id = $1 ORDER BY created_at, id",
+    )
+    .bind(question_id)
+    .fetch_all(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
+/// One note by id, for handing back what a write just stored.
+pub async fn note_by_id(
+    pool: &PgPool,
+    note_id: Uuid,
+) -> Result<Option<NoteRecord>, PipelineRepoError> {
+    sqlx::query_as::<_, NoteRecord>(
+        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by \
+         FROM practice_notes WHERE id = $1",
+    )
+    .bind(note_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(PipelineRepoError::from)
+}
+
+/// Where an answer lives: `(scenario_id, question_id)`, or `None` for no such answer.
+///
+/// A note on an attempt must name its question too (the table's
+/// `practice_notes_answer_needs_question` CHECK), and the route is addressed by
+/// the answer alone — so both are read from the answer, never taken from a body
+/// that could name a different question.
+pub async fn answer_home(
+    pool: &PgPool,
+    answer_id: Uuid,
+) -> Result<Option<(Uuid, Uuid)>, PipelineRepoError> {
+    let row: Option<(Uuid, Uuid)> = sqlx::query_as(
+        "SELECT s.scenario_id, a.question_id \
+         FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
+         WHERE a.id = $1",
+    )
+    .bind(answer_id)
+    .fetch_optional(pool)
+    .await?;
+    Ok(row)
+}
+
 /// One attempt at one question, as the review page stacks them.
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct AttemptRecord {
@@ -188,3 +242,7 @@ pub async fn attempts_for_question(
     .await
     .map_err(PipelineRepoError::from)
 }
+
+#[cfg(test)]
+#[path = "practice_notes_live_tests.rs"]
+mod live_tests;

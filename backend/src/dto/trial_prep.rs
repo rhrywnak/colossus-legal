@@ -302,15 +302,13 @@ mod tests {
                             "candidates_to_rule": 0,
                             "matrix_linked": { "linked": 0, "total": 0 },
                             "last_scan": null,
-                            "talking_points": 0,
-                            "watch_items": 0,
                             "deck": { "questions": 0, "built_on": null },
                             "answered": {
                                 "total": 0, "of": 0,
                                 "chuck_answered": 0, "chuck_total": 0,
                                 "defense_answered": 0, "defense_total": 0
                             },
-                            "marie_changed": 0
+                            "marie_changed": 0, "new_answers_for_viewer": 0
                         }
                     },
                     {
@@ -325,15 +323,13 @@ mod tests {
                             "candidates_to_rule": 0,
                             "matrix_linked": { "linked": 0, "total": 0 },
                             "last_scan": null,
-                            "talking_points": 0,
-                            "watch_items": 0,
                             "deck": { "questions": 0, "built_on": null },
                             "answered": {
                                 "total": 0, "of": 0,
                                 "chuck_answered": 0, "chuck_total": 0,
                                 "defense_answered": 0, "defense_total": 0
                             },
-                            "marie_changed": 0
+                            "marie_changed": 0, "new_answers_for_viewer": 0
                         }
                     }
                 ],
@@ -358,21 +354,21 @@ mod tests {
                     "card_matrix_linked_label": "Matrix linked",
                     "card_matrix_linked_template": "{linked} of {total}",
                     "card_matrix_linked_none": "—",
-                    "card_scan_template": "Scan: {model} · {date} · {relevant} relevant of {total}",
-                    "card_scan_never": "Scan: never run",
-                    "card_talking_points_label": "Talking points",
-                    "card_watch_items_label": "Watch items",
-                    "card_deck_label": "Deck",
-                    "card_deck_template": "{count} questions · {date}",
+                    "card_scan_template": "Last scan {date}",
+                    "card_scan_never": "Never scanned",
                     "card_deck_none": "—",
                     "card_answered_count_template": "{answered} of {total}",
-                    "card_answered_split_template": "answered · Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total}",
+                    "card_answered_word": "answered",
+                    "card_prep_meta_template": "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
                     "card_changed_template": "{count} new or changed for Marie",
-                    "card_up_to_date": "Up to date",
-                    "card_open_action": "Open scenario",
-                    "card_practice_action": "Practice",
+                    "card_viewer_new_template": "{count} answers you haven't reviewed",
+                    "card_not_started": "Not started", "card_up_to_date": "Up to date",
+                    "card_practice_action": "Practice →",
                     "card_timeline_action": "Timeline",
-                    "card_delete_action": "Delete"
+                    "card_delete_action": "Delete",
+                    "strip_answered_label": "Questions answered", "strip_answered_template": "{answered} of {total}",
+                    "strip_waiting_label": "Waiting for Marie", "strip_new_for_you_label": "New answers for you",
+                    "strip_candidates_label": "Candidates for Roman"
                 }
             })
         );

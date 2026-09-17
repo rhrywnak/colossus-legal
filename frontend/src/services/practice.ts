@@ -106,6 +106,9 @@ export type PracticeQuestion = {
   hidden: boolean;
   /** Who drafted it when nobody has reviewed it (`architect`), or `null`. */
   draft_by: string | null;
+  /** Notes on the question or its CURRENT answer, oldest first, struck included
+   *  (CC_TASK_REVIEW_LOOP_v1). Checked by eye against `PracticeQuestionDto.notes`. */
+  notes: PracticeNote[];
 };
 
 /** One note, as every panel renders it. */
@@ -198,6 +201,9 @@ export type PracticeDeck = {
    * in which a question wears no tag at all.
    */
   tactic_cards: TacticCard[];
+  /** Answers by someone else since THIS viewer last pressed Done reviewing — the
+   *  review bar's number; the bar is not drawn at 0 (CC_GO_REVIEW_LOOP_v2). */
+  new_since_you_reviewed: number;
   wording: PracticeWording;
 };
 
@@ -401,6 +407,8 @@ export async function fetchPracticeDeck(
     // An absent array would render two empty selects and silently retire the
     // only control that can set a tactic.
     !Array.isArray(parsed.tactic_cards) ||
+    // An absent count would hide the review bar — a silent "nothing new".
+    typeof parsed.new_since_you_reviewed !== "number" ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {

@@ -20,11 +20,14 @@ use uuid::Uuid;
 
 use crate::auth::AuthUser;
 use crate::dto::practice::{AnswerVersionDto, QuestionAnswersPayload, StartSessionResponse};
+use crate::dto::practice_review::PracticeNoteDto;
 use crate::error::AppError;
 use crate::repositories::pipeline_repository::{
     practice::{start_session, NewSitting},
     practice_flow::{answer_versions, current_answers, open_session_for_answers},
+    practice_notes::{notes_for_question, NoteRecord},
 };
+use crate::services::practice_note_view::note_dto;
 use crate::services::practice_notes::attribution;
 use crate::state::AppState;
 
@@ -189,11 +192,17 @@ pub async fn get_question_answers(
     Path(question_id): Path<Uuid>,
 ) -> Result<Json<QuestionAnswersPayload>, AppError> {
     let settings = state.settings.current();
+    // One read of every note on the question; partitioned below by `answer_id`
+    // — the same partition the table's CHECK makes meaningful.
+    let notes = notes_for_question(&state.pipeline_pool, question_id)
+        .await
+        .map_err(|e| repo_error("notes_for_question", format!("question {question_id}: {e}")))?;
     let mut versions = answer_versions(&state.pipeline_pool, question_id)
         .await
         .map_err(|e| repo_error("answer_versions", e))?
         .into_iter()
         .map(|record| AnswerVersionDto {
+            notes: notes_on(&settings, &notes, Some(record.answer_id)),
             answer_id: record.answer_id,
             text: record.answer_text,
             answered_on: crate::services::practice_page::answered_on_line(
@@ -215,10 +224,25 @@ pub async fn get_question_answers(
         %question_id,
         by = %user.username,
         earlier = versions.len(),
+        notes = notes.len(),
         "served one question's answers"
     );
     Ok(Json(QuestionAnswersPayload {
         current,
         earlier: versions,
+        question_notes: notes_on(&settings, &notes, None),
     }))
+}
+
+/// The notes whose `answer_id` is exactly `answer` — `None` for question-level.
+fn notes_on(
+    settings: &crate::domain::settings::Settings,
+    notes: &[NoteRecord],
+    answer: Option<Uuid>,
+) -> Vec<PracticeNoteDto> {
+    notes
+        .iter()
+        .filter(|n| n.answer_id == answer)
+        .map(|n| note_dto(settings, n))
+        .collect()
 }
