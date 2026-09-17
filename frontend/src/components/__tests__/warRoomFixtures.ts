@@ -57,6 +57,7 @@ export const warRoomWording: WarRoomWording = {
   summary_unanswered_zero: "every question answered",
   summary_review_zero: "nothing waiting",
   summary_candidates_zero: "nothing to rule",
+  summary_unanswered_changed_clause: "{n} new or changed",
   reviewer_display_name: "Chuck",
 };
 

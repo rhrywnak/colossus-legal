@@ -15,11 +15,8 @@ use std::sync::Arc;
 
 use colossus_extract::LlmProvider;
 
-use crate::domain::llm_params::{
-    constrain, resolve, LlmParamsSpec, ModelConstraints, ParamValue, ResolvedLlmParams,
-};
-use crate::pipeline::providers::provider_for_model;
-use crate::repositories::pipeline_repository::models::get_active_model_by_id;
+use crate::domain::llm_params::{LlmParamsSpec, ParamValue, ResolvedLlmParams};
+use crate::services::practice_model_call::resolve_model;
 use crate::services::practice_read_parse::ReadRules;
 use crate::state::AppState;
 
@@ -37,47 +34,21 @@ fn read_task_spec(max_tokens: u32) -> LlmParamsSpec {
     }
 }
 
-/// Resolve the configured model into a provider and its parameters.
+/// Resolve the configured model into a provider and its parameters — through the
+/// one plumbing every practice call shares (`practice_model_call`).
 async fn resolve_provider(
     state: &AppState,
     model_id: &str,
     max_tokens: u32,
 ) -> Result<(Arc<dyn LlmProvider>, ResolvedLlmParams), String> {
-    let record = get_active_model_by_id(&state.pipeline_pool, model_id)
-        .await
-        .map_err(|e| format!("model lookup failed for {model_id}: {e}"))?
-        .ok_or_else(|| {
-            format!(
-                "practice_read_model names {model_id}, which is not an active llm_models row \
-                 — set is_active on that row, or point practice_read_model at a model that is active"
-            )
-        })?;
-
-    let constraints = ModelConstraints::from_record(&record)
-        .map_err(|e| format!("model {model_id} has unusable parameter columns: {e}"))?;
-    // `constrain` REFUSES (never clamps) a cap above the model's ceiling — which
-    // is why the seeded 1024 sits under every active row's max_output_tokens.
-    let params = resolve(
-        &LlmParamsSpec::SILENT,
+    let resolved = resolve_model(
+        state,
+        model_id,
         &read_task_spec(max_tokens),
-        &LlmParamsSpec::SILENT,
+        "practice_read_model",
     )
-    .and_then(|r| constrain(r, &constraints))
-    .map_err(|e| format!("model {model_id} refused the read's parameters: {e}"))?;
-
-    let provider: Arc<dyn LlmProvider> = Arc::from(
-        // The SCAN effort — `None` unless `LLM_SCAN_EFFORT` is set. A practice
-        // read is a judgement rather than a transcription and may genuinely
-        // benefit from thinking, so it keeps whatever the provider defaults to
-        // rather than inheriting extraction's turned-down setting.
-        provider_for_model(
-            &state.extraction_engine,
-            &record,
-            state.config.llm_effort_policy.scan,
-        )
-        .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
-    );
-    Ok((provider, params))
+    .await?;
+    Ok((resolved.provider, resolved.params))
 }
 
 /// Read the system prompt off disk.

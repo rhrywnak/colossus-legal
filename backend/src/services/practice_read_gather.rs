@@ -44,6 +44,7 @@ use crate::repositories::pipeline_repository::practice::{
     list_point_receipts, list_points, PracticeQuestionRecord,
 };
 use crate::services::practice_page::{point_receipt, tactic_name};
+use crate::services::practice_read_context::{attack_of, notes_of, parent_of};
 use crate::services::practice_read_payload::{Keyed, PointsTo, ReadPayload, Tactic};
 use crate::state::AppState;
 
@@ -80,6 +81,29 @@ pub enum PayloadFailure {
          numbering; restore the seven comma-separated card names to practice_tactic_names"
     )]
     TacticUnnamed { card: i16 },
+
+    #[error("the scenario {scenario_id} (its attack statement) could not be read: {source}")]
+    Scenario {
+        scenario_id: Uuid,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error(
+        "the deck of scenario {scenario_id} (a redirect's parent) could not be read: {source}"
+    )]
+    Deck {
+        scenario_id: Uuid,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error("the notes on question {question_id} could not be read: {source}")]
+    Notes {
+        question_id: Uuid,
+        #[source]
+        source: anyhow::Error,
+    },
 }
 
 impl PayloadFailure {
@@ -97,6 +121,11 @@ impl PayloadFailure {
             PayloadFailure::TacticUnnamed { .. } => {
                 "this question's tactic card has no name in the stored vocabulary"
             }
+            PayloadFailure::Scenario { .. } => {
+                "the scenario's attack statement could not be loaded"
+            }
+            PayloadFailure::Deck { .. } => "the question this redirect repairs could not be loaded",
+            PayloadFailure::Notes { .. } => "the notes on this question could not be loaded",
         }
     }
 }
@@ -170,6 +199,23 @@ async fn points_and_receipts(
     Ok((keyed_points, keyed_receipts))
 }
 
+/// Log half a sworn pair — a DATA defect the read survives, not a load failure.
+///
+/// Half a sworn pair is a DATA defect, not a load failure (Roman, A3): the seed
+/// writes both or neither, no constraint enforces it, and an answer is still
+/// judgeable against the half that exists. It is logged because nothing else
+/// would ever notice — no screen renders a half pair as wrong.
+fn warn_if_half_a_pair(question: &PracticeQuestionRecord) {
+    if question.pair_said.is_some() != question.pair_admitted.is_some() {
+        tracing::warn!(
+            question = %question.id,
+            has_said = question.pair_said.is_some(),
+            has_admitted = question.pair_admitted.is_some(),
+            "practice read: half a sworn pair — the seed writes both or neither"
+        );
+    }
+}
+
 /// Everything the model is told about one answer, or why it cannot be told.
 ///
 /// ## Rust Learning: `Result` here, and a plain struct one layer up
@@ -194,19 +240,12 @@ pub async fn gather_payload(
     let settings = state.settings.current();
     let tactic = tactic_of(&settings, question.tactic)?;
     let (points, receipts) = points_and_receipts(state, scenario_id).await?;
+    // CC_TASK_QUESTION_CHAT_ADDENDUM_v1: the attack, the parent, the notes.
+    let attack = attack_of(state, scenario_id).await?;
+    let parent = parent_of(state, scenario_id, question).await?;
+    let notes = notes_of(state, question.id, &settings.practice_read.case_timezone).await?;
 
-    // Half a sworn pair is a DATA defect, not a load failure (Roman, A3): the
-    // seed writes both or neither, no constraint enforces it, and an answer is
-    // still judgeable against the half that exists. It is logged because nothing
-    // else would ever notice — no screen renders a half pair as wrong.
-    if question.pair_said.is_some() != question.pair_admitted.is_some() {
-        tracing::warn!(
-            question = %question.id,
-            has_said = question.pair_said.is_some(),
-            has_admitted = question.pair_admitted.is_some(),
-            "practice read: half a sworn pair — the seed writes both or neither"
-        );
-    }
+    warn_if_half_a_pair(question);
 
     let side = if question.side == "george" {
         settings.practice_wording.pill_george.clone()
@@ -227,6 +266,9 @@ pub async fn gather_payload(
         points_to: points_to_of(points_to),
         watch_for: question.watch_for.clone(),
         always: settings.practice_wording.always_line.clone(),
+        attack,
+        parent,
+        notes,
     })
 }
 

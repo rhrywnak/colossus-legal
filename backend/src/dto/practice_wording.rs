@@ -197,6 +197,27 @@ pub struct PracticeWordingDto {
     pub row_note_strike_label: String,
     pub row_note_struck_template: String,
     pub row_note_failed: String,
+    // Discuss with AI (CC_TASK_QUESTION_CHAT_v1): stored key minus `practice_`.
+    pub discuss_button_label: String,
+    pub discuss_title_template: String,
+    pub discuss_subtitle_template: String,
+    pub discuss_subtitle_draft_template: String,
+    pub discuss_context_line: String,
+    pub discuss_context_line_draft: String,
+    pub discuss_input_placeholder: String,
+    pub discuss_send_label: String,
+    pub discuss_close_label: String,
+    pub discuss_model_label: String,
+    pub discuss_footer_template: String,
+    pub discuss_cost_billed: String,
+    pub discuss_cost_local: String,
+    pub discuss_cost_template: String,
+    pub discuss_empty: String,
+    pub discuss_sending_template: String,
+    pub discuss_send_failed: String,
+    pub discuss_load_failed: String,
+    pub discuss_cap_reached_template: String,
+    pub discuss_cap_reached_one: String,
 
     // ── The one-page list: the practice bar, and the footnote under it ────
     // Wire names are the stored keys without their `practice_` prefix, as

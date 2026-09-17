@@ -192,7 +192,10 @@ mod wiring_tests {
         // and get shallower — a quality change nobody asked for.
         for file in [
             "services/theme_scan_provider.rs",
-            "services/practice_read_setup.rs",
+            // The practice read's provider build moved here with
+            // CC_TASK_QUESTION_CHAT_v1 — the ONE plumbing the read and the
+            // "Discuss with AI" dock share, so both send the scan effort.
+            "services/practice_model_call.rs",
         ] {
             let source = read(file);
             assert!(

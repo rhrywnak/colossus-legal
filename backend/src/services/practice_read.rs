@@ -31,7 +31,7 @@
 
 use std::time::Instant;
 
-use crate::llm_retry::call_with_rate_limit_retry_params;
+use crate::services::practice_model_call::{call_model, elapsed_ms, response_tokens};
 use crate::services::practice_read_outcome::ReadOutcome;
 use crate::services::practice_read_parse::{
     compose_abstain_text, compose_read_text, parse_reply, Overrun, ReadReply, ReplyRejection,
@@ -94,18 +94,16 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
     let mut spent = TokenCost::default();
 
     for attempt in 1..=MAX_ATTEMPTS {
-        let result = call_with_rate_limit_retry_params(
+        // The one plumbing (`practice_model_call`). Its retry is the RATE-LIMIT
+        // cap, not the `MAX_ATTEMPTS` re-request loop this line sits inside: that
+        // one exists because a reply can be badly FORMATTED, which asking again
+        // does fix.
+        let result = call_model(
+            state,
             setup.provider.as_ref(),
-            Some(&setup.system),
+            &setup.system,
             &user,
             &setup.params,
-            0,
-            1,
-            // The retry policy, read once at startup (ruled 2026-08-28). Note
-            // this is the RATE-LIMIT retry cap, not the `MAX_ATTEMPTS`
-            // re-request loop this line sits inside: that one exists because a
-            // reply can be badly FORMATTED, which asking again does fix.
-            state.config.llm_retry_policy,
         )
         .await;
         let ms = elapsed_ms(started);
@@ -137,15 +135,9 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
                 return outcome;
             }
         };
-        // best-effort: the columns are INTEGER and a token count above 2^31 is not
-        // a number any model in the registry can produce — the largest ceiling
-        // here is 128,000. A value that somehow did not fit is recorded as "not
-        // reported" rather than failing an answer over a metric, and `ms` and
-        // `model` still say the call happened.
-        spent.add(
-            response.input_tokens.and_then(|n| i32::try_from(n).ok()),
-            response.output_tokens.and_then(|n| i32::try_from(n).ok()),
-        );
+        // The store's INTEGER form of the counts (see `response_tokens`).
+        let (input, output) = response_tokens(&response);
+        spent.add(input, output);
         let tokens = (spent.input, spent.output);
 
         match parse_reply(&response.text, setup.rules(), &citable) {
@@ -264,10 +256,6 @@ fn accumulate(running: Option<i32>, next: Option<i32>) -> Option<i32> {
 /// Domain note: this spans EVERY attempt, so a re-requested read records the
 /// whole wall-clock cost rather than only the successful half. That is the honest
 /// number — it is what Marie waited.
-fn elapsed_ms(started: Instant) -> i32 {
-    i32::try_from(started.elapsed().as_millis()).unwrap_or(i32::MAX)
-}
-
 /// The first 300 characters of a reply, for a log line.
 fn clip(reply: &str) -> String {
     reply.chars().take(300).collect()

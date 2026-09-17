@@ -31,6 +31,7 @@ pub mod motion_claim;
 pub mod person;
 pub mod person_detail;
 pub mod practice;
+pub mod practice_discussion;
 pub mod practice_review;
 pub mod practice_wording;
 pub mod practice_wording_map;

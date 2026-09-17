@@ -121,6 +121,12 @@ export function unansweredCell(scenarios: ScenarioSummary[], wording: WarRoomWor
       { n: across, codes: untouched.join(`${wording.summary_code_joiner} `) },
     );
   }
+  // CC_GO_QUESTION_CHAT_v1 (STOP 2): the SUM of the cards' own new-or-changed
+  // pill — one concept, one counting rule. Suppressed at 0.
+  const changed = scenarios.reduce((total, s) => total + s.progress.marie_changed, 0);
+  if (changed > 0) {
+    context += ` ${wording.summary_list_joiner} ${fill(wording.summary_unanswered_changed_clause, { n: changed })}`;
+  }
   return {
     owner: "marie",
     label: wording.summary_unanswered_label,

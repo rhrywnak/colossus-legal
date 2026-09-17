@@ -73,6 +73,7 @@ pub mod wording_fact_card;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;
+pub mod wording_practice_discuss;
 pub mod wording_practice_editor;
 pub mod wording_practice_flow;
 pub mod wording_practice_list;

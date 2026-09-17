@@ -110,6 +110,19 @@ fn every_payload_failure_says_why_to_both_audiences() {
             source: anyhow::anyhow!("connection reset"),
         },
         PayloadFailure::TacticUnnamed { card: 6 },
+        // CC_TASK_QUESTION_CHAT_ADDENDUM_v1's three loads.
+        PayloadFailure::Scenario {
+            scenario_id: uuid::Uuid::nil(),
+            source: anyhow::anyhow!("connection reset"),
+        },
+        PayloadFailure::Deck {
+            scenario_id: uuid::Uuid::nil(),
+            source: anyhow::anyhow!("connection reset"),
+        },
+        PayloadFailure::Notes {
+            question_id: uuid::Uuid::nil(),
+            source: anyhow::anyhow!("connection reset"),
+        },
     ];
 
     for failure in &failures {
@@ -129,4 +142,13 @@ fn every_payload_failure_says_why_to_both_audiences() {
         .to_string()
         .contains("her points could not be read"));
     assert!(failures[2].to_string().contains("practice_tactic_names"));
+    assert!(failures[3]
+        .to_string()
+        .contains("(its attack statement) could not be read"));
+    assert!(failures[4].to_string().contains("a redirect's parent"));
+    assert!(failures[5].to_string().contains("the notes on question"));
+    // Each plain reason is its own sentence — three loads, three observables.
+    let reasons: std::collections::BTreeSet<&str> =
+        failures.iter().map(|f| f.plain_reason()).collect();
+    assert_eq!(reasons.len(), failures.len());
 }

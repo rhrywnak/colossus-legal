@@ -182,8 +182,12 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// /practice/answers/:answer_id/notes`, `POST /practice/questions/:question_id/notes`,
 /// `PUT /practice/notes/:note_id/strike`, and `PUT
 /// /cases/:slug/scenarios/:scenario_id/practice/review-cursor` (Done reviewing).
+///
+/// 314 since QUESTION_CHAT_v1, which added three: `GET` (with its axum `HEAD`
+/// pair) and `POST` on `/practice/questions/:question_id/discussion` — one
+/// address, the thread read and the message send.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 311;
+const EXPECTED_ROUTE_LINES: usize = 314;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

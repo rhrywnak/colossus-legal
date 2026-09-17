@@ -54,6 +54,8 @@ pub struct PracticeWording {
     /// she would point to. Nested for the same reason `flow` is, and the block's
     /// own header argues the seam.
     pub row: super::wording_practice_row::PracticeRowWording,
+    /// The "Discuss with AI" dock (CC_TASK_QUESTION_CHAT_v1).
+    pub discuss: super::wording_practice_discuss::PracticeDiscussWording,
     /// What Part B added, and the one block addressed to CHUCK rather than to
     /// Marie: the deck editor, the record it writes, and the box that tells her
     /// what changed. Nested for the same Rule 17 reason as its two siblings.
@@ -284,6 +286,7 @@ pub fn build_practice_wording<E>(
     Ok(PracticeWording {
         flow: super::wording_practice_flow::build_practice_flow_wording(&read)?,
         row: super::wording_practice_row::build_practice_row_wording(&read)?,
+        discuss: super::wording_practice_discuss::build_practice_discuss_wording(&read)?,
         editor: super::wording_practice_editor::build_practice_editor_wording(&read)?,
         print: super::wording_practice_print::build_practice_print_wording(&read)?,
         list: super::wording_practice_list::build_practice_list_wording(&read)?,

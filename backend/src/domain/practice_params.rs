@@ -145,6 +145,16 @@ pub struct PracticeReadParams {
     /// The reviewer's name as screens print it — see
     /// [`KEY_PRACTICE_REVIEWER_DISPLAY_NAME`].
     pub reviewer_display_name: String,
+
+    // ── Discuss with AI (CC_TASK_QUESTION_CHAT_v1) ────────────────────────────
+    /// The model the dock starts on — [`KEY_PRACTICE_DISCUSS_DEFAULT_MODEL`].
+    pub discuss_default_model: String,
+    /// The most model replies one question's thread may hold — the spend guard.
+    pub discuss_max_turns: u32,
+    /// The dock's system prompt file, in the template directory.
+    pub discuss_prompt_file: String,
+    /// The output cap of one discussion reply.
+    pub discuss_max_tokens: u32,
 }
 
 // KEYS: the stable identifiers, named here and listed in
@@ -226,10 +236,26 @@ pub const KEY_PRACTICE_REVIEWER_USERNAME: &str = "practice_reviewer_username";
 /// word, so an attorney change is two edits and not a hunt through sentences.
 pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAME: &str = "practice_reviewer_display_name";
 
+/// The model the "Discuss with AI" dock starts on (CC_TASK_QUESTION_CHAT_v1). A
+/// setting, never a literal: the button says "Discuss with AI" and the chip prints
+/// whatever this names (ruled amendments 1 and 2).
+pub const KEY_PRACTICE_DISCUSS_DEFAULT_MODEL: &str = "practice_discuss_default_model";
+/// The per-question cap on MODEL replies, across everyone — the runaway-spend
+/// guard, the dock's analogue of the read's `MAX_ATTEMPTS` (GO ruling 5: 40).
+pub const KEY_PRACTICE_DISCUSS_MAX_TURNS: &str = "practice_discuss_max_turns";
+/// The dock's system prompt, beside the read's in the template directory.
+pub const KEY_PRACTICE_DISCUSS_PROMPT_FILE: &str = "practice_discuss_prompt_file";
+/// The output cap of one discussion reply.
+pub const KEY_PRACTICE_DISCUSS_MAX_TOKENS: &str = "practice_discuss_max_tokens";
+
 pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_CASE_TIMEZONE,
     KEY_PRACTICE_REVIEWER_USERNAME,
     KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
+    KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
+    KEY_PRACTICE_DISCUSS_MAX_TURNS,
+    KEY_PRACTICE_DISCUSS_PROMPT_FILE,
+    KEY_PRACTICE_DISCUSS_MAX_TOKENS,
     KEY_PRACTICE_READ_PROMPT_FILE,
     KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_MAX_TOKENS,
@@ -256,7 +282,7 @@ impl PracticeReadParams {
     /// `settings_store_tests::the_fixtures_carry_the_values_the_migration_actually_seeds`.
     pub fn for_test() -> Self {
         PracticeReadParams {
-            prompt_file: "practice_read_prompt_v3.md".to_string(),
+            prompt_file: "practice_read_prompt_v4.md".to_string(),
             model: "claude-opus-5".to_string(),
             max_tokens: 1024,
             max_words: 25,
@@ -270,6 +296,10 @@ impl PracticeReadParams {
             case_timezone: "America/Detroit".to_string(),
             reviewer_username: "cpenzien".to_string(),
             reviewer_display_name: "Chuck".to_string(),
+            discuss_default_model: "claude-opus-5".to_string(),
+            discuss_max_turns: 40,
+            discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),
+            discuss_max_tokens: 4096,
         }
     }
 }

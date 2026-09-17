@@ -8,9 +8,12 @@ use super::*;
 use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
-/// The one migration that seeds this block.
-const SEED_MIGRATION: &str =
-    "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql";
+/// The migrations that seed this block, concatenated.
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
+    // QUESTION_CHAT: Marie's "new or changed" clause.
+    "pipeline_migrations/20260917120219_question_chat_threads_prompts_and_wording.sql",
+];
 
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -48,6 +51,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_UNANSWERED_ZERO, "every question answered"),
     (KEY_REVIEW_ZERO, "nothing waiting"),
     (KEY_CANDIDATES_ZERO, "nothing to rule"),
+    (KEY_UNANSWERED_CHANGED_CLAUSE, "{n} new or changed"),
 ];
 
 impl WarRoomSummaryWording {
@@ -108,6 +112,7 @@ fn every_field_reads_its_own_key() {
     assert_eq!(w.unanswered_zero, KEY_UNANSWERED_ZERO);
     assert_eq!(w.review_zero, KEY_REVIEW_ZERO);
     assert_eq!(w.candidates_zero, KEY_CANDIDATES_ZERO);
+    assert_eq!(w.unanswered_changed_clause, KEY_UNANSWERED_CHANGED_CLAUSE);
 }
 
 /// Every declared key is seeded, with the value this build expects; and the
@@ -115,8 +120,11 @@ fn every_field_reads_its_own_key() {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let sql = std::fs::read_to_string(root.join(SEED_MIGRATION))
-        .unwrap_or_else(|_| panic!("{SEED_MIGRATION} is on disk"));
+    let sql = SEED_MIGRATIONS
+        .iter()
+        .map(|f| std::fs::read_to_string(root.join(f)).unwrap_or_else(|_| panic!("{f} is on disk")))
+        .collect::<Vec<_>>()
+        .join("\n");
     let fixture = WarRoomSummaryWording::for_test_values();
     for key in WAR_ROOM_SUMMARY_WORDING_KEYS {
         let seeded = seeded_value_in(&sql, key)
