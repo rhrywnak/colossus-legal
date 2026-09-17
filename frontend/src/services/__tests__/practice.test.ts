@@ -20,7 +20,6 @@
  */
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { savePracticeFlag } from "../practiceFlow";
 import {
   closePracticeAnswer,
   endPracticeSession,
@@ -285,26 +284,7 @@ describe("the write paths", () => {
     expect(mock.mock.calls[0][0]).toContain(`/api/practice/sessions/${SESSION}/end`);
   });
 
-  it("PUTs the flag to the question URL and returns the STORED note", async () => {
-    // The server half of this guard is `api::practice_tests::ROUTES`. Between
-    // the two, a path can only drift if BOTH are edited to agree — the .377
-    // failure class, where a client called a path the router did not serve.
-    const mock = okFetch({ flag_note: "too soft" });
-    const stored = await savePracticeFlag(QUESTION, "  too soft  ");
 
-    const [url, options] = mock.mock.calls[0];
-    expect(url).toContain(`/api/practice/questions/${QUESTION}/flag`);
-    expect(options.method).toBe("PUT");
-    expect(JSON.parse(options.body).note).toBe("  too soft  ");
-    // The SERVER's value, not the typed one: it trims, and a screen echoing what
-    // she typed would show a flag the database does not have.
-    expect(stored).toBe("too soft");
-  });
-
-  it("reports a cleared flag as null rather than an empty string", async () => {
-    okFetch({ flag_note: null });
-    expect(await savePracticeFlag(QUESTION, "   ")).toBeNull();
-  });
 
   it("escapes every path parameter", async () => {
     // An unescaped id containing a slash would become an extra path segment and

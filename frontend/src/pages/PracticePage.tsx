@@ -121,7 +121,7 @@ const PracticePage: React.FC = () => {
   const [deletingId, setDeletingId] = React.useState<string | null>(null);
   const [deleteError, setDeleteError] = React.useState<string | null>(null);
 
-  const rowControls = usePracticeDeckControls(setDeck);
+  const rowControls = usePracticeDeckControls();
 
   /**
    * Re-read the deck.

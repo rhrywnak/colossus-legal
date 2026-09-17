@@ -29,9 +29,8 @@ const ROUTES: &[(&str, &[&str])] = &[
     ("/practice/answers/:answer_id/help", &["POST"]),
     ("/practice/answers/:answer_id/close", &["POST"]),
     ("/practice/sessions/:session_id/end", &["POST"]),
-    // Flow v1: the only PUT the drill serves. See the verb test below for why
-    // it is a PUT and why that does not make it destructive.
-    ("/practice/questions/:question_id/flag", &["PUT"]),
+    // The flag's PUT was here until 2026-09-17, when the writer retired
+    // (CC_TASK_DEFECT_SWEEP_v1 defect 6). See the verb test below.
 ];
 
 #[test]
@@ -101,18 +100,36 @@ fn the_drill_exposes_one_read_six_writes_and_no_destructive_verb() {
             }
         }
     }
-    assert_eq!((reads, writes), (1, 6));
+    // One GET and five POSTs. It was (1, 6) until the flag's PUT retired.
+    assert_eq!((reads, writes), (1, 5));
 }
 
-/// The flag route is served, and it is the only PUT.
+/// The drill serves no PUT at all, and the flag's write route is gone.
+///
+/// ## Why the absence gets a test (CC_TASK_DEFECT_SWEEP_v1 defect 6)
+///
+/// The flag was write-only: its control was never built, nothing has written a
+/// row since 2026-08-23, and the route was the last thing keeping the writer
+/// alive. What was NOT retired is the READER — the end-of-sitting sheet still
+/// prints the flags already stored (`practice_flow::list_flagged`), and the
+/// columns stay, because a recorded thing is never deleted. So this asserts the
+/// writer is gone rather than that the concept is.
+///
+/// If a flag row ever appears again after this, something undocumented wrote it,
+/// and that is its own investigation (ruled 2026-09-17).
 #[test]
-fn the_flag_route_is_served_and_is_the_drills_only_put() {
+fn the_drill_serves_no_put_since_the_flag_writer_retired() {
     let puts: Vec<&str> = ROUTES
         .iter()
         .filter(|(_, m)| m.contains(&"PUT"))
         .map(|(p, _)| *p)
         .collect();
-    assert_eq!(puts, vec!["/practice/questions/:question_id/flag"]);
+    assert!(puts.is_empty(), "{puts:?}");
+    assert!(
+        !ROUTES.iter().any(|(p, _)| p.contains("flag")),
+        "the flag's write route retired — the sheet's READ of the stored notes \
+         did not, and lives in practice_flow::list_flagged"
+    );
 }
 
 /// The answer route is the one the task names, spelled exactly.
@@ -125,30 +142,6 @@ fn the_answer_route_is_the_path_the_task_names() {
     assert!(ROUTES
         .iter()
         .any(|(p, m)| *p == "/practice/answers" && m.contains(&"POST")));
-}
-
-/// A blank note CLEARS the flag; a real one is stored trimmed.
-///
-/// The three behaviours the handler documents, pinned where a unit test can
-/// reach them. This decides whether the database receives a note or a NULL, and
-/// it is the difference between "she withdrew her complaint" and "she filed one
-/// made of spaces" — which would print as an empty complaint on Chuck's sheet.
-#[test]
-fn a_blank_flag_note_clears_and_a_real_one_is_stored_trimmed() {
-    use crate::api::practice_flag::normalize_flag_note;
-
-    assert_eq!(normalize_flag_note(None), None);
-    assert_eq!(normalize_flag_note(Some(String::new())), None);
-    assert_eq!(normalize_flag_note(Some("   ".to_string())), None);
-    assert_eq!(normalize_flag_note(Some("\t \n".to_string())), None);
-    assert_eq!(
-        normalize_flag_note(Some("  too soft  ".to_string())),
-        Some("too soft".to_string())
-    );
-    assert_eq!(
-        normalize_flag_note(Some("too soft".to_string())),
-        Some("too soft".to_string())
-    );
 }
 
 /// The reveal settles a row `fine` or `repeat` — and never `skipped`.

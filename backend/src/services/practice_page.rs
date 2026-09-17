@@ -215,7 +215,6 @@ fn question_dto(
         pair_admitted: record.pair_admitted,
         stronger: record.stronger,
         stronger_lean: record.stronger_lean,
-        flag_note: record.flag_note,
         hidden: record.hidden_at.is_some(),
         draft_by: record.draft_by,
         answered_on,

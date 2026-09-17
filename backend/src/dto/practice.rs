@@ -68,10 +68,6 @@ pub struct PracticeQuestionDto {
     /// line — a Chuck question, in the mockup's own words.
     pub stronger: Option<String>,
     pub stronger_lean: Option<String>,
-    /// Marie's one line saying what is wrong with this question, or `None`.
-    /// Served with the deck so the start screen can render the flag on the row
-    /// and Chuck's sheet can list it, without a second call.
-    pub flag_note: Option<String>,
     /// `cross`, `direct` or `redirect` — what the question DOES. The screen tags
     /// a redirect, the mixed queue pairs one behind the George question it
     /// answers, and the read judges it by a different rule. Three behaviours
@@ -110,28 +106,6 @@ pub struct PracticeQuestionDto {
     /// apparatus in L2 — it is not deleted here, because a field removed from
     /// the wire while a screen still reads it is a blank line on that screen.
     pub answered_on: Option<String>,
-}
-
-/// The flag as it stands after a write — `None` when it was cleared.
-///
-/// Returned rather than assumed by the browser: the server TRIMS the note, so
-/// what is stored is not always what was typed, and a screen that echoed the
-/// typed value would show a flag the database does not have.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FlagResponse {
-    pub flag_note: Option<String>,
-}
-
-/// A flag written — or cleared — on one question.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct FlagRequest {
-    /// The line Roman and Chuck read. Blank or absent CLEARS the flag: the
-    /// screen has one control for both acts, and an "unflag" endpoint of its own
-    /// would be a second way to say the same thing.
-    #[serde(default)]
-    pub note: Option<String>,
 }
 
 /// One of Marie's talking points, with its receipt.

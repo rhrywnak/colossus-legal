@@ -97,6 +97,10 @@ describe("the practice walk writes nothing", () => {
       "openAnswerSession",
       "hideQuestion",
       "closePracticeAnswer",
+      // Retired 2026-09-17 (defect sweep) and kept on this list on purpose: the
+      // symbol is gone, so this line guards against it coming BACK rather than
+      // against today's code. A flag write reappearing on the walk would be the
+      // undocumented writer the retirement ruling said to treat as its own STOP.
       "savePracticeFlag",
       'method: "POST"',
       'method: "PUT"',

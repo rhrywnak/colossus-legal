@@ -65,6 +65,16 @@ const COVERED: &[&str] = &[
     // reasoning as the seed above: a column renamed in a migration and not here
     // is a one-shot that fails at the moment an operator runs it on a real deck.
     "src/practice/seed_update_write.rs",
+    // The day-boundary sitting closer (defect sweep). In the cover on the day it
+    // was written, like its neighbours: its UPDATE names `practice_sessions` and
+    // its subquery names `practice_answers`, and a column renamed in a migration
+    // and not here is a sitting that silently stops closing.
+    "src/repositories/pipeline_repository/practice_sitting_close.rs",
+    // The reviewer's queue. NOT in the cover until the defect sweep, which is a
+    // gap in its own right: the queue has named `practice_answers`,
+    // `practice_sessions` and `practice_review_cursor` columns since it was
+    // written, and now names `practice_notes` columns too.
+    "src/repositories/pipeline_repository/review_cursor.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.
@@ -456,6 +466,11 @@ pub(super) fn declared() -> BTreeMap<String, Vec<String>> {
         "practice_answers",
         "practice_deck_changes",
         "practice_notes",
+        // Declared with the defect sweep, when `review_cursor.rs` entered the
+        // cover above. The table has existed since the review loop; it was
+        // simply never scanned, so its columns were never checked against the
+        // migration that creates them.
+        "practice_review_cursor",
     ]
     .iter()
     .map(|t| ((*t).to_string(), migration_columns(t)))

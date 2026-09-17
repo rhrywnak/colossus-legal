@@ -68,8 +68,6 @@ export type PracticeQuestion = {
   /** `null` renders the stored "no receipt for this one" line. */
   stronger: string | null;
   stronger_lean: string | null;
-  /** Marie's one line saying what is wrong with this question. `null` = none. */
-  flag_note: string | null;
   /**
    * `cross`, `direct` or `redirect` — what the question DOES.
    *

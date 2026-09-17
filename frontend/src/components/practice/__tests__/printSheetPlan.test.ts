@@ -62,7 +62,6 @@ function q(over: Partial<PracticeQuestion> & { kind: string }): PracticeQuestion
     pair_admitted: null,
     stronger: null,
     stronger_lean: null,
-    flag_note: null,
     deck_key: null,
     follows_key: null,
     hidden: false,

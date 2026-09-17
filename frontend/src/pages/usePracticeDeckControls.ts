@@ -16,8 +16,7 @@
 
 import React from "react";
 
-import type { PracticeDeck, PracticeQuestion } from "../services/practice";
-import { savePracticeFlag } from "../services/practiceFlow";
+import type { PracticeQuestion } from "../services/practice";
 import { availableDeck, editorDeck, orderedDeck, V0_QUESTION_COUNT } from "./practiceQueue";
 
 /** What the start screen needs to render and drive the two row controls. */
@@ -31,11 +30,6 @@ export interface PracticeDeckControls {
    */
   skippedToday: ReadonlySet<string>;
   toggleSkip: (id: string) => void;
-  /** Which row's flag write is in flight, so its control can say so. */
-  savingFlagFor: string | null;
-  /** The last flag write's failure. Surfaced, never swallowed. */
-  flagError: string | null;
-  saveFlag: (id: string, note: string) => void;
   /** How many she has chosen to be asked, and the pill that changes it. */
   count: number;
   setCount: (count: number) => void;
@@ -68,43 +62,25 @@ export interface DeckView {
   all: PracticeQuestion[];
 }
 
-/**
- * The deck with one question's flag replaced by what the SERVER stored.
- *
- * A pure function, outside the hook, because it is the only part of the write
- * that can be reasoned about without React: given a deck and a stored value,
- * this is the deck afterwards. `null` in, `null` out — the page unmounted or the
- * deck failed to load, and there is nothing to patch.
- */
-function withFlag(
-  deck: PracticeDeck | null,
-  id: string,
-  stored: string | null,
-): PracticeDeck | null {
-  if (deck === null) return null;
-  return {
-    ...deck,
-    questions: deck.questions.map((q) => (q.id === id ? { ...q, flag_note: stored } : q)),
-  };
-}
 
 /**
- * Hold the start screen's row state, and write a flag when she saves one.
+ * Hold the start screen's row state: what she has set aside today, and how many
+ * questions she wants to be asked.
  *
- * `setDeck` is taken rather than a reload callback because the write returns the
- * stored value: the backend TRIMS the note and treats a blank one as "clear", so
- * echoing what she typed would leave a flag on screen that the database does not
- * have. Patching the one question in place is both cheaper than refetching the
- * deck and the only version that shows the truth.
+ * ## What left on 2026-09-17
+ *
+ * This hook used to take `setDeck` and write a flag — the write returned the
+ * stored note, and the one question was patched in place so the screen showed
+ * what the database had rather than what she typed. The flag's writer retired
+ * (CC_TASK_DEFECT_SWEEP_v1 defect 6): its control was never built, so `saveFlag`
+ * and its two state values were returned by this hook and read by no component
+ * for the whole of their life. With the write gone there is nothing for this
+ * hook to patch, so `setDeck` went with it.
  */
-export function usePracticeDeckControls(
-  setDeck: React.Dispatch<React.SetStateAction<PracticeDeck | null>>,
-): PracticeDeckControls {
+export function usePracticeDeckControls(): PracticeDeckControls {
   const [skippedToday, setSkippedToday] = React.useState<ReadonlySet<string>>(
     () => new Set<string>(),
   );
-  const [savingFlagFor, setSavingFlagFor] = React.useState<string | null>(null);
-  const [flagError, setFlagError] = React.useState<string | null>(null);
   const [count, setCount] = React.useState(V0_QUESTION_COUNT);
 
   const toggleSkip = (id: string) => {
@@ -121,19 +97,6 @@ export function usePracticeDeckControls(
     });
   };
 
-  const saveFlag = (id: string, note: string) => {
-    setSavingFlagFor(id);
-    setFlagError(null);
-    savePracticeFlag(id, note)
-      .then((stored) => setDeck((was) => withFlag(was, id, stored)))
-      .catch((error: unknown) => {
-        // eslint-disable-next-line no-console
-        console.error("practice: the flag could not be saved", error);
-        setFlagError(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => setSavingFlagFor(null));
-  };
-
   const view = (questions: PracticeQuestion[], who: DeckSide): DeckView => {
     const available = availableDeck(questions, who, skippedToday);
     return {
@@ -147,9 +110,6 @@ export function usePracticeDeckControls(
   return {
     skippedToday,
     toggleSkip,
-    savingFlagFor,
-    flagError,
-    saveFlag,
     count,
     setCount,
     view,

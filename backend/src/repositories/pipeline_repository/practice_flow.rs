@@ -29,6 +29,31 @@ pub struct FlaggedQuestionRecord {
 
 /// Every flagged question in this scenario's deck, in deck order.
 ///
+/// ## ⚑ THE FLAG IS RETIRED AS A WRITER — this READER is not (2026-09-17)
+///
+/// `flag_note` has no writer any more: `set_flag`, the `PUT
+/// /practice/questions/:question_id/flag` route and its handler all retired with
+/// CC_TASK_DEFECT_SWEEP_v1 (defect 6). The control was never built — the plumbing
+/// that would have called it was returned by `usePracticeDeckControls` and read
+/// by no component for its whole life — and DEV has carried 0 flagged rows since
+/// 2026-08-23.
+///
+/// **What did NOT retire is this function.** It still runs, on
+/// `POST /practice/sessions/:session_id/end`, and the flags already stored still
+/// PRINT at the foot of Chuck's sheet (`services::practice_sheet::flag_lines`).
+/// The columns stay for the same reason: a recorded thing is never deleted.
+///
+/// The note this block replaces said the opposite — that `flag_note` was unused
+/// and its only reader had "retired from the interface with the sitting". It was
+/// wrong, it had been wrong for a month, and it was wrong in the direction that
+/// nearly got a live surface deleted: the reader was routed, shipped and
+/// rendering the whole time, and 0 stored rows only meant nobody had SEEN it.
+/// That is what a stale comment costs.
+///
+/// **If a flag row ever appears after this, something undocumented wrote it** —
+/// which is its own investigation, not a thing to explain away (ruled
+/// 2026-09-17).
+///
 /// ## Domain note: the whole DECK, not this sitting's queue
 ///
 /// The list is headed "Flagged before the session". A question she flagged and
@@ -64,54 +89,6 @@ pub async fn session_queue_len(
             .fetch_optional(pool)
             .await?;
     Ok(row.and_then(|r| r.0))
-}
-
-/// Store — or clear — Marie's flag on one question.
-///
-/// ## Domain note: why this writes the QUESTION and not the session
-///
-/// Roman's ruling of 2026-08-18: a flag outlives the sitting. It is Marie
-/// telling Roman and Chuck that a question is wrong, and it stands until one of
-/// them changes the deck. A note scoped to an evening would be gone before
-/// either of them read it.
-///
-/// A blank note CLEARS the flag — all three columns together, so a row can never
-/// carry a `flagged_at` with nothing flagged. `who` is stored rather than
-/// derived at render because the answer to "who flagged this" must survive the
-/// log window.
-///
-/// Returns whether a row was touched, so the route can tell "stored" from "no
-/// such question" rather than reporting success for a write that hit nothing.
-/// ## ⚑ `flag_note` IS UNUSED AND DELIBERATELY LEFT ALONE
-///
-/// Measured 2026-08-23: 0 rows across 46 questions, and its only reader — the
-/// end-of-sitting sheet's flag list — retired from the interface with the
-/// sitting. It is neither deleted nor wired to anything new.
-///
-/// **If a read-flag is ever wanted, its home is a column on `practice_answers`,
-/// not here.** This flag hangs off the QUESTION; "this read is wrong" is about
-/// the READ, which lives on the answer. Filing a bad read against the question
-/// would record a good question as a bad one and point prompt-tuning at the
-/// wrong signal. That is why the control mockup v7 drew was not built.
-pub async fn set_flag(
-    pool: &PgPool,
-    question_id: Uuid,
-    note: Option<&str>,
-    who: &str,
-) -> Result<bool, PipelineRepoError> {
-    let done = sqlx::query(
-        "UPDATE practice_questions \
-         SET flag_note = $2, \
-             flagged_at = CASE WHEN $2::text IS NULL THEN NULL ELSE NOW() END, \
-             flagged_by = CASE WHEN $2::text IS NULL THEN NULL ELSE $3 END \
-         WHERE id = $1",
-    )
-    .bind(question_id)
-    .bind(note)
-    .bind(who)
-    .execute(pool)
-    .await?;
-    Ok(done.rows_affected() == 1)
 }
 
 /// The open sitting the start card offers back, and enough of it to describe.

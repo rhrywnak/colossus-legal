@@ -35,37 +35,6 @@ export interface NewSitting {
 }
 
 
-/**
- * Store — or clear — Marie's flag on one question.
- *
- * ## Why the SERVER's value is returned rather than the typed one
- *
- * The backend trims the note, and a blank note clears the flag. A screen that
- * echoed what she typed would show a flag the database does not have — a
- * leading space, or a "flag" made entirely of whitespace.
- */
-export async function savePracticeFlag(
-  questionId: string,
-  note: string,
-): Promise<string | null> {
-  const response = await authFetch(
-    `${API_BASE_URL}/api/practice/questions/${encodeURIComponent(questionId)}/flag`,
-    {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ note }),
-      timeoutMs: PRACTICE_TIMEOUT_MS,
-    },
-  );
-
-  if (!response.ok) {
-    const detail = await readErrorMessage(response);
-    throw new Error(`Your flag was not saved (HTTP ${response.status}${detail}).`);
-  }
-
-  const body = (await response.json()) as { flag_note: string | null };
-  return body.flag_note;
-}
 
 
 /** One sitting, as the page re-enters it at its own address. */

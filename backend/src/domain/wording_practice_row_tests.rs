@@ -69,8 +69,18 @@ const TEST_SEED: &[(&str, &str)] = &[
     // The one status a one-page deck row carries. `{when}` is filled by
     // `practice_clock::local_day_month` — no weekday, deliberately.
     (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
-    (KEY_DECK_REVIEW_AWAITING_TEMPLATE, "{count} answers awaiting {reviewer}'s review"),
-    (KEY_DECK_REVIEW_AWAITING_ONE, "{count} answer awaiting {reviewer}'s review"),
+    // As SEEDED. This file pins what the seeding migration INSERTs; the defect
+    // sweep CORRECTED both to "questions" (an unstruck note puts a question in
+    // the queue too), and the corrected value is pinned by the correction pass
+    // in `services::settings_store_tests`.
+    (
+        KEY_DECK_REVIEW_AWAITING_TEMPLATE,
+        "{count} answers awaiting {reviewer}'s review",
+    ),
+    (
+        KEY_DECK_REVIEW_AWAITING_ONE,
+        "{count} answer awaiting {reviewer}'s review",
+    ),
     (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
     (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
     (KEY_NOTE_ADD_LABEL, "Add a note"),
@@ -254,6 +264,47 @@ fn the_plain_labels_carry_no_placeholder() {
         assert!(
             !value.contains('{'),
             "{name} is a plain label and must carry no placeholder: {value}"
+        );
+    }
+}
+
+/// The defect sweep CORRECTED both review sentences to count questions. (M)
+///
+/// ## Why this needs a test of its own
+///
+/// `every_declared_key_is_seeded_with_the_value_this_build_expects` above pins
+/// what the SEEDING migration inserts, and the correction pass in
+/// `services::settings_store_tests` walks parameters rather than wording — so
+/// between them, nothing in `cargo test --lib` would notice these two sentences
+/// going back to "answers". The migration's own rule-25a assertion catches it at
+/// deploy time, which is later than it needs to be caught.
+///
+/// The count includes questions waiting on an unstruck NOTE as well as on an
+/// answer (`review_cursor::NOTE_WAITING`). A bar that says "answers" over that
+/// number is wrong on exactly the rows the defect sweep existed to surface.
+#[test]
+fn the_review_bar_counts_questions_rather_than_answers() {
+    let sql = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join(
+        "pipeline_migrations/20260917153315_defect_sweep_sittings_deck_keys_and_review_wording.sql",
+    ))
+    .expect("the defect sweep migration is on disk");
+
+    for (key, expected) in [
+        (
+            KEY_DECK_REVIEW_AWAITING_TEMPLATE,
+            "{count} questions awaiting {reviewer}'s review",
+        ),
+        (
+            KEY_DECK_REVIEW_AWAITING_ONE,
+            "{count} question awaiting {reviewer}'s review",
+        ),
+    ] {
+        let corrected = crate::domain::wording::tests::corrected_value_in(&sql, key)
+            .unwrap_or_else(|| panic!("{key} is not corrected by the defect sweep migration"));
+        assert_eq!(corrected, expected, "{key}");
+        assert!(
+            !corrected.contains("answer"),
+            "{key} still names answers over a count that includes notes: {corrected}"
         );
     }
 }
