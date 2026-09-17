@@ -137,6 +137,14 @@ pub struct PracticeReadParams {
     /// [`KEY_PRACTICE_CASE_TIMEZONE`]. Carried on this snapshot because every
     /// practice read that asks "was this today?" already has it in hand.
     pub case_timezone: String,
+
+    /// The login whose Done reviewing marks the review queue is counted against,
+    /// and the only login offered that button — see
+    /// [`KEY_PRACTICE_REVIEWER_USERNAME`].
+    pub reviewer_username: String,
+    /// The reviewer's name as screens print it — see
+    /// [`KEY_PRACTICE_REVIEWER_DISPLAY_NAME`].
+    pub reviewer_display_name: String,
 }
 
 // KEYS: the stable identifiers, named here and listed in
@@ -201,8 +209,27 @@ pub const KEY_PRACTICE_TACTIC_NAMES: &str = "practice_tactic_names";
 /// loudly instead of falling back to UTC, which is the bug this exists to fix.
 pub const KEY_PRACTICE_CASE_TIMEZONE: &str = "practice_case_timezone";
 
+/// The Authentik username of the attorney who reviews Marie's answers
+/// (CC_TASK_SIMPLE_COUNTS_v1).
+///
+/// ## Domain note: ONE reviewer, and the queue is theirs
+///
+/// "Answers requiring review" is a single number every viewer sees, counted
+/// against this person's Done reviewing marks. Anyone may read an answer; only
+/// this login's press moves the queue, and only this login is offered the
+/// button. Case data (the attorney), so a stored row — changing attorney is a
+/// Settings edit, never a build.
+pub const KEY_PRACTICE_REVIEWER_USERNAME: &str = "practice_reviewer_username";
+
+/// The reviewer's name as screens print it — the owner chip and `{reviewer}` in
+/// the review pill and bar (GO ruling 5). A second row rather than a template
+/// word, so an attorney change is two edits and not a hunt through sentences.
+pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAME: &str = "practice_reviewer_display_name";
+
 pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_CASE_TIMEZONE,
+    KEY_PRACTICE_REVIEWER_USERNAME,
+    KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
     KEY_PRACTICE_READ_PROMPT_FILE,
     KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_MAX_TOKENS,
@@ -241,6 +268,8 @@ impl PracticeReadParams {
             fine_token: "Fine.".to_string(),
             tactic_names: TEST_TACTIC_NAMES.split(',').map(str::to_string).collect(),
             case_timezone: "America/Detroit".to_string(),
+            reviewer_username: "cpenzien".to_string(),
+            reviewer_display_name: "Chuck".to_string(),
         }
     }
 }

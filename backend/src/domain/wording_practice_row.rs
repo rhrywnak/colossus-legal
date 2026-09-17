@@ -107,11 +107,11 @@ pub struct PracticeRowWording {
     // answer he is reading and marks the deck reviewed; Marie reads the note
     // under her deck row. Both are about ONE question's current answer, which
     // is why they file here and not with the sitting blocks.
-    /// The review bar under the deck title: `{count}` answers by someone else
-    /// since this viewer last pressed Done reviewing.
-    pub deck_review_new_template: String,
-    /// Its singular, read when the count is exactly 1 (GO v3).
-    pub deck_review_new_one: String,
+    /// The review bar under the deck title, the same for everyone: `{count}`
+    /// answers awaiting `{reviewer}`'s review (CC_TASK_SIMPLE_COUNTS_v1).
+    pub deck_review_awaiting_template: String,
+    /// Its singular, read when the count is exactly 1.
+    pub deck_review_awaiting_one: String,
     /// The review bar's button.
     pub deck_review_done_label: String,
     /// Shown when Done reviewing fails; the count stays as it was.
@@ -150,8 +150,8 @@ pub(crate) const KEY_ANSWER_EMPTY_HINT: &str = "practice_answer_empty_hint";
 pub(crate) const KEY_ANSWER_ALREADY_RECORDED: &str = "practice_answer_already_recorded";
 pub(crate) const KEY_ANSWERED_ON_TEMPLATE: &str = "practice_row_answered_on_template";
 
-pub(crate) const KEY_DECK_REVIEW_NEW_TEMPLATE: &str = "practice_deck_review_new_template";
-pub(crate) const KEY_DECK_REVIEW_NEW_ONE: &str = "practice_deck_review_new_one";
+pub(crate) const KEY_DECK_REVIEW_AWAITING_TEMPLATE: &str = "practice_deck_review_awaiting_template";
+pub(crate) const KEY_DECK_REVIEW_AWAITING_ONE: &str = "practice_deck_review_awaiting_one";
 pub(crate) const KEY_DECK_REVIEW_DONE_LABEL: &str = "practice_deck_review_done_label";
 pub(crate) const KEY_DECK_REVIEW_FAILED: &str = "practice_deck_review_failed";
 pub(crate) const KEY_NOTE_ADD_LABEL: &str = "practice_row_note_add_label";
@@ -177,8 +177,8 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_POINTS_TO_REVEAL_PREFIX,
     KEY_POINTS_TO_SHEET_PREFIX,
     KEY_UNFINISHED_TODAY_WORD,
-    KEY_DECK_REVIEW_NEW_TEMPLATE,
-    KEY_DECK_REVIEW_NEW_ONE,
+    KEY_DECK_REVIEW_AWAITING_TEMPLATE,
+    KEY_DECK_REVIEW_AWAITING_ONE,
     KEY_DECK_REVIEW_DONE_LABEL,
     KEY_DECK_REVIEW_FAILED,
     KEY_NOTE_ADD_LABEL,
@@ -221,8 +221,8 @@ pub fn build_practice_row_wording<E>(
         points_to_reveal_prefix: read(KEY_POINTS_TO_REVEAL_PREFIX)?,
         points_to_sheet_prefix: read(KEY_POINTS_TO_SHEET_PREFIX)?,
         unfinished_today_word: read(KEY_UNFINISHED_TODAY_WORD)?,
-        deck_review_new_template: read(KEY_DECK_REVIEW_NEW_TEMPLATE)?,
-        deck_review_new_one: read(KEY_DECK_REVIEW_NEW_ONE)?,
+        deck_review_awaiting_template: read(KEY_DECK_REVIEW_AWAITING_TEMPLATE)?,
+        deck_review_awaiting_one: read(KEY_DECK_REVIEW_AWAITING_ONE)?,
         deck_review_done_label: read(KEY_DECK_REVIEW_DONE_LABEL)?,
         deck_review_failed: read(KEY_DECK_REVIEW_FAILED)?,
         note_add_label: read(KEY_NOTE_ADD_LABEL)?,

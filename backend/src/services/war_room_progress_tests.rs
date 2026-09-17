@@ -10,6 +10,7 @@ use chrono::{TimeZone, Utc};
 use super::*;
 use crate::domain::fact_status::FactStatus;
 use crate::dto::scenario_card::{CardProposal, ProposalSource, ScenarioCard};
+use crate::repositories::pipeline_repository::review_cursor::AwaitingReviewRow;
 use crate::services::scenario_human_links::link_progress;
 use crate::services::scenario_human_links::tests::{linked, machine_linked, stuck_card, wording};
 
@@ -138,11 +139,12 @@ fn rows_for(ids: &[Uuid]) -> FamilyRows {
                 changed: 0,
             })
             .collect(),
-        viewer_new: ids
+        awaiting: ids
             .iter()
-            .map(|&scenario_id| ViewerNewRow {
+            .map(|&scenario_id| AwaitingReviewRow {
                 scenario_id,
-                new_answers: 0,
+                awaiting: 0,
+                oldest: None,
             })
             .collect(),
     }
@@ -195,9 +197,10 @@ fn each_family_lands_in_its_own_field() {
             scenario_id: s,
             changed: 3,
         }],
-        viewer_new: vec![ViewerNewRow {
+        awaiting: vec![AwaitingReviewRow {
             scenario_id: s,
-            new_answers: 9,
+            awaiting: 9,
+            oldest: Some(built),
         }],
     };
     let p = fold_progress(&[s], &evidence, rows)
@@ -234,20 +237,21 @@ fn each_family_lands_in_its_own_field() {
     assert_eq!(p.marie_changed, 3);
     // Distinct from `marie_changed` on purpose, so a fold that crossed the two
     // families could not pass.
-    assert_eq!(p.new_answers_for_viewer, 9);
+    assert_eq!(p.awaiting_review, 9);
+    assert_eq!(p.oldest_awaiting_review, Some(built));
 }
 
-/// The viewer family forgetting a scenario is an error, not a hidden badge.
+/// The review family forgetting a scenario is an error, not a hidden badge.
 #[test]
-fn a_missing_viewer_row_is_an_error_not_a_zero() {
+fn a_missing_review_row_is_an_error_not_a_zero() {
     let a = id(1);
     let evidence = HashMap::from([(a, EvidenceCounts::default())]);
     let mut rows = rows_for(&[a]);
-    rows.viewer_new.clear();
+    rows.awaiting.clear();
     assert_eq!(
         fold_progress(&[a], &evidence, rows),
         Err(ProgressError::MissingRow {
-            family: "viewer new answers",
+            family: "awaiting review",
             scenario_id: a
         })
     );

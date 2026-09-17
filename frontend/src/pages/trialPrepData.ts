@@ -58,9 +58,11 @@ export interface ScenarioProgress {
   /** Visible questions new or changed since Marie last answered this deck —
    *  deck changes AND unstruck notes (CC_TASK_REVIEW_LOOP_v1 §3). */
   marie_changed: number;
-  /** Answers by someone else since the SIGNED-IN viewer last pressed Done
-   *  reviewing on this deck. Differs per viewer; 0 with no user. */
-  new_answers_for_viewer: number;
+  /** Answers awaiting the REVIEWER on this scenario — the same for every viewer
+   *  (CC_TASK_SIMPLE_COUNTS_v1). */
+  awaiting_review: number;
+  /** ISO day of the oldest of those answers; null when nothing waits. */
+  oldest_awaiting_review: string | null;
 }
 
 /** The dashboard payload: metrics band + alerts strip + scenario cards. */
@@ -113,21 +115,39 @@ export interface WarRoomWording {
   card_answered_word: string;
   card_prep_meta_template: string;
   card_changed_template: string;
-  card_viewer_new_template: string;
+  /** The review pill, the same for every viewer: `{count}`, `{reviewer}`. */
+  card_review_template: string;
   /** Singulars, read when the count is exactly 1 (GO v3). */
-  card_viewer_new_one: string;
+  card_review_one: string;
   card_changed_one: string;
   card_not_started: string;
   card_up_to_date: string;
   card_practice_action: string;
   card_timeline_action: string;
   card_delete_action: string;
-  // The queue strip (CC_TASK_REVIEW_LOOP_v1 §5).
-  strip_answered_label: string;
-  strip_answered_template: string;
-  strip_waiting_label: string;
-  strip_new_for_you_label: string;
-  strip_candidates_label: string;
+  // The summary card (CC_TASK_SIMPLE_COUNTS_v1).
+  summary_answered_label: string;
+  summary_answered_rest_template: string;
+  summary_unanswered_label: string;
+  summary_review_label: string;
+  summary_candidates_label: string;
+  owner_marie: string;
+  owner_roman: string;
+  summary_unanswered_context_template: string;
+  summary_unanswered_context_one: string;
+  summary_unanswered_context_none_untouched: string;
+  summary_unanswered_context_none_untouched_one: string;
+  summary_review_context_template: string;
+  summary_candidates_pile_template: string;
+  summary_list_joiner: string;
+  summary_tie_joiner: string;
+  summary_code_joiner: string;
+  summary_unanswered_zero: string;
+  summary_review_zero: string;
+  summary_candidates_zero: string;
+  /** NOT wording: the `practice_reviewer_display_name` settings row — the review
+   *  cell's chip and `{reviewer}` in the pill (GO ruling 5). */
+  reviewer_display_name: string;
 }
 
 /**

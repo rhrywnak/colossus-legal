@@ -79,27 +79,32 @@ describe("warRoomCardView — badges", () => {
     expect(view.badges).toEqual([{ kind: "not_started", text: "Not started" }]);
   });
 
-  it("shows the viewer's amber pill and suppresses it at 0", () => {
+  it("shows the reviewer's amber pill — global, naming the reviewer — and suppresses it at 0", () => {
     expect(warRoomCardView(s1(), warRoomWording, false).badges).toEqual([
-      { kind: "viewer", text: "42 answers you haven't reviewed" },
+      { kind: "review", text: "42 answers awaiting Chuck's review" },
     ]);
-    const kinds = warRoomCardView(s1({ new_answers_for_viewer: 0, marie_changed: 2 }), warRoomWording, false)
+    const kinds = warRoomCardView(s1({ awaiting_review: 0, marie_changed: 2 }), warRoomWording, false)
       .badges.map((b) => b.kind);
     expect(kinds).toEqual(["marie"]);
   });
 
+  it("prints the reviewer's display name from the payload, not a literal", () => {
+    const wording = { ...warRoomWording, reviewer_display_name: "Pat" };
+    expect(warRoomCardView(s1(), wording, false).badges[0].text).toBe("42 answers awaiting Pat's review");
+  });
+
   it("shows Marie's amber pill and suppresses it at 0", () => {
-    const view = warRoomCardView(s1({ marie_changed: 3, new_answers_for_viewer: 0 }), warRoomWording, false);
+    const view = warRoomCardView(s1({ marie_changed: 3, awaiting_review: 0 }), warRoomWording, false);
     expect(view.badges).toEqual([{ kind: "marie", text: "3 new or changed for Marie" }]);
   });
 
-  it("shows both amber pills when both are owed, viewer first", () => {
+  it("shows both amber pills when both are owed, review first", () => {
     const view = warRoomCardView(s1({ marie_changed: 1 }), warRoomWording, false);
-    expect(view.badges.map((b) => b.kind)).toEqual(["viewer", "marie"]);
+    expect(view.badges.map((b) => b.kind)).toEqual(["review", "marie"]);
   });
 
   it("shows green Up to date only when started and nothing pending", () => {
-    const view = warRoomCardView(s1({ new_answers_for_viewer: 0 }), warRoomWording, false);
+    const view = warRoomCardView(s1({ awaiting_review: 0 }), warRoomWording, false);
     expect(view.badges).toEqual([{ kind: "up_to_date", text: "Up to date" }]);
   });
 });

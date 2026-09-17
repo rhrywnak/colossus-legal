@@ -26,6 +26,7 @@ import { sideSections } from "../../pages/practiceQueue";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
 import PracticeReviewBar from "./PracticeReviewBar";
+import type { DeckReview } from "../../services/practice";
 import PracticeTitleRow from "./PracticeTitleRow";
 
 /** Which deck she is choosing. The three values the backend accepts. */
@@ -89,9 +90,9 @@ interface Props {
       an already-interleaved array by side would not give back the authored
       order — it would give the interleave with one side's rows removed. */
   allQuestions: PracticeQuestion[];
-  /** The viewer's unreviewed answers (`new_since_you_reviewed`) and the re-read
+  /** The review bar's block (`review`, decided on the server) and the re-read
    *  after Done reviewing — the review bar's two inputs (REVIEW_LOOP_v1). */
-  reviewCount: number;
+  review: DeckReview;
   onReviewed: () => void;
 }
 
@@ -133,7 +134,7 @@ const PracticeStart: React.FC<Props> = ({
   side,
   onSide,
   allQuestions,
-  reviewCount,
+  review,
   onReviewed,
 }) => {
   const w = (key: string) => wordingOf(wording, key);
@@ -203,7 +204,7 @@ const PracticeStart: React.FC<Props> = ({
       <PracticeReviewBar
         slug={slug}
         scenarioId={scenarioId}
-        count={reviewCount}
+        review={review}
         wording={wording}
         onReviewed={onReviewed}
       />

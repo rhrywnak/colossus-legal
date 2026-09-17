@@ -164,6 +164,21 @@ export type OpenSession = {
   detail: string;
 };
 
+/**
+ * The deck's review bar. Checked by eye against `DeckReviewDto`.
+ *
+ * `can_mark_reviewed` is decided on the server: the page never compares a
+ * username (CLAUDE.md rule 12).
+ */
+export type DeckReview = {
+  /** Answers awaiting the reviewer on this deck — the same for every viewer. */
+  awaiting: number;
+  /** True only for the reviewer: the Done reviewing button renders on this. */
+  can_mark_reviewed: boolean;
+  /** `{reviewer}` in the bar's sentence. */
+  reviewer_display_name: string;
+};
+
 /** Everything the page needs, in one response. */
 export type PracticeDeck = {
   scenario_id: string;
@@ -201,9 +216,8 @@ export type PracticeDeck = {
    * in which a question wears no tag at all.
    */
   tactic_cards: TacticCard[];
-  /** Answers by someone else since THIS viewer last pressed Done reviewing — the
-   *  review bar's number; the bar is not drawn at 0 (CC_GO_REVIEW_LOOP_v2). */
-  new_since_you_reviewed: number;
+  /** The review bar, decided by the server (CC_TASK_SIMPLE_COUNTS_v1). */
+  review: DeckReview;
   wording: PracticeWording;
 };
 
@@ -407,8 +421,10 @@ export async function fetchPracticeDeck(
     // An absent array would render two empty selects and silently retire the
     // only control that can set a tactic.
     !Array.isArray(parsed.tactic_cards) ||
-    // An absent count would hide the review bar — a silent "nothing new".
-    typeof parsed.new_since_you_reviewed !== "number" ||
+    // An absent review block would hide the bar — a silent "nothing waiting".
+    parsed.review == null ||
+    typeof parsed.review.awaiting !== "number" ||
+    typeof parsed.review.can_mark_reviewed !== "boolean" ||
     parsed.wording == null ||
     typeof parsed.last_session_line !== "string"
   ) {

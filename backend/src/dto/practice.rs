@@ -203,10 +203,10 @@ pub struct PracticeDeckPayload {
     /// state `tactic_name` answers with no tag at all. The dropdown then offers
     /// what the vocabulary can name and nothing else.
     pub tactic_cards: Vec<TacticCardDto>,
-    /// Answers by someone else since the SIGNED-IN viewer last pressed Done
-    /// reviewing on this deck — the review bar's number (CC_TASK_REVIEW_LOOP_v1,
-    /// GO v2). The bar is not drawn at `0`.
-    pub new_since_you_reviewed: u32,
+    /// The review bar: the reviewer's backlog on this deck, whether THIS user may
+    /// press Done reviewing, and the reviewer's display name
+    /// (CC_TASK_SIMPLE_COUNTS_v1).
+    pub review: super::practice_review::DeckReviewDto,
     pub wording: PracticeWordingDto,
 }
 

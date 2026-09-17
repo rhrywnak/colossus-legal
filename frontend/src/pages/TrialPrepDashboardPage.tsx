@@ -2,7 +2,7 @@
 // TrialPrepDashboardPage.tsx — /cases/:slug/trial-prep ("War Room" launch point)
 // -----------------------------------------------------------------------------
 // Stage 2: renders the dashboard payload fetched LIVE from the backend (metrics
-// band · alerts strip · scenario card grid). The data source moved from the
+// card · alerts strip · scenario card grid). The data source moved from the
 // Stage-1 placeholder to `getTrialPrepDashboard(slug)` (services/trialPrep) — the
 // payload shape is identical (`TrialPrepDashboard`), so the rendering below is
 // unchanged; only the source and the loading/error gating are new. Thin renderer
@@ -14,10 +14,10 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 
 import Breadcrumb from "../components/Breadcrumb";
-import { AlertsStrip, EmptyState, MetricsBand } from "../components/TrialPrepViews";
+import { AlertsStrip, EmptyState } from "../components/TrialPrepViews";
 import { listSubsets } from "../services/caseTimelineSubsets";
 import WarRoomCard from "../components/WarRoomCard";
-import WarRoomQueueStrip from "../components/WarRoomQueueStrip";
+import WarRoomSummaryCard from "../components/WarRoomSummaryCard";
 import { WAR_ROOM_CARD_CSS } from "../components/trialPrepCardStyles";
 import ScenarioCreateForm from "../components/ScenarioCreateForm";
 import ScenarioDeleteConfirm from "../components/ScenarioDeleteConfirm";
@@ -254,8 +254,7 @@ const TrialPrepDashboardPage: React.FC = () => {
       )}
 
       <style>{WAR_ROOM_CARD_CSS}</style>
-      <WarRoomQueueStrip scenarios={dashboard.scenarios} wording={dashboard.war_room_wording} />
-      <MetricsBand metrics={dashboard.metrics} wording={dashboard.war_room_wording} />
+      <WarRoomSummaryCard dashboard={dashboard} wording={dashboard.war_room_wording} />
 
       {dashboard.alerts.length > 0 && <AlertsStrip alerts={dashboard.alerts} />}
 

@@ -84,9 +84,9 @@ describe("WarRoomCard markup", () => {
     }
   });
 
-  it("renders the viewer's amber pill, and Not started on an unanswered deck", () => {
-    expect(markup(s1())).toContain('data-badge="viewer"');
-    expect(markup(s1())).toContain("42 answers you haven&#x27;t reviewed");
+  it("renders the review queue's amber pill, and Not started on an unanswered deck", () => {
+    expect(markup(s1())).toContain('data-badge="review"');
+    expect(markup(s1())).toContain("42 answers awaiting Chuck&#x27;s review");
     const idle = markup(s11());
     expect(idle).toContain('data-badge="not_started"');
     expect(idle).not.toContain("Up to date");

@@ -23,12 +23,24 @@ use crate::dto::scenario_card::ScenarioCardsResponse;
 use crate::dto::war_room_progress::{
     AnsweredSplit, DeckSummary, LastScan, MatrixLinked, ScenarioProgress,
 };
-use crate::repositories::pipeline_repository::review_cursor::ViewerNewRow;
+use crate::repositories::pipeline_repository::review_cursor::AwaitingReviewRow;
 use crate::repositories::pipeline_repository::war_room_status::{
     ChangedCountRow, DeckCountsRow, LastScanRow,
 };
 use crate::services::scenario_card_assembly::count_proposed;
 use crate::services::scenario_human_links::link_counts;
+
+/// Whose Done reviewing marks the review queue is counted against.
+///
+/// ## Domain note: ONE place names the reviewer
+///
+/// The `practice_reviewer_username` settings row — never a literal and never the
+/// signed-in user (CC_TASK_SIMPLE_COUNTS_v1). Both readers of the queue (the War
+/// Room's cards and the deck's review bar) call this, so an attorney change
+/// reaches both from one Settings edit.
+pub fn review_queue_reviewer(settings: &crate::domain::settings::Settings) -> &str {
+    &settings.practice_read.reviewer_username
+}
 
 /// A read returned something the fold cannot turn into a card.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -85,8 +97,8 @@ pub struct FamilyRows {
     pub scans: Vec<LastScanRow>,
     pub deck: Vec<DeckCountsRow>,
     pub changed: Vec<ChangedCountRow>,
-    /// The signed-in viewer's unreviewed answers (`review_cursor`).
-    pub viewer_new: Vec<ViewerNewRow>,
+    /// The reviewer's queue per scenario (`review_cursor::awaiting_review`).
+    pub awaiting: Vec<AwaitingReviewRow>,
 }
 
 /// One [`ScenarioProgress`] per scenario id, or the first thing that is wrong.
@@ -116,10 +128,10 @@ pub fn fold_progress(
         .into_iter()
         .map(|r| (r.scenario_id, r.changed))
         .collect();
-    let viewer_new: HashMap<Uuid, i64> = rows
-        .viewer_new
+    let awaiting: HashMap<Uuid, AwaitingReviewRow> = rows
+        .awaiting
         .into_iter()
-        .map(|r| (r.scenario_id, r.new_answers))
+        .map(|r| (r.scenario_id, r))
         .collect();
 
     let mut out = HashMap::with_capacity(scenario_ids.len());
@@ -134,9 +146,9 @@ pub fn fold_progress(
             scan: scans.get(&id),
             deck: deck.get(&id).ok_or_else(|| missing("deck"))?,
             changed: *changed.get(&id).ok_or_else(|| missing("changed"))?,
-            viewer_new: *viewer_new
+            awaiting: awaiting
                 .get(&id)
-                .ok_or_else(|| missing("viewer new answers"))?,
+                .ok_or_else(|| missing("awaiting review"))?,
         };
         out.insert(id, build_progress(&one)?);
     }
@@ -156,7 +168,7 @@ struct OneScenario<'a> {
     scan: Option<&'a LastScanRow>,
     deck: &'a DeckCountsRow,
     changed: i64,
-    viewer_new: i64,
+    awaiting: &'a AwaitingReviewRow,
 }
 
 /// One scenario's card numbers, every count checked on the way in.
@@ -185,7 +197,8 @@ fn build_progress(one: &OneScenario<'_>) -> Result<ScenarioProgress, ProgressErr
             defense_total: count("answered.defense_total", d.defense_total)?,
         },
         marie_changed: count("marie_changed", one.changed)?,
-        new_answers_for_viewer: count("new_answers_for_viewer", one.viewer_new)?,
+        awaiting_review: count("awaiting_review", one.awaiting.awaiting)?,
+        oldest_awaiting_review: one.awaiting.oldest,
     })
 }
 
@@ -213,3 +226,18 @@ fn usize_to_i64(n: usize) -> i64 {
 #[cfg(test)]
 #[path = "war_room_progress_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod reviewer_tests {
+    use super::*;
+
+    /// (M) The reviewer comes from the settings row, not a literal: change the row
+    /// and the queue's reviewer follows.
+    #[test]
+    fn the_review_queue_reviewer_is_the_settings_row() {
+        let mut settings = crate::domain::settings::Settings::for_test();
+        assert_eq!(review_queue_reviewer(&settings), "cpenzien");
+        settings.practice_read.reviewer_username = "roman".to_string();
+        assert_eq!(review_queue_reviewer(&settings), "roman");
+    }
+}

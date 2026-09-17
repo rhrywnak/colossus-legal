@@ -271,7 +271,7 @@ const PracticePage: React.FC = () => {
         side={side}
         onSide={setSide}
         allQuestions={deck.questions}
-        reviewCount={deck.new_since_you_reviewed}
+        review={deck.review}
         onReviewed={() => setReloads((n) => n + 1)}
       />
     </div>

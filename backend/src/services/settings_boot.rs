@@ -36,6 +36,7 @@ use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
 use crate::domain::wording_scan::SCAN_WORDING_KEYS;
 use crate::domain::wording_scenario_authoring::SCENARIO_AUTHORING_WORDING_KEYS;
 use crate::domain::wording_war_room::WAR_ROOM_WORDING_KEYS;
+use crate::domain::wording_war_room_summary::WAR_ROOM_SUMMARY_WORDING_KEYS;
 use crate::repositories::pipeline_repository::list_settings;
 use crate::services::settings_handle::SettingsHandle;
 use crate::services::settings_store::{build_settings, by_key, SettingsError, REQUIRED_KEYS};
@@ -77,6 +78,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         chronology_wording = CHRONOLOGY_WORDING_KEYS.len(),
         matrix_wording = MATRIX_WORDING_KEYS.len(),
         war_room_wording = WAR_ROOM_WORDING_KEYS.len(),
+        war_room_summary_wording = WAR_ROOM_SUMMARY_WORDING_KEYS.len(),
         practice_params = PRACTICE_PARAM_KEYS.len(),
         practice_wording = PRACTICE_WORDING_KEYS.len(),
         practice_flow_wording = PRACTICE_FLOW_WORDING_KEYS.len(),
@@ -116,6 +118,7 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 scenario_authoring_strings = SCENARIO_AUTHORING_WORDING_KEYS.len(),
                 matrix_strings = MATRIX_WORDING_KEYS.len(),
                 war_room_strings = WAR_ROOM_WORDING_KEYS.len(),
+                war_room_summary_strings = WAR_ROOM_SUMMARY_WORDING_KEYS.len(),
                 practice_parameters = PRACTICE_PARAM_KEYS.len(),
                 practice_strings = PRACTICE_WORDING_KEYS.len(),
                 practice_flow_strings = PRACTICE_FLOW_WORDING_KEYS.len(),

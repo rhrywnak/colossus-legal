@@ -20,12 +20,12 @@ describe("pickByCount", () => {
   });
 });
 
-describe("the viewer badge", () => {
+describe("the review pill", () => {
   it("reads '1 answer' at 1 and '2 answers' at 2", () => {
-    const one = cardBadges(s1({ new_answers_for_viewer: 1 }), warRoomWording);
-    expect(one[0].text).toBe("1 answer you haven't reviewed");
-    const two = cardBadges(s1({ new_answers_for_viewer: 2 }), warRoomWording);
-    expect(two[0].text).toBe("2 answers you haven't reviewed");
+    const one = cardBadges(s1({ awaiting_review: 1 }), warRoomWording);
+    expect(one[0].text).toBe("1 answer awaiting Chuck's review");
+    const two = cardBadges(s1({ awaiting_review: 2 }), warRoomWording);
+    expect(two[0].text).toBe("2 answers awaiting Chuck's review");
   });
 });
 
@@ -40,7 +40,7 @@ describe("Marie's new-or-changed pill", () => {
 
   it("picks the singular row at 1 and the plural row at 2", () => {
     const at = (n: number) =>
-      cardBadges(s1({ new_answers_for_viewer: 0, marie_changed: n }), wording)[0].text;
+      cardBadges(s1({ awaiting_review: 0, marie_changed: n }), wording)[0].text;
     expect(at(1)).toBe("1 item new or changed for Marie");
     expect(at(2)).toBe("2 items new or changed for Marie");
   });
@@ -48,12 +48,13 @@ describe("Marie's new-or-changed pill", () => {
 
 describe("the deck review bar", () => {
   const wording = {
-    deck_review_new_one: "{count} answer new since you last reviewed",
-    deck_review_new_template: "{count} answers new since you last reviewed",
+    deck_review_awaiting_one: "{count} item awaiting {reviewer}",
+    deck_review_awaiting_template: "{count} items awaiting {reviewer}",
   };
+  const review = (awaiting: number) => ({ awaiting, can_mark_reviewed: false, reviewer_display_name: "Chuck" });
 
-  it("picks the singular row at 1 and the plural row at 2", () => {
-    expect(reviewBarLine(1, wording)).toBe("1 answer new since you last reviewed");
-    expect(reviewBarLine(2, wording)).toBe("2 answers new since you last reviewed");
+  it("picks the singular row at 1 and the plural row at 2, naming the reviewer", () => {
+    expect(reviewBarLine(review(1), wording)).toBe("1 item awaiting Chuck");
+    expect(reviewBarLine(review(2), wording)).toBe("2 items awaiting Chuck");
   });
 });

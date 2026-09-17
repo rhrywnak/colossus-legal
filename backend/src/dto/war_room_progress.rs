@@ -35,11 +35,13 @@ pub struct ScenarioProgress {
     /// Visible questions new or changed since Marie last answered on this deck
     /// (CC_GO_WAR_ROOM_v3). `0` on a deck nobody has answered.
     pub marie_changed: u32,
-    /// Answers by someone else newer than the SIGNED-IN viewer's last "Done
-    /// reviewing" on this deck (CC_TASK_REVIEW_LOOP_v1 §2). Viewer-dependent, so
-    /// two people loading the same dashboard see different numbers here and
-    /// nowhere else. `0` when the request carries no user.
-    pub new_answers_for_viewer: u32,
+    /// Answers awaiting the REVIEWER on this scenario — the same number for every
+    /// viewer (CC_TASK_SIMPLE_COUNTS_v1). Counted against the
+    /// `practice_reviewer_username` settings row's Done reviewing mark.
+    pub awaiting_review: u32,
+    /// When the oldest of those answers was written; `null` when nothing waits.
+    /// Serialized as `null`, not skipped, for the reason `last_scan` gives.
+    pub oldest_awaiting_review: Option<DateTime<Utc>>,
 }
 
 /// `linked` of `total` — `total` is the cards the extraction left unlinked.
@@ -83,4 +85,23 @@ pub struct AnsweredSplit {
     pub chuck_total: u32,
     pub defense_answered: u32,
     pub defense_total: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The wire carries the global review queue — and no per-viewer count any more
+    /// (CC_TASK_SIMPLE_COUNTS_v1: one truth for every viewer).
+    #[test]
+    fn the_wire_carries_the_review_queue_and_no_viewer_count() {
+        let value = serde_json::to_value(ScenarioProgress::default()).expect("serializes");
+        let fields = value.as_object().expect("an object");
+        assert!(!fields.contains_key("new_answers_for_viewer"));
+        assert_eq!(fields.get("awaiting_review"), Some(&serde_json::json!(0)));
+        assert_eq!(
+            fields.get("oldest_awaiting_review"),
+            Some(&serde_json::Value::Null)
+        );
+    }
 }
