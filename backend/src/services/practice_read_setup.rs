@@ -16,6 +16,7 @@ use std::sync::Arc;
 use colossus_extract::LlmProvider;
 
 use crate::domain::llm_params::{LlmParamsSpec, ParamValue, ResolvedLlmParams};
+use crate::domain::practice_params::PracticeReadParams;
 use crate::services::practice_model_call::resolve_model;
 use crate::services::practice_read_parse::ReadRules;
 use crate::state::AppState;
@@ -26,11 +27,14 @@ use crate::state::AppState;
 /// carried from the audit so nobody reads this as a guarantee: this temperature
 /// does NOT reach the wire — only `max_tokens` crosses the Chunk-B seam, and the
 /// model row's `temperature_mode` is `omit`. Fixing that is T2's, explicitly.
-fn read_task_spec(max_tokens: u32) -> LlmParamsSpec {
+fn read_task_spec(read: &PracticeReadParams) -> LlmParamsSpec {
     LlmParamsSpec {
         temperature: ParamValue::Set(0.0),
         timeout_secs: ParamValue::Unset,
-        max_tokens: ParamValue::Set(max_tokens),
+        // From the `practice_read_max_tokens` row, never a literal: the 1024 this
+        // row used to carry is what a thinking block spent before the first v4
+        // read could say anything (2026-09-17).
+        max_tokens: ParamValue::Set(read.max_tokens),
     }
 }
 
@@ -39,13 +43,16 @@ fn read_task_spec(max_tokens: u32) -> LlmParamsSpec {
 async fn resolve_provider(
     state: &AppState,
     model_id: &str,
-    max_tokens: u32,
+    read: &PracticeReadParams,
 ) -> Result<(Arc<dyn LlmProvider>, ResolvedLlmParams), String> {
     let resolved = resolve_model(
         state,
         model_id,
-        &read_task_spec(max_tokens),
+        &read_task_spec(read),
         "practice_read_model",
+        // `practice_read_effort`, NOT the scan policy: a verdict's thinking
+        // competes with the budget its own answer needs (2026-09-17).
+        read.effort,
     )
     .await?;
     Ok((resolved.provider, resolved.params))
@@ -106,13 +113,12 @@ impl ReadSetup {
 pub(crate) async fn prepare(state: &AppState, model_id: &str) -> Result<ReadSetup, String> {
     let settings = state.settings.current();
     let system = read_prompt(state)?;
-    let (provider, params) =
-        resolve_provider(state, model_id, settings.practice_read.max_tokens).await?;
+    let read = &settings.practice_read;
+    let (provider, params) = resolve_provider(state, model_id, read).await?;
 
     // `usize::try_from` on a u32 cannot fail on any platform this ships to; the
     // saturating fallback is there so a hypothetical 16-bit target degrades to
     // "no ceiling" rather than panicking on a witness's answer.
-    let read = &settings.practice_read;
     Ok(ReadSetup {
         system,
         provider,
@@ -127,3 +133,7 @@ pub(crate) async fn prepare(state: &AppState, model_id: &str) -> Result<ReadSetu
         version: read.prompt_file.trim().to_string(),
     })
 }
+
+#[cfg(test)]
+#[path = "practice_read_setup_tests.rs"]
+mod tests;

@@ -19,6 +19,7 @@ use std::time::Instant;
 
 use colossus_extract::{LlmProvider, LlmResponse};
 
+use crate::domain::llm_effort::Effort;
 use crate::domain::llm_params::{
     constrain, resolve, LlmParamsSpec, ModelConstraints, ResolvedLlmParams,
 };
@@ -40,6 +41,15 @@ pub(crate) struct ResolvedModel {
 /// `setting_key` names the settings row that chose this model, so the failure
 /// sentence tells an operator which row to fix.
 ///
+/// ## Domain note: the CALLER decides how much the model may think
+///
+/// `effort` is passed in rather than read from a policy here, because the two
+/// callers are different jobs: the answer read is a strict-JSON verdict whose
+/// thinking competes with its own budget (`practice_read_effort`), and the dock
+/// is a conversation (`practice_discuss_effort`). `None` sends no `effort` key at
+/// all — the API's own default — which is a real state and not a synonym for
+/// `high` (`domain::llm_effort`).
+///
 /// # Errors
 /// An operator's sentence when the model is not an active catalogue row, its
 /// parameter columns are unusable, it refuses `spec`, or no provider can be built.
@@ -48,6 +58,7 @@ pub(crate) async fn resolve_model(
     model_id: &str,
     spec: &LlmParamsSpec,
     setting_key: &str,
+    effort: Option<Effort>,
 ) -> Result<ResolvedModel, String> {
     let record = get_active_model_by_id(&state.pipeline_pool, model_id)
         .await
@@ -66,12 +77,8 @@ pub(crate) async fn resolve_model(
         .map_err(|e| format!("model {model_id} refused the call's parameters: {e}"))?;
 
     let provider: Arc<dyn LlmProvider> = Arc::from(
-        provider_for_model(
-            &state.extraction_engine,
-            &record,
-            state.config.llm_effort_policy.scan,
-        )
-        .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
+        provider_for_model(&state.extraction_engine, &record, effort)
+            .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
     );
     Ok(ResolvedModel {
         provider,

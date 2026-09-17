@@ -20,8 +20,10 @@ use crate::services::settings_write::validate_candidate;
 // The three key LISTS moved with the boot loader (task 2.11 B2 split); this
 // module still counts them, because the count is what proves the seed and the
 // code describe the same store.
+use crate::domain::llm_effort::Effort;
 use crate::domain::practice_params::{
-    KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
+    KEY_PRACTICE_DISCUSS_EFFORT, KEY_PRACTICE_READ_EFFORT, KEY_PRACTICE_READ_MAX_POINTERS,
+    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, PRACTICE_PARAM_KEYS,
 };
@@ -209,6 +211,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
                 "practice_discuss_prompt_file",
                 "practice_discuss_prompt_v1.md".to_string(),
             ),
+            // READ_V4_BUDGET: the two thinking dials. Text rows that are not
+            // wording — a wire vocabulary the API reads, not a sentence anyone
+            // sees. `absent` is this build's word for sending no key at all.
+            ("practice_read_effort", "low".to_string()),
+            ("practice_discuss_effort", "low".to_string()),
             // The OK word, coupled to the prompt file. Text, and not wording:
             // nobody reads it on a screen — the model writes it and the parser
             // recognises it.
@@ -418,7 +425,9 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
         // clamping it.
         row(
             KEY_PRACTICE_READ_MAX_TOKENS,
-            "1024",
+            // 4096 since 2026-09-17: at 1024 a thinking block truncated the first
+            // v4 read. See the read_budget_and_effort migration's header.
+            "4096",
             ValueKind::Count,
             Some(64.0),
             Some(8192.0),
@@ -718,8 +727,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // separate branches off the same 38 — so each branch asserted its own
         // sum and this is where they are added together. SIMPLE_COUNTS added
         // two: the reviewer's login and display name. QUESTION_CHAT added four:
-        // the dock's default model, turn cap, prompt file and token cap.
-        47,
+        // the dock's default model, turn cap, prompt file and token cap. The
+        // budget fix added two more: the read's and the dock's thinking dials.
+        49,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -1135,6 +1145,83 @@ fn an_unreadable_value_refuses_rather_than_falling_back_to_the_default() {
     );
 }
 
+/// Each practice family takes its thinking dial from its OWN row.
+///
+/// ## Why both halves matter
+///
+/// Before 2026-09-17 neither call sent an `effort` key at all — the shared
+/// plumbing reached for `LLM_SCAN_EFFORT`, which is unset on DEV, so the API's
+/// own default `high` applied and Opus 5's adaptive thinking spent the read's
+/// whole 1024-token budget before it could answer. The rows are what turn that
+/// down. `absent` is this build's word for the old behaviour, kept reachable from
+/// the Settings page so the dial can be returned to the default without a deploy
+/// — and kept DISTINCT from `high`, because "send no key" is a real third state.
+#[test]
+fn the_read_and_the_dock_each_take_their_effort_from_their_own_row() {
+    let settings = build_settings(&seeded()).expect("the seed is valid");
+    assert_eq!(settings.practice_read.effort, Some(Effort::Low));
+    assert_eq!(settings.practice_read.discuss_effort, Some(Effort::Low));
+
+    // One row moves, the other does not: two dials, not one wearing two names.
+    let mut rows = seeded();
+    rows.insert(
+        KEY_PRACTICE_READ_EFFORT.to_string(),
+        row(
+            KEY_PRACTICE_READ_EFFORT,
+            "absent",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+    rows.insert(
+        KEY_PRACTICE_DISCUSS_EFFORT.to_string(),
+        row(
+            KEY_PRACTICE_DISCUSS_EFFORT,
+            "medium",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+    let settings = build_settings(&rows).expect("both words are documented levels");
+    assert_eq!(
+        settings.practice_read.effort, None,
+        "`absent` means send no effort key at all — not `high`"
+    );
+    assert_eq!(settings.practice_read.discuss_effort, Some(Effort::Medium));
+}
+
+/// A word outside the vocabulary refuses the snapshot, naming the row.
+///
+/// The alternative is an HTTP 400 in the middle of a paid call, hours after
+/// somebody typed `thorough` on the Settings page.
+#[test]
+fn an_effort_word_this_build_does_not_know_refuses_the_snapshot() {
+    let mut rows = seeded();
+    rows.insert(
+        KEY_PRACTICE_READ_EFFORT.to_string(),
+        row(
+            KEY_PRACTICE_READ_EFFORT,
+            "thorough",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+
+    let Err(error) = build_settings(&rows) else {
+        panic!("an undocumented effort word must refuse rather than being sent");
+    };
+    let sentence = error.to_string();
+    assert!(sentence.contains(KEY_PRACTICE_READ_EFFORT), "{sentence}");
+    assert!(sentence.contains("thorough"), "{sentence}");
+    assert!(
+        sentence.contains("low") && sentence.contains("absent"),
+        "the refusal must say what the legal words are: {sentence}"
+    );
+}
+
 #[test]
 fn an_out_of_bounds_value_refuses_and_names_the_bound() {
     let mut rows = seeded();
@@ -1469,6 +1556,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // QUESTION_CHAT: the dock's four parameters, and the read prompt's move
         // to v4 — a CORRECTION the correction pass sees.
         "pipeline_migrations/20260917120219_question_chat_threads_prompts_and_wording.sql",
+        // The budget fix: the two effort rows, and the read's cap CORRECTED to
+        // 4096 — a correction the pass below is what sees.
+        "pipeline_migrations/20260917141742_read_budget_and_effort.sql",
     ]
     .iter()
     .map(|relative| {

@@ -186,25 +186,56 @@ mod wiring_tests {
     }
 
     #[test]
-    fn the_scan_and_the_practice_reader_send_the_scan_effort() {
-        // Absent unless `LLM_SCAN_EFFORT` is set. If either of these ever read
+    fn the_theme_scan_sends_the_scan_effort() {
+        // Absent unless `LLM_SCAN_EFFORT` is set. If this ever read
         // `.extraction`, a judgement-shaped call would silently inherit `low`
         // and get shallower — a quality change nobody asked for.
-        for file in [
-            "services/theme_scan_provider.rs",
-            // The practice read's provider build moved here with
-            // CC_TASK_QUESTION_CHAT_v1 — the ONE plumbing the read and the
-            // "Discuss with AI" dock share, so both send the scan effort.
-            "services/practice_model_call.rs",
+        let file = "services/theme_scan_provider.rs";
+        let source = read(file);
+        assert!(
+            source.contains("llm_effort_policy.scan"),
+            "{file} must pass the SCAN effort"
+        );
+        assert!(
+            !source.contains("llm_effort_policy.extraction"),
+            "{file} must not inherit extraction's turned-down setting"
+        );
+    }
+
+    #[test]
+    fn the_practice_calls_send_their_own_settings_rows() {
+        // Until 2026-09-17 the shared plumbing reached for `llm_effort_policy.scan`
+        // itself, which is unset on DEV — so no `effort` key was sent, the API's
+        // default `high` applied, and a thinking block ate the whole 1024-token
+        // read budget. The dial is now the CALLER's, one settings row per family.
+        let plumbing = "services/practice_model_call.rs";
+        let source = read(plumbing);
+        assert!(
+            !source.contains("llm_effort_policy"),
+            "{plumbing} must not choose an effort for its callers — the read and the \
+             dock are different jobs with different rows"
+        );
+        assert!(
+            source.contains("provider_for_model(&state.extraction_engine, &record, effort)"),
+            "{plumbing} must hand the caller's own effort to the provider builder"
+        );
+
+        // Each family's call site, naming the field its settings row fills.
+        for (file, field) in [
+            ("services/practice_read_setup.rs", "read.effort"),
+            (
+                "services/practice_discuss_run.rs",
+                "settings.practice_read.discuss_effort",
+            ),
         ] {
             let source = read(file);
             assert!(
-                source.contains("llm_effort_policy.scan"),
-                "{file} must pass the SCAN effort"
+                source.contains(field),
+                "{file} must pass {field} — its own dial, not the other family's"
             );
             assert!(
-                !source.contains("llm_effort_policy.extraction"),
-                "{file} must not inherit extraction's turned-down setting"
+                !source.contains("llm_effort_policy"),
+                "{file} must not reach past its settings row for a deployment policy"
             );
         }
     }

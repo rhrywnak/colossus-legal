@@ -123,6 +123,11 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
                     Some(model_id),
                     Some(ms),
                 );
+                // What the EARLIER attempts cost stands whatever this one did.
+                // Without this the row showed NULL tokens for a read that had
+                // already spent thousands — measured on the 2026-09-17 v4 failure,
+                // where attempt 1 completed and attempt 2 was truncated.
+                spent.stamp(&mut outcome);
                 // The prompt WAS loaded and sent, so the row records which one:
                 // "which prompt was live" is the second question of any morning
                 // after, and T3's no-op rule keys on this column.
@@ -194,8 +199,7 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
                     Some(model_id),
                     Some(ms),
                 );
-                outcome.input_tokens = tokens.0;
-                outcome.output_tokens = tokens.1;
+                spent.stamp(&mut outcome);
                 outcome.version = Some(setup.version.clone());
                 outcome.attempts = Some(i16::from(attempt));
                 outcome.raw_reply = Some(response.text);
@@ -239,6 +243,19 @@ impl TokenCost {
     fn add(&mut self, input: Option<i32>, output: Option<i32>) {
         self.input = accumulate(self.input, input);
         self.output = accumulate(self.output, output);
+    }
+
+    /// Write the running total onto an outcome that is about to be stored.
+    ///
+    /// ## Why this is a method and not two assignments at each arm
+    ///
+    /// Both abstain arms owe the same honesty, and the one that DIDN'T pay it is
+    /// how a 2026-09-17 read that spent thousands of tokens stored NULL for both
+    /// counts: the call-failure arm returned before copying. One named move,
+    /// called from both arms, is a thing a test can hold.
+    fn stamp(self, outcome: &mut ReadOutcome) {
+        outcome.input_tokens = self.input;
+        outcome.output_tokens = self.output;
     }
 }
 
@@ -368,6 +385,36 @@ fn accept(
 #[cfg(test)]
 mod tests {
     use super::{accumulate, TokenCost, MAX_ATTEMPTS};
+    use crate::services::practice_read_outcome::ReadOutcome;
+
+    /// A read that failed still says what it spent.
+    ///
+    /// The DEV row of 2026-09-17 is the case: attempt 1 completed, attempt 2 was
+    /// truncated at the ceiling, and the stored row carried NULL for both token
+    /// columns — a read costing thousands of tokens that no total would ever
+    /// count. The cost of the attempts that DID return is not erased by a later
+    /// one that did not.
+    #[test]
+    fn a_failed_call_still_records_what_the_attempts_cost() {
+        let mut spent = TokenCost::default();
+        spent.add(Some(4436), Some(699));
+
+        let mut outcome = ReadOutcome::default();
+        spent.stamp(&mut outcome);
+
+        assert_eq!(outcome.input_tokens, Some(4436));
+        assert_eq!(outcome.output_tokens, Some(699));
+    }
+
+    /// And a read that never reached the model reports no spend, not zero spend.
+    #[test]
+    fn a_read_that_never_called_reports_no_spend_rather_than_zero() {
+        let mut outcome = ReadOutcome::default();
+        TokenCost::default().stamp(&mut outcome);
+
+        assert_eq!(outcome.input_tokens, None);
+        assert_eq!(outcome.output_tokens, None);
+    }
 
     /// One answer is sent to the model AT MOST twice.
     ///

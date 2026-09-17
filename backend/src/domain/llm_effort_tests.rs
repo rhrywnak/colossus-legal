@@ -65,3 +65,32 @@ fn the_shipped_policy_turns_extraction_down_and_leaves_scans_alone() {
         "no effort field is sent for scans unless LLM_SCAN_EFFORT is set"
     );
 }
+
+// ─── The stored vocabulary (CC_TASK_READ_V4_BUDGET_FIX_v1) ───────────────────
+
+/// A settings row carries the five levels, case-insensitively.
+#[test]
+fn a_stored_level_parses_like_an_env_var() {
+    assert_eq!(parse_stored_effort("low"), Ok(Some(Effort::Low)));
+    assert_eq!(parse_stored_effort("  MAX "), Ok(Some(Effort::Max)));
+}
+
+/// `absent` is the row's way of saying what an unset env var says: send no key.
+///
+/// Without this word an operator could not put the read back to how it ran before
+/// 2026-09-17 without a redeploy — and "no effort key" is a real state, not a
+/// synonym for `high`.
+#[test]
+fn absent_means_send_no_effort_key() {
+    assert_eq!(parse_stored_effort(ABSENT), Ok(None));
+    assert_eq!(parse_stored_effort("Absent"), Ok(None));
+}
+
+/// Anything else is refused BY NAME, and the message offers both vocabularies.
+#[test]
+fn an_unknown_word_is_refused_naming_absent_too() {
+    let error = parse_stored_effort("thorough").expect_err("not a level");
+    assert!(error.contains("thorough"));
+    assert!(error.contains("low, medium, high, xhigh, max"));
+    assert!(error.contains("absent"));
+}
