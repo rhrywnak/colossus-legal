@@ -302,7 +302,7 @@ mod tests {
             "summary_answered_label": "Questions answered", "summary_answered_rest_template": "of {total} · {pct}%", "summary_unanswered_label": "Unanswered questions", "summary_review_label": "Answers requiring review", "summary_candidates_label": "Candidates to rule", "owner_marie": "Marie", "owner_roman": "Roman",
             "summary_unanswered_context_template": "across {n} scenarios · {codes} untouched", "summary_unanswered_context_one": "across {n} scenario · {codes} untouched", "summary_unanswered_context_none_untouched": "across {n} scenarios", "summary_unanswered_context_none_untouched_one": "across {n} scenario",
             "summary_review_context_template": "oldest waiting since {date} · {code} has {n}", "summary_candidates_pile_template": "{codes} {n}", "summary_list_joiner": "·", "summary_tie_joiner": "&", "summary_code_joiner": ",",
-            "summary_unanswered_zero": "every question answered", "summary_review_zero": "nothing waiting", "summary_candidates_zero": "nothing to rule", "reviewer_display_name": "Chuck"
+            "summary_unanswered_zero": "every question answered", "summary_review_zero": "nothing waiting", "summary_candidates_zero": "nothing to rule", "summary_unanswered_changed_clause": "{n} new or changed", "reviewer_display_name": "Chuck"
         }"#,
         )
         .expect("the wording fixture is valid JSON");

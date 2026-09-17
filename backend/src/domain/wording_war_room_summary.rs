@@ -62,6 +62,9 @@ pub struct WarRoomSummaryWording {
     pub review_zero: String,
     /// Roman's context at zero.
     pub candidates_zero: String,
+    /// Appended to Marie's context: `{n}` new or changed — the SUM of the cards'
+    /// own pill number (CC_GO_QUESTION_CHAT_v1, STOP 2 ruling). Hidden at zero.
+    pub unanswered_changed_clause: String,
 }
 
 // KEYS: the stable identifiers. Renaming one is a migration, and until it runs
@@ -88,6 +91,7 @@ pub(crate) const KEY_CODE_JOINER: &str = "war_room_summary_code_joiner";
 pub(crate) const KEY_UNANSWERED_ZERO: &str = "war_room_summary_unanswered_zero";
 pub(crate) const KEY_REVIEW_ZERO: &str = "war_room_summary_review_zero";
 pub(crate) const KEY_CANDIDATES_ZERO: &str = "war_room_summary_candidates_zero";
+pub(crate) const KEY_UNANSWERED_CHANGED_CLAUSE: &str = "war_room_summary_unanswered_changed_clause";
 
 /// Every summary-card key this build reads, so a missing one is caught at boot
 /// BY NAME rather than as a blank cell.
@@ -111,6 +115,7 @@ pub const WAR_ROOM_SUMMARY_WORDING_KEYS: &[&str] = &[
     KEY_UNANSWERED_ZERO,
     KEY_REVIEW_ZERO,
     KEY_CANDIDATES_ZERO,
+    KEY_UNANSWERED_CHANGED_CLAUSE,
 ];
 
 /// Build a [`WarRoomSummaryWording`] from the stored rows, or say which key is wrong.
@@ -146,6 +151,7 @@ pub fn build_war_room_summary_wording<E>(
         unanswered_zero: read(KEY_UNANSWERED_ZERO)?,
         review_zero: read(KEY_REVIEW_ZERO)?,
         candidates_zero: read(KEY_CANDIDATES_ZERO)?,
+        unanswered_changed_clause: read(KEY_UNANSWERED_CHANGED_CLAUSE)?,
     })
 }
 

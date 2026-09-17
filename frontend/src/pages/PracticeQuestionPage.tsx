@@ -26,6 +26,7 @@ import React from "react";
 import { useParams } from "react-router-dom";
 
 import PracticeAnswerNotes from "../components/practice/PracticeAnswerNotes";
+import QuestionDiscussDock, { DiscussButton } from "../components/practice/QuestionDiscussDock";
 import Critique from "../components/practice/PracticeCritiqueBlock";
 import { critiqueFor } from "../components/practice/practiceCritique";
 import { answerChrome, LONG_WAIT_MS } from "../components/practice/practiceAnswerPhase";
@@ -68,6 +69,9 @@ const PracticeQuestionPage: React.FC = () => {
   const [result, setResult] = React.useState<AnswerResult | null>(null);
   const [writeError, setWriteError] = React.useState<string | null>(null);
   const [showEarlier, setShowEarlier] = React.useState(false);
+  // Discuss with AI: open or not. The drawer is a SIBLING of the page content, so
+  // opening it never remounts the answer box above (see QuestionDiscussDock).
+  const [discussOpen, setDiscussOpen] = React.useState(false);
 
   // The Answer-analysis switch, as this browser left it on the deck page. Read
   // ONCE on mount: the switch is set on another address, and re-reading storage
@@ -258,6 +262,7 @@ const PracticeQuestionPage: React.FC = () => {
               {w("read_stop_waiting")}
             </button>
           )}
+          <DiscussButton wording={deck.wording} onOpen={() => setDiscussOpen(true)} />
           <a style={q.back} href={practicePath(slug, scenarioId)}>
             {w("back_label")}
           </a>
@@ -277,6 +282,16 @@ const PracticeQuestionPage: React.FC = () => {
           onChanged={setAnswers}
         />
       </section>
+
+      {discussOpen && (
+        <QuestionDiscussDock
+          questionId={question.id}
+          wording={deck.wording}
+          draft={draft}
+          savedAnswer={answers.current?.text ?? null}
+          onClose={() => setDiscussOpen(false)}
+        />
+      )}
     </div>
   );
 };

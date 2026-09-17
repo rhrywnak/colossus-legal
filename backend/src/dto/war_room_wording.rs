@@ -65,6 +65,7 @@ pub struct WarRoomWordingDto {
     pub summary_unanswered_zero: String,
     pub summary_review_zero: String,
     pub summary_candidates_zero: String,
+    pub summary_unanswered_changed_clause: String,
     /// The reviewer's name as screens print it — NOT a wording row: the
     /// `practice_reviewer_display_name` settings row (GO ruling 5). It rides here
     /// because every sentence that prints it is on this page, filled from this
@@ -132,6 +133,7 @@ impl WarRoomWordingDto {
             summary_unanswered_zero: m.unanswered_zero.clone(),
             summary_review_zero: m.review_zero.clone(),
             summary_candidates_zero: m.candidates_zero.clone(),
+            summary_unanswered_changed_clause: m.unanswered_changed_clause.clone(),
             reviewer_display_name: reviewer_display_name.to_string(),
         }
     }

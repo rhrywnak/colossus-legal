@@ -34,6 +34,7 @@ use crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
@@ -138,6 +139,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // table, and a fixture missing these twelve rows would let a snapshot
         // build that the real store could not.
         .chain(crate::domain::wording_practice_row::PracticeRowWording::for_test_values())
+        .chain(crate::domain::wording_practice_discuss::PracticeDiscussWording::for_test_values())
         // PRACTICE v1 Part B: the deck editor's words and the review page's,
         // nested on the struct for the same Rule 17 reason and listed here for
         // the same reason as their siblings — one flat table.
@@ -187,7 +189,7 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
                 // and to what it may say back — so a new file and a pointer moved.
                 // v1 and v2 both stay on disk; pointing this row back at v2 is the
                 // whole of the T1 rollback.
-                "practice_read_prompt_v3.md".to_string(),
+                "practice_read_prompt_v4.md".to_string(),
             ),
             ("practice_read_model", "claude-opus-5".to_string()),
             // The case's own timezone — what "today" means on a deck row. Case
@@ -198,6 +200,15 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // Case data, not wording — the first is a login.
             ("practice_reviewer_username", "cpenzien".to_string()),
             ("practice_reviewer_display_name", "Chuck".to_string()),
+            // QUESTION_CHAT: the dock's starting model and its prompt file.
+            (
+                "practice_discuss_default_model",
+                "claude-opus-5".to_string(),
+            ),
+            (
+                "practice_discuss_prompt_file",
+                "practice_discuss_prompt_v1.md".to_string(),
+            ),
             // The OK word, coupled to the prompt file. Text, and not wording:
             // nobody reads it on a screen — the model writes it and the parser
             // recognises it.
@@ -411,6 +422,22 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(64.0),
             Some(8192.0),
+        ),
+        // QUESTION_CHAT: the per-question model-reply cap (GO ruling 5) and one
+        // discussion reply's output cap.
+        row(
+            "practice_discuss_max_turns",
+            "40",
+            ValueKind::Count,
+            Some(1.0),
+            Some(500.0),
+        ),
+        row(
+            "practice_discuss_max_tokens",
+            "4096",
+            ValueKind::Count,
+            Some(64.0),
+            Some(32000.0),
         ),
         // PRACTICE v0: the read's two word caps. They REFUSE a longer reply
         // rather than shortening it, so the floors are above one useful sentence
@@ -690,8 +717,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // 38 on `.422`. PROOF_MATRIX_v2 added one and FACT_CARD_v2 two, on
         // separate branches off the same 38 — so each branch asserted its own
         // sum and this is where they are added together. SIMPLE_COUNTS added
-        // two: the reviewer's login and display name.
-        43,
+        // two: the reviewer's login and display name. QUESTION_CHAT added four:
+        // the dock's default model, turn cap, prompt file and token cap.
+        47,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -819,7 +847,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WAR_ROOM_SUMMARY_WORDING_KEYS.len(),
-        19,
+        20,
         "SIMPLE_COUNTS: the summary card — top row two, three cell labels, two \
          owner chips, seven context templates, three joiners and three zero-state \
          lines"
@@ -836,6 +864,14 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         33,
         "PRACTICE flow v1, mockup v3: the deck listed with its two row controls, \
          the resume line, the top bar, and the sheet's flag list and two clauses"
+    );
+    assert_eq!(
+        PRACTICE_DISCUSS_WORDING_KEYS.len(),
+        20,
+        "QUESTION_CHAT: the Discuss-with-AI dock — button, title and two \
+         subtitles, two context lines, input, send, close, picker, footer and \
+         two cost words and the per-reply cost line, empty, sending, two failures, \
+         and the cap pair"
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
@@ -919,6 +955,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
+            + PRACTICE_DISCUSS_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
@@ -1429,6 +1466,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260906203730_fact_card_event_note_and_our_side_speakers.sql",
         // SIMPLE_COUNTS: the reviewer's login and display name.
         "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
+        // QUESTION_CHAT: the dock's four parameters, and the read prompt's move
+        // to v4 — a CORRECTION the correction pass sees.
+        "pipeline_migrations/20260917120219_question_chat_threads_prompts_and_wording.sql",
     ]
     .iter()
     .map(|relative| {

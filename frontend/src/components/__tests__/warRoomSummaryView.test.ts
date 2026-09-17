@@ -68,6 +68,20 @@ describe("Marie's cell — unanswered questions", () => {
     expect(cell.context).toBe("across 1 scenario");
   });
 
+  it("appends the SUM of the cards' new-or-changed pills, and suppresses it at 0", () => {
+    const cell = unansweredCell(
+      [
+        sc("S-5", { answered: ans(4, 15), marie_changed: 2 }),
+        sc("S-7", { answered: ans(1, 16), marie_changed: 3 }),
+      ],
+      warRoomWording,
+    );
+    expect(cell.context).toBe("across 2 scenarios · 5 new or changed");
+    expect(unansweredCell([sc("S-5", { answered: ans(4, 15) })], warRoomWording).context).toBe(
+      "across 1 scenario",
+    );
+  });
+
   it("says every question is answered at zero", () => {
     expect(unansweredCell([sc("S-1", { answered: ans(42, 42) })], warRoomWording).context).toBe(
       "every question answered",

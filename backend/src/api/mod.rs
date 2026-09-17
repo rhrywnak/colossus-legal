@@ -44,6 +44,7 @@ pub mod practice;
 pub mod practice_answer_read;
 pub mod practice_answers;
 pub mod practice_deck_read;
+pub mod practice_discussion_routes;
 pub mod practice_editor;
 pub mod practice_editor_add;
 pub mod practice_editor_add_fences;

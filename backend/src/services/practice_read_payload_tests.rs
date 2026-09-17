@@ -19,7 +19,7 @@ use super::*;
 /// An S-5 cross question, with everything present. Values are the shapes of the
 /// real ones — **[measured 2026-08-20 from scenario aecbaf77 on DEV]** — so a
 /// reader can compare a failure here against the live payload.
-fn cross_payload() -> ReadPayload {
+pub(crate) fn cross_payload() -> ReadPayload {
     ReadPayload {
         question: "There were multiple contacts among you and your sisters, correct?".to_string(),
         side: "the defense".to_string(),
@@ -44,6 +44,20 @@ fn cross_payload() -> ReadPayload {
         points_to: PointsTo::NeverOpened,
         watch_for: Some("WATCH FOR — two things braided.".to_string()),
         always: "Tell the truth · Answer only what's asked".to_string(),
+        attack: Some("Marie refused to divide the property.".to_string()),
+        parent: Parent::NotARedirect,
+        notes: vec![
+            PayloadNote {
+                author: "Chuck".to_string(),
+                when: "17 Sep".to_string(),
+                text: "Lead with the letter.".to_string(),
+            },
+            PayloadNote {
+                author: "Roman".to_string(),
+                when: "15 Sep".to_string(),
+                text: "Keep it under ten words.".to_string(),
+            },
+        ],
     }
 }
 
@@ -70,6 +84,9 @@ fn direct_payload() -> ReadPayload {
 #[test]
 fn the_payload_is_exactly_this_and_nothing_else() {
     let expected = "\
+THE ATTACK THIS SCENARIO ANSWERS:
+Marie refused to divide the property.
+
 THE QUESTION (the defense): There were multiple contacts among you and your sisters, correct?
 THE KIND: cross
 THE TACTIC: compound
@@ -96,6 +113,10 @@ S2. …there were no such conversations. — CFS, sworn answer, p. 5
 WHAT SHE SAID SHE WOULD POINT TO: (she did not open the exhibit list)
 
 THE WATCH-FOR: WATCH FOR — two things braided.
+
+STANDING NOTES FROM COUNSEL AND THE TEAM, newest first:
+- Chuck, 17 Sep: Lead with the letter.
+- Roman, 15 Sep: Keep it under ten words.
 
 THE ALWAYS CARD: Tell the truth · Answer only what's asked
 

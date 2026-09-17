@@ -145,6 +145,8 @@ export interface WarRoomWording {
   summary_unanswered_zero: string;
   summary_review_zero: string;
   summary_candidates_zero: string;
+  /** Appended to Marie's context: `{n}` new or changed (sum of the cards' pill). */
+  summary_unanswered_changed_clause: string;
   /** NOT wording: the `practice_reviewer_display_name` settings row — the review
    *  cell's chip and `{reviewer}` in the pill (GO ruling 5). */
   reviewer_display_name: string;

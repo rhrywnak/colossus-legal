@@ -30,6 +30,26 @@
 //! are deliberately absent — the model answer must not be visible to the thing
 //! judging her attempt at it. A test asserts the WHOLE BODY, so re-adding either
 //! fails the build rather than passing unnoticed.
+//!
+//! ⚑ RULED AGAIN 2026-09-17 (CC_TASK_QUESTION_CHAT_ADDENDUM_v1), when three fields
+//! WERE added: the stored "stronger" exemplar stays OUT. The model judges her
+//! words; it does not grade her against a script. This is a ruling, not an
+//! oversight — do not "fix" it.
+//!
+//! ## What the addendum added, and why (2026-09-17)
+//!
+//! - **The attack** — the scenario's theme statement, so an answer is judged as
+//!   serving THIS scenario's counter-story rather than as generically good.
+//! - **The parent question, for redirects only** — the defense question a redirect
+//!   repairs. A redirect judged without it is judged blind. A non-redirect carries
+//!   no parent section at all.
+//! - **The standing notes** — every author's UNSTRUCK notes on the question and
+//!   on its current answer, newest first, named and dated. Counsel's guidance
+//!   outranks the model, and a critique must never contradict a note it was not
+//!   shown. A struck note is withdrawn guidance and is never sent.
+//!
+//! One package, two consumers: the answer read and the "Discuss with AI" dock
+//! both send exactly this, so both improve together.
 
 use std::collections::BTreeSet;
 
@@ -103,6 +123,35 @@ pub enum PointsTo {
     Picked(Vec<String>),
 }
 
+/// The question a redirect repairs — or why there is none to send.
+///
+/// ## Rust Learning: three states, not `Option<String>`
+///
+/// "Not a redirect" and "a redirect whose parent cannot be found" are different
+/// facts. The first prints NO section (a cross question repairs nothing); the
+/// second prints the section with its named absence (a hand-added redirect with
+/// no resolvable `follows_key` — the known deck_key=null defect, not fixed here).
+/// An `Option` would collapse them into one silence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Parent {
+    /// A cross or direct question: no parent section at all.
+    NotARedirect,
+    /// The defense question this redirect repairs, as it reads in the deck.
+    Repairs(String),
+    /// A redirect whose parent question could not be resolved.
+    Unresolved,
+}
+
+/// One standing note, as the model is shown it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PayloadNote {
+    /// Who wrote it — the display name the note was signed with.
+    pub author: String,
+    /// The day it was written, composed in the case's timezone (`17 Sep`).
+    pub when: String,
+    pub text: String,
+}
+
 /// Everything the model is told about one answer.
 ///
 /// Owned rather than borrowed (this was `ReadInputs<'a>`): the gatherer that
@@ -131,8 +180,16 @@ pub struct ReadPayload {
     pub points_to: PointsTo,
     pub watch_for: Option<String>,
     pub always: String,
+    /// The scenario's attack (theme statement); `None` sends the named absence.
+    pub attack: Option<String>,
+    /// The question a redirect repairs — see [`Parent`].
+    pub parent: Parent,
+    /// Unstruck notes on the question and its current answer, NEWEST FIRST.
+    /// Empty sends the named absence.
+    pub notes: Vec<PayloadNote>,
 }
 
+// STRUCTURAL: model-wire vocabulary (the named absences) — never on a screen.
 // The named absences. Literals rather than settings rows because NOBODY READS
 // THEM ON A SCREEN — they are this build's own words about its own data, spoken
 // to a model, and task §2.1 endorses the convention by name. The rule they serve
@@ -146,6 +203,9 @@ const NO_RECEIPT: &str = "(none recorded)";
 const NO_PAIR: &str = "(no sworn pair is recorded for this question)";
 const POINTS_TO_NEVER_OPENED: &str = "(she did not open the exhibit list)";
 const POINTS_TO_PICKED_NOTHING: &str = "(she opened the exhibit list and picked nothing)";
+const NO_ATTACK: &str = "(no attack statement has been written for this scenario)";
+const NO_PARENT: &str = "(the question this redirect repairs could not be found in the deck)";
+const NO_NOTES: &str = "(no standing notes on this question or her answer)";
 
 impl ReadPayload {
     /// The keys a citation may legitimately name.
@@ -219,6 +279,40 @@ impl ReadPayload {
     }
 }
 
+/// What she said she would point to, as the one line the model reads.
+fn points_to_line(points_to: &PointsTo) -> String {
+    match points_to {
+        PointsTo::NeverOpened => POINTS_TO_NEVER_OPENED.to_string(),
+        PointsTo::OpenedAndPickedNothing => POINTS_TO_PICKED_NOTHING.to_string(),
+        PointsTo::Picked(picked) => picked.join(" · "),
+    }
+}
+
+/// The parent section: nothing at all for a non-redirect (not an empty section),
+/// the question it repairs, or the named absence.
+fn parent_section(parent: &Parent) -> String {
+    match parent {
+        Parent::NotARedirect => String::new(),
+        Parent::Repairs(text) => format!("THE QUESTION THIS REDIRECT REPAIRS:\n{text}\n\n"),
+        Parent::Unresolved => format!("THE QUESTION THIS REDIRECT REPAIRS:\n{NO_PARENT}\n\n"),
+    }
+}
+
+/// Render the standing notes — `- Chuck, 17 Sep: …` — or the named absence.
+///
+/// Newest first, as given: the gatherer orders them, and the model reads the
+/// latest guidance before the older.
+fn notes_block(notes: &[PayloadNote]) -> String {
+    if notes.is_empty() {
+        return NO_NOTES.to_string();
+    }
+    notes
+        .iter()
+        .map(|note| format!("- {}, {}: {}", note.author, note.when, note.text))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
 /// Render one keyed block — `P1. …`, or the named absence.
 fn keyed_block(items: &[Keyed], empty: &str, absent: &str) -> String {
     if items.is_empty() {
@@ -253,11 +347,10 @@ pub fn build_user_message(payload: &ReadPayload) -> String {
     // is still possible and the gap is visible rather than papered over.
     let said = payload.said.as_deref().unwrap_or(NO_PAIR);
     let admitted = payload.admitted.as_deref().unwrap_or(NO_PAIR);
-    let points_to = match &payload.points_to {
-        PointsTo::NeverOpened => POINTS_TO_NEVER_OPENED.to_string(),
-        PointsTo::OpenedAndPickedNothing => POINTS_TO_PICKED_NOTHING.to_string(),
-        PointsTo::Picked(picked) => picked.join(" · "),
-    };
+    let points_to = points_to_line(&payload.points_to);
+    let attack = payload.attack.as_deref().unwrap_or(NO_ATTACK);
+    let parent = parent_section(&payload.parent);
+    let notes = notes_block(&payload.notes);
     let keys = payload
         .citable_keys()
         .into_iter()
@@ -265,9 +358,11 @@ pub fn build_user_message(payload: &ReadPayload) -> String {
         .join(" ");
 
     format!(
-        "THE QUESTION ({side}): {question}\n\
+        "THE ATTACK THIS SCENARIO ANSWERS:\n{attack}\n\n\
+         THE QUESTION ({side}): {question}\n\
          THE KIND: {kind}\n\
          THE TACTIC: {tactic}\n\n\
+         {parent}\
          HER ANSWER, verbatim:\n{answer}\n\n\
          HER THREE POINTS:\n{points}\n\n\
          THE RECEIPTS BEHIND HER POINTS:\n{receipts}\n\n\
@@ -275,6 +370,7 @@ pub fn build_user_message(payload: &ReadPayload) -> String {
          WHAT THEY ADMITTED UNDER OATH:\nS2. {admitted}\n\n\
          WHAT SHE SAID SHE WOULD POINT TO: {points_to}\n\n\
          THE WATCH-FOR: {watch}\n\n\
+         STANDING NOTES FROM COUNSEL AND THE TEAM, newest first:\n{notes}\n\n\
          THE ALWAYS CARD: {always}\n\n\
          THE KEYS YOU MAY CITE: {keys}\n",
         side = payload.side,
@@ -287,4 +383,8 @@ pub fn build_user_message(payload: &ReadPayload) -> String {
 
 #[cfg(test)]
 #[path = "practice_read_payload_tests.rs"]
-mod tests;
+pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "practice_read_payload_addendum_tests.rs"]
+mod addendum_tests;

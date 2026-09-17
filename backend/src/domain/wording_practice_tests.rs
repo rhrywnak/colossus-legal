@@ -113,6 +113,8 @@ impl PracticeWording {
         // consulted here too — one builder, one rule, two tables.
         let flow = crate::domain::wording_practice_flow::PracticeFlowWording::for_test_values();
         let row = crate::domain::wording_practice_row::PracticeRowWording::for_test_values();
+        let discuss =
+            crate::domain::wording_practice_discuss::PracticeDiscussWording::for_test_values();
         let editor =
             crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values();
         let print = crate::domain::wording_practice_print::PracticePrintWording::for_test_values();
@@ -124,6 +126,7 @@ impl PracticeWording {
                 .map(|(_, v)| (*v).to_string())
                 .or_else(|| flow.get(key).cloned())
                 .or_else(|| row.get(key).cloned())
+                .or_else(|| discuss.get(key).cloned())
                 .or_else(|| editor.get(key).cloned())
                 .or_else(|| print.get(key).cloned())
                 .or_else(|| list.get(key).cloned())

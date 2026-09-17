@@ -13,8 +13,10 @@
 use std::collections::HashMap;
 
 use crate::domain::practice_params::{
-    PracticeReadParams, KEY_PRACTICE_CASE_TIMEZONE, KEY_PRACTICE_READ_FINE_TOKEN,
-    KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
+    PracticeReadParams, KEY_PRACTICE_CASE_TIMEZONE, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
+    KEY_PRACTICE_DISCUSS_MAX_TOKENS, KEY_PRACTICE_DISCUSS_MAX_TURNS,
+    KEY_PRACTICE_DISCUSS_PROMPT_FILE, KEY_PRACTICE_READ_FINE_TOKEN, KEY_PRACTICE_READ_MAX_POINTERS,
+    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
@@ -57,5 +59,9 @@ pub(crate) fn build_practice_read_params(
         case_timezone: text_of(require(rows, KEY_PRACTICE_CASE_TIMEZONE)?)?,
         reviewer_username: text_of(require(rows, KEY_PRACTICE_REVIEWER_USERNAME)?)?,
         reviewer_display_name: text_of(require(rows, KEY_PRACTICE_REVIEWER_DISPLAY_NAME)?)?,
+        discuss_default_model: text_of(require(rows, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL)?)?,
+        discuss_max_turns: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TURNS)?)?,
+        discuss_prompt_file: text_of(require(rows, KEY_PRACTICE_DISCUSS_PROMPT_FILE)?)?,
+        discuss_max_tokens: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TOKENS)?)?,
     })
 }

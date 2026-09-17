@@ -25,6 +25,7 @@ use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
+use crate::domain::wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
@@ -83,6 +84,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_wording = PRACTICE_WORDING_KEYS.len(),
         practice_flow_wording = PRACTICE_FLOW_WORDING_KEYS.len(),
         practice_row_wording = PRACTICE_ROW_WORDING_KEYS.len(),
+        practice_discuss_wording = PRACTICE_DISCUSS_WORDING_KEYS.len(),
         practice_editor_wording = PRACTICE_EDITOR_WORDING_KEYS.len(),
         practice_print_wording = PRACTICE_PRINT_WORDING_KEYS.len(),
         practice_list_wording = PRACTICE_LIST_WORDING_KEYS.len(),
@@ -123,6 +125,7 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 practice_strings = PRACTICE_WORDING_KEYS.len(),
                 practice_flow_strings = PRACTICE_FLOW_WORDING_KEYS.len(),
                 practice_row_strings = PRACTICE_ROW_WORDING_KEYS.len(),
+                practice_discuss_strings = PRACTICE_DISCUSS_WORDING_KEYS.len(),
                 practice_editor_strings = PRACTICE_EDITOR_WORDING_KEYS.len(),
                 practice_print_strings = PRACTICE_PRINT_WORDING_KEYS.len(),
                 practice_list_strings = PRACTICE_LIST_WORDING_KEYS.len(),
