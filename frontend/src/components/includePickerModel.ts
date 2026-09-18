@@ -112,6 +112,25 @@ export const closedPicker: IncludePickerState = { phase: "closed" };
  * helps — the measured split is 802 to 142. The other state is one click away and
  * the control says which one is chosen, so the default costs nothing to correct
  * and saves the common case a decision.
+ *
+ * ## ⚑ RULED 2026-09-17: this stays compiled in FOR NOW, deliberately
+ *
+ * The architecture gate called it a Standing-Rule-2 value that belongs in the
+ * settings store, and it is right: 802:142 is a property of the evidence
+ * gathered so far, not a logical invariant, and another case could reasonably
+ * open on "Helps them".
+ *
+ * It is not a settings row yet because of where it is APPLIED. `cardTriage`'s
+ * reducer opens the picker (`openPicker`), and that reducer has no access to the
+ * settings snapshot — so reading a stored default means threading it through
+ * `QueueState` or onto the queue's events, which is the same seam the
+ * `cardTriage` split (`cardPrompts.ts`) is about. Roman ruled that the row
+ * `card_include_picker_default_stance` ships WITH that split, where the
+ * threading belongs, rather than being bolted on here first.
+ *
+ * So: no `// STRUCTURAL:` marker, because the structural argument is the weak
+ * one. This is a deferral with a date and an owner, and this block is the record
+ * of it — so the next reader, and the next gate, do not re-litigate it.
  */
 const DEFAULT_STANCE: CardFactStance = "supports";
 
