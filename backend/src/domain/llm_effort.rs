@@ -129,6 +129,44 @@ impl FromStr for Effort {
     }
 }
 
+/// The word a SETTINGS ROW may carry for an effort, including "send nothing".
+///
+/// ## Why this is not just `FromStr`
+///
+/// The env vars have two states — set (a level) and unset (send no `effort` key
+/// at all). A settings row has no "unset": the row is always there. So the stored
+/// vocabulary gains one word, [`ABSENT`], which means the same thing an unset env
+/// var means. Without it an operator could not put the read back to how it ran
+/// before this fix without a redeploy.
+///
+/// ## The incident this was added for (2026-09-17)
+///
+/// The first read on prompt v4, Opus 5, `max_tokens = 1024`: attempt 1 completed
+/// (699 output tokens) but broke the 12-word `call` ceiling and was re-requested
+/// as designed; attempt 2 came back `stop_reason = max_tokens` with a thinking
+/// block and one text block — 1024 tokens produced against a cap of 1024 — so it
+/// was discarded, the two attempts ran out, and Marie read "I can't read this
+/// one." The read sent no effort key, which means the API's default, `high`, and
+/// on Opus 5 that is adaptive thinking counting against the same `max_tokens` as
+/// the answer. Same mechanism as 2026-08-28, one budget smaller.
+///
+/// # Errors
+/// The level's own parse error, with `absent` named as the extra word.
+pub fn parse_stored_effort(raw: &str) -> Result<Option<Effort>, String> {
+    if raw.trim().eq_ignore_ascii_case(ABSENT) {
+        return Ok(None);
+    }
+    Effort::from_str(raw)
+        .map(Some)
+        .map_err(|e| format!("{e}, or '{ABSENT}' to send no effort key at all"))
+}
+
+/// The stored word for "send no `effort` key" — what an unset env var means.
+///
+// STRUCTURAL: this build's own vocabulary for the absence of a wire value, not a
+// tunable. It is one word in one settings vocabulary; renaming it is a migration.
+pub const ABSENT: &str = "absent";
+
 /// Which effort each call family sends, read once at startup.
 ///
 /// Built by [`crate::config::llm_effort_policy_from_env`] — the ONE reader — and

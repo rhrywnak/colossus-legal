@@ -22,6 +22,8 @@
 //! reaches Marie only as the first word of a sentence the model composed. It is
 //! stored for a different reason — see its field note.
 
+use crate::domain::llm_effort::Effort;
+
 /// What the read is told, and what it is allowed to say back.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PracticeReadParams {
@@ -155,6 +157,13 @@ pub struct PracticeReadParams {
     pub discuss_prompt_file: String,
     /// The output cap of one discussion reply.
     pub discuss_max_tokens: u32,
+
+    // ── The thinking dials (CC_TASK_READ_V4_BUDGET_FIX_v1) ────────────────────
+    /// How much the model may think before one answer read — `None` sends no
+    /// `effort` key at all. See [`KEY_PRACTICE_READ_EFFORT`].
+    pub effort: Option<Effort>,
+    /// The same dial for the discussion dock.
+    pub discuss_effort: Option<Effort>,
 }
 
 // KEYS: the stable identifiers, named here and listed in
@@ -236,6 +245,20 @@ pub const KEY_PRACTICE_REVIEWER_USERNAME: &str = "practice_reviewer_username";
 /// word, so an attorney change is two edits and not a hunt through sentences.
 pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAME: &str = "practice_reviewer_display_name";
 
+/// How much the model may THINK before writing one answer read.
+///
+/// ## Domain note: the read is a verdict, not a deliberation
+///
+/// Thinking tokens count against `practice_read_max_tokens`. At the API's default
+/// (`high`, which is what sending no key means) a thinking block truncated the
+/// first v4 read on 2026-09-17 — see the migration's header. The row's vocabulary
+/// is the five levels plus `absent`, which restores "send no key" without a
+/// deploy; `domain::llm_effort::parse_stored_effort` is the ONE reader.
+pub const KEY_PRACTICE_READ_EFFORT: &str = "practice_read_effort";
+
+/// The same dial for the Discuss with AI dock — same exposure, same remedy.
+pub const KEY_PRACTICE_DISCUSS_EFFORT: &str = "practice_discuss_effort";
+
 /// The model the "Discuss with AI" dock starts on (CC_TASK_QUESTION_CHAT_v1). A
 /// setting, never a literal: the button says "Discuss with AI" and the chip prints
 /// whatever this names (ruled amendments 1 and 2).
@@ -256,6 +279,8 @@ pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_DISCUSS_MAX_TURNS,
     KEY_PRACTICE_DISCUSS_PROMPT_FILE,
     KEY_PRACTICE_DISCUSS_MAX_TOKENS,
+    KEY_PRACTICE_READ_EFFORT,
+    KEY_PRACTICE_DISCUSS_EFFORT,
     KEY_PRACTICE_READ_PROMPT_FILE,
     KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_MAX_TOKENS,
@@ -284,7 +309,7 @@ impl PracticeReadParams {
         PracticeReadParams {
             prompt_file: "practice_read_prompt_v4.md".to_string(),
             model: "claude-opus-5".to_string(),
-            max_tokens: 1024,
+            max_tokens: 4096,
             max_words: 25,
             max_words_after_fine: 6,
             max_words_call: 12,
@@ -300,6 +325,8 @@ impl PracticeReadParams {
             discuss_max_turns: 40,
             discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),
             discuss_max_tokens: 4096,
+            effort: Some(Effort::Low),
+            discuss_effort: Some(Effort::Low),
         }
     }
 }

@@ -260,8 +260,16 @@ async fn setup(
         timeout_secs: ParamValue::Unset,
         max_tokens: ParamValue::Set(settings.practice_read.discuss_max_tokens),
     };
-    let resolved = resolve_model(state, model_id, &spec, "practice_discuss_default_model")
-        .await
-        .map_err(DiscussError::Setup)?;
+    // `practice_discuss_effort` — the dock's own dial, for the reason
+    // `practice_model_call::resolve_model` gives.
+    let resolved = resolve_model(
+        state,
+        model_id,
+        &spec,
+        "practice_discuss_default_model",
+        settings.practice_read.discuss_effort,
+    )
+    .await
+    .map_err(DiscussError::Setup)?;
     Ok((system, resolved))
 }

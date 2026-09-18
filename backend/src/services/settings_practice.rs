@@ -12,11 +12,12 @@
 
 use std::collections::HashMap;
 
+use crate::domain::llm_effort::parse_stored_effort;
 use crate::domain::practice_params::{
     PracticeReadParams, KEY_PRACTICE_CASE_TIMEZONE, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
-    KEY_PRACTICE_DISCUSS_MAX_TOKENS, KEY_PRACTICE_DISCUSS_MAX_TURNS,
-    KEY_PRACTICE_DISCUSS_PROMPT_FILE, KEY_PRACTICE_READ_FINE_TOKEN, KEY_PRACTICE_READ_MAX_POINTERS,
-    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
+    KEY_PRACTICE_DISCUSS_EFFORT, KEY_PRACTICE_DISCUSS_MAX_TOKENS, KEY_PRACTICE_DISCUSS_MAX_TURNS,
+    KEY_PRACTICE_DISCUSS_PROMPT_FILE, KEY_PRACTICE_READ_EFFORT, KEY_PRACTICE_READ_FINE_TOKEN,
+    KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
@@ -63,5 +64,33 @@ pub(crate) fn build_practice_read_params(
         discuss_max_turns: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TURNS)?)?,
         discuss_prompt_file: text_of(require(rows, KEY_PRACTICE_DISCUSS_PROMPT_FILE)?)?,
         discuss_max_tokens: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TOKENS)?)?,
+        effort: effort_of(rows, KEY_PRACTICE_READ_EFFORT)?,
+        discuss_effort: effort_of(rows, KEY_PRACTICE_DISCUSS_EFFORT)?,
+    })
+}
+
+/// One stored effort row as the wire value it means, or a named refusal.
+///
+/// ## Why the error names the key
+///
+/// A row reading `thorough` is a typo an operator made on the Settings page, and
+/// the only useful thing to say is which row and what the words are. The refusal
+/// stops the snapshot, exactly as a malformed number does — a bad effort reaches
+/// the API as an HTTP 400 in the middle of a paid call otherwise.
+fn effort_of(
+    rows: &HashMap<String, AppSettingRecord>,
+    key: &str,
+) -> Result<Option<crate::domain::llm_effort::Effort>, SettingError> {
+    let raw = text_of(require(rows, key)?)?;
+    // The parser's own sentence is logged; the STORED error carries a static
+    // expectation because `SettingError::Unreadable` holds `&'static str` — and
+    // leaking a boxed string per bad read would be a memory leak on a typo.
+    parse_stored_effort(&raw).map_err(|detail| {
+        tracing::error!(key, value = %raw, detail = %detail, "a stored effort is not a documented level");
+        SettingError::Unreadable {
+            key: key.to_string(),
+            value: raw.clone(),
+            expected: "one of low, medium, high, xhigh, max, or absent",
+        }
     })
 }
