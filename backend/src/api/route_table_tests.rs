@@ -186,8 +186,14 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// 314 since QUESTION_CHAT_v1, which added three: `GET` (with its axum `HEAD`
 /// pair) and `POST` on `/practice/questions/:question_id/discussion` — one
 /// address, the thread read and the message send.
+///
+/// 313 since DEFECT_SWEEP_v1, which REMOVED one: `PUT
+/// /practice/questions/:question_id/flag`. The flag's writer retired (defect 6)
+/// — nothing has written a flag since 2026-08-23 and its control was never
+/// built. The end-of-sitting sheet still READS the stored notes, so this is one
+/// route fewer and no surface fewer.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 314;
+const EXPECTED_ROUTE_LINES: usize = 313;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

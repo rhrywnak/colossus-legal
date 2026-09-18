@@ -39,7 +39,6 @@ use super::practice_deck_read::{
 use super::practice_editor::{post_edit_question, post_hide_question, post_move_question};
 use super::practice_editor_add::post_add_question;
 use super::practice_fences::check_sitting;
-use super::practice_flag::put_question_flag;
 use super::practice_sessions::{get_sitting_route, post_end_session, post_resume, post_start_over};
 
 use crate::{
@@ -95,13 +94,11 @@ pub fn routes() -> Router<AppState> {
             "/practice/sessions/:session_id/start-over",
             post(post_start_over),
         )
-        // PUT and not POST: writing the same note twice leaves the same row, and
-        // clearing is the same call with nothing in it. That is idempotent, which
-        // is what PUT means.
-        .route(
-            "/practice/questions/:question_id/flag",
-            put(put_question_flag),
-        )
+        // The question FLAG's write route retired 2026-09-17
+        // (CC_TASK_DEFECT_SWEEP_v1 defect 6, ruling: writer-only retirement).
+        // Nothing writes a flag any more; the end-of-sitting sheet still PRINTS
+        // the ones already stored, and the columns stay. See
+        // `repositories::pipeline_repository::practice_flow::list_flagged`.
         .merge(part_b_routes())
         .merge(review_loop_routes())
 }

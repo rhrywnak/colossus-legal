@@ -26,6 +26,7 @@ use crate::repositories::pipeline_repository::{
     practice::{start_session, NewSitting},
     practice_flow::{answer_versions, current_answers, open_session_for_answers},
     practice_notes::{notes_for_question, NoteRecord},
+    practice_sitting_close::close_sittings_before_today,
 };
 use crate::services::practice_note_view::note_dto;
 use crate::services::practice_notes::attribution;
@@ -142,6 +143,22 @@ pub async fn post_answer_session(
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
 
     let (user_id, user_name) = attribution(&user);
+
+    // A sitting is a DAY's work. Anything this user left open on an earlier day
+    // is over before we look for one to reuse — otherwise the reuse below hands
+    // back an August row forever, which is exactly what it did until 2026-09-17
+    // (defect 1: `ended_at` frozen at 08-20, and the deck's changed-box measuring
+    // from there). See `practice_sitting_close` for why the day and not a
+    // threshold, and why each row is stamped at its own last answer.
+    let timezone = state.settings.current().practice_read.case_timezone.clone();
+    let closed =
+        close_sittings_before_today(&state.pipeline_pool, scenario_id, &user_id, &timezone)
+            .await
+            .map_err(|e| repo_error("close_sittings_before_today", e))?;
+    if closed > 0 {
+        tracing::info!(%scenario_id, by = %user_id, closed, "closed sittings left open on an earlier day");
+    }
+
     if let Some(existing) = open_session_for_answers(&state.pipeline_pool, scenario_id, &user_id)
         .await
         .map_err(|e| repo_error("open_session_for_answers", e))?

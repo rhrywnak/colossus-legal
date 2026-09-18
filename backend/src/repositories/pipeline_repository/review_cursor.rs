@@ -7,7 +7,8 @@
 //! ## Domain note: events and read-state are separate
 //!
 //! What happened on a deck is already recorded — every answer is a row in
-//! `practice_answers`. This module stores nothing about those events. It stores
+//! `practice_answers`, every note a row in `practice_notes`. This module stores
+//! nothing about those events. It stores
 //! only the moment a reader last said "I have read up to here" (Slack's
 //! `conversations.mark` pattern), and COUNTS the events newer than that moment at
 //! read time. There is no stored counter to drift out of step with the answers,
@@ -74,11 +75,22 @@ pub struct AwaitingReviewRow {
 /// The reviewer's queue: answers by someone else since the REVIEWER last pressed
 /// Done reviewing (CC_TASK_SIMPLE_COUNTS_v1).
 ///
-/// A visible question counts when its CURRENT answer
+/// A visible question counts when EITHER of two things is true of it.
+///
+/// Its CURRENT answer
 /// - exists,
 /// - is newer than the reviewer's cursor (no cursor row = `-infinity`, so every
 ///   answer is newer), and
 /// - was written by someone other than the reviewer.
+///
+/// Or a NOTE on it (or on that current answer)
+/// - still stands — not struck,
+/// - was written by someone other than the reviewer, and
+/// - is newer than the reviewer's cursor.
+///
+/// The second leg arrived with CC_TASK_DEFECT_SWEEP_v1 (defect 5): until then
+/// the queue counted answers only, so a note Marie left on a question Chuck had
+/// already reviewed reached nobody. See the `NOTE_WAITING` predicate below.
 ///
 /// ## Domain note: one queue, the same for every viewer
 ///
@@ -97,9 +109,11 @@ pub struct AwaitingReviewRow {
 ///
 /// ## SQL note: the date rides the same pass
 ///
-/// `MIN(cur.answered_at) FILTER (…)` uses the SAME predicate as the count, so the
-/// summary card's "oldest waiting since" can never name an answer the count
-/// excluded — and it costs no second query.
+/// `MIN(…) FILTER (…)` uses the SAME predicate as the count, so the summary card's
+/// "oldest waiting since" can never name an event the count excluded — and it
+/// costs no second query. What it minimises is the moment that MADE the question
+/// wait, which is the answer's stamp, the note's, or the earlier of the two when
+/// both legs fire.
 ///
 /// Starts `FROM unnest($1)` for the reason `war_room_status` gives: one row per
 /// scenario asked for, zero included.
@@ -111,9 +125,19 @@ pub async fn awaiting_review(
     scenario_ids: &[Uuid],
     reviewer: &str,
 ) -> Result<Vec<AwaitingReviewRow>, PipelineRepoError> {
+    let waiting = format!("(({ANSWER_WAITING}) OR ({NOTE_WAITING}))");
+    // The moment that made this question wait. `LEAST` ignores NULLs in
+    // Postgres, so a question waiting on only one of the two legs yields that
+    // leg's own timestamp, and one waiting on both yields the earlier — which is
+    // what "waiting since" means to somebody reading the summary card.
+    let waiting_since = format!(
+        "LEAST(CASE WHEN {ANSWER_WAITING} THEN cur.answered_at END, \
+               CASE WHEN {NOTE_WAITING} THEN note.at END)"
+    );
     sqlx::query_as::<_, AwaitingReviewRow>(&format!(
         "WITH cur AS ( \
-            SELECT DISTINCT ON (a.question_id) a.question_id, a.answered_at, s.user_id AS author_id \
+            SELECT DISTINCT ON (a.question_id) a.question_id, a.id AS answer_id, \
+                   a.answered_at, s.user_id AS author_id \
             FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
             WHERE s.scenario_id = ANY($1) \
             ORDER BY a.question_id, a.answered_at DESC, a.id DESC), \
@@ -121,13 +145,19 @@ pub async fn awaiting_review(
             SELECT scenario_id, looked_at FROM practice_review_cursor \
             WHERE user_id = $2 AND scenario_id = ANY($1)) \
          SELECT ids.scenario_id, \
-                COUNT(q.id) FILTER (WHERE {WAITING}) AS awaiting, \
-                MIN(cur.answered_at) FILTER (WHERE {WAITING}) AS oldest \
+                COUNT(q.id) FILTER (WHERE {waiting}) AS awaiting, \
+                MIN({waiting_since}) FILTER (WHERE {waiting}) AS oldest \
          FROM unnest($1::uuid[]) AS ids(scenario_id) \
          LEFT JOIN mark ON mark.scenario_id = ids.scenario_id \
          LEFT JOIN practice_questions q \
                 ON q.scenario_id = ids.scenario_id AND q.hidden_at IS NULL \
          LEFT JOIN cur ON cur.question_id = q.id \
+         LEFT JOIN LATERAL ( \
+            SELECT MAX(n.created_at) AS at FROM practice_notes n \
+             WHERE n.question_id = q.id \
+               AND n.struck_at IS NULL \
+               AND n.author_id IS DISTINCT FROM $2 \
+               AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id)) note ON true \
          GROUP BY ids.scenario_id"
     ))
     .bind(scenario_ids)
@@ -137,17 +167,41 @@ pub async fn awaiting_review(
     .map_err(PipelineRepoError::from)
 }
 
-/// The one predicate the count and the oldest date share — see
-/// [`awaiting_review`]'s SQL note.
+/// An ANSWER awaiting review — see [`awaiting_review`]'s SQL note.
 // STRUCTURAL: this IS the definition of an answer awaiting review — it exists,
 // it post-dates the reviewer's cursor, and the reviewer did not write it. Not a
 // threshold or a limit: changing it changes what the review queue MEANS, which is
 // a ruling and a code change, never a deployment value. Shared so the count and
 // the oldest date cannot disagree.
-const WAITING: &str = "cur.answered_at IS NOT NULL \
+const ANSWER_WAITING: &str = "cur.answered_at IS NOT NULL \
     AND cur.answered_at > COALESCE(mark.looked_at, '-infinity'::timestamptz) \
     AND cur.author_id IS DISTINCT FROM $2";
+
+/// A NOTE awaiting review (CC_TASK_DEFECT_SWEEP_v1 defect 5).
+///
+/// ## Domain note: the other half of a loop that only ran one way
+///
+/// Marie's "new or changed" count has folded in Chuck's unstruck notes since
+/// Part B (`war_room_status`, the same LATERAL shape) — so Chuck→Marie worked
+/// and Marie→Chuck did not. A note she leaves on a question he has already
+/// reviewed reached nobody: his queue counted answers only, and the note sat
+/// there until somebody happened to open that row.
+///
+/// The three legs are the reviewer's own, one for one: the note still STANDS
+/// (striking it withdraws it, exactly as it does on her side), somebody OTHER
+/// than the reviewer wrote it, and it post-dates his cursor. `author_id` rather
+/// than `author` because the cursor and the sessions key on the login;
+/// `IS DISTINCT FROM` because rows written before 2026-08-19 carry no author id
+/// at all, and a NULL there means "not the reviewer", not "unknown, skip it".
+// STRUCTURAL: this IS the definition of a note awaiting review. Same standing as
+// ANSWER_WAITING above, and changed only by a ruling.
+const NOTE_WAITING: &str = "note.at IS NOT NULL \
+    AND note.at > COALESCE(mark.looked_at, '-infinity'::timestamptz)";
 
 #[cfg(test)]
 #[path = "review_cursor_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+#[path = "review_cursor_notes_live_tests.rs"]
+mod notes_live_tests;

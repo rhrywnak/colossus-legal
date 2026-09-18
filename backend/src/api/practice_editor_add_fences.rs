@@ -266,3 +266,7 @@ pub(super) fn fence_after(
     }
     Ok(NewPosition::After(after))
 }
+
+#[cfg(test)]
+#[path = "practice_editor_add_fences_tests.rs"]
+mod tests;

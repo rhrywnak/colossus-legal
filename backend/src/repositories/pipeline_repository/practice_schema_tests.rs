@@ -89,12 +89,13 @@ fn the_parse_sees_the_repositorys_statements() {
     );
     assert_eq!(
         inserts().len(),
-        7,
+        8,
         "two INSERTs in practice.rs, two in practice_editor.rs, one in \
-         practice_notes.rs, the hidden-mark write's, and the seed's — the widest \
+         practice_notes.rs, the hidden-mark write's, the seed's — the widest \
          column list in the codebase, and the one whose absence from this cover \
          let a `draft_by` \
-         no migration created ship in Part A"
+         no migration created ship in Part A — and the review cursor's upsert, \
+         which entered the cover with the defect sweep"
     );
     assert!(
         updates().len() >= 12,

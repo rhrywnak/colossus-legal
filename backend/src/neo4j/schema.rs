@@ -118,6 +118,28 @@ pub const CAUSED_BY: &str = "CAUSED_BY";
 /// the document.
 pub const APPEARS_IN: &str = "APPEARS_IN";
 
+/// `Evidence -[:EVIDENCED_BY]-> Evidence`. A harm or allegation is evidenced by
+/// this item.
+///
+/// Added to this module 2026-09-17 by CC_TASK_DEFECT_SWEEP_v1. It was LIVE in
+/// the graph (46 edges on DEV) and written only as a bare literal in
+/// `services::graph_expansion_minor` — so the one place that is supposed to hold
+/// every relationship name did not hold it. Named here because defect 2's
+/// per-type indexes must name every live type, and naming them as literals is
+/// what this module exists to stop.
+pub const EVIDENCED_BY: &str = "EVIDENCED_BY";
+
+/// `Harm -[:DAMAGES_FOR]-> LegalCount`. The damages this harm supports.
+///
+/// Added to this module 2026-09-17 for the reason above (22 edges on DEV).
+pub const DAMAGES_FOR: &str = "DAMAGES_FOR";
+
+/// `node -[:DERIVED_FROM]-> source`. Provenance: this node was derived from the
+/// linked chunk or item, carrying `ref_type` and `quote_snippet`.
+///
+/// Added to this module 2026-09-17 for the reason above (39 edges on DEV).
+pub const DERIVED_FROM: &str = "DERIVED_FROM";
+
 /// `Allegation -[:SUPPORTS]-> LegalCount`. Legacy count-level support edge;
 /// also the *rendered* label the graph view shows for the synthetic
 /// Allegation→Count link that masks the `BEARS_ON`+`HAS_ELEMENT` hops.
@@ -143,6 +165,9 @@ mod tests {
         assert_eq!(CONTAINED_IN, "CONTAINED_IN");
         assert_eq!(STATED_BY, "STATED_BY");
         assert_eq!(SUFFERED_BY, "SUFFERED_BY");
+        assert_eq!(EVIDENCED_BY, "EVIDENCED_BY");
+        assert_eq!(DAMAGES_FOR, "DAMAGES_FOR");
+        assert_eq!(DERIVED_FROM, "DERIVED_FROM");
         assert_eq!(CHARACTERIZES, "CHARACTERIZES");
         assert_eq!(CONTRADICTS, "CONTRADICTS");
         assert_eq!(REBUTS, "REBUTS");

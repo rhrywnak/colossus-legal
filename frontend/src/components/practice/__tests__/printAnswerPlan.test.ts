@@ -52,7 +52,6 @@ const question = (id: string, kind: string): PracticeQuestion =>
     hidden: false,
     draft_by: null,
     answered_on: null,
-    flag_note: null,
     braid_rows: null,
     watch_for: null,
     pair_said: null,

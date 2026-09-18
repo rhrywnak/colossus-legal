@@ -31,7 +31,6 @@ function question(id: string): PracticeQuestion {
     pair_admitted: null,
     stronger: null,
     stronger_lean: null,
-    flag_note: null,
     kind: "cross",
     deck_key: id,
     follows_key: null,

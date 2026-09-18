@@ -141,11 +141,17 @@ const Critique: React.FC<{
 
       {/* ⚑ "This is wrong →" IS DELIBERATELY NOT A CONTROL HERE.
           Measured 2026-08-23 BEFORE building it: it would have written
-          `practice_questions.flag_note`, whose only reader is the retired
-          end-of-sitting sheet, and which holds 0 rows across 46 questions on
-          DEV. It is also the WRONG OBJECT — the flag hangs off the QUESTION,
+          `practice_questions.flag_note`, which held 0 rows across 46 questions
+          on DEV. It is also the WRONG OBJECT — the flag hangs off the QUESTION,
           while "this is wrong" is about the READ, so a perfect question with a
           garbage read would be filed as a bad question.
+
+          The flag's WRITER has since retired outright (2026-09-17, defect
+          sweep): there is no longer anything for this button to call. This
+          comment used to say the flag's "only reader is the retired
+          end-of-sitting sheet" — that reader was never retired, it is routed
+          and printing to this day, and the sentence was wrong for a month.
+          The reader kept its job; the writer lost its.
 
           A button that swallows her objection silently is a false promise at
           the exact moment she should be telling a person, and this is the one

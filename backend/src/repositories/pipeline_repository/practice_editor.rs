@@ -25,6 +25,7 @@
 use sqlx::{PgPool, Postgres, Transaction};
 use uuid::Uuid;
 
+use super::deck_key_mint::{keys_in_scenario, next_hand_key};
 use super::PipelineRepoError;
 
 /// Where [`swap_sort_order`] parks one row while the two exchange numbers.
@@ -226,21 +227,35 @@ pub struct NewQuestion<'a> {
 
 /// Insert a question somebody typed on the page. Returns its id.
 ///
-/// ## Domain note: no `deck_key`
+/// ## Domain note: the `deck_key` is MINTED, in a namespace the file cannot use
 ///
-/// The key is the deck FILE's handle, and this question is not in the file. A
-/// key invented here would collide with the next one the architect writes, and
-/// `--update` would then reconcile the wrong two rows. It stays NULL until
-/// somebody puts the question in the file and gives it one.
+/// Corrected 2026-09-17 (CC_TASK_DEFECT_SWEEP_v1 defect 4). This note used to
+/// say the key stays NULL, "until somebody puts the question in the file and
+/// gives it one" — because a key invented from the file's own namespace (`g6`)
+/// would collide with the architect's next `g6` and `--update`, which matches by
+/// key, would reconcile the wrong two rows. That hazard is real and the note was
+/// right about it. What it missed is the cost of the NULL: `--update` REFUSES
+/// the whole run on an un-keyed row it cannot match by text
+/// (`UpdateError::StoredRowUnmatched`), and a redirect cannot anchor to a
+/// question that has no key at all, because `follows_key` resolves against one.
+///
+/// So the key is minted in the reserved `x` namespace instead — see
+/// [`super::deck_key_mint`] for why that is collision-free by construction
+/// rather than by convention.
 pub async fn insert_question(
     tx: &mut Transaction<'_, Postgres>,
     question: &NewQuestion<'_>,
 ) -> Result<Uuid, PipelineRepoError> {
+    // Read and mint inside the CALLER's transaction, immediately before the
+    // insert that uses it, so the window in which another add could read the
+    // same highest key is as small as it can be made without a lock. The UNIQUE
+    // constraint is what actually forbids the collision.
+    let deck_key = next_hand_key(&keys_in_scenario(tx, question.scenario_id).await?);
     let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_questions \
          (scenario_id, side, kind, text, tactic, follows_key, watch_for, source_kind, \
-          source_ref, receipt, sort_order, created_by) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id",
+          source_ref, receipt, sort_order, created_by, deck_key) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING id",
     )
     .bind(question.scenario_id)
     .bind(question.side)
@@ -254,6 +269,7 @@ pub async fn insert_question(
     .bind(question.receipt)
     .bind(question.sort_order)
     .bind(question.created_by)
+    .bind(&deck_key)
     .fetch_one(&mut **tx)
     .await?;
     Ok(row.0)

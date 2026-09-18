@@ -39,7 +39,6 @@ function question(
     pair_admitted: null,
     stronger: null,
     stronger_lean: null,
-    flag_note: null,
     kind,
     // The key IS the id in these fixtures, which keeps the pairing assertions
     // readable: `r1` follows `g1` and the reader can see it.
