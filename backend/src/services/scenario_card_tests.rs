@@ -1457,3 +1457,87 @@ fn a_ruled_card_carries_no_proposal() {
 
     assert!(card.proposed.is_none());
 }
+
+/// One accusation appears ONCE, however many elements it goes to. (M)
+///
+/// The find-or-append half of `build_bears_on`, pinned on the id.
+#[test]
+fn one_accusation_with_two_elements_is_one_entry_carrying_its_id() {
+    let links = vec![
+        link("alleg-7", Some("Notice")),
+        link("alleg-7", Some("Damages")),
+    ];
+
+    let out = build_bears_on(&links);
+
+    assert_eq!(out.len(), 1, "one accusation, one entry");
+    assert_eq!(
+        out[0].allegation_id, "alleg-7",
+        "the id the picker names back"
+    );
+    assert_eq!(
+        out[0].elements,
+        vec!["Notice".to_string(), "Damages".to_string()]
+    );
+}
+
+/// Two accusations that READ the same are still two. (M)
+///
+/// ## The defect this pins (CC_TASK_INCLUDE_PICKER_v1 §12 Q2, ruled 2026-09-17)
+///
+/// `build_bears_on` deduped on `b.accusation` — the rendered SENTENCE — until the
+/// Include picker gave the struct an id. `accusation_text` composes that sentence
+/// from the paragraph and the summary, so two allegation nodes carrying the same
+/// paragraph and the same summary render identically. That is not hypothetical:
+/// a re-extraction that duplicates a complaint paragraph produces exactly this
+/// pair, and this repo has met the duplicate-node class before.
+///
+/// Under the old rule the second one was merged into the first and its elements
+/// were filed under the first's id. It mattered little while the list was only
+/// READ. It matters now: the picker's options ARE this list, and a merged entry
+/// is an accusation a human can no longer choose.
+#[test]
+fn two_accusations_that_render_the_same_sentence_stay_two_entries() {
+    // Same paragraph, same summary, different nodes — one sentence, twice.
+    let first = link("alleg-7", Some("Notice"));
+    let second = ExtrasLink {
+        allegation_id: "alleg-8".to_string(),
+        element_name: Some("Damages".to_string()),
+        ..first.clone()
+    };
+    assert_eq!(
+        accusation_text(&first),
+        accusation_text(&second),
+        "the fixture is only a proof of anything if the two DO read the same"
+    );
+
+    let out = build_bears_on(&[first, second]);
+
+    assert_eq!(
+        out.len(),
+        2,
+        "two accusations a human must be able to tell apart, however they read"
+    );
+    assert_eq!(out[0].allegation_id, "alleg-7");
+    assert_eq!(out[1].allegation_id, "alleg-8");
+    assert_eq!(out[0].elements, vec!["Notice".to_string()]);
+    assert_eq!(
+        out[1].elements,
+        vec!["Damages".to_string()],
+        "the second one's elements must not be filed under the first"
+    );
+}
+
+/// One `ExtrasLink` for the two tests above.
+fn link(allegation_id: &str, element: Option<&str>) -> ExtrasLink {
+    ExtrasLink {
+        edge_class: "bears_on".to_string(),
+        allegation_id: allegation_id.to_string(),
+        allegation_summary: Some("Defendants failed to give notice".to_string()),
+        allegation_title: None,
+        allegation_paragraph: Some("54".to_string()),
+        element_name: element.map(str::to_string),
+        count_number: Some(2),
+        count_name: Some("Negligence".to_string()),
+    }
+}

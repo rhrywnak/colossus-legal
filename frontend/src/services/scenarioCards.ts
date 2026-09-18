@@ -123,6 +123,15 @@ export type CardStance = {
 
 /** One accusation this item bears on (§7.6). */
 export type CardBearsOn = {
+  /**
+   * The accusation's own id — what the Include picker names BACK to the server.
+   *
+   * Added 2026-09-17. Including a fact writes the Proof Matrix link, and the
+   * link needs an id; without this field the browser's only route from the
+   * label it rendered to an id is string equality against the link-options
+   * list, which breaks silently the day a label is re-worded.
+   */
+  allegation_id: string;
   accusation: string;
   /** Every element the accusation goes to; empty is a real state. */
   elements: string[];

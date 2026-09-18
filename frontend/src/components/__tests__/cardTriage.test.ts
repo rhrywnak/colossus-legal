@@ -63,7 +63,12 @@ function fullCard(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
       summary: "This disputes ¶54 — CFS knew of the meeting",
     },
     bears_on: [
-      { accusation: "¶54 — CFS knew of the meeting", elements: ["Notice"], count: "Count 2 — Negligence" },
+      {
+        allegation_id: "alleg-54",
+        accusation: "¶54 — CFS knew of the meeting",
+        elements: ["Notice"],
+        count: "Count 2 — Negligence",
+      },
     ],
     grounding: { state: "exact", label: "Grounded — found on the page" },
     confidence: { band: "medium", label: "Scan was fairly confident" },
@@ -104,6 +109,35 @@ function stateOf(cards: ScenarioCard[]): QueueState {
 /** Press a key in triage mode (not typing into a field). */
 function press(state: QueueState, key: string, typing = false) {
   return queueReducer(state, { type: "key", key, typing });
+}
+
+/**
+ * A COMPLETED include from the keyboard: open the picker, then save it.
+ *
+ * ## Why the tests below go through two steps for one ruling
+ *
+ * Include stopped being a single press on 2026-09-17
+ * (CC_TASK_INCLUDE_PICKER_v1). It has to ask which accusation the fact goes
+ * under and which way it cuts, because the route has required both since
+ * FACT_CARD_v2 §2 and the browser sent neither — every Include in the queue
+ * returned 400.
+ *
+ * The tests in this file that use an include to exercise something ELSE —
+ * advance, undo, the running count, the filter rescue — are about those things
+ * and not about the picker, so they say "include this card" through this helper
+ * and keep asserting exactly what they asserted before. The picker's OWN
+ * behaviour is pinned in its own describe block, and that one uses the raw
+ * events.
+ */
+function include(state: QueueState, key = "i") {
+  const opened = press(state, key).state;
+  return queueReducer(opened, { type: "include_save" });
+}
+
+/** The same, through a named card's own button. */
+function includeOn(state: QueueState, graphNodeId: string) {
+  const opened = queueReducer(state, { type: "rule", key: "i", graphNodeId }).state;
+  return queueReducer(opened, { type: "include_save" });
 }
 
 // ─── The §7 contract ────────────────────────────────────────────────────────
@@ -193,8 +227,13 @@ describe("the §7 card contract", () => {
   it("lists every accusation with its elements and count as chips", () => {
     const card = fullCard({
       bears_on: [
-        { accusation: "¶12 — first", elements: ["Duty", "Materiality"], count: "Count 2 — Fraud" },
-        { accusation: "¶13 — second", elements: [], count: null },
+        {
+          allegation_id: "alleg-12",
+          accusation: "¶12 — first",
+          elements: ["Duty", "Materiality"],
+          count: "Count 2 — Fraud",
+        },
+        { allegation_id: "alleg-13", accusation: "¶13 — second", elements: [], count: null },
       ],
     });
     const rows = cardRows(card).filter((r) => r.element === "bears_on");
@@ -340,8 +379,17 @@ describe("the metadata chips", () => {
 
 describe("triage keys", () => {
   it("I includes the focused card and advances", () => {
-    const { state, effect } = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "i");
-    expect(effect).toEqual({ kind: "rule", graphNodeId: "ev-1", action: "include", reason: undefined });
+    const { state, effect } = include(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]));
+    // The pair the picker answered rides the effect: the fixture card bears on
+    // A-54, and an include defaults to "helps us".
+    expect(effect).toEqual({
+      kind: "rule",
+      graphNodeId: "ev-1",
+      action: "include",
+      reason: undefined,
+      allegationId: "alleg-54",
+      stance: "supports",
+    });
     expect(state.index).toBe(1);
     expect(progress(state).ruled).toBe(1);
   });
@@ -354,14 +402,14 @@ describe("triage keys", () => {
   });
 
   it("accepts upper case — Shift is not a different ruling", () => {
-    expect(press(stateOf([fullCard()]), "I").effect).toMatchObject({ action: "include" });
+    expect(include(stateOf([fullCard()]), "I").effect).toMatchObject({ action: "include" });
   });
 
   it("stops at the last card rather than wrapping to the top", () => {
     // Wrapping would silently return the human to a list they thought was done.
     let s = stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]);
-    s = press(s, "i").state;
-    s = press(s, "i").state;
+    s = include(s).state;
+    s = include(s).state;
     expect(s.index).toBe(1);
     expect(progress(s)).toEqual({ ruled: 2, total: 2 });
   });
@@ -667,7 +715,7 @@ describe("the filtered order", () => {
 
   it("a ruling advances within the filtered set, not the whole pool", () => {
     let s = visible(stateOf(pool()), ["ev-1", "ev-3"]);
-    s = press(s, "i").state;
+    s = include(s).state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 
@@ -697,13 +745,15 @@ describe("a card's own ruling buttons", () => {
     const s = stateOf(pool());
     expect(s.index).toBe(0);
 
-    const { state, effect } = click(s, "i", "ev-10");
+    const { state, effect } = includeOn(s, "ev-10");
 
     expect(effect).toEqual({
       kind: "rule",
       graphNodeId: "ev-10",
       action: "include",
       reason: undefined,
+      allegationId: "alleg-54",
+      stance: "supports",
     });
     expect(state.cards.find((c) => c.graph_node_id === "ev-10")?.status).toBe("included");
   });
@@ -712,7 +762,7 @@ describe("a card's own ruling buttons", () => {
     // The other half of the sentence, and the half a passing effect assertion can
     // still hide: cards 1–9 must be exactly as they were.
     const before = stateOf(pool());
-    const after = click(before, "i", "ev-10").state;
+    const after = includeOn(before, "ev-10").state;
 
     for (const card of after.cards) {
       if (card.graph_node_id === "ev-10") continue;
@@ -740,7 +790,7 @@ describe("a card's own ruling buttons", () => {
       type: "select",
       graphNodeId: "ev-2",
     }).state;
-    const after = click(selected, "i", "ev-7").state;
+    const after = includeOn(selected, "ev-7").state;
     expect(after.cards[after.index].graph_node_id).toBe("ev-8");
   });
 
@@ -751,13 +801,13 @@ describe("a card's own ruling buttons", () => {
       type: "select",
       graphNodeId: "ev-4",
     }).state;
-    expect(press(selected, "i").effect).toMatchObject({ graphNodeId: "ev-4" });
+    expect(include(selected).effect).toMatchObject({ graphNodeId: "ev-4" });
   });
 
   it("undo takes back the most recent ruling whichever card's U is pressed", () => {
     // Single-step undo is not card-scoped, and must not become so: every card's U
     // is the same one step back. Rule ev-9, then press ev-1's U.
-    const ruled = click(stateOf(pool()), "i", "ev-9").state;
+    const ruled = includeOn(stateOf(pool()), "ev-9").state;
     const { state, effect } = click(ruled, "u", "ev-1");
 
     expect(effect).toEqual({ kind: "rule", graphNodeId: "ev-9", action: "reopen" });
@@ -790,7 +840,7 @@ describe("a card's own ruling buttons", () => {
     // The prompt owns the KEYBOARD, not the mouse. Swallowing a click on a named
     // card's own button would be the dead-keyboard defect in mouse form.
     const open = click(stateOf(pool()), "d", "ev-6").state;
-    const { state, effect } = click(open, "i", "ev-3");
+    const { state, effect } = includeOn(open, "ev-3");
 
     expect(effect).toMatchObject({ graphNodeId: "ev-3", action: "include" });
     expect(state.mode).toEqual({ kind: "triage" });
@@ -871,7 +921,7 @@ describe("a card's own ruling buttons", () => {
     // Ruling the bottom of the list parked the highlight at the top.
     const s = stateOf(pool()); // selection is on ev-1, the first card
     expect(s.index).toBe(0);
-    const after = click(s, "i", "ev-10").state;
+    const after = includeOn(s, "ev-10").state;
     expect(after.cards[after.index].graph_node_id).toBe("ev-10");
   });
 
@@ -881,7 +931,7 @@ describe("a card's own ruling buttons", () => {
     // has to come to rest beside the work — ev-9 — rather than back at ev-1.
     const ids = pool().map((c) => c.graph_node_id);
     let s = queueReducer(stateOf(pool()), { type: "visible", ids }).state;
-    s = click(s, "i", "ev-10").state;
+    s = includeOn(s, "ev-10").state;
     s = queueReducer(s, { type: "visible", ids: ids.filter((id) => id !== "ev-10") }).state;
 
     expect(s.cards[s.index].graph_node_id).toBe("ev-9");
@@ -894,7 +944,7 @@ describe("a card's own ruling buttons", () => {
     // the honest landing — it puts the human on the first thing still to do
     // rather than leaving the selection on a card the filter is hiding.
     let s = queueReducer(stateOf(pool()), { type: "visible", ids: ["ev-3", "ev-4"] }).state;
-    s = click(s, "i", "ev-1").state;
+    s = includeOn(s, "ev-1").state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 });
@@ -1077,7 +1127,7 @@ describe("auto-advance", () => {
       fullCard({ graph_node_id: "ev-2", status: "included", status_label: "Included" }),
       fullCard({ graph_node_id: "ev-3" }),
     ];
-    const s = press(stateOf(cards), "i").state;
+    const s = include(stateOf(cards)).state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 
@@ -1087,7 +1137,7 @@ describe("auto-advance", () => {
       fullCard({ graph_node_id: "ev-2", defer_reason: "waiting on a clean copy" }),
       fullCard({ graph_node_id: "ev-3" }),
     ];
-    const s = press(stateOf(cards), "i").state;
+    const s = include(stateOf(cards)).state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-3");
   });
 
@@ -1096,7 +1146,7 @@ describe("auto-advance", () => {
       fullCard({ graph_node_id: "ev-1" }),
       fullCard({ graph_node_id: "ev-2", status: "dropped", status_label: "Set aside" }),
     ];
-    const s = press(stateOf(cards), "i").state;
+    const s = include(stateOf(cards)).state;
     expect(s.cards[s.index].graph_node_id).toBe("ev-1");
   });
 });
@@ -1106,7 +1156,7 @@ describe("the card's own state, on screen, at once", () => {
     // Every card wears a state chip now. Without the optimistic patch the human
     // presses I and watches the card go on saying "Not ruled" — the screen telling
     // them their ruling did not happen.
-    const s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    const s = include(stateOf([fullCard({ graph_node_id: "ev-1" })])).state;
     expect(s.cards[0].status).toBe("included");
   });
 
@@ -1123,7 +1173,7 @@ describe("the card's own state, on screen, at once", () => {
   });
 
   it("U puts the card's state back, not just the selection", () => {
-    let s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    let s = include(stateOf([fullCard({ graph_node_id: "ev-1" })])).state;
     s = press(s, "u").state;
     expect(s.cards[0].status).toBe("undecided");
     expect(s.cards[0].defer_reason).toBeNull();
@@ -1132,7 +1182,7 @@ describe("the card's own state, on screen, at once", () => {
   it("a reload overwrites the optimistic state with the server's", () => {
     // The optimism is only honest because the server's answer wins: a refused
     // ruling re-reads the pool (`useQueueReducer`) and this is where that lands.
-    let s = press(stateOf([fullCard({ graph_node_id: "ev-1" })]), "i").state;
+    let s = include(stateOf([fullCard({ graph_node_id: "ev-1" })])).state;
     s = queueReducer(s, { type: "cards_loaded", cards: [fullCard({ graph_node_id: "ev-1" })] }).state;
     expect(s.cards[0].status).toBe("undecided");
   });
@@ -1141,7 +1191,7 @@ describe("the card's own state, on screen, at once", () => {
 describe("undo", () => {
   it("U reopens the last ruling and refocuses that card", () => {
     let s = stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]);
-    s = press(s, "i").state;
+    s = include(s).state;
     expect(s.index).toBe(1);
 
     const { state, effect } = press(s, "u");
@@ -1155,7 +1205,7 @@ describe("undo", () => {
   it("is single-step — a second U does nothing", () => {
     // A stack would let a human unwind a whole session by leaning on one key.
     let s = stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]);
-    s = press(s, "i").state;
+    s = include(s).state;
     s = press(s, "u").state;
     const { effect } = press(s, "u");
     expect(effect).toEqual({ kind: "none" });
@@ -1176,7 +1226,7 @@ describe("the running count", () => {
   it("counts each card once however many times it is ruled", () => {
     // "How many of the pool have been dealt with", not "how many keys pressed".
     let s = stateOf([fullCard()]);
-    s = press(s, "i").state;
+    s = include(s).state;
     s = queueReducer(s, { type: "focus", index: 0 }).state;
     s = press(s, "e").state;
     expect(progress(s)).toEqual({ ruled: 1, total: 1 });
@@ -1194,7 +1244,7 @@ describe("the running count", () => {
     expect(progress(s)).toEqual({ ruled: 2, total: 3 });
     // …and ruling the one that is left does not double-count the other two.
     const onLast = queueReducer(s, { type: "select", graphNodeId: "ev-3" }).state;
-    expect(progress(press(onLast, "i").state)).toEqual({ ruled: 3, total: 3 });
+    expect(progress(include(onLast).state)).toEqual({ ruled: 3, total: 3 });
   });
 
   it("keeps `total` at the WHOLE pool while a filter narrows the view", () => {
@@ -1210,7 +1260,7 @@ describe("the running count", () => {
 
   it("survives a reload without throwing the human back to the top", () => {
     let s = stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]);
-    s = press(s, "i").state;
+    s = include(s).state;
     const reloaded = queueReducer(s, {
       type: "cards_loaded",
       cards: [fullCard(), fullCard({ graph_node_id: "ev-2" })],
@@ -1220,7 +1270,7 @@ describe("the running count", () => {
 
   it("clamps focus when a reload returns a shorter pool", () => {
     let s = stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]);
-    s = press(s, "i").state;
+    s = include(s).state;
     const reloaded = queueReducer(s, { type: "cards_loaded", cards: [fullCard()] }).state;
     expect(reloaded.index).toBe(0);
   });
@@ -1235,7 +1285,7 @@ describe("the running count", () => {
     // queue and cannot reach that list, so the count kept the card forever.
     const cards = () => [fullCard({ graph_node_id: "ev-3", code: "C-3" })];
     let s = stateOf(cards());
-    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    s = includeOn(s, "ev-3").state;
     expect(progress(s).ruled).toBe(1);
     expect(s.ruled).toContain("ev-3");
 
@@ -1249,7 +1299,7 @@ describe("the running count", () => {
     // The other half: reconciliation must not throw away a live entry just
     // because a reload happened.
     let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
-    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    s = includeOn(s, "ev-3").state;
 
     const server = [fullCard({ graph_node_id: "ev-3", code: "C-3" })].map((c) =>
       c.graph_node_id === "ev-3" ? { ...c, status: "included" as const } : c,
@@ -1266,7 +1316,7 @@ describe("the running count", () => {
       fullCard({ graph_node_id: "ev-3", code: "C-3" }),
       fullCard({ graph_node_id: "ev-4", code: "C-4" }),
     ]);
-    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    s = includeOn(s, "ev-3").state;
 
     const shorter = [fullCard({ graph_node_id: "ev-4", code: "C-4" })];
     const reloaded = queueReducer(s, { type: "cards_loaded", cards: shorter }).state;
@@ -1282,7 +1332,7 @@ describe("the running count", () => {
     // un-ruled: a write that creates a fact-ref row and a ledger entry for an act
     // that undoes nothing, and snaps the human's focus to where that card was.
     let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
-    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    s = includeOn(s, "ev-3").state;
     expect(s.lastRuling?.graphNodeId).toBe("ev-3");
 
     // The server's word: ev-3 is not ruled (it was removed from its fact row).
@@ -1300,7 +1350,7 @@ describe("the running count", () => {
     // The other half: an ordinary reload must not cost the human their single
     // step back.
     let s = stateOf([fullCard({ graph_node_id: "ev-3", code: "C-3" })]);
-    s = queueReducer(s, { type: "rule", key: "i", graphNodeId: "ev-3" }).state;
+    s = includeOn(s, "ev-3").state;
 
     const server = [fullCard({ graph_node_id: "ev-3", code: "C-3", status: "included" })];
     s = queueReducer(s, { type: "cards_loaded", cards: server }).state;
@@ -1335,9 +1385,14 @@ describe("the optimistic patch and the proposed facet", () => {
     // A ruling makes the card human-touched, so precedence R-a stops the server
     // proposing it — the very next payload has no `proposed` at all. The patch
     // has to agree with the payload it is standing in for.
-    for (const key of ["i", "e"] as const) {
-      const { state } = press(stateOf([proposedCard()]), key);
-      expect(state.cards[0].proposed, `${key} must clear the proposal`).toBeUndefined();
+    // I goes through the picker now, so it takes two steps to commit; E still
+    // rules on one press. Both must clear the proposal.
+    for (const ruling of [
+      { key: "i", commit: (s: QueueState) => include(s).state },
+      { key: "e", commit: (s: QueueState) => press(s, "e").state },
+    ]) {
+      const state = ruling.commit(stateOf([proposedCard()]));
+      expect(state.cards[0].proposed, `${ruling.key} must clear the proposal`).toBeUndefined();
     }
 
     // Defer goes through the prompt, so it takes two presses to commit.
@@ -1359,7 +1414,7 @@ describe("the optimistic patch and the proposed facet", () => {
     const pool = [proposedCard("ev-1"), proposedCard("ev-2"), proposedCard("ev-3")];
     expect(candidateCounts(pool).proposed).toBe(3);
 
-    const afterOne = press(stateOf(pool), "i").state;
+    const afterOne = include(stateOf(pool)).state;
     expect(candidateCounts(afterOne.cards).proposed).toBe(2);
 
     // And what the server would say, modelled as the payload it would return:
@@ -1376,7 +1431,7 @@ describe("the optimistic patch and the proposed facet", () => {
     // A card un-ruled is proposed again if the projection still proposes it. The
     // stash is the ORIGINAL served value — the browser restores what it was given
     // and never invents a proposal, which is a claim only precedence can make.
-    const ruled = press(stateOf([proposedCard()]), "i").state;
+    const ruled = include(stateOf([proposedCard()])).state;
     expect(ruled.cards[0].proposed).toBeUndefined();
 
     const undone = press(ruled, "u").state;
@@ -1410,7 +1465,7 @@ describe("save never moves the page — what the list is told to follow", () => 
   it("a ruling's own advance is NOT followed", () => {
     // THE HEADLINE. Press I on the first card: the selection advances to the
     // second, and the page must stay exactly where the human left it.
-    const ruled = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "i").state;
+    const ruled = include(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })])).state;
 
     expect(ruled.index).toBe(1);
     expect(ruled.follow).toBe(false);
@@ -1423,7 +1478,7 @@ describe("save never moves the page — what the list is told to follow", () => 
     const state = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "j").state;
     expect(state.follow).toBe(true);
 
-    const ruled = press(state, "i").state;
+    const ruled = include(state).state;
     expect(ruled.follow).toBe(false);
   });
 
@@ -1435,7 +1490,7 @@ describe("save never moves the page — what the list is told to follow", () => 
   });
 
   it("undo is followed — it is a request to go back to that card", () => {
-    const ruled = press(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })]), "i").state;
+    const ruled = include(stateOf([fullCard(), fullCard({ graph_node_id: "ev-2" })])).state;
     const undone = press(ruled, "u").state;
 
     expect(undone.index).toBe(0);
@@ -1474,5 +1529,197 @@ describe("save never moves the page — what the list is told to follow", () => 
 
   it("the queue arrives unfollowed — a page opens at its own top", () => {
     expect(initialQueueState([fullCard()]).follow).toBe(false);
+  });
+});
+
+// ─── Include asks before it files (CC_TASK_INCLUDE_PICKER_v1) ───────────────
+
+describe("Include opens the picker instead of ruling", () => {
+  /** A card that bears on one accusation, so the picker has a default. */
+  const withAccusation = () =>
+    fullCard({
+      graph_node_id: "ev-1",
+      bears_on: [
+        { allegation_id: "alleg-7", accusation: "A-7 — they knew", elements: [], count: null },
+      ],
+    });
+
+  it("THE DEFECT: I rules NOTHING and opens the row (M)", () => {
+    // Every Include in the queue returned HTTP 400, because the route has
+    // required the accusation and the stance since FACT_CARD_v2 §2 and this
+    // reducer sent neither. The button looked like it worked. Nothing was filed.
+    const { state, effect } = press(stateOf([withAccusation()]), "i");
+
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.mode).toEqual({
+      kind: "including",
+      graphNodeId: "ev-1",
+      allegationId: "alleg-7",
+      stance: "supports",
+    });
+    // The card is untouched until Save.
+    expect(state.cards[0].status).not.toBe("included");
+    expect(progress(state).ruled).toBe(0);
+  });
+
+  it("the BUTTON opens the same row as the keyboard (1.7D)", () => {
+    // One state machine, two input devices. Fixing only the button would leave
+    // `I` still returning 400, and two controls meaning different things.
+    const viaKey = press(stateOf([withAccusation()]), "i").state;
+    const viaClick = queueReducer(stateOf([withAccusation()]), {
+      type: "rule",
+      key: "i",
+      graphNodeId: "ev-1",
+    }).state;
+
+    expect(viaClick.mode).toEqual(viaKey.mode);
+  });
+
+  it("the row carries the card it was opened ON, not the selection", () => {
+    // 1.7G, applied to the picker: anything that moves the selection while a
+    // human is answering must not redirect the include.
+    const pool = [withAccusation(), fullCard({ graph_node_id: "ev-2" })];
+    const opened = queueReducer(stateOf(pool), {
+      type: "rule",
+      key: "i",
+      graphNodeId: "ev-2",
+    }).state;
+
+    expect(opened.mode).toMatchObject({ kind: "including", graphNodeId: "ev-2" });
+  });
+
+  it("opens with NOTHING chosen on a card that bears on nothing", () => {
+    // Instruction item 4. `fullCard` carries no bears-on by default.
+    const opened = press(stateOf([fullCard({ bears_on: [] })]), "i").state;
+
+    expect(opened.mode).toMatchObject({ kind: "including", allegationId: null });
+  });
+
+  it("Save files the include, carrying the pair (M)", () => {
+    const opened = press(stateOf([withAccusation()]), "i").state;
+    const { state, effect } = queueReducer(opened, { type: "include_save" });
+
+    expect(effect).toMatchObject({
+      kind: "rule",
+      graphNodeId: "ev-1",
+      action: "include",
+      allegationId: "alleg-7",
+      stance: "supports",
+    });
+    expect(state.mode).toEqual({ kind: "triage" });
+    expect(state.cards[0].status).toBe("included");
+  });
+
+  it("choosing an accusation changes the ACCUSATION, not the stance (M)", () => {
+    // The two `include_*` choice events are one line each and land on the same
+    // machine, so a handler wired to the wrong arm compiles, runs, and passes
+    // every test in `includePickerModel.test.ts` — while a curator picking a
+    // second accusation silently flips the stance instead.
+    const twoAccusations = fullCard({
+      graph_node_id: "ev-1",
+      bears_on: [
+        { allegation_id: "alleg-7", accusation: "A-7 — they knew", elements: [], count: null },
+        { allegation_id: "alleg-9", accusation: "A-9 — the funds", elements: [], count: null },
+      ],
+    });
+    const opened = press(stateOf([twoAccusations]), "i").state;
+
+    const after = queueReducer(opened, {
+      type: "include_allegation",
+      allegationId: "alleg-9",
+    }).state;
+
+    expect(after.mode).toEqual({
+      kind: "including",
+      graphNodeId: "ev-1",
+      allegationId: "alleg-9",
+      stance: "supports",
+    });
+
+    // And it reaches the wire on Save.
+    expect(queueReducer(after, { type: "include_save" }).effect).toMatchObject({
+      allegationId: "alleg-9",
+      stance: "supports",
+    });
+  });
+
+  it("Save sends the stance the human chose, not the default", () => {
+    let s = press(stateOf([withAccusation()]), "i").state;
+    s = queueReducer(s, { type: "include_stance", stance: "rebuts" }).state;
+
+    expect(queueReducer(s, { type: "include_save" }).effect).toMatchObject({
+      stance: "rebuts",
+    });
+  });
+
+  it("Cancel files NOTHING and closes the row (M)", () => {
+    const opened = press(stateOf([withAccusation()]), "i").state;
+    const { state, effect } = queueReducer(opened, { type: "include_cancel" });
+
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.mode).toEqual({ kind: "triage" });
+    expect(state.cards[0].status).not.toBe("included");
+    expect(progress(state).ruled).toBe(0);
+  });
+
+  it("Save is refused while no accusation is chosen", () => {
+    const opened = press(stateOf([fullCard({ bears_on: [] })]), "i").state;
+    const { state, effect } = queueReducer(opened, { type: "include_save" });
+
+    // The row stays OPEN rather than firing the round trip that would 400.
+    expect(effect).toEqual({ kind: "none" });
+    expect(state.mode).toMatchObject({ kind: "including" });
+  });
+
+  it("the row owns the keyboard: Esc cancels, Enter saves (M)", () => {
+    const opened = press(stateOf([withAccusation()]), "i").state;
+
+    expect(press(opened, "Escape").state.mode).toEqual({ kind: "triage" });
+    expect(press(opened, "Escape").effect).toEqual({ kind: "none" });
+
+    const saved = press(opened, "Enter");
+    expect(saved.effect).toMatchObject({ action: "include", allegationId: "alleg-7" });
+
+    // And a letter neither rules nor types while the row is open.
+    expect(press(opened, "e").effect).toEqual({ kind: "none" });
+    expect(press(opened, "j").state.index).toBe(opened.index);
+  });
+
+  it("a click on ANOTHER card's button abandons the open row rather than eating it", () => {
+    // The prompt owns the keyboard, not the mouse — `deferring`'s own rule.
+    const pool = [withAccusation(), fullCard({ graph_node_id: "ev-2" })];
+    const opened = press(stateOf(pool), "i").state;
+
+    const { state, effect } = queueReducer(opened, {
+      type: "rule",
+      key: "e",
+      graphNodeId: "ev-2",
+    });
+
+    expect(effect).toMatchObject({ graphNodeId: "ev-2", action: "drop" });
+    expect(state.mode).toEqual({ kind: "triage" });
+  });
+
+  it("but I on the card the row is ALREADY open for changes nothing", () => {
+    // Re-opening would discard a half-answered question to ask it again.
+    const opened = press(stateOf([withAccusation()]), "i").state;
+    const again = queueReducer(opened, { type: "rule", key: "i", graphNodeId: "ev-1" });
+
+    expect(again.state.mode).toEqual(opened.mode);
+    expect(again.effect).toEqual({ kind: "none" });
+  });
+
+  it("Exclude, Defer and Undo are UNTOUCHED (M)", () => {
+    // The blast radius. Only Include changed; the other three rule exactly as
+    // they did, on one press.
+    const pool = [withAccusation(), fullCard({ graph_node_id: "ev-2" })];
+
+    expect(press(stateOf(pool), "e").effect).toMatchObject({ action: "drop" });
+    expect(press(stateOf(pool), "d").state.mode).toMatchObject({ kind: "deferring" });
+
+    // Undo always emits `reopen` — one word for taking any ruling back (see
+    // `undoLast`), whichever ruling it was.
+    const ruled = press(stateOf(pool), "e").state;
+    expect(press(ruled, "u").effect).toMatchObject({ action: "reopen" });
   });
 });

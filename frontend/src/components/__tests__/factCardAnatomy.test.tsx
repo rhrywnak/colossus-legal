@@ -81,6 +81,7 @@ describe("the rendered card puts its landmark in the same place, always", () => 
           statementKind: "partial admission",
           bearsOn: [
             {
+              allegation_id: "alleg-41",
               accusation: `A-41 — ${"B".repeat(180)}`,
               elements: ["Duty", "Breach", "Reliance", "Damages"],
               count: "Count 2 — Fraud",

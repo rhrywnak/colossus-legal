@@ -86,6 +86,16 @@ pub struct CardGrammarWordingDto {
     pub chip_filter_hint_template: String,
     /// Carries `{value}`.
     pub chip_filter_clear_template: String,
+
+    // The Include picker (CC_TASK_INCLUDE_PICKER_v1). "Helps us" / "Helps them"
+    // are the human half of the stance mapping; the wire tokens stay `supports`
+    // and `rebuts` — see `domain::wording_card_grammar`.
+    pub include_picker_label: String,
+    pub include_picker_choose_prompt: String,
+    pub include_picker_helps_us_label: String,
+    pub include_picker_helps_them_label: String,
+    pub include_picker_save_label: String,
+    pub include_picker_cancel_label: String,
 }
 
 /// ## Rust Learning: `From<&T>` rather than `From<T>`
@@ -132,6 +142,12 @@ impl From<&CardGrammarWording> for CardGrammarWordingDto {
             reset_order_failed_template: w.reset_order_failed_template.clone(),
             chip_filter_hint_template: w.chip_filter_hint_template.clone(),
             chip_filter_clear_template: w.chip_filter_clear_template.clone(),
+            include_picker_label: w.include_picker_label.clone(),
+            include_picker_choose_prompt: w.include_picker_choose_prompt.clone(),
+            include_picker_helps_us_label: w.include_picker_helps_us_label.clone(),
+            include_picker_helps_them_label: w.include_picker_helps_them_label.clone(),
+            include_picker_save_label: w.include_picker_save_label.clone(),
+            include_picker_cancel_label: w.include_picker_cancel_label.clone(),
         }
     }
 }

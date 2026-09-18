@@ -24,6 +24,9 @@ const SEED_MIGRATIONS: &[&str] = &[
     // The facts-header rebuild, 2026-09-11: `card_more_actions_label`, the
     // accessible name of the ⋯ overflow that Reset order moved inside.
     "pipeline_migrations/20260911144911_scan_header_confirm_wording.sql",
+    // The Include picker's six (CC_TASK_INCLUDE_PICKER_v1): the row that asks
+    // which accusation a fact goes under, and which way it cuts.
+    "pipeline_migrations/20260917201033_include_picker_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -103,6 +106,12 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_CHIP_FILTER_CLEAR,
         "Showing only {value} — show everything",
     ),
+    (KEY_INCLUDE_PICKER_LABEL, "Include under:"),
+    (KEY_INCLUDE_PICKER_CHOOSE, "Choose an accusation…"),
+    (KEY_INCLUDE_PICKER_HELPS_US, "Helps us"),
+    (KEY_INCLUDE_PICKER_HELPS_THEM, "Helps them"),
+    (KEY_INCLUDE_PICKER_SAVE, "Save"),
+    (KEY_INCLUDE_PICKER_CANCEL, "Cancel"),
 ];
 
 impl CardGrammarWording {

@@ -305,10 +305,25 @@ fn build_bears_on(links: &[ExtrasLink]) -> Vec<CardBearsOn> {
         // than returning a `&mut` from one and `last_mut()` from the other) avoids
         // an `.expect()` on a "we just pushed" invariant — the borrow checker is
         // satisfied by an index, and there is no unwrap left to justify.
-        let index = match out.iter().position(|b| b.accusation == accusation) {
+        //
+        // ## Domain note: deduped on the ID, not on the sentence (2026-09-17)
+        //
+        // This matched on `b.accusation == accusation` until the Include picker
+        // gave the struct an id. Two different accusations can render the SAME
+        // sentence — `accusation_text` falls back to the id only when a paragraph
+        // and a summary are both absent, and two untitled paragraphs under one
+        // count read identically — so the old test merged them into one entry and
+        // the second accusation's elements were filed under the first. On an id
+        // that cannot happen, and the picker's options can no longer contain two
+        // rows a human cannot tell apart.
+        let index = match out
+            .iter()
+            .position(|b| b.allegation_id == link.allegation_id)
+        {
             Some(index) => index,
             None => {
                 out.push(CardBearsOn {
+                    allegation_id: link.allegation_id.clone(),
                     accusation,
                     elements: Vec::new(),
                     count,

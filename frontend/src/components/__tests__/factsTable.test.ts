@@ -44,7 +44,9 @@ function card(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
     speaker: { name: "R. Phillips", attribution: "extracted" },
     statement_kind: "admission",
     stance: null,
-    bears_on: [{ accusation: "¶54 — CFS knew of the meeting", elements: [], count: null }],
+    bears_on: [
+      { allegation_id: "alleg-54", accusation: "¶54 — CFS knew of the meeting", elements: [], count: null },
+    ],
     grounding: null,
     confidence: { band: "unscored", label: "Not scored by a scan" },
     status: "included",
@@ -315,7 +317,14 @@ describe("arrivedIds", () => {
     const [row] = includedRows([
       card({
         status: "included",
-        bears_on: [{ accusation: "\u00b655 — regularly misrepresented", elements: [], count: null }],
+        bears_on: [
+          {
+            allegation_id: "alleg-55",
+            accusation: "\u00b655 — regularly misrepresented",
+            elements: [],
+            count: null,
+          },
+        ],
         human_links: [
           {
             allegation_id: "a-41",

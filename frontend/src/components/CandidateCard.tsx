@@ -53,6 +53,7 @@ import {
 export { cardStyle, chipStyle };
 
 import EvidenceCardBody from "./EvidenceCardBody";
+import IncludePickerRow, { type IncludePickerProps } from "./IncludePickerRow";
 import AllegationTypeahead from "./AllegationTypeahead";
 import { HumanLinkSection } from "./HumanLinkSection";
 import { needsLinking } from "./cardLinking";
@@ -208,6 +209,17 @@ export const CandidateCard: React.FC<{
   deferInputRef?: React.RefObject<HTMLInputElement>;
   onDeferDraft?: (draft: string) => void;
   /**
+   * The Include picker, when the row is open on THIS card — `null` otherwise.
+   *
+   * ONE prop rather than seven, and not only for the line count: the row's
+   * state and its four handlers are meaningless apart, and a card handed the
+   * handlers but no state (or the reverse) would be a shape this type currently
+   * makes unrepresentable. The list hands it over only when the mode NAMES this
+   * card, so a card can render a row it is not the subject of by no route at
+   * all — the same fence `deferring` carries above.
+   */
+  includePicker?: IncludePickerProps | null;
+  /**
    * Narrow the queue to a chip's value (Piece 7).
    *
    * Optional: a list with no filter of its own passes nothing, and the chips
@@ -230,6 +242,7 @@ export const CandidateCard: React.FC<{
   deferring = null,
   deferInputRef,
   onDeferDraft,
+  includePicker = null,
   onFilterChip,
 }) => {
   // ONE view, from the shared builder. `null` until the stored words load —
@@ -432,6 +445,15 @@ export const CandidateCard: React.FC<{
         <div style={{ fontSize: "12.5px", color: "var(--text-muted)" }}>
           {proposedAttribution}
         </div>
+      )}
+
+      {/* Include asks before it files. At the BOTTOM of the card, under
+          "Proposed by the … scan", where the mockup draws it: this row asks the
+          human to CHECK an accusation against the quote above it, unlike the
+          defer prompt, which asks for a sentence and sits by the buttons.
+          `IncludePickerRow`'s own header carries the rest. */}
+      {includePicker && linkOptions && (
+        <IncludePickerRow {...includePicker} wording={linkOptions.card_grammar} />
       )}
 
       {/* A reason a HUMAN gave, distinct from the system's defer notice above. */}
