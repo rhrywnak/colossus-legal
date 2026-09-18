@@ -47,6 +47,12 @@ pub mod scenario_card;
 pub mod scenario_crud;
 pub mod scenario_curation;
 pub mod scenario_facts;
+
+/// The Include wire contract, proved against `contracts/fact_action_include.json`
+/// — the artifact the frontend's own test reads (CC_TASK_INCLUDE_PICKER_v1).
+#[cfg(test)]
+#[path = "scenario_facts_wire_tests.rs"]
+mod scenario_facts_wire_tests;
 pub mod scenario_orphans;
 pub mod schema;
 pub mod settings;

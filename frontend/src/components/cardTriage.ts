@@ -53,11 +53,16 @@
 // The one string it ever holds is `notice`, and that is the backend's own
 // `defer_required_reason` passed through untouched.
 
-import type { ScenarioCard } from "../services/scenarioCards";
+import type { CardFactStance, ScenarioCard } from "../services/scenarioCards";
 import type { LinkCut } from "../services/evidenceLinks";
 import type { FactAction } from "../services/scenarioGather";
 import { candidateState } from "./candidateFilters";
 import { linkOnCard, unlinkOnCard } from "./cardLinking";
+import {
+  includePickerStep,
+  type IncludePicking,
+  type IncludePickerAction,
+} from "./includePickerModel";
 
 // ─── The keyboard state machine ─────────────────────────────────────────────
 
@@ -104,7 +109,23 @@ export type QueueMode =
    * The prompt now remembers the card it was opened on, so Enter can only ever
    * commit to that one.
    */
-  | { kind: "deferring"; draft: string; graphNodeId: string };
+  | { kind: "deferring"; draft: string; graphNodeId: string }
+  /**
+   * The Include picker is open on one card; Include has not fired.
+   *
+   * ## Why Include stopped being a one-press ruling (CC_TASK_INCLUDE_PICKER_v1)
+   *
+   * Including a fact writes the Proof Matrix link as well as the ruling (§2,
+   * ruling R32), so the route refuses an include that does not name the
+   * accusation it bears on and which way it cuts. This reducer sent neither, so
+   * every Include in the queue returned 400 — the button looked like it worked
+   * and nothing was ever filed.
+   *
+   * The two answers live in the MODE, on the same law as `deferring` above: the
+   * card is captured when the row opens, so nothing that moves the selection
+   * while a human is choosing can redirect the include to another card.
+   */
+  | ({ kind: "including" } & IncludePicking);
 
 /** The last ruling, kept for single-step undo. */
 export type LastRuling = {
@@ -194,7 +215,16 @@ export type QueueState = {
 
 /** A ruling the reducer wants the caller to send to the backend. */
 export type QueueEffect =
-  | { kind: "rule"; graphNodeId: string; action: FactAction; reason?: string }
+  | {
+      kind: "rule";
+      graphNodeId: string;
+      action: FactAction;
+      reason?: string;
+      /** The accusation an INCLUDE files under, and which way it cuts. Present
+       *  together or not at all — a half-pair is what the route refuses. */
+      allegationId?: string;
+      stance?: CardFactStance;
+    }
   /**
    * A human's link from one statement to one or more accusations (task 2.10).
    *
@@ -224,6 +254,12 @@ export type QueueEvent =
   /** The filter bar reporting which cards it leaves visible, in display order. */
   | { type: "visible"; ids: string[] }
   | { type: "defer_draft"; draft: string }
+  /** The Include picker's four. Each acts on the row's OWN card, never the
+   *  selection — the mode carries the target. */
+  | { type: "include_allegation"; allegationId: string }
+  | { type: "include_stance"; stance: CardFactStance }
+  | { type: "include_save" }
+  | { type: "include_cancel" }
   /**
    * The link control on ONE card, saved (task 2.10, ruling R1).
    *
@@ -585,9 +621,78 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
           }
         : { state, effect: NONE };
 
+    case "include_allegation":
+      return stepPicker(state, { type: "chooseAllegation", allegationId: event.allegationId });
+
+    case "include_stance":
+      return stepPicker(state, { type: "chooseStance", stance: event.stance });
+
+    case "include_save":
+      return stepPicker(state, { type: "save" });
+
+    case "include_cancel":
+      return stepPicker(state, { type: "cancel" });
+
     case "key":
       return handleKey(state, event.key, event.typing);
   }
+}
+
+/**
+ * The mode an Include click opens, defaulted from the card's OWN bears-on.
+ *
+ * The scenario's other accusations are in the select too (the component builds
+ * that list), but the DEFAULT is the card's first bears-on, because that is what
+ * the human is reading when they press Include. A card the extraction linked to
+ * nothing opens with nothing chosen and Save refused — never defaulted into a
+ * scenario-wide list, which would file a fact under an accusation nobody picked.
+ */
+function openPicker(card: ScenarioCard): QueueMode {
+  const opened = includePickerStep(
+    { phase: "closed" },
+    {
+      type: "open",
+      graphNodeId: card.graph_node_id,
+      options: card.bears_on.map((b) => ({ allegationId: b.allegation_id, label: b.accusation })),
+    },
+  ).state;
+  // `open` always yields `picking`; the check is the type system's, not a doubt.
+  return opened.phase === "picking"
+    ? { kind: "including", graphNodeId: opened.graphNodeId, allegationId: opened.allegationId, stance: opened.stance }
+    : { kind: "triage" };
+}
+
+/**
+ * Hand one picker action to the picker's own machine, and turn its commit into
+ * this reducer's ruling.
+ *
+ * ## Why the include goes through `rule()` like every other ruling
+ *
+ * A saved include IS a ruling — it patches the card, advances the queue, and is
+ * undoable — and it must be all three in exactly the way E and D are. The only
+ * difference is that its effect carries two more fields. Routing it anywhere
+ * else would give the queue a second way to rule a card, which is how the
+ * keyboard and the buttons drifted apart the first time (1.7D).
+ */
+function stepPicker(state: QueueState, action: IncludePickerAction): QueueResult {
+  if (state.mode.kind !== "including") return { state, effect: NONE };
+
+  const { state: next, commit } = includePickerStep({ phase: "picking", ...state.mode }, action);
+  const mode: QueueMode =
+    next.phase === "picking"
+      ? { kind: "including", graphNodeId: next.graphNodeId, allegationId: next.allegationId, stance: next.stance }
+      : { kind: "triage" };
+
+  if (!commit) return { state: { ...state, mode }, effect: NONE };
+
+  const ruled = rule(state, commit.graphNodeId, "include");
+  return {
+    state: { ...ruled.state, mode: { kind: "triage" } },
+    effect:
+      ruled.effect.kind === "rule"
+        ? { ...ruled.effect, allegationId: commit.allegationId, stance: commit.stance }
+        : ruled.effect,
+  };
 }
 
 /**
@@ -616,6 +721,17 @@ function handleCardRuling(state: QueueState, key: RulingKey, graphNodeId: string
     return rulingOn({ ...state, mode: { kind: "triage" }, notice: null }, card, key);
   }
 
+  // The Include picker follows the same rule, for the same reason: a click on a
+  // named card's own button is an unambiguous statement about that card. The one
+  // exception is I on the very card the row is already open for — re-opening it
+  // would discard a half-answered question to ask it again.
+  if (state.mode.kind === "including") {
+    if (key === "i" && state.mode.graphNodeId === card.graph_node_id) {
+      return { state, effect: NONE };
+    }
+    return rulingOn({ ...state, mode: { kind: "triage" }, notice: null }, card, key);
+  }
+
   // A ruling is also the end of any refusal message left on screen.
   const cleared = state.notice === null ? state : { ...state, notice: null };
   return rulingOn(cleared, card, key);
@@ -627,6 +743,15 @@ function handleKey(state: QueueState, key: string, typing: boolean): QueueResult
   // The defer prompt owns the keyboard while it is open.
   if (state.mode.kind === "deferring") {
     return handleDeferKey(state, key, state.mode.draft, state.mode.graphNodeId);
+  }
+
+  // So does the Include picker, on the same grammar: Esc abandons, Enter commits.
+  // Without this, `i` while the row is open would re-open it over a half-answered
+  // one and `e` would drop the card out from under the question.
+  if (state.mode.kind === "including") {
+    if (key === "Escape") return stepPicker(state, { type: "cancel" });
+    if (key === "Enter") return stepPicker(state, { type: "save" });
+    return { state, effect: NONE };
   }
 
   // The typing guard: while focus is in a field, letters type, they do not rule.
@@ -702,8 +827,21 @@ function rulingOn(state: QueueState, card: ScenarioCard, key: RulingKey): QueueR
           effect: NONE,
         };
       }
-      const action: FactAction = key === "i" ? "include" : "drop";
-      return rule(state, card.graph_node_id, action);
+      // ── Include ASKS; Exclude still rules ────────────────────────────────
+      //
+      // `i` opens the picker and files nothing. This is the whole defect: the
+      // route needs the accusation and the stance, and the only honest place to
+      // get them is the human who is looking at the card. `e` is unchanged — a
+      // drop is scenario-scoped and takes no object.
+      //
+      // The options are computed by the CALLER (the component knows the
+      // scenario's own accusations; this reducer knows only cards) and arrive on
+      // the `include_open` event. Reached through the button or the keyboard,
+      // both land here — 1.7D's one-state-machine law.
+      if (key === "i") {
+        return { state: { ...state, mode: openPicker(card) }, effect: NONE };
+      }
+      return rule(state, card.graph_node_id, "drop");
     }
 
     case "d": {

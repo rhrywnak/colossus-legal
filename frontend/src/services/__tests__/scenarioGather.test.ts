@@ -129,13 +129,39 @@ describe("applyFactAction", () => {
     global.fetch = fetchMock;
 
     await expect(
-      applyFactAction(SLUG, SCENARIO, NODE, "defer", "waiting on a clean copy"),
+      applyFactAction(SLUG, SCENARIO, NODE, "defer", { reason: "waiting on a clean copy" }),
     ).resolves.toBeUndefined();
 
     const [, options] = fetchMock.mock.calls[0];
     expect(JSON.parse(options.body)).toEqual({
       action: "defer",
       reason: "waiting on a clean copy",
+    });
+  });
+
+  it("carries the accusation and the stance on an INCLUDE (M)", async () => {
+    // The defect this task exists for, asserted through the WRAPPER rather than
+    // through the body builder alone: `factActionBody` is pure and pinned
+    // byte-for-byte in `factActionBody.test.ts`, but nothing there proves this
+    // function actually passes its options along. A refactor that called
+    // `factActionBody(action, {})` would leave every one of those tests green
+    // and put every Include back on HTTP 400.
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+    // @ts-ignore
+    global.fetch = fetchMock;
+
+    await expect(
+      applyFactAction(SLUG, SCENARIO, NODE, "include", {
+        allegationId: "alleg-7",
+        stance: "supports",
+      }),
+    ).resolves.toBeUndefined();
+
+    const [, options] = fetchMock.mock.calls[0];
+    expect(JSON.parse(options.body)).toEqual({
+      action: "include",
+      allegation_id: "alleg-7",
+      stance: "supports",
     });
   });
 

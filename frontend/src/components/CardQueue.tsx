@@ -239,6 +239,7 @@ const CardQueue: React.FC<Props> = ({
   // pick "Not ruled" every time and then not correct itself.
   const [filters, setFilters] = useState<CandidateFilters | null>(null);
   const deferInputRef = useRef<HTMLInputElement | null>(null);
+  const includeSelectRef = useRef<HTMLSelectElement | null>(null);
 
   // `load` is defined below and the failure handler needs it, so the handler
   // reaches it through a ref — a plain closure would capture the first `load`.
@@ -361,6 +362,10 @@ const CardQueue: React.FC<Props> = ({
   // reaches for the mouse mid-triage.
   useEffect(() => {
     if (state.mode.kind === "deferring") deferInputRef.current?.focus();
+    // The same courtesy for the Include picker: the row opens with the
+    // accusation already aimed at, so a human answering from the keyboard never
+    // reaches for the mouse to choose one.
+    if (state.mode.kind === "including") includeSelectRef.current?.focus();
   }, [state.mode.kind]);
 
   // ONE derivation of the counts and ONE of the visible list (ruling R1): a second
@@ -561,6 +566,16 @@ const CardQueue: React.FC<Props> = ({
         deferring={state.mode.kind === "deferring" ? state.mode : null}
         deferInputRef={deferInputRef}
         onDeferDraft={(draft) => dispatch({ type: "defer_draft", draft })}
+        // Include asks its two questions here, on the card the mode names —
+        // same site, same law as the defer prompt above.
+        including={state.mode.kind === "including" ? state.mode : null}
+        includeSelectRef={includeSelectRef}
+        onIncludeAllegation={(allegationId) =>
+          dispatch({ type: "include_allegation", allegationId })
+        }
+        onIncludeStance={(stance) => dispatch({ type: "include_stance", stance })}
+        onIncludeSave={() => dispatch({ type: "include_save" })}
+        onIncludeCancel={() => dispatch({ type: "include_cancel" })}
       />
 
     </div>

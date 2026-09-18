@@ -48,6 +48,7 @@ const dressed = () =>
     contextAfter: "…the following paragraph…",
     bearsOn: [
       {
+        allegation_id: "alleg-45",
         accusation: "A-45 — misrepresented the cause of the $30,000 costs",
         elements: [
           "Breach of the fiduciary duty",
@@ -238,7 +239,7 @@ describe("element chips compress beyond K and expand on demand", () => {
   it("offers no control when nothing folds", () => {
     const view = evidenceCardView(
       cardFixture({
-        bearsOn: [{ accusation: "A-41 — a thing", elements: ["Duty"], count: null }],
+        bearsOn: [{ allegation_id: "alleg-41", accusation: "A-41 — a thing", elements: ["Duty"], count: null }],
       }),
       grammar,
       limits,
@@ -252,7 +253,7 @@ describe("element chips compress beyond K and expand on demand", () => {
     // unable to say anything about damages.
     const elements = Array.from({ length: 9 }, (_, i) => `Element ${i}`);
     const view = evidenceCardView(
-      cardFixture({ bearsOn: [{ accusation: "A-1 — x", elements, count: null }] }),
+      cardFixture({ bearsOn: [{ allegation_id: "alleg-1", accusation: "A-1 — x", elements, count: null }] }),
       grammar,
       limits,
     );

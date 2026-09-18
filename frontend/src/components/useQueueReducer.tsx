@@ -173,7 +173,14 @@ export function useReducerWithEffects(
       // be reported to the human as "that ruling did not save", about a ruling
       // that saved perfectly. The rejection handler here sees only the request's
       // own failure.
-      applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, effect.reason).then(
+      applyFactAction(slug, scenarioId, effect.graphNodeId, effect.action, {
+        reason: effect.reason,
+        // Present only on an include the picker answered; `factActionBody` omits
+        // the pair entirely for every other action, so those bodies are
+        // byte-identical to what this sent before the picker existed.
+        allegationId: effect.allegationId,
+        stance: effect.stance,
+      }).then(
         () => {
           onRulingSaved();
           onRulingOutcome({

@@ -26,8 +26,9 @@ import React, { useEffect, useRef } from "react";
 
 import { CandidateCard } from "./CandidateCard";
 import { candidateState } from "./candidateFilters";
+import { includeOptions } from "./includePickerModel";
 import type { RulingKey } from "./cardTriage";
-import type { ScenarioCard } from "../services/scenarioCards";
+import type { CardFactStance, ScenarioCard } from "../services/scenarioCards";
 import type { RulingReceipt } from "./rulingAcknowledgment";
 import type { ChipFilter } from "./evidenceCardModel";
 import type { AllegationOptions, LinkCut } from "../services/evidenceLinks";
@@ -129,6 +130,14 @@ const CandidateList: React.FC<{
   deferring: { graphNodeId: string; draft: string } | null;
   deferInputRef: React.RefObject<HTMLInputElement>;
   onDeferDraft: (draft: string) => void;
+  /** The Include picker's mode, threaded exactly as `deferring` is: each card is
+   *  handed it only when it names that card. */
+  including: ({ graphNodeId: string } & { allegationId: string | null; stance: CardFactStance }) | null;
+  includeSelectRef: React.RefObject<HTMLSelectElement>;
+  onIncludeAllegation: (allegationId: string) => void;
+  onIncludeStance: (stance: CardFactStance) => void;
+  onIncludeSave: () => void;
+  onIncludeCancel: () => void;
   /**
    * "Proposed by the Aug 7 scan", or `null` when nothing is being proposed
    * (2026-08-08).
@@ -155,6 +164,12 @@ const CandidateList: React.FC<{
   deferring,
   deferInputRef,
   onDeferDraft,
+  including,
+  includeSelectRef,
+  onIncludeAllegation,
+  onIncludeStance,
+  onIncludeSave,
+  onIncludeCancel,
 }) => {
   // One ref for the selected row, re-pointed on every render. A map of refs would
   // let the effect scroll a card that is no longer selected.
@@ -258,6 +273,24 @@ const CandidateList: React.FC<{
               deferring={deferring?.graphNodeId === card.graph_node_id ? deferring : null}
               deferInputRef={deferInputRef}
               onDeferDraft={onDeferDraft}
+              // The row, only on the card the mode NAMES. Its options are built
+              // per card: the card's OWN bears-on first, then the scenario's.
+              includePicker={
+                including?.graphNodeId === card.graph_node_id
+                  ? {
+                      options: linkOptions
+                        ? includeOptions(card.bears_on, linkOptions.serving)
+                        : [],
+                      allegationId: including.allegationId,
+                      stance: including.stance,
+                      selectRef: includeSelectRef,
+                      onAllegation: onIncludeAllegation,
+                      onStance: onIncludeStance,
+                      onSave: onIncludeSave,
+                      onCancel: onIncludeCancel,
+                    }
+                  : null
+              }
               keyboardRefused={selected && notice !== null}
             />
           </div>

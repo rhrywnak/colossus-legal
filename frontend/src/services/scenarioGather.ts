@@ -19,6 +19,7 @@
 // =============================================================================
 
 import type { BiasInstance } from "./bias";
+import type { CardFactStance } from "./scenarioCards";
 import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
@@ -149,6 +150,59 @@ export async function gatherCandidates(
 }
 
 /**
+ * The fields an action may carry beyond its own name.
+ *
+ * ## Why an options object and not two more positionals
+ *
+ * The call was `(slug, scenarioId, nodeId, action, reason?)`. Adding the two
+ * include fields positionally would make it seven arguments whose fourth, sixth
+ * and seventh are optional strings — a shape where transposing two of them
+ * compiles, runs, and files a fact under a stance. Named fields cannot be
+ * transposed.
+ */
+export interface FactActionOptions {
+  /** Required for `defer`, refused for every other action (backend law). */
+  reason?: string;
+  /** The accusation an INCLUDE files the fact under (FACT_CARD_v2 §2). */
+  allegationId?: string;
+  /** Which way it cuts. Travels with `allegationId` or not at all. */
+  stance?: CardFactStance;
+}
+
+/**
+ * The exact bytes one action POSTs.
+ *
+ * ## Why this is a pure exported function and not an inline `JSON.stringify`
+ *
+ * It is the thing that was WRONG. Including a fact has required the accusation
+ * and the stance since FACT_CARD_v2 §2, this composed `{action}`, and every
+ * Include in the triage queue came back 400 — for months, with both test suites
+ * green, because each side only ever checked itself. Pulling the body out to a
+ * pure function gives the contract something to be asserted against:
+ * `contracts/fact_action_include.json` holds the bytes, this function's test
+ * compares to them, and the BACKEND's test parses the same file.
+ *
+ * ## Domain note: a key absent is not a key null
+ *
+ * `reason` is omitted entirely for a non-defer, and the link pair is omitted
+ * entirely for a non-include. The backend carries `deny_unknown_fields`, so a
+ * key it does not expect for that action is a 400 rather than something quietly
+ * ignored — and every non-include body is byte-identical to what this sent
+ * before the picker existed, which its own test asserts.
+ */
+export function factActionBody(action: FactAction, options: FactActionOptions = {}): string {
+  const { reason, allegationId, stance } = options;
+
+  // The include pair travels TOGETHER or not at all. A half-pair is the state
+  // the backend refuses by name (`include_link`), and sending one would turn a
+  // picker bug into an HTTP error a human has to interpret.
+  if (action === "include" && allegationId != null && stance != null) {
+    return JSON.stringify({ action, allegation_id: allegationId, stance });
+  }
+  return JSON.stringify(reason == null ? { action } : { action, reason });
+}
+
+/**
  * Apply one human ruling to a candidate via `POST …/facts/:graphNodeId/action`.
  *
  * The backend returns `200 OK` with no meaningful body — the resolved promise
@@ -165,17 +219,14 @@ export async function applyFactAction(
   scenarioId: string,
   graphNodeId: string,
   action: FactAction,
-  /** Required for `defer`, refused for every other action (backend law). The
-   *  key is omitted entirely when absent, so a non-defer body is unchanged from
-   *  before this parameter existed. */
-  reason?: string,
+  options: FactActionOptions = {},
 ): Promise<void> {
   const response = await authFetch(
     `${factsUrl(slug, scenarioId)}/${encodeURIComponent(graphNodeId)}/action`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(reason == null ? { action } : { action, reason }),
+      body: factActionBody(action, options),
     },
   );
 

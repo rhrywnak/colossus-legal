@@ -800,12 +800,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         CARD_GRAMMAR_WORDING_KEYS.len(),
-        34,
+        40,
         "ONE_CARD_GRAMMAR: the queue frame's seven, the card body's eleven, \
          linking's four, the fact wrapper's nine, the two chip-filter \
          sentences, .396's already-linked note — the sentence the panel speaks \
-         now that it stays after the first link — and the facts header's ⋯ \
-         overflow, whose glyph has no accessible name of its own"
+         now that it stays after the first link — the facts header's ⋯ \
+         overflow, whose glyph has no accessible name of its own, and the \
+         Include picker's SIX: the row that finally asks which accusation a \
+         fact goes under and which way it cuts, after a year of that button \
+         returning 400"
     );
     assert_eq!(
         MODEL_PARAMS_WORDING_KEYS.len(),

@@ -200,6 +200,25 @@ pub struct CardStance {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct CardBearsOn {
+    /// The accusation's own id — what the browser names BACK to the server.
+    ///
+    /// ## Domain note: why the id travels and the sentence is not enough
+    ///
+    /// Added 2026-09-17 for the Include picker. A human picks an accusation by
+    /// reading it, and the server needs the id to write the Matrix link
+    /// (`api::scenario_fact_include`). Without this field the browser's only way
+    /// back to an id is to match the label it rendered against the link-options
+    /// list by string equality — a join that fails silently the day one of those
+    /// labels is re-worded, and re-wording is what a settings store is FOR.
+    ///
+    /// ## Rust Learning: adding a field under `deny_unknown_fields`
+    ///
+    /// The attribute on this struct constrains DESERIALIZATION — it refuses a
+    /// payload carrying a key this type does not declare. Adding a field is
+    /// therefore safe in the direction this struct travels: it is serialized to
+    /// the browser, and a client that does not know the key simply ignores it.
+    /// The refusal would only bite if something sent this type back.
+    pub allegation_id: String,
     /// The accusation in complaint language, paragraph-numbered when known.
     pub accusation: String,
     /// The elements this accusation goes to.

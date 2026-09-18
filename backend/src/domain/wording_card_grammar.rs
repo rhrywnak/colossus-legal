@@ -170,6 +170,37 @@ pub struct CardGrammarWording {
     pub chip_filter_hint_template: String,
     /// The control that drops a chip filter. Carries `{value}`.
     pub chip_filter_clear_template: String,
+
+    // ── The Include picker (CC_TASK_INCLUDE_PICKER_v1) ───────────────────────
+    //
+    // Clicking Include asks two questions before it fires: under WHICH accusation,
+    // and which WAY the fact cuts. Six sentences, because every one of them is a
+    // thing a human reads on a control that writes to the Proof Matrix.
+    /// The row's opening words, before the accusation picker.
+    pub include_picker_label: String,
+    /// The empty option on a card whose accusation nobody has chosen yet.
+    ///
+    /// Domain note: a card with no bears-on opens with NO default, because
+    /// defaulting to the first of a scenario-wide list would file a fact under an
+    /// accusation nobody picked. This is the sentence that empty state speaks.
+    pub include_picker_choose_prompt: String,
+    /// The `supports` half of the stance control, in a human's words.
+    ///
+    /// ## Domain note: two vocabularies, mapped in ONE place
+    ///
+    /// The graph's tokens are `supports` and `rebuts` (`domain::fact_card`), and
+    /// they are never renamed — 802/142 edges carry them and the drafted cards on
+    /// disk are written in them. What a curator reads is "Helps us" / "Helps
+    /// them", which is the question they are actually answering. These two rows
+    /// are that mapping's human half; the wire half is a literal in the picker,
+    /// beside a comment saying so.
+    pub include_picker_helps_us_label: String,
+    /// The `rebuts` half.
+    pub include_picker_helps_them_label: String,
+    /// Commits the pair.
+    pub include_picker_save_label: String,
+    /// Closes the row and sends nothing.
+    pub include_picker_cancel_label: String,
 }
 
 // KEYS: the stable identifiers of the stored strings. Renaming one is a
@@ -210,6 +241,13 @@ pub(crate) const KEY_RESET_ORDER_FAILED: &str = "card_reset_order_failed_templat
 pub(crate) const KEY_ALREADY_LINKED_NOTE: &str = "card_already_linked_note";
 pub(crate) const KEY_CHIP_FILTER_HINT: &str = "card_chip_filter_hint_template";
 pub(crate) const KEY_CHIP_FILTER_CLEAR: &str = "card_chip_filter_clear_template";
+/// The Include picker's six (CC_TASK_INCLUDE_PICKER_v1).
+pub(crate) const KEY_INCLUDE_PICKER_LABEL: &str = "card_include_picker_label";
+pub(crate) const KEY_INCLUDE_PICKER_CHOOSE: &str = "card_include_picker_choose_prompt";
+pub(crate) const KEY_INCLUDE_PICKER_HELPS_US: &str = "card_include_picker_helps_us_label";
+pub(crate) const KEY_INCLUDE_PICKER_HELPS_THEM: &str = "card_include_picker_helps_them_label";
+pub(crate) const KEY_INCLUDE_PICKER_SAVE: &str = "card_include_picker_save_label";
+pub(crate) const KEY_INCLUDE_PICKER_CANCEL: &str = "card_include_picker_cancel_label";
 
 /// Every card-grammar key this build reads, so a missing one is caught at boot BY
 /// NAME rather than as a blank control in front of a human mid-triage.
@@ -248,6 +286,12 @@ pub const CARD_GRAMMAR_WORDING_KEYS: &[&str] = &[
     KEY_ALREADY_LINKED_NOTE,
     KEY_CHIP_FILTER_HINT,
     KEY_CHIP_FILTER_CLEAR,
+    KEY_INCLUDE_PICKER_LABEL,
+    KEY_INCLUDE_PICKER_CHOOSE,
+    KEY_INCLUDE_PICKER_HELPS_US,
+    KEY_INCLUDE_PICKER_HELPS_THEM,
+    KEY_INCLUDE_PICKER_SAVE,
+    KEY_INCLUDE_PICKER_CANCEL,
 ];
 
 /// Build a [`CardGrammarWording`] from the stored rows, or say which key is wrong.
@@ -306,6 +350,12 @@ pub fn build_card_grammar_wording<E>(
         more_actions_label: read(KEY_MORE_ACTIONS)?,
         chip_filter_hint_template: read(KEY_CHIP_FILTER_HINT)?,
         chip_filter_clear_template: read(KEY_CHIP_FILTER_CLEAR)?,
+        include_picker_label: read(KEY_INCLUDE_PICKER_LABEL)?,
+        include_picker_choose_prompt: read(KEY_INCLUDE_PICKER_CHOOSE)?,
+        include_picker_helps_us_label: read(KEY_INCLUDE_PICKER_HELPS_US)?,
+        include_picker_helps_them_label: read(KEY_INCLUDE_PICKER_HELPS_THEM)?,
+        include_picker_save_label: read(KEY_INCLUDE_PICKER_SAVE)?,
+        include_picker_cancel_label: read(KEY_INCLUDE_PICKER_CANCEL)?,
     })
 }
 

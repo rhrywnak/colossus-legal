@@ -367,6 +367,16 @@ export type CardGrammarWording = {
   chip_filter_hint_template: string;
   /** Carries `{value}`. */
   chip_filter_clear_template: string;
+
+  // The Include picker (CC_TASK_INCLUDE_PICKER_v1). "Helps us" / "Helps them"
+  // are what a curator reads; the WIRE tokens stay `supports` / `rebuts`, which
+  // is the graph's own vocabulary. The mapping lives in `includePickerModel`.
+  include_picker_label: string;
+  include_picker_choose_prompt: string;
+  include_picker_helps_us_label: string;
+  include_picker_helps_them_label: string;
+  include_picker_save_label: string;
+  include_picker_cancel_label: string;
 };
 
 export type AllegationOptions = {
