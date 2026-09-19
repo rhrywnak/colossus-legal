@@ -44,7 +44,7 @@ interface Props {
       holds no route knowledge of its own. */
   printHref: string;
   /** Where the printed ANSWERS live. */
-  answersHref: string;
+  reviewHref: string;
   wording: PracticeWording;
   /** This scenario's questions. `view.all` includes what the editor may see. */
   view: DeckView;
@@ -117,7 +117,7 @@ const PracticeStart: React.FC<Props> = ({
   code,
   title,
   printHref,
-  answersHref,
+  reviewHref,
   wording,
   view,
   editor,
@@ -195,7 +195,7 @@ const PracticeStart: React.FC<Props> = ({
         code={code}
         title={title}
         printHref={printHref}
-        answersHref={answersHref}
+        reviewHref={reviewHref}
         onToggleEditing={editor.editing ? leaveEditing : editor.toggleEditing}
         questions={view.all}
         editing={editor.editing}

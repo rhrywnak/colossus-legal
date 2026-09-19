@@ -142,7 +142,7 @@ impl WarRoomWordingDto {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::practice_params::KEY_PRACTICE_REVIEWER_DISPLAY_NAME;
+    use crate::domain::practice_params::KEY_PRACTICE_REVIEWER_DISPLAY_NAMES;
     use crate::domain::wording_war_room::WAR_ROOM_WORDING_KEYS;
     use crate::domain::wording_war_room_summary::WAR_ROOM_SUMMARY_WORDING_KEYS;
 
@@ -172,14 +172,14 @@ mod tests {
         for key in value.as_object().expect("an object body").keys() {
             // The one field that is not wording names its settings row instead.
             let stored = if key == "reviewer_display_name" {
-                KEY_PRACTICE_REVIEWER_DISPLAY_NAME.to_string()
+                KEY_PRACTICE_REVIEWER_DISPLAY_NAMES.to_string()
             } else {
                 format!("war_room_{key}")
             };
             assert!(
                 WAR_ROOM_WORDING_KEYS.contains(&stored.as_str())
                     || WAR_ROOM_SUMMARY_WORDING_KEYS.contains(&stored.as_str())
-                    || stored == KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
+                    || stored == KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
                 "wire field '{key}' implies stored key '{stored}', which is not declared",
             );
         }

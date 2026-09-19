@@ -40,8 +40,8 @@ type Props = {
   title: string;
   /** Where the printed QUESTIONS live, composed by the page. */
   printHref: string;
-  /** Where the printed ANSWERS live, composed by the page. */
-  answersHref: string;
+  /** Where the Review answers page lives, composed by the page. */
+  reviewHref: string;
   /** Turn the deck editor on or off. */
   onToggleEditing: () => void;
   /** The WHOLE deck, hidden rows included — the lock counts what would print. */
@@ -64,9 +64,17 @@ type Props = {
  *
  * ## Three buttons for two people
  *
- * Chuck prints QUESTIONS to mark up, prints ANSWERS to read, and edits the
- * deck. Marie does none of the three. Roman named the four jobs this page
- * serves, and these are three of them sitting where a person looks first.
+ * Chuck prints QUESTIONS to mark up, READS her answers, and edits the deck.
+ * Marie does none of the three. Roman named the four jobs this page serves, and
+ * these are three of them sitting where a person looks first.
+ *
+ * ## Domain note: Print answers became Review answers (2026-09-19)
+ *
+ * The middle control used to open the printed answers sheet. Reading a deck on
+ * paper is something Chuck does occasionally; reading it on screen and writing
+ * on what he reads is what he does every week — and the paper had the button.
+ * So it now opens the Review answers page, and the printed sheet is one ghost
+ * link away at the top of that page. Its route and its page are untouched.
  *
  * ## Domain note: Edit the deck stopped being a text link
  *
@@ -115,7 +123,7 @@ const PracticeTitleRow: React.FC<Props> = ({
   code,
   title,
   printHref,
-  answersHref,
+  reviewHref,
   onToggleEditing,
   questions,
   editing,
@@ -183,21 +191,24 @@ const PracticeTitleRow: React.FC<Props> = ({
           {w("print_questions_label")}
         </a>
         <a
-          // Same lock and the same honest disabled state as its sibling: an empty
-          // deck has no answers to print either, and a deck being edited is one
-          // whose paper would be out of date before it left the printer.
-          href={lock === null ? answersHref : undefined}
-          target="_blank"
-          rel="noopener noreferrer"
+          // ## Why this one is NOT locked, where its predecessor was
+          //
+          // The lock exists because paper goes stale: a sheet taken from a deck
+          // that is being edited is wrong before it leaves the printer, and an
+          // empty deck prints blank pages. Neither is true of a page that
+          // re-reads every time it is opened. An empty deck has its own stored
+          // sentence there, which says more than a dimmed control with a
+          // tooltip — and the standing rule of 2026-08-19 is that no control on
+          // a practice page is dim and silent.
+          //
+          // SAME TAB, unlike the print sheet beside it: this is a page inside
+          // the app with a crumb trail back, not a document to keep open in a
+          // window of its own.
+          href={reviewHref}
           role="button"
-          aria-disabled={lock !== null}
-          title={lock ?? undefined}
-          style={{ ...e.printControl, ...(lock !== null ? e.lockedControl : {}) }}
-          onClick={(event) => {
-            if (lock !== null) event.preventDefault();
-          }}
+          style={e.printControl}
         >
-          {w("print_answers_label")}
+          {w("review_title")}
         </a>
         <button
           type="button"

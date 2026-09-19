@@ -174,20 +174,47 @@ fn requested_keys() -> Vec<(String, String)> {
     out
 }
 
-/// The fields `PracticeWordingDto` actually serializes.
-fn mirror_fields() -> BTreeSet<String> {
-    let source = std::fs::read_to_string(
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("src/dto/practice_wording.rs"),
-    )
-    .expect("the wire mirror is on disk");
+/// The files the served object's `String` fields are declared across.
+///
+/// ## ⚑ TWO FILES SINCE 2026-09-19, AND THE SECOND ONE MATTERS
+///
+/// The mirror was one struct in one file when this scanner was written, and it
+/// read that file. CC_TASK_REVIEW_PAGE_v1 moved ten fields into a
+/// `#[serde(flatten)]`'d sibling to keep both files under Rule 17 — and a
+/// scanner still reading one file would have reported those ten keys as
+/// missing the moment the review page asked for one. Which is the same shape of
+/// failure this whole test exists to catch, arriving from the other direction:
+/// a guard that checks a PART of the truth and reports on the WHOLE.
+///
+/// So the list is explicit, and adding a flattened sibling without adding it
+/// here fails loudly rather than quietly — see the sentinel below.
+// STRUCTURAL: repo-internal source paths, exactly as SURFACE_DIRS above.
+const MIRROR_FILES: &[&str] = &[
+    "src/dto/practice_wording.rs",
+    "src/dto/practice_wording_review.rs",
+];
 
-    without_comments(&source)
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            let rest = line.strip_prefix("pub ")?;
-            let (name, tail) = rest.split_once(':')?;
-            tail.trim().starts_with("String").then(|| name.to_string())
+/// Every `String` field the served wording object carries, across both structs.
+///
+/// `#[serde(flatten)]` makes the two serialize as ONE object, so from the
+/// browser's side there is no seam here at all — which is exactly why the scan
+/// must not have one either.
+fn mirror_fields() -> BTreeSet<String> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    MIRROR_FILES
+        .iter()
+        .flat_map(|file| {
+            let source = std::fs::read_to_string(root.join(file))
+                .unwrap_or_else(|cause| panic!("{file} is not on disk: {cause}"));
+            without_comments(&source)
+                .lines()
+                .filter_map(|line| {
+                    let line = line.trim();
+                    let rest = line.strip_prefix("pub ")?;
+                    let (name, tail) = rest.split_once(':')?;
+                    tail.trim().starts_with("String").then(|| name.to_string())
+                })
+                .collect::<Vec<_>>()
         })
         .collect()
 }
@@ -218,11 +245,19 @@ fn every_key_the_practice_surfaces_request_has_a_field_on_the_wire() {
              and every key in it is now escaping silently"
         );
     }
-    assert!(
-        fields.contains("row_delete_label"),
-        "the mirror scan found no `row_delete_label` — it has stopped reading \
-         the DTO, and every missing key would now look present"
-    );
+    // One sentinel PER MIRROR FILE, for the reason the surface sentinels above
+    // exist: a scan that lost one of the two structs would still find hundreds
+    // of fields and report nothing missing.
+    for (sentinel, from) in [
+        ("row_delete_label", "practice_wording.rs"),
+        ("review_title", "practice_wording_review.rs"),
+    ] {
+        assert!(
+            fields.contains(sentinel),
+            "the mirror scan found no `{sentinel}` — it has stopped reading \
+             {from}, and every missing key from it would now look present"
+        );
+    }
 
     let mut missing: Vec<String> = requested
         .iter()

@@ -20,14 +20,20 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::practice_wording_review::PracticeReviewWordingDto;
+
 // The constructor that flattens the stored blocks into this shape lives in
 // `practice_wording_map`, which is one `impl` block and nothing else. Split on
 // 2026-08-19 when the twelve v1 rows carried this file past Rule 17's limit —
 // see that module's header for why the seam falls where it does.
 
 /// The practice tool's words, as the browser receives them.
+// serde: allows unknown fields because `#[serde(flatten)]` below is documented by
+// serde as incompatible with deny_unknown_fields — the attribute cannot be
+// applied here. The guard it provided is replaced in kind by
+// `practice_wording_tests`, which asserts the served object's key COUNT against
+// the declared key lists: a field this build does not declare fails there.
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
 pub struct PracticeWordingDto {
     pub kicker: String,
     pub intro: String,
@@ -356,6 +362,11 @@ pub struct PracticeWordingDto {
     pub print_missing_joiner: String,
     pub print_hidden_template: String,
     // ── Part B: notes, and the review page ───────────────────────────────
+    /// The Review answers page's ten strings, flattened into this object so the
+    /// browser still reads one flat map (CC_TASK_REVIEW_PAGE_v1). Declared in a
+    /// sibling file for the Rule 17 reason that module's header sets out.
+    #[serde(flatten)]
+    pub review: PracticeReviewWordingDto,
 }
 
 #[cfg(test)]

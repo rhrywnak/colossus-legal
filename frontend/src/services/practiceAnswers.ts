@@ -16,13 +16,37 @@ import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
 import { PRACTICE_TIMEOUT_MS, type PracticeNote } from "./practice";
 
-/** One question's current answer, as the printed answers sheet receives it. */
+/**
+ * One question's current answer, as the printed answers sheet and the Review
+ * answers page receive it.
+ *
+ * ## ⚑ Checked BY EYE against `backend/src/dto/practice.rs::PracticeAnswerDto`
+ *
+ *   pub question_id: Uuid     → question_id: string
+ *   pub answer_id: Uuid       → answer_id: string
+ *   pub text: String          → text: string
+ *   pub answered_on: String   → answered_on: string
+ *   pub answered_meta: String → answered_meta: string
+ *
+ * Nothing enforces this boundary; the module's other types carry the same flag
+ * and the same reason.
+ */
 export type PracticeAnswer = {
   question_id: string;
+  /**
+   * The standing answer's own id.
+   *
+   * What a note written on the Review answers page attaches to. Its presence is
+   * also what tells that page it is looking at an ANSWER rather than at an
+   * unanswered question, which decides which of two writes it makes.
+   */
+  answer_id: string;
   /** Her words, exactly as typed. */
   text: string;
   /** `Answered on 22 Aug`, already composed by the server. */
   answered_on: string;
+  /** `Answered 14 Sep · Marie`, already composed — the review page's own line. */
+  answered_meta: string;
 };
 
 /**

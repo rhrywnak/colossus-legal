@@ -17,8 +17,13 @@ const q = (id: string, side: string): PracticeQuestion =>
 
 const a = (questionId: string): PracticeAnswer => ({
   question_id: questionId,
+  // Neither of these is read by the walk. They are on the type because the
+  // Review answers page needs them (CC_TASK_REVIEW_PAGE_v1), and a fixture that
+  // omitted them would be asserting against a payload the server never sends.
+  answer_id: `answer-${questionId}`,
   text: `answer to ${questionId}`,
   answered_on: "Answered on 22 Aug",
+  answered_meta: "Answered 22 Aug · Marie",
 });
 
 describe("which questions a walk offers", () => {

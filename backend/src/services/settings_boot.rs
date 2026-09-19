@@ -31,6 +31,7 @@ use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
 use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -88,6 +89,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_editor_wording = PRACTICE_EDITOR_WORDING_KEYS.len(),
         practice_print_wording = PRACTICE_PRINT_WORDING_KEYS.len(),
         practice_list_wording = PRACTICE_LIST_WORDING_KEYS.len(),
+        practice_review_wording = PRACTICE_REVIEW_WORDING_KEYS.len(),
         practice_report_wording = PRACTICE_REPORT_WORDING_KEYS.len(),
         "configuration store read"
     );
@@ -129,6 +131,7 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 practice_editor_strings = PRACTICE_EDITOR_WORDING_KEYS.len(),
                 practice_print_strings = PRACTICE_PRINT_WORDING_KEYS.len(),
                 practice_list_strings = PRACTICE_LIST_WORDING_KEYS.len(),
+                practice_review_strings = PRACTICE_REVIEW_WORDING_KEYS.len(),
                 practice_report_strings = PRACTICE_REPORT_WORDING_KEYS.len(),
                 // The tier map is not a string count — it is how many
                 // (statement_type, evidence_strength) pairs the Proof Matrix can

@@ -172,6 +172,32 @@ export function practiceAnswersPath(slug: string, scenarioId: string): string {
 }
 
 /**
+ * Chuck's READING pass — one page, the whole deck, answers and notes.
+ *
+ * Declared in `App.tsx` as
+ * `/cases/:slug/trial-prep/practice/:scenarioId/review`.
+ *
+ * ## Why an address of its own, and not a mode on the deck page
+ *
+ * The deck page is Marie's: it lists questions to answer, hides answers behind
+ * the fold, and is filtered by a side picker. This is one scrollable page of
+ * ANSWERS in deck order, and Chuck reads it end to end before trial. A `?review=1`
+ * would make them one page that sometimes shows something else — the shape whose
+ * Back button lies, and the same argument `practiceAnswersPath` makes about the
+ * two print views.
+ *
+ * `review` is a literal segment for the reason `print-answers` is one: routes
+ * under this prefix must be told apart by a WORD, not by which the matcher
+ * happens to try first.
+ *
+ * @param slug the case slug, escaped by [`practicePath`]
+ * @param scenarioId the scenario's UUID, escaped by [`practicePath`]
+ */
+export function practiceReviewPath(slug: string, scenarioId: string): string {
+  return `${practicePath(slug, scenarioId)}/review`;
+}
+
+/**
  * ONE question — where Marie writes and Chuck reads.
  *
  * Declared in `App.tsx` as

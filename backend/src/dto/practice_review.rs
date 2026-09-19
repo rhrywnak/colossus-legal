@@ -279,13 +279,32 @@ pub struct NoteTextRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckReviewDto {
-    /// Answers awaiting the reviewer on this deck — the same for every viewer.
+    /// Answers awaiting the reviewers on this deck — the same for every viewer.
     /// The bar is not drawn at `0`.
     pub awaiting: u32,
-    /// True only when the signed-in user IS the reviewer.
+    /// True only when the signed-in user is ON the reviewer bench.
     pub can_mark_reviewed: bool,
-    /// The reviewer's name as the bar prints it (`{reviewer}`).
+    /// The reviewers' names as the bar prints them (`{reviewer}`), joined by the
+    /// stored joiner when there is more than one (CC_TASK_REVIEW_PAGE_v1).
+    ///
+    /// The field keeps its singular name because it is what `{reviewer}` prints,
+    /// and that is one line whether it names one person or three. Renaming it
+    /// would be a wire change for a fact the wire does not carry.
     pub reviewer_display_name: String,
+    /// The day the OLDEST waiting item arrived, already formatted — or `None`
+    /// when the read returned no date (CC_TASK_REVIEW_PAGE_v1, ruling STOP-A).
+    ///
+    /// ## Domain note: why the count alone was not enough
+    ///
+    /// "42 awaiting" does not say whether this is a backlog or this morning's
+    /// work, and those call for different afternoons. The date comes from the
+    /// SAME query as the count, so the bar cannot name a day the count excluded.
+    ///
+    /// `None` is a real state and not an empty string: a deck with nothing
+    /// waiting has no oldest item, and the bar then renders no clause at all
+    /// rather than `oldest waiting since `.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub oldest: Option<String>,
 }
 
 /// What "Done reviewing" recorded.

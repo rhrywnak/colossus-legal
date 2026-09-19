@@ -372,6 +372,17 @@ pub struct CurrentAnswerRecord {
     /// the same row feeds `Print answers` and practice mode's reveal.
     pub answer_text: String,
     pub answered_at: chrono::DateTime<chrono::Utc>,
+    /// The name on the SITTING the answer was written in — `practice_sessions
+    /// .user_name`, stamped from the login by `services::practice_notes::attribution`.
+    ///
+    /// ## Rust Learning: why `Option<String>` and not `String`
+    ///
+    /// The column is nullable, and it is genuinely null for sittings opened
+    /// before the 2026-08-19 attribution hotfix. Mapping that to an empty string
+    /// here would collapse "nobody recorded a name" into "the name is blank" —
+    /// two different facts, and Standing Rule 1 keeps them apart. The caller
+    /// says the stored `author_unknown` sentence rather than printing nothing.
+    pub author_name: Option<String>,
 }
 
 /// The current answer to each of a scenario's questions.
@@ -404,7 +415,8 @@ pub async fn current_answers(
 ) -> Result<Vec<CurrentAnswerRecord>, PipelineRepoError> {
     sqlx::query_as::<_, CurrentAnswerRecord>(
         "SELECT DISTINCT ON (a.question_id) \
-                a.question_id, a.id AS answer_id, a.answer_text, a.answered_at \
+                a.question_id, a.id AS answer_id, a.answer_text, a.answered_at, \
+                s.user_name AS author_name \
          FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
          WHERE s.scenario_id = $1 \
          ORDER BY a.question_id, a.answered_at DESC, a.id DESC",

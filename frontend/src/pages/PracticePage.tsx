@@ -43,9 +43,9 @@ import {
 } from "../services/practice";
 import { hideQuestion } from "../services/practiceEditor";
 import {
-  practiceAnswersPath,
   practicePrintPath,
   practiceQuestionPath,
+  practiceReviewPath,
   practiceWalkPath,
 } from "../utils/routePaths";
 import { PracticeCrumb, PracticeFrame, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
@@ -254,7 +254,7 @@ const PracticePage: React.FC = () => {
         code={deck.code}
         title={deck.title}
         printHref={practicePrintPath(slug, scenarioId)}
-        answersHref={practiceAnswersPath(slug, scenarioId)}
+        reviewHref={practiceReviewPath(slug, scenarioId)}
         wording={deck.wording}
         view={view}
         editor={editor}

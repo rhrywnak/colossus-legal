@@ -19,8 +19,20 @@ use super::{awaiting_review, mark_reviewed};
 /// The reviewer the fixtures use — a test literal standing in for the settings row.
 const REVIEWER: &str = "cpenzien";
 
+/// The queue for a bench of ONE — the shape every test below this line asks in,
+/// and the shape every store has on the day CC_TASK_REVIEW_PAGE_v1 ships.
 async fn queue(pool: &PgPool, s: Uuid, reviewer: &str) -> TestResult<(i64, Option<DateTime<Utc>>)> {
-    let rows = awaiting_review(pool, &[s], reviewer).await?;
+    bench_queue(pool, s, &[reviewer]).await
+}
+
+/// The queue for a bench of any size.
+async fn bench_queue(
+    pool: &PgPool,
+    s: Uuid,
+    reviewers: &[&str],
+) -> TestResult<(i64, Option<DateTime<Utc>>)> {
+    let bench: Vec<String> = reviewers.iter().map(|r| (*r).to_string()).collect();
+    let rows = awaiting_review(pool, &[s], &bench).await?;
     assert_eq!(rows.len(), 1, "one row per scenario asked for");
     Ok((rows[0].awaiting, rows[0].oldest))
 }
@@ -227,4 +239,147 @@ async fn nothing_waiting_has_no_date_and_hidden_never_counts() -> TestResult<()>
     hide(&pool, q).await?;
     assert_eq!(queue(&pool, s, REVIEWER).await?, (0, None), "hidden");
     cleanup(&pool, s, "queue_hidden").await
+}
+
+// ─── The reviewer BENCH (CC_TASK_REVIEW_PAGE_v1, ruled 2026-09-19) ───────────
+//
+// Three proofs for the three places the bench replaced one name in the SQL.
+// Each `(M)` is mutation-proved in the report.
+
+/// (M) ONE SHARED CURSOR: either listed reviewer's press clears the count for
+/// both, and the LATER press is the mark.
+///
+/// This is the ruling in one test. Read one row per reviewer instead, and there
+/// would be as many queues as there are reviewers — the state v2.1.10 was
+/// written to end, arriving again by the back door.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn either_reviewers_press_clears_the_shared_count() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "queue_bench_shared").await?;
+    let bench = ["cpenzien", "roman"];
+    let q = question(&pool, s, "chuck", 1).await?;
+    answer_by(
+        &pool,
+        s,
+        q,
+        Utc::now() - Duration::hours(2),
+        Some("docmarie"),
+    )
+    .await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        1,
+        "nobody on the bench has reviewed"
+    );
+
+    // ROMAN presses — not the login the singular row used to hold.
+    mark_reviewed(&pool, "roman", s).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        0,
+        "the second reviewer's press clears it for the whole bench"
+    );
+
+    // A newer answer waits again for everyone.
+    let q2 = question(&pool, s, "chuck", 2).await?;
+    answer_by(&pool, s, q2, Utc::now(), Some("docmarie")).await?;
+    assert_eq!(bench_queue(&pool, s, &bench).await?.0, 1, "a later answer");
+
+    // And the OTHER reviewer's press clears that one — the mark is the latest
+    // press by anybody on the bench, not one person's row.
+    mark_reviewed(&pool, "cpenzien", s).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        0,
+        "the first reviewer's press moves the same shared mark"
+    );
+    cleanup(&pool, s, "queue_bench_shared").await
+}
+
+/// (M) An answer written by ANY listed reviewer never waits.
+///
+/// Left as one name, the second reviewer's own answer would have counted as
+/// work waiting for the second reviewer — which is exactly the bug the
+/// exclusion leg exists to prevent, reintroduced for everybody but the first
+/// name on the list.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn an_answer_by_any_listed_reviewer_never_waits() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "queue_bench_author").await?;
+    let bench = ["cpenzien", "roman"];
+    let t0 = Utc::now() - Duration::hours(1);
+
+    let first = question(&pool, s, "chuck", 1).await?;
+    answer_by(&pool, s, first, t0, Some("cpenzien")).await?;
+    let second = question(&pool, s, "chuck", 2).await?;
+    answer_by(&pool, s, second, t0, Some("roman")).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        0,
+        "neither reviewer's own answer waits for the bench"
+    );
+
+    // Somebody NOT on the bench does wait — the anti-vacuity half, without
+    // which an exclusion that matched everybody would pass the line above.
+    let third = question(&pool, s, "chuck", 3).await?;
+    answer_by(&pool, s, third, t0, Some("docmarie")).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        1,
+        "an answer by somebody else still waits"
+    );
+
+    // An UNATTRIBUTED answer counts too: sittings from before 2026-08-19 carry
+    // no author id, and a NULL there means "not a reviewer", never "skip it".
+    // This is the leg that three-valued logic silently drops if the NULL case
+    // is not named in the predicate.
+    let fourth = question(&pool, s, "chuck", 4).await?;
+    answer_by(&pool, s, fourth, t0, None).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        2,
+        "an unattributed answer is not a reviewer's"
+    );
+    cleanup(&pool, s, "queue_bench_author").await
+}
+
+/// (M) A press by somebody NOT on the bench still moves nothing.
+///
+/// The regression `non_reviewer_done_press_changes_nothing` guards, asked again
+/// of a bench: widening the `mark` CTE from one login to a list must not widen
+/// it to everybody, which is the mistake `user_id = ANY($2)` invites if the
+/// bind is ever passed the wrong list.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn a_press_from_outside_the_bench_still_moves_nothing() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "queue_bench_outsider").await?;
+    let bench = ["cpenzien", "roman"];
+    let q = question(&pool, s, "chuck", 1).await?;
+    answer_by(
+        &pool,
+        s,
+        q,
+        Utc::now() - Duration::hours(3),
+        Some("docmarie"),
+    )
+    .await?;
+
+    mark_reviewed(&pool, "docmarie", s).await?;
+    mark_reviewed(&pool, "somebody_else", s).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        1,
+        "presses from outside the bench are recorded and ignored"
+    );
+
+    mark_reviewed(&pool, "cpenzien", s).await?;
+    assert_eq!(
+        bench_queue(&pool, s, &bench).await?.0,
+        0,
+        "a listed reviewer's press clears it"
+    );
+    cleanup(&pool, s, "queue_bench_outsider").await
 }

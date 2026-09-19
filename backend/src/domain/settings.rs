@@ -734,6 +734,44 @@ pub fn parse_token_list(key: &str, value: &str) -> Result<Vec<String>, SettingEr
     Ok(tokens)
 }
 
+/// The same list, with each entry's CASE left exactly as it is stored.
+///
+/// ## Why this exists beside [`parse_token_list`] (2026-09-19)
+///
+/// That one lower-cases every token, and must: its readers are VOCABULARIES
+/// matched against data — statement types, speaker names, gather filters — where
+/// `Cross` and `cross` are the same word and a store that said one would
+/// silently match nothing.
+///
+/// These entries are neither vocabulary nor data. They are LOGINS, which are
+/// identities and are compared exactly, and NAMES, which are printed on a
+/// screen. Run through the lower-casing reader, `Chuck,Roman` becomes
+/// `chuck · roman` in the review bar — a defect nothing else in the stack can
+/// see, because the string is perfectly valid either way.
+///
+/// Everything else is deliberately identical: blank entries are dropped (a
+/// trailing comma is a typo, not an instruction to add an empty reviewer),
+/// duplicates are dropped, and `none` is an empty list.
+///
+/// # Errors
+/// [`SettingError`] when the row is blank or otherwise not readable as text.
+pub fn parse_verbatim_list(key: &str, value: &str) -> Result<Vec<String>, SettingError> {
+    let text = parse_text(key, value)?;
+    if text.eq_ignore_ascii_case(LIST_NONE_TOKEN) {
+        return Ok(Vec::new());
+    }
+
+    let mut entries: Vec<String> = Vec::new();
+    for raw in text.split(',') {
+        let entry = raw.trim().to_string();
+        if entry.is_empty() || entries.contains(&entry) {
+            continue;
+        }
+        entries.push(entry);
+    }
+    Ok(entries)
+}
+
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod tests;

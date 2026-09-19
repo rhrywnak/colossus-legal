@@ -16,8 +16,8 @@ use std::collections::HashMap;
 
 use crate::domain::gather_filter::GatherSubjectFilter;
 use crate::domain::settings::{
-    parse_count, parse_float, parse_ratio, parse_text, parse_token_list, Bounds, Ratio,
-    SettingError, ValueKind,
+    parse_count, parse_float, parse_ratio, parse_text, parse_token_list, parse_verbatim_list,
+    Bounds, Ratio, SettingError, ValueKind,
 };
 use crate::repositories::pipeline_repository::AppSettingRecord;
 
@@ -131,6 +131,16 @@ pub(crate) fn text_of(record: &AppSettingRecord) -> Result<String, SettingError>
 pub(super) fn token_list_of(record: &AppSettingRecord) -> Result<Vec<String>, SettingError> {
     expect_kind(record, ValueKind::Text)?;
     parse_token_list(&record.key, &record.value)
+}
+
+/// Read one `text` row as a comma-separated list with its CASE preserved.
+///
+/// For rows whose entries are identities or names rather than vocabulary — see
+/// [`parse_verbatim_list`] for the argument. Same kind check, same shape, a
+/// different parse.
+pub(super) fn verbatim_list_of(record: &AppSettingRecord) -> Result<Vec<String>, SettingError> {
+    expect_kind(record, ValueKind::Text)?;
+    parse_verbatim_list(&record.key, &record.value)
 }
 
 /// Confirm a row's stored kind is the one this build expects to read.

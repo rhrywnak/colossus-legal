@@ -35,6 +35,7 @@ pub mod practice_discussion;
 pub mod practice_review;
 pub mod practice_wording;
 pub mod practice_wording_map;
+pub mod practice_wording_review;
 pub mod proof_matrix;
 pub mod proof_review;
 pub mod query;

@@ -276,3 +276,87 @@ fn the_crossed_bands_refusal_explains_the_consequence() {
     // Not just "invalid" — what would actually go wrong.
     assert!(message.contains("medium band"), "{message}");
 }
+
+// ── parse_verbatim_list (CC_TASK_REVIEW_PAGE_v1) ─────────────────────────────
+//
+// The reviewer bench is the first stored list whose entries are IDENTITIES and
+// NAMES rather than vocabulary, and these pin the one difference from
+// `parse_token_list` beside the three behaviours that must NOT differ.
+
+/// The case a row is stored in is the case a screen prints.
+///
+/// The whole reason this parser exists: run through the lower-casing reader,
+/// `Chuck,Roman` becomes `chuck · roman` in the review bar — valid, well-typed,
+/// and wrong on every screen that names a reviewer.
+#[test]
+fn a_verbatim_list_preserves_the_case_of_every_entry() {
+    assert_eq!(
+        parse_verbatim_list("practice_reviewer_display_names", "Chuck,Roman").unwrap(),
+        vec!["Chuck".to_string(), "Roman".to_string()]
+    );
+    // And the lower-casing reader beside it does NOT — which is what makes the
+    // two parsers different things rather than a duplicated one.
+    assert_eq!(
+        parse_token_list("practice_reviewer_display_names", "Chuck,Roman").unwrap(),
+        vec!["chuck".to_string(), "roman".to_string()]
+    );
+}
+
+/// A trailing or doubled comma adds no entry.
+///
+/// A blank entry in the reviewer bench would be a login the auth layer could not
+/// name being offered Done reviewing. It is a typo, never an instruction.
+#[test]
+fn a_verbatim_list_drops_blank_entries() {
+    assert_eq!(
+        parse_verbatim_list("practice_reviewer_usernames", "cpenzien,,roman,").unwrap(),
+        vec!["cpenzien".to_string(), "roman".to_string()]
+    );
+}
+
+/// Surrounding whitespace is trimmed, and a repeat is dropped once.
+#[test]
+fn a_verbatim_list_trims_and_deduplicates() {
+    assert_eq!(
+        parse_verbatim_list(
+            "practice_reviewer_usernames",
+            " cpenzien , roman , cpenzien "
+        )
+        .unwrap(),
+        vec!["cpenzien".to_string(), "roman".to_string()]
+    );
+}
+
+/// De-duplication is case SENSITIVE here, because the entries are.
+///
+/// `Chuck` and `chuck` are two different names to print, and collapsing them
+/// would silently drop a reviewer's name and misalign the two lists — which the
+/// boot check would then refuse, naming the wrong problem.
+#[test]
+fn a_verbatim_list_treats_two_cases_as_two_entries() {
+    assert_eq!(
+        parse_verbatim_list("practice_reviewer_display_names", "Chuck,chuck").unwrap(),
+        vec!["Chuck".to_string(), "chuck".to_string()]
+    );
+}
+
+/// `none` is an empty list, exactly as it is for the lower-casing reader.
+#[test]
+fn a_verbatim_list_reads_none_as_empty() {
+    assert!(parse_verbatim_list("practice_reviewer_usernames", "none")
+        .unwrap()
+        .is_empty());
+    assert!(parse_verbatim_list("practice_reviewer_usernames", "NONE")
+        .unwrap()
+        .is_empty());
+}
+
+/// A blank row is refused by name, not read as an empty list.
+#[test]
+fn a_blank_verbatim_row_is_refused_by_name() {
+    let error = parse_verbatim_list("practice_reviewer_usernames", "   ").unwrap_err();
+    assert!(
+        error.to_string().contains("practice_reviewer_usernames"),
+        "{error}"
+    );
+}

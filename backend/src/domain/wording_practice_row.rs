@@ -112,6 +112,15 @@ pub struct PracticeRowWording {
     pub deck_review_awaiting_template: String,
     /// Its singular, read when the count is exactly 1.
     pub deck_review_awaiting_one: String,
+    /// `· oldest waiting since {date}` — appended to either sentence above when
+    /// the read returned a date (CC_TASK_REVIEW_PAGE_v1, ruling STOP-A).
+    ///
+    /// Domain note: the count alone does not say whether this is a backlog or
+    /// this morning's work, and those call for different afternoons. The date
+    /// comes from the SAME query as the count (`awaiting_review`'s
+    /// `MIN(…) FILTER (…)`), so the bar cannot name a day the count excluded.
+    /// Withheld entirely when there is no date rather than rendered empty.
+    pub deck_review_oldest_template: String,
     /// The review bar's button.
     pub deck_review_done_label: String,
     /// Shown when Done reviewing fails; the count stays as it was.
@@ -152,6 +161,7 @@ pub(crate) const KEY_ANSWERED_ON_TEMPLATE: &str = "practice_row_answered_on_temp
 
 pub(crate) const KEY_DECK_REVIEW_AWAITING_TEMPLATE: &str = "practice_deck_review_awaiting_template";
 pub(crate) const KEY_DECK_REVIEW_AWAITING_ONE: &str = "practice_deck_review_awaiting_one";
+pub(crate) const KEY_DECK_REVIEW_OLDEST_TEMPLATE: &str = "practice_deck_review_oldest_template";
 pub(crate) const KEY_DECK_REVIEW_DONE_LABEL: &str = "practice_deck_review_done_label";
 pub(crate) const KEY_DECK_REVIEW_FAILED: &str = "practice_deck_review_failed";
 pub(crate) const KEY_NOTE_ADD_LABEL: &str = "practice_row_note_add_label";
@@ -179,6 +189,7 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_UNFINISHED_TODAY_WORD,
     KEY_DECK_REVIEW_AWAITING_TEMPLATE,
     KEY_DECK_REVIEW_AWAITING_ONE,
+    KEY_DECK_REVIEW_OLDEST_TEMPLATE,
     KEY_DECK_REVIEW_DONE_LABEL,
     KEY_DECK_REVIEW_FAILED,
     KEY_NOTE_ADD_LABEL,
@@ -223,6 +234,7 @@ pub fn build_practice_row_wording<E>(
         unfinished_today_word: read(KEY_UNFINISHED_TODAY_WORD)?,
         deck_review_awaiting_template: read(KEY_DECK_REVIEW_AWAITING_TEMPLATE)?,
         deck_review_awaiting_one: read(KEY_DECK_REVIEW_AWAITING_ONE)?,
+        deck_review_oldest_template: read(KEY_DECK_REVIEW_OLDEST_TEMPLATE)?,
         deck_review_done_label: read(KEY_DECK_REVIEW_DONE_LABEL)?,
         deck_review_failed: read(KEY_DECK_REVIEW_FAILED)?,
         note_add_label: read(KEY_NOTE_ADD_LABEL)?,

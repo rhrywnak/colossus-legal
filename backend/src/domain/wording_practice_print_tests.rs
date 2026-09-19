@@ -37,15 +37,23 @@ const SEED_MIGRATION: &str =
 ///
 /// `corrected_value_in` uses `rfind`, so a key corrected TWICE ends up pinned to
 /// the LAST correction, which is what the store actually holds.
-const CORRECTION_MIGRATIONS: &[&str] =
-    &["pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql"];
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260823134349_practice_one_page_l2_list_and_print_answers.sql",
+    // REVIEW_PAGE repoints `practice_print_answers_label`: the button it named
+    // is gone, and the row now labels the ghost link at the top of the Review
+    // answers page. A correction, so it must be read AFTER the L2 one — the
+    // list is in order and `corrected_value_in` takes the last.
+    "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to the
 /// migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_QUESTIONS_LABEL, "🖨 Print questions"),
     (KEY_QUESTIONS_EMPTY_HINT, "No questions in this deck yet."),
-    (KEY_ANSWERS_LABEL, "🖨 Print answers"),
+    // Repointed 2026-09-19: the deck's button became Review answers, and this
+    // row now labels the ghost link that opens the same paper from there.
+    (KEY_ANSWERS_LABEL, "🖨 Print"),
     (KEY_ANSWERS_PAGE_TITLE, "Answers — {code}"),
     (
         KEY_ANSWERS_HOWTO,

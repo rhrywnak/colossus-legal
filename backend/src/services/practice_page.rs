@@ -171,6 +171,48 @@ pub fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
     )
 }
 
+/// `Answered 14 Sep · Marie` — the line under one answer on the review page.
+///
+/// ## Why this is not `answered_on_line` with a name appended
+///
+/// That line is a row STATUS ("Answered on 22 Aug") and this is an
+/// ATTRIBUTION. They are read in different places by different people, and the
+/// day Roman wants one of them shortened he will want exactly one of them
+/// shortened. Two rows, two templates, one clock.
+///
+/// ## Rust Learning: UNBRACED keys
+///
+/// This repo's `render` matches `when`, not `{when}` — it adds the braces
+/// itself. A braced key here matches nothing and ships a raw `{when}` to
+/// Chuck's screen, which has happened, and which nothing in the build can warn
+/// about because the string is well-typed either way. The same note sits over
+/// [`answered_on_line`] below, for the same reason.
+///
+/// `author` is `None` for sittings opened before the 2026-08-19 attribution
+/// hotfix. It renders the stored `author_unknown` sentence rather than an empty
+/// space after the separator: a name nobody recorded and a blank name are
+/// different facts (Standing Rule 1), and only one is worth asking about.
+pub fn answered_meta_line(settings: &Settings, at: DateTime<Utc>, author: Option<&str>) -> String {
+    let unknown = &settings.practice_wording.review.author_unknown;
+    let who = author
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .unwrap_or(unknown);
+    render(
+        &settings.practice_wording.review.answered_template,
+        &[
+            (
+                "when",
+                &crate::services::practice_clock::local_day_month(
+                    at,
+                    &settings.practice_read.case_timezone,
+                ),
+            ),
+            ("author", who),
+        ],
+    )
+}
+
 /// One deck row, as the list receives it.
 ///
 /// ## What a row no longer carries

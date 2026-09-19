@@ -32,14 +32,43 @@ use crate::services::scenario_human_links::link_counts;
 
 /// Whose Done reviewing marks the review queue is counted against.
 ///
-/// ## Domain note: ONE place names the reviewer
+/// ## Domain note: ONE place names the reviewer BENCH
 ///
-/// The `practice_reviewer_username` settings row — never a literal and never the
-/// signed-in user (CC_TASK_SIMPLE_COUNTS_v1). Both readers of the queue (the War
-/// Room's cards and the deck's review bar) call this, so an attorney change
-/// reaches both from one Settings edit.
-pub fn review_queue_reviewer(settings: &crate::domain::settings::Settings) -> &str {
-    &settings.practice_read.reviewer_username
+/// The `practice_reviewer_usernames` settings row — never a literal and never
+/// the signed-in user (CC_TASK_SIMPLE_COUNTS_v1; a list since
+/// CC_TASK_REVIEW_PAGE_v1). Both readers of the queue — the War Room's cards and
+/// the deck's review bar — call this, so adding an attorney reaches both from
+/// one Settings edit.
+///
+/// ## Rust Learning: returning `&[String]`, not `&Vec<String>`
+///
+/// A slice is what every caller actually needs (iterate it, bind it, ask whether
+/// it contains a name), and `&Vec<T>` would force any future caller holding an
+/// array or a slice of its own to build a `Vec` to call this. Rust's deref
+/// coercion turns the `&Vec<String>` this function has into the `&[String]` it
+/// returns with no code and no cost — which is why the API guidelines say to
+/// take and return the slice.
+pub fn review_queue_reviewer(settings: &crate::domain::settings::Settings) -> &[String] {
+    &settings.practice_read.reviewer_usernames
+}
+
+/// The bench as screens print it: every reviewer's display name, joined.
+///
+/// ## Domain note: `{reviewer}` names WHOEVER owes the work
+///
+/// One reviewer prints one name, exactly as it always did. Two print
+/// `Chuck · Roman`, because the review queue is one shared number and a pill
+/// naming only the first of them would tell a reader the work belongs to
+/// somebody it does not. The joiner is a stored row and carries no spaces of its
+/// own — the store trims every value — so they are supplied here.
+///
+/// An EMPTY bench cannot reach this: `settings_practice::reviewer_bench`
+/// refuses a snapshot whose lists are misaligned, and a blank row is refused by
+/// `token_list_of` before that. So this never returns an empty string over a
+/// store the boot check accepted.
+pub fn reviewer_display_line(settings: &crate::domain::settings::Settings) -> String {
+    let joiner = format!(" {} ", settings.practice_wording.review.name_joiner);
+    settings.practice_read.reviewer_display_names.join(&joiner)
 }
 
 /// A read returned something the fold cannot turn into a card.
@@ -231,13 +260,49 @@ mod tests;
 mod reviewer_tests {
     use super::*;
 
-    /// (M) The reviewer comes from the settings row, not a literal: change the row
-    /// and the queue's reviewer follows.
+    /// (M) The reviewer bench comes from the settings row, not a literal: change
+    /// the row and the queue's reviewers follow.
     #[test]
     fn the_review_queue_reviewer_is_the_settings_row() {
         let mut settings = crate::domain::settings::Settings::for_test();
-        assert_eq!(review_queue_reviewer(&settings), "cpenzien");
-        settings.practice_read.reviewer_username = "roman".to_string();
-        assert_eq!(review_queue_reviewer(&settings), "roman");
+        assert_eq!(review_queue_reviewer(&settings), ["cpenzien".to_string()]);
+        settings.practice_read.reviewer_usernames =
+            vec!["roman".to_string(), "docmarie".to_string()];
+        assert_eq!(
+            review_queue_reviewer(&settings),
+            ["roman".to_string(), "docmarie".to_string()]
+        );
+    }
+
+    /// One reviewer prints one name — the behaviour every screen had before the
+    /// bench existed, unchanged.
+    #[test]
+    fn one_reviewer_prints_one_name_with_no_joiner() {
+        let settings = crate::domain::settings::Settings::for_test();
+        assert_eq!(reviewer_display_line(&settings), "Chuck");
+    }
+
+    /// Two reviewers print both names, and the SPACES come from here.
+    ///
+    /// The joiner row is stored as a bare `·` because the store trims every
+    /// value. A `join` using it directly would render `Chuck·Roman`, which is
+    /// the defect this asserts against.
+    #[test]
+    fn two_reviewers_print_both_names_around_the_stored_joiner() {
+        let mut settings = crate::domain::settings::Settings::for_test();
+        settings.practice_read.reviewer_display_names =
+            vec!["Chuck".to_string(), "Roman".to_string()];
+        assert_eq!(reviewer_display_line(&settings), "Chuck \u{b7} Roman");
+    }
+
+    /// The joiner is the STORED row, not a literal: change it and the line
+    /// follows, which is what makes the separator a Settings edit.
+    #[test]
+    fn the_joiner_comes_from_the_store() {
+        let mut settings = crate::domain::settings::Settings::for_test();
+        settings.practice_read.reviewer_display_names =
+            vec!["Chuck".to_string(), "Roman".to_string()];
+        settings.practice_wording.review.name_joiner = "and".to_string();
+        assert_eq!(reviewer_display_line(&settings), "Chuck and Roman");
     }
 }

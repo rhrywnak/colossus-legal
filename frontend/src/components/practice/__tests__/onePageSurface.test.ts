@@ -171,8 +171,21 @@ describe("the list page after the cuts", () => {
   it("puts all three controls in the title row", () => {
     const titleRow = read(HERE, "PracticeTitleRow.tsx");
     expect(titleRow).toContain("print_questions_label");
-    expect(titleRow).toContain("print_answers_label");
+    // `review_title` since CC_TASK_REVIEW_PAGE_v1: the middle control opened
+    // the printed answers sheet and now opens the Review answers page. The
+    // sheet is not gone — it is a ghost link at the top of that page, which is
+    // where `print_answers_label` now renders.
+    expect(titleRow).toContain("review_title");
     expect(titleRow).toContain("editor_switch_label");
+  });
+
+  it("no longer offers the printed answers sheet from the deck", () => {
+    const titleRow = read(HERE, "PracticeTitleRow.tsx");
+    // The paper moved one click in. Asserted as an ABSENCE because the two
+    // controls sat side by side in the same style, and a review page that
+    // shipped beside the old button rather than in its place would look
+    // correct on the screenshot and be the wrong change.
+    expect(titleRow).not.toContain("print_answers_label");
   });
 });
 
