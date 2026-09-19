@@ -48,6 +48,8 @@ fn served_payload() -> ScenarioCardsResponse {
         pool,
         set_aside,
         link_progress,
+        // Not read by the progress fold; present because the wire type is.
+        include_default_stance: crate::domain::fact_card::CardStance::Supports,
         no_target_notice: None,
         never_scanned_notice: None,
         proposal_source: None,

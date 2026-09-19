@@ -80,12 +80,13 @@ pub async fn get_scenario_cards(
     // visible half. Every read below (graph pool, extras, refs, ordinals,
     // overrides, page text) is skipped — there is nothing to read them ABOUT.
     let Some(subject_id) = resolve_gather_subject(&state, id).await? else {
+        // ONE snapshot for both values, for the reason the main path takes one
+        // below: two `current()` reads could straddle a Settings edit and serve
+        // a notice from one snapshot with a stance from another.
+        let settings = state.settings.current();
         return Ok(Json(no_target_response(
-            &state
-                .settings
-                .current()
-                .scenario_authoring_wording
-                .no_target_notice,
+            &settings.scenario_authoring_wording.no_target_notice,
+            settings.card_include_picker_default_stance,
         )));
     };
 
@@ -162,11 +163,19 @@ pub async fn get_scenario_cards(
 /// does the reading (it holds the state), this does the shaping, and a unit test
 /// can ask in one line whether an un-targeted scenario carries its explanation.
 /// Same seam as `scenario_gather::no_target_response`.
-fn no_target_response(notice: &str) -> ScenarioCardsResponse {
+fn no_target_response(
+    notice: &str,
+    include_default_stance: crate::domain::fact_card::CardStance,
+) -> ScenarioCardsResponse {
     ScenarioCardsResponse {
         pool: Vec::new(),
         set_aside: Vec::new(),
         link_progress: None,
+        // Carried even here, where there are no cards to open a picker on: the
+        // field is not optional on the wire, and a payload that omitted it would
+        // be one the client refuses. Same `&str`-and-value seam as the notice —
+        // the caller reads the snapshot, this shapes the response.
+        include_default_stance,
         no_target_notice: Some(notice.to_string()),
         // A scenario with no target has no pool to describe, scanned or not. The
         // no-target notice is the whole explanation this payload owes; adding a

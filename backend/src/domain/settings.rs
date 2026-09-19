@@ -218,6 +218,23 @@ pub struct Settings {
     /// the colossus-ansible template entry it has owed since D2b) is a separate
     /// task in a separate repo.
     pub theme_scan_default_model: String,
+
+    /// Which way the Include picker is pre-set when it opens on a candidate
+    /// card (CC_TASK_CARDTRIAGE_SPLIT_v1, ruled 2026-09-17).
+    ///
+    /// ## Domain note: a property of THIS case's evidence, not an invariant
+    ///
+    /// It was `const DEFAULT_STANCE = "supports"` in the browser, and the
+    /// argument for it was that the graph carries 802 `supports` to 142
+    /// `rebuts`. That is a measurement of the evidence gathered so far, which is
+    /// exactly the kind of thing Standing Rule 2 keeps in the store: another
+    /// case could reasonably open on the other one.
+    ///
+    /// Typed rather than a `String` so the vocabulary is checked once, at boot,
+    /// by the parse — see `settings_row_readers::card_stance_of`. The picker
+    /// always shows which way is chosen, so this only decides which way the
+    /// common case opens, never what is saved.
+    pub card_include_picker_default_stance: crate::domain::fact_card::CardStance,
     /// Statement kinds that never reach the judge, lower-cased and de-duplicated
     /// at parse time. Empty (the stored token `none`) disables the rule.
     ///

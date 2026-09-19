@@ -62,7 +62,12 @@ function card(): ScenarioCardsResponse["pool"][number] {
 
 describe("fetchScenarioCards", () => {
   it("GETs the scenario-scoped cards URL and returns both lists", async () => {
-    const response: ScenarioCardsResponse = { pool: [card()], set_aside: [], link_progress: null };
+    const response: ScenarioCardsResponse = {
+      pool: [card()],
+      set_aside: [],
+      link_progress: null,
+      include_default_stance: "supports",
+    };
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
@@ -120,12 +125,55 @@ describe("fetchScenarioCards", () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ pool: [], set_aside: [] }),
+      json: async () => ({ pool: [], set_aside: [], include_default_stance: "supports" }),
     });
 
     await expect(fetchScenarioCards(SLUG, SCENARIO)).resolves.toEqual({
       pool: [],
       set_aside: [],
+      include_default_stance: "supports",
     });
+  });
+});
+
+// ── The Include picker's stance (CC_TASK_CARDTRIAGE_SPLIT_v1) ───────────────
+
+describe("the Include picker's default stance", () => {
+  const ok = (body: unknown) => {
+    // @ts-ignore
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, json: async () => body });
+  };
+
+  it("is returned as served", async () => {
+    ok({ pool: [], set_aside: [], include_default_stance: "rebuts" });
+    const payload = await fetchScenarioCards(SLUG, SCENARIO);
+    expect(payload.include_default_stance).toBe("rebuts");
+  });
+
+  it("REFUSES a payload that omits it, rather than defaulting", async () => {
+    // The whole point of the row: a fallback here would be the compiled-in
+    // constant this task deleted, and it would be the one on screen on the day
+    // the backend stopped sending the field.
+    ok({ pool: [], set_aside: [] });
+    await expect(fetchScenarioCards(SLUG, SCENARIO)).rejects.toThrow(
+      /include_default_stance/,
+    );
+  });
+
+  it("refuses a value outside the vocabulary", async () => {
+    // `disputes` is the obvious thing to type and is not the stored token.
+    ok({ pool: [], set_aside: [], include_default_stance: "disputes" });
+    await expect(fetchScenarioCards(SLUG, SCENARIO)).rejects.toThrow(
+      /include_default_stance/,
+    );
+  });
+
+  it("lets the pool/set_aside refusal keep its precedence", async () => {
+    // A payload missing BOTH must still report the load-bearing arrays first:
+    // that message is what a reader has been told to look for since 1.7E.
+    ok({ pool: [card()] });
+    await expect(fetchScenarioCards(SLUG, SCENARIO)).rejects.toThrow(
+      /missing pool\/set_aside/,
+    );
   });
 });

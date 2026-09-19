@@ -259,7 +259,7 @@ fn the_positions_it_assigns_are_distinct_and_ordered_by_candidate_number() {
 #[test]
 fn a_scenario_with_no_target_is_told_why_its_queue_is_empty() {
     let notice = "No target defined — this scenario cannot gather evidence.";
-    let response = no_target_response(notice);
+    let response = no_target_response(notice, crate::domain::fact_card::CardStance::Supports);
 
     assert_eq!(
         response.no_target_notice.as_deref(),

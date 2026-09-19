@@ -14,6 +14,7 @@ import { useCallback, useState } from "react";
 
 import {
   fetchScenarioCards,
+  type CardFactStance,
   type ProposalSource,
   type ScenarioCard,
   type ScenarioCardsResponse,
@@ -33,8 +34,10 @@ export type CardsPayload = {
 /**
  * Read one scenario's cards, and hold what the read produced.
  *
- * @param onCards called with the WHOLE pool — both lists concatenated — so the
- *        caller's reducer owns the cards and this hook owns only the request.
+ * @param onCards called with the WHOLE pool — both lists concatenated — and the
+ *        payload's Include-picker stance, so the caller's reducer owns both and
+ *        this hook owns only the request. They travel together because they
+ *        arrive together, and the reducer needs the stance from the first card.
  *
  * ## Why both lists arrive as one
  *
@@ -50,7 +53,7 @@ export type CardsPayload = {
 export function useCardsPayload(
   slug: string,
   scenarioId: string,
-  onCards: (cards: ScenarioCard[]) => void,
+  onCards: (cards: ScenarioCard[], includeDefaultStance: CardFactStance) => void,
 ): CardsPayload & { load: () => Promise<void> } {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -61,7 +64,7 @@ export function useCardsPayload(
     setLoading(true);
     try {
       const cards: ScenarioCardsResponse = await fetchScenarioCards(slug, scenarioId);
-      onCards([...cards.pool, ...cards.set_aside]);
+      onCards([...cards.pool, ...cards.set_aside], cards.include_default_stance);
       // `cards.link_progress` is deliberately not read (Piece 1d): the stuck
       // pile's count left the frame for the cards themselves, where a locked
       // card states its own condition and offers the type-ahead. The payload

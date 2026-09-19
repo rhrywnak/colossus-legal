@@ -32,6 +32,7 @@ const OPTIONS = [
 function opened(): IncludePickerState {
   return includePickerStep(closedPicker, {
     type: "open",
+    defaultStance: "supports",
     graphNodeId: "ev-1",
     options: OPTIONS,
   }).state;
@@ -55,6 +56,7 @@ describe("the picker opens", () => {
     // nobody picked, on exactly the cards nobody has read yet.
     const state = includePickerStep(closedPicker, {
       type: "open",
+      defaultStance: "supports",
       graphNodeId: "ev-2",
       options: [],
     }).state;
@@ -102,6 +104,7 @@ describe("the picker commits", () => {
     // the very 400 this task exists to stop.
     const empty = includePickerStep(closedPicker, {
       type: "open",
+      defaultStance: "supports",
       graphNodeId: "ev-2",
       options: [],
     }).state;
@@ -117,7 +120,7 @@ describe("the picker commits", () => {
     // is not listed here fails to type-check, so this cannot silently stop
     // covering the union.
     const everything: IncludePickerAction[] = [
-      { type: "open", graphNodeId: "ev-1", options: OPTIONS },
+      { type: "open", defaultStance: "supports", graphNodeId: "ev-1", options: OPTIONS },
       { type: "chooseAllegation", allegationId: "alleg-9" },
       { type: "chooseStance", stance: "rebuts" },
       { type: "cancel" },

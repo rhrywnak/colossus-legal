@@ -558,6 +558,21 @@ pub struct ScenarioCardsResponse {
     /// next to twelve green chips. Composed here rather than in the browser for
     /// the same reason every other sentence is (the language law).
     pub link_progress: Option<String>,
+    /// Which way the Include picker opens on a card in this payload
+    /// (CC_TASK_CARDTRIAGE_SPLIT_v1, the `card_include_picker_default_stance`
+    /// settings row).
+    ///
+    /// ## Domain note: why it rides the CARDS and not a settings endpoint
+    ///
+    /// The browser's queue reducer is pure — it opens the picker and has no way
+    /// to reach a store. Carrying the stance on the payload the cards arrive on
+    /// means the value is in hand at exactly the moment the queue learns what it
+    /// is triaging, and the picker cannot open before that (it is reached only
+    /// by ruling a card, and there are no cards). So this is never absent when
+    /// it is needed, and the client refuses a payload without it rather than
+    /// falling back to a compiled-in default — which is the constant this row
+    /// replaced.
+    pub include_default_stance: crate::domain::fact_card::CardStance,
     /// Present ONLY when this scenario names no target, in which case both card
     /// lists are empty and this sentence says why (2026-08-07 fix).
     ///

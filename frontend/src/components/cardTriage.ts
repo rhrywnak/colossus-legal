@@ -58,29 +58,24 @@ import type { LinkCut } from "../services/evidenceLinks";
 import type { FactAction } from "../services/scenarioGather";
 import { candidateState } from "./candidateFilters";
 import { linkOnCard, unlinkOnCard } from "./cardLinking";
+import { type IncludePicking } from "./includePickerModel";
+// The two PROMPT machines, split out on 2026-09-19 (CC_TASK_CARDTRIAGE_SPLIT_v1).
+// The dependency runs ONE WAY — this module imports their values, they import
+// this module's types — so there is no runtime cycle between them.
 import {
-  includePickerStep,
-  type IncludePicking,
-  type IncludePickerAction,
-} from "./includePickerModel";
+  DEFER_QUICK_REASONS,
+  NONE,
+  handleDeferKey,
+  openPicker,
+  stepPicker,
+} from "./cardPrompts";
+
+// Re-exported because it was exported from here before the split and
+// `CandidateCard` imports it from this module. The list itself now lives beside
+// the defer machine that consumes it.
+export { DEFER_QUICK_REASONS };
 
 // ─── The keyboard state machine ─────────────────────────────────────────────
-
-// CONST: the quick-pick defer reasons. These are UI affordances, not
-// configuration: each is a shortcut for typing a sentence the human could type
-// anyway, and the free-text field beside them accepts anything. Making them
-// configurable would add a settings surface whose only effect is which three
-// suggestions appear above an unrestricted input — the reason a defer records is
-// whatever the human wrote, and that is never constrained to this list.
-//
-// They are also deliberately case-agnostic: nothing here names a party, a
-// document or a claim, so another Colossus case renders them unchanged
-// (Standing Rule 2's reusability checkpoint).
-export const DEFER_QUICK_REASONS = [
-  "Need to read the full page first",
-  "Waiting on a clearer copy of the document",
-  "Not sure this belongs in this scenario",
-];
 
 /**
  * Which ruling a key or a button performs.
@@ -211,6 +206,21 @@ export type QueueState = {
    * `false` moves the document under a reader.
    */
   follow: boolean;
+
+  /**
+   * Which way the Include picker opens — the `card_include_picker_default_stance`
+   * settings row (CC_TASK_CARDTRIAGE_SPLIT_v1).
+   *
+   * ## Why a stored value is on the STATE of a pure reducer
+   *
+   * Because the reducer is pure, and opening the picker is something it does.
+   * It cannot read a settings snapshot, so the value has to arrive as data —
+   * and the payload the cards come on is where it arrives, on `cards_loaded`.
+   * Before that event there are no cards, so no card can be ruled, so the picker
+   * cannot open: the value is always here by the time anything reads it, which
+   * is why it is not `| null`.
+   */
+  includeDefaultStance: CardFactStance;
 };
 
 /** A ruling the reducer wants the caller to send to the backend. */
@@ -271,10 +281,36 @@ export type QueueEvent =
   | { type: "link"; graphNodeId: string; allegationIds: string[]; cut: LinkCut }
   /** One link taken back, on the card it is printed on. */
   | { type: "unlink"; graphNodeId: string; allegationId: string }
-  | { type: "cards_loaded"; cards: ScenarioCard[] };
+  /**
+   * The pool, as served — and the settings the payload carries with it.
+   *
+   * `includeDefaultStance` rides this event because it rides the same response:
+   * see `QueueState.includeDefaultStance` for why a pure reducer receives a
+   * stored value as data rather than reading it.
+   */
+  | { type: "cards_loaded"; cards: ScenarioCard[]; includeDefaultStance: CardFactStance };
 
 export type QueueResult = { state: QueueState; effect: QueueEffect };
 
+/**
+ * The queue before anything has loaded.
+ *
+ * `includeDefaultStance` has to hold SOMETHING — `QueueState` has no partial
+ * form — and it is overwritten by the first `cards_loaded`.
+ *
+ * ## ⚑ Why that placeholder is not a Standing-Rule-2 default
+ *
+ * Because in production this function is called with `[]` and nothing else:
+ * `useQueueReducer` mounts the queue empty and the cards arrive only as a
+ * `cards_loaded` event. With no cards, nothing can be ruled, so the picker
+ * cannot open, so the placeholder cannot be read.
+ *
+ * That argument rests on the CALL SITE, not on the type — pass a non-empty
+ * array here and the placeholder becomes reachable. So both halves are pinned
+ * by tests rather than by this comment: `mount_state_holds_no_default` presses
+ * every ruling key against a mounted-empty queue, and
+ * `the_production_mount_is_always_empty` reads `useQueueReducer` off disk.
+ */
 export function initialQueueState(cards: ScenarioCard[]): QueueState {
   return {
     cards,
@@ -284,14 +320,17 @@ export function initialQueueState(cards: ScenarioCard[]): QueueState {
     ruled: [],
     visibleIds: null,
     notice: null,
+    // STRUCTURAL: a placeholder, not a default — the state has no partial form
+    // and this is overwritten by the first `cards_loaded`. Unreachable by
+    // construction, and pinned by `mount_state_holds_no_default` and
+    // `the_production_mount_is_always_empty`; see this function's doc.
+    includeDefaultStance: "supports",
     // Arrival is never followed: the page opens at its own top, not at whatever
     // the queue happens to have selected. This is the same rule .391 wrote into
     // `CandidateList`'s mount guard, stated once more where the state begins.
     follow: false,
   };
 }
-
-const NONE: QueueEffect = { kind: "none" };
 
 /**
  * The positions of the visible cards, in the order the list renders them.
@@ -557,6 +596,10 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
           ruled,
           lastRuling,
           notice: null,
+          // The payload's own setting, taken every time it is served — so a
+          // Settings edit reaches the picker on the next reload, with no
+          // rebuild and no second request.
+          includeDefaultStance: event.includeDefaultStance,
           follow: false,
         },
         effect: NONE,
@@ -622,78 +665,23 @@ export function queueReducer(state: QueueState, event: QueueEvent): QueueResult 
         : { state, effect: NONE };
 
     case "include_allegation":
-      return stepPicker(state, { type: "chooseAllegation", allegationId: event.allegationId });
+      return stepPicker(state, { type: "chooseAllegation", allegationId: event.allegationId }, rule);
 
     case "include_stance":
-      return stepPicker(state, { type: "chooseStance", stance: event.stance });
+      return stepPicker(state, { type: "chooseStance", stance: event.stance }, rule);
 
     case "include_save":
-      return stepPicker(state, { type: "save" });
+      return stepPicker(state, { type: "save" }, rule);
 
     case "include_cancel":
-      return stepPicker(state, { type: "cancel" });
+      return stepPicker(state, { type: "cancel" }, rule);
 
     case "key":
       return handleKey(state, event.key, event.typing);
   }
 }
 
-/**
- * The mode an Include click opens, defaulted from the card's OWN bears-on.
- *
- * The scenario's other accusations are in the select too (the component builds
- * that list), but the DEFAULT is the card's first bears-on, because that is what
- * the human is reading when they press Include. A card the extraction linked to
- * nothing opens with nothing chosen and Save refused — never defaulted into a
- * scenario-wide list, which would file a fact under an accusation nobody picked.
- */
-function openPicker(card: ScenarioCard): QueueMode {
-  const opened = includePickerStep(
-    { phase: "closed" },
-    {
-      type: "open",
-      graphNodeId: card.graph_node_id,
-      options: card.bears_on.map((b) => ({ allegationId: b.allegation_id, label: b.accusation })),
-    },
-  ).state;
-  // `open` always yields `picking`; the check is the type system's, not a doubt.
-  return opened.phase === "picking"
-    ? { kind: "including", graphNodeId: opened.graphNodeId, allegationId: opened.allegationId, stance: opened.stance }
-    : { kind: "triage" };
-}
 
-/**
- * Hand one picker action to the picker's own machine, and turn its commit into
- * this reducer's ruling.
- *
- * ## Why the include goes through `rule()` like every other ruling
- *
- * A saved include IS a ruling — it patches the card, advances the queue, and is
- * undoable — and it must be all three in exactly the way E and D are. The only
- * difference is that its effect carries two more fields. Routing it anywhere
- * else would give the queue a second way to rule a card, which is how the
- * keyboard and the buttons drifted apart the first time (1.7D).
- */
-function stepPicker(state: QueueState, action: IncludePickerAction): QueueResult {
-  if (state.mode.kind !== "including") return { state, effect: NONE };
-
-  const { state: next, commit } = includePickerStep({ phase: "picking", ...state.mode }, action);
-  const mode: QueueMode =
-    next.phase === "picking"
-      ? { kind: "including", graphNodeId: next.graphNodeId, allegationId: next.allegationId, stance: next.stance }
-      : { kind: "triage" };
-
-  if (!commit) return { state: { ...state, mode }, effect: NONE };
-
-  const ruled = rule(state, commit.graphNodeId, "include");
-  return {
-    state: { ...ruled.state, mode: { kind: "triage" } },
-    effect:
-      ruled.effect.kind === "rule"
-        ? { ...ruled.effect, allegationId: commit.allegationId, stance: commit.stance }
-        : ruled.effect,
-  };
-}
 
 /**
  * A ruling BUTTON on one named card (task 1.7G, ruling R1).
@@ -742,15 +730,15 @@ function handleKey(state: QueueState, key: string, typing: boolean): QueueResult
 
   // The defer prompt owns the keyboard while it is open.
   if (state.mode.kind === "deferring") {
-    return handleDeferKey(state, key, state.mode.draft, state.mode.graphNodeId);
+    return handleDeferKey(state, key, state.mode.draft, state.mode.graphNodeId, rule);
   }
 
   // So does the Include picker, on the same grammar: Esc abandons, Enter commits.
   // Without this, `i` while the row is open would re-open it over a half-answered
   // one and `e` would drop the card out from under the question.
   if (state.mode.kind === "including") {
-    if (key === "Escape") return stepPicker(state, { type: "cancel" });
-    if (key === "Enter") return stepPicker(state, { type: "save" });
+    if (key === "Escape") return stepPicker(state, { type: "cancel" }, rule);
+    if (key === "Enter") return stepPicker(state, { type: "save" }, rule);
     return { state, effect: NONE };
   }
 
@@ -839,7 +827,7 @@ function rulingOn(state: QueueState, card: ScenarioCard, key: RulingKey): QueueR
       // the `include_open` event. Reached through the button or the keyboard,
       // both land here — 1.7D's one-state-machine law.
       if (key === "i") {
-        return { state: { ...state, mode: openPicker(card) }, effect: NONE };
+        return { state: { ...state, mode: openPicker(card, state.includeDefaultStance) }, effect: NONE };
       }
       return rule(state, card.graph_node_id, "drop");
     }
@@ -883,47 +871,6 @@ function indexOf(state: QueueState, card: ScenarioCard): number {
   return at === -1 ? state.index : at;
 }
 
-/**
- * The keyboard while the defer prompt is open.
- *
- * `graphNodeId` is the card the prompt was opened on — carried through from the
- * mode rather than re-read from the selection, so a reason typed about one card
- * can never be committed against another (see `QueueMode`).
- */
-function handleDeferKey(
-  state: QueueState,
-  key: string,
-  draft: string,
-  graphNodeId: string,
-): QueueResult {
-  if (key === "Escape") {
-    return { state: { ...state, mode: { kind: "triage" } }, effect: NONE };
-  }
-  if (key === "Enter") {
-    const reason = draft.trim();
-    // A blank reason is not a defer — the backend refuses it, and refusing here
-    // keeps the prompt open with the human's cursor in it rather than bouncing
-    // an error back at them.
-    if (!reason) return { state, effect: NONE };
-    // The card the prompt was OPENED on, never whatever is selected now (1.7G).
-    const card = state.cards.find((c) => c.graph_node_id === graphNodeId);
-    if (!card) return { state: { ...state, mode: { kind: "triage" } }, effect: NONE };
-    const ruled = rule(state, card.graph_node_id, "defer", reason);
-    return { state: { ...ruled.state, mode: { kind: "triage" } }, effect: ruled.effect };
-  }
-  // Digits pick a quick reason without leaving the keyboard.
-  const pick = Number.parseInt(key, 10);
-  if (!Number.isNaN(pick) && pick >= 1 && pick <= DEFER_QUICK_REASONS.length) {
-    return {
-      state: {
-        ...state,
-        mode: { kind: "deferring", draft: DEFER_QUICK_REASONS[pick - 1], graphNodeId },
-      },
-      effect: NONE,
-    };
-  }
-  return { state, effect: NONE };
-}
 
 /**
  * Record a ruling, patch the card, advance, and ask the caller to send it.

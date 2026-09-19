@@ -177,6 +177,10 @@ pub(crate) fn assemble(
         pool: working,
         set_aside,
         link_progress,
+        // Straight off the snapshot this assembler already holds. The browser's
+        // queue reducer is pure and cannot read a store, so the stance travels
+        // with the cards it applies to.
+        include_default_stance: settings.card_include_picker_default_stance,
         // Filled in by the route once it knows WHICH run these proposals came
         // from, exactly as `never_scanned_notice` is: the run's identity is a fact
         // about the history, in another database, and this assembler is documented

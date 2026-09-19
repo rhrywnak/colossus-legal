@@ -77,6 +77,8 @@ fn response(pool: &[&str], set_aside: &[&str]) -> ScenarioCardsResponse {
         pool: pool.iter().map(|n| bare_card(n)).collect(),
         set_aside: set_aside.iter().map(|n| bare_card(n)).collect(),
         link_progress: None,
+        // Not read by this path; the fixture asserts nothing about it.
+        include_default_stance: crate::domain::fact_card::CardStance::Supports,
         no_target_notice: None,
         never_scanned_notice: None,
         proposal_source: None,
