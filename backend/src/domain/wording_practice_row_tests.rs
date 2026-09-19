@@ -44,6 +44,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
     // SIMPLE_COUNTS: the bar's owned-count pair.
     "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
+    // REVIEW_PAGE: the bar's oldest-waiting clause (ruling STOP-A).
+    "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -80,6 +82,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     (
         KEY_DECK_REVIEW_AWAITING_ONE,
         "{count} answer awaiting {reviewer}'s review",
+    ),
+    (
+        KEY_DECK_REVIEW_OLDEST_TEMPLATE,
+        "\u{b7} oldest waiting since {date}",
     ),
     (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
     (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
@@ -218,6 +224,11 @@ fn every_template_carries_its_placeholders() {
             "deck_review_awaiting_one",
             &w.deck_review_awaiting_one,
             vec!["{count}", "{reviewer}"],
+        ),
+        (
+            "deck_review_oldest_template",
+            &w.deck_review_oldest_template,
+            vec!["{date}"],
         ),
         (
             "note_struck_template",

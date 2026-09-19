@@ -20,12 +20,12 @@ use crate::domain::practice_params::{
     KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, KEY_PRACTICE_READ_MODEL,
-    KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
-    KEY_PRACTICE_REVIEWER_USERNAME, KEY_PRACTICE_TACTIC_NAMES,
+    KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
+    KEY_PRACTICE_REVIEWER_USERNAMES, KEY_PRACTICE_TACTIC_NAMES,
 };
 use crate::domain::settings::SettingError;
 use crate::repositories::pipeline_repository::AppSettingRecord;
-use crate::services::settings_row_readers::{token_count_of, token_list_of};
+use crate::services::settings_row_readers::{token_count_of, token_list_of, verbatim_list_of};
 use crate::services::settings_store::{require, text_of};
 
 /// Assemble the practice read's twelve parameters, or name the row that is wrong.
@@ -42,6 +42,7 @@ use crate::services::settings_store::{require, text_of};
 pub(crate) fn build_practice_read_params(
     rows: &HashMap<String, AppSettingRecord>,
 ) -> Result<PracticeReadParams, SettingError> {
+    let bench = reviewer_bench(rows)?;
     Ok(PracticeReadParams {
         prompt_file: text_of(require(rows, KEY_PRACTICE_READ_PROMPT_FILE)?)?,
         model: text_of(require(rows, KEY_PRACTICE_READ_MODEL)?)?,
@@ -58,8 +59,8 @@ pub(crate) fn build_practice_read_params(
         fine_token: text_of(require(rows, KEY_PRACTICE_READ_FINE_TOKEN)?)?,
         tactic_names: token_list_of(require(rows, KEY_PRACTICE_TACTIC_NAMES)?)?,
         case_timezone: text_of(require(rows, KEY_PRACTICE_CASE_TIMEZONE)?)?,
-        reviewer_username: text_of(require(rows, KEY_PRACTICE_REVIEWER_USERNAME)?)?,
-        reviewer_display_name: text_of(require(rows, KEY_PRACTICE_REVIEWER_DISPLAY_NAME)?)?,
+        reviewer_usernames: bench.logins,
+        reviewer_display_names: bench.names,
         discuss_default_model: text_of(require(rows, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL)?)?,
         discuss_max_turns: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TURNS)?)?,
         discuss_prompt_file: text_of(require(rows, KEY_PRACTICE_DISCUSS_PROMPT_FILE)?)?,
@@ -67,6 +68,58 @@ pub(crate) fn build_practice_read_params(
         effort: effort_of(rows, KEY_PRACTICE_READ_EFFORT)?,
         discuss_effort: effort_of(rows, KEY_PRACTICE_DISCUSS_EFFORT)?,
     })
+}
+
+/// The two reviewer lists, read together and checked against each other.
+///
+/// ## Why they are read as a PAIR and not as two independent rows
+///
+/// They are index-aligned: the third login's name is the third name. Read
+/// separately, a store whose two rows have drifted apart produces a perfectly
+/// valid snapshot that prints the wrong attorney's name beside the review
+/// queue — the one failure here that looks like working software, because
+/// nothing downstream can tell a wrong name from a right one. Read as a pair,
+/// the drift is a boot refusal naming both lengths.
+///
+/// ## Rust Learning: a private struct to name a two-value return
+///
+/// `Result<(Vec<String>, Vec<String>), _>` would compile and would be one
+/// transposition away from swapping logins for names — both are `Vec<String>`,
+/// so the compiler would say nothing. Two named fields cost three lines and
+/// remove the whole class of mistake, which is the same trade
+/// `settings_wording::AllWording` makes for its fifteen blocks.
+struct ReviewerBench {
+    logins: Vec<String>,
+    names: Vec<String>,
+}
+
+/// # Errors
+/// [`SettingError`] naming the row that is missing, blank or malformed, or — when
+/// both rows read cleanly — an [`SettingError::Unreadable`] on the login row
+/// reporting that the two lists are not the same length.
+fn reviewer_bench(rows: &HashMap<String, AppSettingRecord>) -> Result<ReviewerBench, SettingError> {
+    // Case PRESERVED on both: the logins are identities compared exactly, and
+    // the names are printed on a screen. The lower-casing reader beside this one
+    // would turn `Chuck` into `chuck` in the review bar.
+    let logins = verbatim_list_of(require(rows, KEY_PRACTICE_REVIEWER_USERNAMES)?)?;
+    let names = verbatim_list_of(require(rows, KEY_PRACTICE_REVIEWER_DISPLAY_NAMES)?)?;
+    if logins.len() != names.len() {
+        tracing::error!(
+            logins = logins.len(),
+            names = names.len(),
+            "the reviewer bench is misaligned: every login needs a display name in the same position"
+        );
+        // The refusal is reported against the LOGIN row because that is the list
+        // an operator edits first when adding a reviewer, and the name row is
+        // the one they then forget. `expected` is `&'static str`, so the two
+        // lengths go to the log above rather than into the stored error.
+        return Err(SettingError::Unreadable {
+            key: KEY_PRACTICE_REVIEWER_USERNAMES.to_string(),
+            value: logins.join(","),
+            expected: "the same number of entries as practice_reviewer_display_names",
+        });
+    }
+    Ok(ReviewerBench { logins, names })
 }
 
 /// One stored effort row as the wire value it means, or a named refusal.

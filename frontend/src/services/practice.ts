@@ -169,12 +169,21 @@ export type OpenSession = {
  * username (CLAUDE.md rule 12).
  */
 export type DeckReview = {
-  /** Answers awaiting the reviewer on this deck — the same for every viewer. */
+  /** Answers awaiting the reviewers on this deck — the same for every viewer. */
   awaiting: number;
-  /** True only for the reviewer: the Done reviewing button renders on this. */
+  /** True only for a listed reviewer: the Done reviewing button renders on this. */
   can_mark_reviewed: boolean;
-  /** `{reviewer}` in the bar's sentence. */
+  /** `{reviewer}` in the bar's sentence — the whole bench, joined server-side. */
   reviewer_display_name: string;
+  /**
+   * The day the oldest waiting item arrived, ALREADY FORMATTED — absent when
+   * nothing is waiting (CC_TASK_REVIEW_PAGE_v1).
+   *
+   * `undefined` rather than `null`: the field is `skip_serializing_if` on the
+   * Rust side, so it is missing from the object rather than present and null.
+   * The bar withholds its whole clause on it.
+   */
+  oldest?: string;
 };
 
 /** Everything the page needs, in one response. */

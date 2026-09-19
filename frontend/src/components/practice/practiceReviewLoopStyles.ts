@@ -10,30 +10,57 @@
 
 import type { CSSProperties } from "react";
 
-import { BLUE, INK, LINE, MUTED, PALE } from "./practiceStyles";
+import { BLUE, INK, MUTED, PALE } from "./practiceStyles";
 
-/** The slim bar under the title: amber count left, Done reviewing right. */
+/**
+ * The slim bar under the title: amber count left, Done reviewing right.
+ *
+ * ## Why it grew a GROUND on 2026-09-19 (ruling STOP-A, option 2)
+ *
+ * It was amber text inside a plain outlined box. The review-page mockup draws
+ * it on the amber it means, and Roman ruled the change into the ONE component
+ * rather than into a variant — so the deck page's bar moved with it, which is
+ * correct: they are the same bar saying the same thing, and two grounds for one
+ * sentence is how a person stops reading it as one sentence.
+ */
 export const reviewBar: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
   alignItems: "center",
   justifyContent: "space-between",
   gap: "8px 16px",
-  border: `1px solid ${LINE}`,
-  borderRadius: 10,
+  background: "var(--practice-review-amber-bg)",
+  border: "1px solid var(--practice-review-amber-border)",
+  borderRadius: 8,
   padding: "10px 16px",
-  margin: "10px 0 14px",
+  margin: "16px 0 22px",
 };
 
 /** "{n} new since you last reviewed" — the amber of owed work. */
 export const reviewCount: CSSProperties = {
   color: "var(--burden-warning-text)",
   fontWeight: 700,
-  fontSize: 16,
+  // 14, from the review mockup: the sentence grew an oldest-waiting clause on
+  // 2026-09-19 and at 16 it wrapped on a narrow deck page before the button.
+  fontSize: 14,
 };
 
 /** The failure sentence under the bar. */
 export const reviewError: CSSProperties = { color: "var(--practice-red)", fontSize: 14, width: "100%" };
+
+/**
+ * The two grounds a note is drawn on.
+ *
+ * ## Why a note has two looks and not one
+ *
+ * Under Marie's deck row a note is one thing among many on a page about
+ * QUESTIONS, and the blue rail files it beside the answer it belongs to. On the
+ * Review answers page it is the only thing Chuck is there to write, and the
+ * ruled mockup draws it on the same amber as the review bar above it — the
+ * ground this build already uses for owed work. Same component, same behaviour,
+ * same strings; a ground chosen by the surface.
+ */
+export type NoteTone = "blue" | "amber";
 
 /** One note: the blue left border, on the pale ground. */
 export const note: CSSProperties = {
@@ -44,16 +71,49 @@ export const note: CSSProperties = {
   borderRadius: "0 6px 6px 0",
 };
 
+/** The amber note of the Review answers page — the mockup's `.note`. */
+export const noteAmber: CSSProperties = {
+  background: "var(--practice-review-amber-bg)",
+  border: "1px solid var(--practice-review-amber-border)",
+  borderRadius: 8,
+  padding: "8px 12px",
+  margin: "10px 0 0",
+  fontSize: 13.5,
+};
+
+/** One note's frame, for the tone the surface asked for. */
+export function noteFrame(tone: NoteTone): CSSProperties {
+  return tone === "amber" ? noteAmber : note;
+}
+
 /** "Chuck · 17 Sep" — the author in blue, bold. */
 export const noteAuthor: CSSProperties = { color: BLUE, fontWeight: 700, fontSize: 14 };
 
-/** The note's words. Struck: through, and muted. */
-export function noteText(struck: boolean): CSSProperties {
+/** The same line on the amber ground: the mockup's `.note .who`. */
+export const noteAuthorAmber: CSSProperties = {
+  color: "var(--burden-warning-text)",
+  fontWeight: 700,
+  fontSize: 12,
+};
+
+/** The author line, for the tone the surface asked for. */
+export function noteAuthorFor(tone: NoteTone): CSSProperties {
+  return tone === "amber" ? noteAuthorAmber : noteAuthor;
+}
+
+/**
+ * The note's words. Struck: through, and muted.
+ *
+ * `tone` DEFAULTS to the blue surface, so the two call sites that predate the
+ * Review answers page read exactly as they did — a default parameter rather
+ * than a second function, because the only difference is a font size.
+ */
+export function noteText(struck: boolean, tone: NoteTone = "blue"): CSSProperties {
   return {
     color: struck ? MUTED : INK,
     textDecoration: struck ? "line-through" : "none",
     margin: "2px 0 0",
-    fontSize: 15,
+    fontSize: tone === "amber" ? 13.5 : 15,
     whiteSpace: "pre-wrap",
   };
 }

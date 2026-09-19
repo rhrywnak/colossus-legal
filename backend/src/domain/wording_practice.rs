@@ -71,6 +71,12 @@ pub struct PracticeWording {
     /// it. Its own block because `flow` is the SITTING's block, and this is
     /// the surface that replaces the sitting.
     pub list: super::wording_practice_list::PracticeListWording,
+    /// The Review answers page — the loop's READ half, where Chuck goes
+    /// through a whole deck in one sitting (CC_TASK_REVIEW_PAGE_v1). Its own
+    /// block for the two reasons its header gives: the wire mirror had six
+    /// lines of room left, and these strings are addressed to HIM while `row`'s
+    /// are addressed to whoever is looking at one question.
+    pub review: super::wording_practice_review::PracticeReviewWording,
     // ── S0 · the start card ──────────────────────────────────────────────
     /// The eyebrow over the scenario title on the practice start screen.
     pub kicker: String,
@@ -290,6 +296,7 @@ pub fn build_practice_wording<E>(
         editor: super::wording_practice_editor::build_practice_editor_wording(&read)?,
         print: super::wording_practice_print::build_practice_print_wording(&read)?,
         list: super::wording_practice_list::build_practice_list_wording(&read)?,
+        review: super::wording_practice_review::build_practice_review_wording(&read)?,
         kicker: read(KEY_KICKER)?,
         intro: read(KEY_INTRO)?,
         who_heading: read(KEY_WHO_HEADING)?,

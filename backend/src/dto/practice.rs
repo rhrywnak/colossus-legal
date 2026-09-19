@@ -470,21 +470,38 @@ pub struct PracticeSheetPayload {
     pub changes_heading: String,
 }
 
-/// One question's current answer, for the printed answers sheet.
+/// One question's current answer, for the printed answers sheet and the Review
+/// answers page.
 ///
 /// ## Domain note: the CURRENT answer only
 ///
 /// Not the earlier versions. Chuck is reading what Marie would say today; a
 /// sheet carrying three versions of one answer asks him to work out which is
 /// live, which is the one job the screen already does for him.
+///
+/// ## Why two more fields arrived on 2026-09-19
+///
+/// The Review answers page needs to WRITE on what it reads — a note lands on
+/// the answer that stands now, which needs its id — and it prints who wrote it.
+/// Both are additive: the print sheet reads neither and is unchanged.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct PracticeAnswerDto {
     pub question_id: Uuid,
+    /// The standing answer's own id — what a note written on the review page
+    /// attaches to, and what tells a note on THIS answer from one on a
+    /// superseded attempt.
+    pub answer_id: Uuid,
     /// Her words, exactly as typed.
     pub text: String,
     /// `Answered on 22 Aug`, already composed — the same line the deck row shows.
     pub answered_on: String,
+    /// `Answered 14 Sep · Marie`, already composed — the review page's own line.
+    ///
+    /// A second composed line rather than a name the client would join: the
+    /// browser holds no templates and no date format, so how this reads is a
+    /// Settings edit (see `services::practice_page::answered_meta_line`).
+    pub answered_meta: String,
 }
 
 /// Every current answer in one scenario, for the print-answers view.

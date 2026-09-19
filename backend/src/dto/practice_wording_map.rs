@@ -21,6 +21,7 @@
 //! wrapper, or a re-export.
 
 use super::practice_wording::PracticeWordingDto;
+use super::practice_wording_review::PracticeReviewWordingDto;
 use crate::domain::wording_practice::PracticeWording;
 use crate::domain::wording_practice_report::PracticeReportWording;
 
@@ -319,6 +320,10 @@ impl PracticeWordingDto {
             print_missing_redirect: drill.print.missing_redirect.clone(),
             print_missing_joiner: drill.print.missing_joiner.clone(),
             print_hidden_template: drill.print.hidden_template.clone(),
+            // The Review answers page's ten strings, built by the sibling that
+            // declares them. One line here rather than ten, which is the whole
+            // reason the split pays — see `practice_wording_review`'s header.
+            review: PracticeReviewWordingDto::from_blocks(drill),
         }
     }
 }

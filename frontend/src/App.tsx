@@ -19,6 +19,7 @@ import PracticePage from "./pages/PracticePage";
 import PracticeAnswersPrintPage from "./pages/PracticeAnswersPrintPage";
 import PracticePrintPage from "./pages/PracticePrintPage";
 import PracticeQuestionPage from "./pages/PracticeQuestionPage";
+import PracticeReviewPage from "./pages/PracticeReviewPage";
 import PracticeWalkPage from "./pages/PracticeWalkPage";
 import PracticeSessionPage from "./pages/PracticeSessionPage";
 import GraphPage from "./pages/GraphPage";
@@ -199,6 +200,13 @@ const AppShell: React.FC = () => {
           <Route
             path="/cases/:slug/trial-prep/practice/:scenarioId/print-answers"
             element={<PracticeAnswersPrintPage />}
+          />
+          {/* Chuck's reading pass: one page, the whole deck, her answers
+              and the notes on them. An address of its own rather than a
+              mode on the deck page, which is Marie's and is filtered. */}
+          <Route
+            path="/cases/:slug/trial-prep/practice/:scenarioId/review"
+            element={<PracticeReviewPage />}
           />
           {/* ONE question — she writes, he reads. The address the retired
               review page held; the thing at it is what a person always

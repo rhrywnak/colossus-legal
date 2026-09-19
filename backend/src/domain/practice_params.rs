@@ -140,13 +140,26 @@ pub struct PracticeReadParams {
     /// practice read that asks "was this today?" already has it in hand.
     pub case_timezone: String,
 
-    /// The login whose Done reviewing marks the review queue is counted against,
-    /// and the only login offered that button — see
-    /// [`KEY_PRACTICE_REVIEWER_USERNAME`].
-    pub reviewer_username: String,
-    /// The reviewer's name as screens print it — see
-    /// [`KEY_PRACTICE_REVIEWER_DISPLAY_NAME`].
-    pub reviewer_display_name: String,
+    /// Every login whose Done reviewing marks the review queue is counted
+    /// against, and the only logins offered that button — see
+    /// [`KEY_PRACTICE_REVIEWER_USERNAMES`].
+    ///
+    /// ## Domain note: a BENCH, not a person (ruled 2026-09-19)
+    ///
+    /// This was one login until CC_TASK_REVIEW_PAGE_v1. Chuck reviews Marie's
+    /// answers; before trial, so does Roman, and there was no way to say so
+    /// without handing the whole queue from one man to the other. Membership,
+    /// not equality, now decides who may press Done reviewing — and the mark
+    /// they move is ONE shared mark, so the count clears for everyone.
+    pub reviewer_usernames: Vec<String>,
+    /// The reviewers' names as screens print them, in the SAME ORDER as
+    /// [`Self::reviewer_usernames`] — see [`KEY_PRACTICE_REVIEWER_DISPLAY_NAMES`].
+    ///
+    /// The two lists are index-aligned and the boot check refuses a snapshot
+    /// where they differ in length: a name list one short does not fail, it
+    /// prints the wrong attorney's name beside a queue, which is the one
+    /// failure here that looks like working software.
+    pub reviewer_display_names: Vec<String>,
 
     // ── Discuss with AI (CC_TASK_QUESTION_CHAT_v1) ────────────────────────────
     /// The model the dock starts on — [`KEY_PRACTICE_DISCUSS_DEFAULT_MODEL`].
@@ -228,22 +241,24 @@ pub const KEY_PRACTICE_TACTIC_NAMES: &str = "practice_tactic_names";
 /// loudly instead of falling back to UTC, which is the bug this exists to fix.
 pub const KEY_PRACTICE_CASE_TIMEZONE: &str = "practice_case_timezone";
 
-/// The Authentik username of the attorney who reviews Marie's answers
-/// (CC_TASK_SIMPLE_COUNTS_v1).
+/// The Authentik usernames of everyone who reviews Marie's answers,
+/// comma-separated (CC_TASK_REVIEW_PAGE_v1; one login until then).
 ///
-/// ## Domain note: ONE reviewer, and the queue is theirs
+/// ## Domain note: ONE queue, owned by a BENCH
 ///
-/// "Answers requiring review" is a single number every viewer sees, counted
-/// against this person's Done reviewing marks. Anyone may read an answer; only
-/// this login's press moves the queue, and only this login is offered the
-/// button. Case data (the attorney), so a stored row — changing attorney is a
-/// Settings edit, never a build.
-pub const KEY_PRACTICE_REVIEWER_USERNAME: &str = "practice_reviewer_username";
+/// "Answers requiring review" is still a single number every viewer sees. What
+/// changed on 2026-09-19 is who owns it: any login on this list may press Done
+/// reviewing, the press moves the one shared mark, and the count clears for
+/// everyone. Nothing any of them writes counts as work waiting for them.
+/// Case data (the attorneys), so a stored row — adding a reviewer is a Settings
+/// edit, never a build.
+pub const KEY_PRACTICE_REVIEWER_USERNAMES: &str = "practice_reviewer_usernames";
 
-/// The reviewer's name as screens print it — the owner chip and `{reviewer}` in
-/// the review pill and bar (GO ruling 5). A second row rather than a template
-/// word, so an attorney change is two edits and not a hunt through sentences.
-pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAME: &str = "practice_reviewer_display_name";
+/// The reviewers' names as screens print them, comma-separated and in the same
+/// order as [`KEY_PRACTICE_REVIEWER_USERNAMES`] — the owner chip and
+/// `{reviewer}` in the review pill and bar. A second row rather than template
+/// words, so adding an attorney is two edits and not a hunt through sentences.
+pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAMES: &str = "practice_reviewer_display_names";
 
 /// How much the model may THINK before writing one answer read.
 ///
@@ -273,8 +288,8 @@ pub const KEY_PRACTICE_DISCUSS_MAX_TOKENS: &str = "practice_discuss_max_tokens";
 
 pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_CASE_TIMEZONE,
-    KEY_PRACTICE_REVIEWER_USERNAME,
-    KEY_PRACTICE_REVIEWER_DISPLAY_NAME,
+    KEY_PRACTICE_REVIEWER_USERNAMES,
+    KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
     KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
     KEY_PRACTICE_DISCUSS_MAX_TURNS,
     KEY_PRACTICE_DISCUSS_PROMPT_FILE,
@@ -319,8 +334,12 @@ impl PracticeReadParams {
             fine_token: "Fine.".to_string(),
             tactic_names: TEST_TACTIC_NAMES.split(',').map(str::to_string).collect(),
             case_timezone: "America/Detroit".to_string(),
-            reviewer_username: "cpenzien".to_string(),
-            reviewer_display_name: "Chuck".to_string(),
+            // ONE name each, because that is what the migration produces on a
+            // store seeded by `simple_counts`: the bench is seeded FROM the
+            // singular rows it replaces. Tests that need two reviewers build
+            // the list themselves; this fixture is pinned to the migration.
+            reviewer_usernames: vec!["cpenzien".to_string()],
+            reviewer_display_names: vec!["Chuck".to_string()],
             discuss_default_model: "claude-opus-5".to_string(),
             discuss_max_turns: 40,
             discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),

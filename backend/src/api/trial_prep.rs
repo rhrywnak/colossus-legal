@@ -107,9 +107,12 @@ pub async fn get_trial_prep_dashboard(
     // another.
     let settings = state.settings.current();
     let create_wording = create_wording(&settings.scenario_authoring_wording);
+    // `{reviewer}` on the dashboard names whoever owes the review queue — one
+    // name, or the whole bench joined, decided in ONE place so the dashboard and
+    // the deck's own bar cannot disagree about who is being waited on.
     let war_room_wording = WarRoomWordingDto::new(
         &settings.war_room_wording,
-        &settings.practice_read.reviewer_display_name,
+        &crate::services::war_room_progress::reviewer_display_line(&settings),
     );
 
     let started = std::time::Instant::now();

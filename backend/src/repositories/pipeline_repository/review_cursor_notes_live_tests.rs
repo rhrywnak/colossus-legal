@@ -25,7 +25,7 @@ const REVIEWER: &str = "cpenzien";
 
 /// How many questions Chuck's queue holds, and since when.
 async fn queue(pool: &PgPool, s: Uuid) -> TestResult<(i64, Option<DateTime<Utc>>)> {
-    let rows = awaiting_review(pool, &[s], REVIEWER).await?;
+    let rows = awaiting_review(pool, &[s], &[REVIEWER.to_string()]).await?;
     assert_eq!(rows.len(), 1, "one row per scenario asked for");
     Ok((rows[0].awaiting, rows[0].oldest))
 }

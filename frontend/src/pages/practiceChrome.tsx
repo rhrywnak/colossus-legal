@@ -21,12 +21,30 @@ import * as s from "../components/practice/practiceStyles";
 import type { PracticeDeck } from "../services/practice";
 import { scenarioPagePath, trialPrepPath } from "../utils/routePaths";
 
-/** The trail above every practice screen. */
+/**
+ * The trail above every practice screen.
+ *
+ * ## `last` — the one thing that differs between the screens
+ *
+ * The Review answers page sits at its own address under the same scenario, so
+ * its trail is this trail with a different final word. A prop rather than a
+ * second component: the three links above it, and the rule that the scenario
+ * crumb appears only once the deck has named itself, are identical and must
+ * stay identical.
+ *
+ * The default is the literal `"Practice"` this component has always carried.
+ * The three words above it are literals too — a pre-existing carve-out, not one
+ * this task introduced — and a lone stored crumb word beside three literals
+ * would be worse than either choice made consistently. The review page passes
+ * its STORED name (`practice_review_title`), because that row already exists to
+ * keep the button, the crumb and the eyebrow from drifting apart.
+ */
 export const PracticeCrumb: React.FC<{
   slug: string;
   scenarioId: string;
   deck: PracticeDeck | null;
-}> = ({ slug, scenarioId, deck }) => (
+  last?: string;
+}> = ({ slug, scenarioId, deck, last = "Practice" }) => (
   <Breadcrumb
     items={[
       { label: "Dashboard", to: "/" },
@@ -34,7 +52,7 @@ export const PracticeCrumb: React.FC<{
       ...(deck === null
         ? []
         : [{ label: `${deck.code} · ${deck.title}`, to: scenarioPagePath(slug, scenarioId) }]),
-      { label: "Practice" },
+      { label: last },
     ]}
   />
 );

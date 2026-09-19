@@ -91,13 +91,25 @@ pub async fn get_practice_answers(
         .into_iter()
         .map(|record| crate::dto::practice::PracticeAnswerDto {
             question_id: record.question_id,
-            text: record.answer_text,
+            // The standing answer's id, so the Review answers page can write a
+            // note on the thing it is reading rather than on the question.
+            answer_id: record.answer_id,
             // Composed here, like every other sentence on this surface: the
             // client holds no templates and no date format.
             answered_on: crate::services::practice_page::answered_on_line(
                 &settings,
                 record.answered_at,
             ),
+            // The same clock, a different sentence: the review page prints WHO
+            // as well as when. `author_name` is `None` on sittings opened before
+            // the 2026-08-19 attribution hotfix, and the composer says so in
+            // words rather than leaving a gap after the separator.
+            answered_meta: crate::services::practice_page::answered_meta_line(
+                &settings,
+                record.answered_at,
+                record.author_name.as_deref(),
+            ),
+            text: record.answer_text,
         })
         .collect::<Vec<_>>();
 

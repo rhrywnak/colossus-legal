@@ -62,8 +62,13 @@ const question = (id: string, kind: string): PracticeQuestion =>
 
 const answer = (questionId: string, text: string): PracticeAnswer => ({
   question_id: questionId,
+  // Neither of these reaches the paper. They are on the type because the Review
+  // answers page needs them (CC_TASK_REVIEW_PAGE_v1), and the sheet is proved
+  // against the payload the server actually sends.
+  answer_id: `answer-${questionId}`,
   text,
   answered_on: "Answered on 22 Aug",
+  answered_meta: "Answered 22 Aug · Marie",
 });
 
 describe("the answers document", () => {

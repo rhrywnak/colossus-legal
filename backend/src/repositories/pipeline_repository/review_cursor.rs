@@ -72,21 +72,21 @@ pub struct AwaitingReviewRow {
     pub oldest: Option<chrono::DateTime<chrono::Utc>>,
 }
 
-/// The reviewer's queue: answers by someone else since the REVIEWER last pressed
-/// Done reviewing (CC_TASK_SIMPLE_COUNTS_v1).
+/// The reviewers' queue: answers by someone else since the BENCH last pressed
+/// Done reviewing (CC_TASK_SIMPLE_COUNTS_v1; a bench since CC_TASK_REVIEW_PAGE_v1).
 ///
 /// A visible question counts when EITHER of two things is true of it.
 ///
 /// Its CURRENT answer
 /// - exists,
-/// - is newer than the reviewer's cursor (no cursor row = `-infinity`, so every
+/// - is newer than the SHARED cursor (no cursor row = `-infinity`, so every
 ///   answer is newer), and
-/// - was written by someone other than the reviewer.
+/// - was written by someone who is not on the reviewer bench.
 ///
 /// Or a NOTE on it (or on that current answer)
 /// - still stands — not struck,
-/// - was written by someone other than the reviewer, and
-/// - is newer than the reviewer's cursor.
+/// - was written by someone who is not on the bench, and
+/// - is newer than the shared cursor.
 ///
 /// The second leg arrived with CC_TASK_DEFECT_SWEEP_v1 (defect 5): until then
 /// the queue counted answers only, so a note Marie left on a question Chuck had
@@ -94,11 +94,24 @@ pub struct AwaitingReviewRow {
 ///
 /// ## Domain note: one queue, the same for every viewer
 ///
-/// `reviewer` is the `practice_reviewer_username` settings row — never the
+/// `reviewers` is the `practice_reviewer_usernames` settings row — never the
 /// signed-in user. Anyone may read an answer or press Done reviewing, but only
-/// the reviewer's cursor row is read here, so nobody else's press moves this
-/// number. Until v2.1.10 this counted against the VIEWER, which gave three
+/// a LISTED reviewer's cursor row is read here, so nobody else's press moves
+/// this number. Until v2.1.10 this counted against the VIEWER, which gave three
 /// people three different truths about one deck.
+///
+/// ## Domain note: ONE SHARED CURSOR over the bench (ruled 2026-09-19)
+///
+/// The `mark` CTE takes `MAX(looked_at)` across every listed reviewer rather
+/// than one person's row. That is what "any listed reviewer's press clears the
+/// count for everyone" means in SQL — and it is a RULING, not a refactor: with
+/// one row per reviewer read independently there would be as many queues as
+/// there are reviewers, which is the state v2.1.10 was written to end.
+///
+/// The exclusion legs moved with it, for the same ruling. An answer or a note
+/// written by ANY listed reviewer no longer waits: left as one name, the second
+/// reviewer's own note would have counted as work waiting for the second
+/// reviewer, which is precisely the bug the exclusion exists to prevent.
 ///
 /// ## Domain note: `IS DISTINCT FROM`, not `<>`
 ///
@@ -123,7 +136,7 @@ pub struct AwaitingReviewRow {
 pub async fn awaiting_review(
     pool: &PgPool,
     scenario_ids: &[Uuid],
-    reviewer: &str,
+    reviewers: &[String],
 ) -> Result<Vec<AwaitingReviewRow>, PipelineRepoError> {
     let waiting = format!("(({ANSWER_WAITING}) OR ({NOTE_WAITING}))");
     // The moment that made this question wait. `LEAST` ignores NULLs in
@@ -142,8 +155,10 @@ pub async fn awaiting_review(
             WHERE s.scenario_id = ANY($1) \
             ORDER BY a.question_id, a.answered_at DESC, a.id DESC), \
          mark AS ( \
-            SELECT scenario_id, looked_at FROM practice_review_cursor \
-            WHERE user_id = $2 AND scenario_id = ANY($1)) \
+            SELECT scenario_id, MAX(looked_at) AS looked_at \
+            FROM practice_review_cursor \
+            WHERE user_id = ANY($2) AND scenario_id = ANY($1) \
+            GROUP BY scenario_id) \
          SELECT ids.scenario_id, \
                 COUNT(q.id) FILTER (WHERE {waiting}) AS awaiting, \
                 MIN({waiting_since}) FILTER (WHERE {waiting}) AS oldest \
@@ -156,12 +171,18 @@ pub async fn awaiting_review(
             SELECT MAX(n.created_at) AS at FROM practice_notes n \
              WHERE n.question_id = q.id \
                AND n.struck_at IS NULL \
-               AND n.author_id IS DISTINCT FROM $2 \
+               AND (n.author_id IS NULL OR NOT (n.author_id = ANY($2))) \
                AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id)) note ON true \
          GROUP BY ids.scenario_id"
     ))
     .bind(scenario_ids)
-    .bind(reviewer)
+    // ## Rust Learning: binding a slice as a Postgres array
+    //
+    // sqlx encodes `&[String]` as `text[]`, which is what `= ANY($2)` reads. One
+    // bind, three predicate sites, and no SQL built by string concatenation —
+    // the alternative (an `IN` list assembled in Rust) would put user-supplied
+    // logins into the statement text.
+    .bind(reviewers)
     .fetch_all(pool)
     .await
     .map_err(PipelineRepoError::from)
@@ -169,13 +190,19 @@ pub async fn awaiting_review(
 
 /// An ANSWER awaiting review — see [`awaiting_review`]'s SQL note.
 // STRUCTURAL: this IS the definition of an answer awaiting review — it exists,
-// it post-dates the reviewer's cursor, and the reviewer did not write it. Not a
-// threshold or a limit: changing it changes what the review queue MEANS, which is
-// a ruling and a code change, never a deployment value. Shared so the count and
-// the oldest date cannot disagree.
+// it post-dates the SHARED cursor, and nobody on the reviewer bench wrote it.
+// Not a threshold or a limit: changing it changes what the review queue MEANS,
+// which is a ruling and a code change, never a deployment value. Shared so the
+// count and the oldest date cannot disagree.
+//
+// ⚑ The bench leg is written out rather than spelled `<> ALL($2)`, for the
+// reason the old `IS DISTINCT FROM` was: sessions from before 2026-08-19 carry
+// `author_id = NULL`, and every three-valued comparison against NULL — `<> ALL`
+// included — yields NULL, which the FILTER drops. An unattributed answer must
+// count as "not a reviewer", so the NULL case is named.
 const ANSWER_WAITING: &str = "cur.answered_at IS NOT NULL \
     AND cur.answered_at > COALESCE(mark.looked_at, '-infinity'::timestamptz) \
-    AND cur.author_id IS DISTINCT FROM $2";
+    AND (cur.author_id IS NULL OR NOT (cur.author_id = ANY($2)))";
 
 /// A NOTE awaiting review (CC_TASK_DEFECT_SWEEP_v1 defect 5).
 ///
@@ -187,12 +214,13 @@ const ANSWER_WAITING: &str = "cur.answered_at IS NOT NULL \
 /// reviewed reached nobody: his queue counted answers only, and the note sat
 /// there until somebody happened to open that row.
 ///
-/// The three legs are the reviewer's own, one for one: the note still STANDS
+/// The three legs are the bench's own, one for one: the note still STANDS
 /// (striking it withdraws it, exactly as it does on her side), somebody OTHER
-/// than the reviewer wrote it, and it post-dates his cursor. `author_id` rather
-/// than `author` because the cursor and the sessions key on the login;
-/// `IS DISTINCT FROM` because rows written before 2026-08-19 carry no author id
-/// at all, and a NULL there means "not the reviewer", not "unknown, skip it".
+/// than a listed reviewer wrote it, and it post-dates the shared cursor.
+/// `author_id` rather than `author` because the cursor and the sessions key on
+/// the login; the NULL case is named explicitly because rows written before
+/// 2026-08-19 carry no author id at all, and a NULL there means "not a
+/// reviewer", not "unknown, skip it".
 // STRUCTURAL: this IS the definition of a note awaiting review. Same standing as
 // ANSWER_WAITING above, and changed only by a ruling.
 const NOTE_WAITING: &str = "note.at IS NOT NULL \

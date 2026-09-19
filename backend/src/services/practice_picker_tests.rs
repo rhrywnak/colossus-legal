@@ -160,6 +160,9 @@ fn a_row_carries_its_answered_on_line_or_nothing_at_all() {
         question_id: answered.id,
         answer_id: Uuid::from_u128(0xA115),
         answer_text: "her words".to_string(),
+        // Nobody recorded a name on this sitting — the fixture's default, so the
+        // composer's `author_unknown` arm is what the page tests exercise.
+        author_name: None,
         answered_at: now(),
     }];
 

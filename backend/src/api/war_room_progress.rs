@@ -40,9 +40,9 @@ use super::scenario_gather::resolve_gather_subject;
 
 /// Every scenario's [`ScenarioProgress`], keyed by id.
 ///
-/// The review queue is counted against the `practice_reviewer_username`
+/// The review queue is counted against the `practice_reviewer_usernames`
 /// settings row — never the signed-in user — so every viewer is served the same
-/// numbers (CC_TASK_SIMPLE_COUNTS_v1).
+/// numbers (CC_TASK_SIMPLE_COUNTS_v1; a bench since CC_TASK_REVIEW_PAGE_v1).
 ///
 /// ## Rust Learning: `tokio::try_join!`
 ///
@@ -61,7 +61,7 @@ pub(crate) async fn read_progress(
     let started = Instant::now();
     let pool = &state.pipeline_pool;
     let settings = state.settings.current();
-    let reviewer = review_queue_reviewer(&settings);
+    let reviewers = review_queue_reviewer(&settings);
     let (evidence, scans, deck, changed, awaiting) = tokio::try_join!(
         read_evidence_counts(state, scenario_ids),
         family("last scan", last_scans(pool, scenario_ids)),
@@ -69,7 +69,7 @@ pub(crate) async fn read_progress(
         family("changed counts", changed_counts(pool, scenario_ids)),
         family(
             "awaiting review",
-            awaiting_review(pool, scenario_ids, reviewer)
+            awaiting_review(pool, scenario_ids, reviewers)
         ),
     )?;
 
@@ -92,7 +92,9 @@ pub(crate) async fn read_progress(
 
     tracing::info!(
         scenarios = scenario_ids.len(),
-        reviewer,
+        // The whole bench, so a log line can answer "whose queue was this?"
+        // after the fact — `?` is `Debug`, which is what a slice has.
+        reviewers = ?reviewers,
         elapsed_ms = started.elapsed().as_millis() as u64,
         "read the war room's scenario status"
     );

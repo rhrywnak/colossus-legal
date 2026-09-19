@@ -3,15 +3,16 @@
 //! CC_TASK_REVIEW_LOOP_v1 §1. `PUT /cases/:slug/scenarios/:scenario_id/practice/review-cursor`
 //! upserts `now()` for the signed-in user. There is no delete route, no per-item
 //! mark and no stored count: the War Room pill and the deck's review bar are both
-//! DERIVED at read time (`review_cursor::awaiting_review`) — from the REVIEWER's
-//! row only, since CC_TASK_SIMPLE_COUNTS_v1.
+//! DERIVED at read time (`review_cursor::awaiting_review`) — from the REVIEWER
+//! BENCH's rows only, since CC_TASK_SIMPLE_COUNTS_v1 (one login until
+//! CC_TASK_REVIEW_PAGE_v1 made it a list).
 //!
 //! ## Why the route still accepts anybody's press
 //!
 //! The route is unchanged by that task: any signed-in user may still write their
-//! own row. It simply is not READ unless that user is the reviewer, so a press by
+//! own row. It simply is not READ unless that user is on the bench, so a press by
 //! anyone else changes nothing on any page — and the page offers the button only
-//! to the reviewer (`can_mark_reviewed`).
+//! to a listed reviewer (`can_mark_reviewed`).
 //!
 //! ## Why PUT
 //!
@@ -39,7 +40,10 @@ use crate::{
     repositories::pipeline_repository::review_cursor::{
         awaiting_review, mark_reviewed, AwaitingReviewRow,
     },
-    services::{practice_notes::attribution, war_room_progress::review_queue_reviewer},
+    services::{
+        practice_notes::attribution,
+        war_room_progress::{review_queue_reviewer, reviewer_display_line},
+    },
     state::AppState,
 };
 
@@ -51,8 +55,9 @@ use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 /// ## Domain note: only the reviewer's row is ever read
 ///
 /// The cursor is keyed by `username` — the id `attribution` stamps on every
-/// practice write. The review queue reads the `practice_reviewer_username` row
-/// alone, so the reviewer's press clears the queue for everyone and anybody
+/// practice write. The review queue reads the logins in the
+/// `practice_reviewer_usernames` row alone, and takes the LATEST of their marks,
+/// so any listed reviewer's press clears the queue for everyone and anybody
 /// else's press is recorded and ignored.
 ///
 /// # Errors
@@ -95,15 +100,16 @@ pub(super) async fn deck_review(
     user_id: &str,
 ) -> Result<DeckReviewDto, AppError> {
     let settings = state.settings.current();
-    let reviewer = review_queue_reviewer(&settings);
-    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], reviewer)
+    let reviewers = review_queue_reviewer(&settings);
+    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], reviewers)
         .await
         .map_err(|e| {
             repo_error(
                 "awaiting_review",
-                format!("scenario {scenario_id} reviewer {reviewer}: {e}"),
+                format!("scenario {scenario_id} reviewers {reviewers:?}: {e}"),
             )
         })?;
+    let row = rows.iter().find(|r| r.scenario_id == scenario_id);
     let awaiting = usable_count(&rows, scenario_id).ok_or_else(|| {
         repo_error(
             "awaiting_review",
@@ -112,18 +118,47 @@ pub(super) async fn deck_review(
     })?;
     Ok(DeckReviewDto {
         awaiting,
-        can_mark_reviewed: can_mark_reviewed(user_id, reviewer),
-        reviewer_display_name: settings.practice_read.reviewer_display_name.clone(),
+        can_mark_reviewed: can_mark_reviewed(user_id, reviewers),
+        reviewer_display_name: reviewer_display_line(&settings),
+        // Formatted HERE, in the case's own timezone, like every other date on
+        // this surface — the browser holds no date format and fills only the
+        // stored clause's `{date}`. `None` when the read returned no date, which
+        // is the honest shape: a deck with nothing waiting has no oldest item.
+        oldest: row.and_then(|r| r.oldest).map(|at| {
+            crate::services::practice_clock::local_day_month(
+                at,
+                &settings.practice_read.case_timezone,
+            )
+        }),
     })
 }
 
-/// Whether this signed-in user may press Done reviewing: only the reviewer may.
+/// Whether this signed-in user may press Done reviewing: only a listed reviewer.
 ///
 /// `user_id` is `attribution`'s stable id (the Authentik username), the same
 /// value the cursor row is keyed by — so "may press" and "whose press is read"
-/// are one comparison and cannot drift apart. Exact match: usernames are ids.
-pub(super) fn can_mark_reviewed(user_id: &str, reviewer: &str) -> bool {
-    user_id == reviewer
+/// are one comparison and cannot drift apart. Exact match on each entry:
+/// usernames are ids, not names, and a case-insensitive or trimmed comparison
+/// here would let a mistyped row silently grant the button to somebody.
+///
+/// ## Domain note: MEMBERSHIP, not equality (ruled 2026-09-19)
+///
+/// This was `user_id == reviewer` until CC_TASK_REVIEW_PAGE_v1. Chuck reviews
+/// Marie's answers; before trial, so does Roman, and one row could not say so
+/// without handing the whole queue from one man to the other.
+///
+/// ## Rust Learning: `iter().any()` over a slice
+///
+/// `any` short-circuits on the first match and returns a plain `bool` — no
+/// allocation, no `HashSet` built per request for a list of two. `r == user_id`
+/// compares a `&String` with a `&str` through `PartialEq<str>`, which is why
+/// neither side needs a `.as_str()`.
+pub(super) fn can_mark_reviewed(user_id: &str, reviewers: &[String]) -> bool {
+    // A blank caller is refused before the list is consulted. The reader drops
+    // blank entries, so a bench cannot hold one today — but `"" == ""` is true,
+    // and this is the one comparison in the build where being wrong hands a
+    // write control to somebody the auth layer could not name.
+    !user_id.trim().is_empty() && reviewers.iter().any(|r| r == user_id)
 }
 
 /// The count for `scenario_id`, if the read returned one that fits a `u32`.
@@ -148,17 +183,74 @@ mod tests {
         }
     }
 
-    /// Only the reviewer is offered Done reviewing — the settings row's login,
-    /// exactly (mutation-proved in the report: flipping the comparison reds this).
+    /// One name on the bench behaves exactly as the old equality test did.
+    ///
+    /// The migration seeds the bench FROM the single row it replaces, so on the
+    /// day this ships every store has exactly one entry. If this behaviour had
+    /// moved, it would have moved for every deployment at once.
     #[test]
-    fn can_mark_reviewed_only_for_the_reviewer() {
-        assert!(can_mark_reviewed("cpenzien", "cpenzien"));
-        assert!(!can_mark_reviewed("roman", "cpenzien"));
-        assert!(!can_mark_reviewed("docmarie", "cpenzien"));
-        // The reviewer comes from the row, not a literal: change it, and the
+    fn one_name_behaves_exactly_as_the_old_equality() {
+        let one = bench(&["cpenzien"]);
+        assert!(can_mark_reviewed("cpenzien", &one));
+        assert!(!can_mark_reviewed("roman", &one));
+        assert!(!can_mark_reviewed("docmarie", &one));
+        // The bench comes from the row, not a literal: change it, and the
         // answer follows.
-        assert!(can_mark_reviewed("roman", "roman"));
-        assert!(!can_mark_reviewed("cpenzien", "roman"));
+        let moved = bench(&["roman"]);
+        assert!(can_mark_reviewed("roman", &moved));
+        assert!(!can_mark_reviewed("cpenzien", &moved));
+    }
+
+    /// Done reviewing is offered to EVERY listed reviewer and to nobody else —
+    /// membership, not equality (mutation-proved in the report: negating the
+    /// predicate reds this).
+    ///
+    /// First, last and middle are all asserted on purpose: a predicate that
+    /// compared only the first entry would pass a test that checked one name.
+    #[test]
+    fn can_mark_reviewed_is_membership_over_the_whole_bench() {
+        let bench = bench(&["cpenzien", "roman", "jdoe"]);
+        assert!(can_mark_reviewed("cpenzien", &bench), "the first entry");
+        assert!(can_mark_reviewed("roman", &bench), "a middle entry");
+        assert!(can_mark_reviewed("jdoe", &bench), "the last entry");
+        assert!(!can_mark_reviewed("docmarie", &bench), "nobody else");
+    }
+
+    /// An EMPTY bench offers the button to nobody.
+    ///
+    /// The boot check refuses a blank row, so this state cannot reach a running
+    /// server — but `any` over an empty slice being `false` is what makes the
+    /// refusal safe rather than merely early. The opposite (`all`, which is
+    /// `true` when empty) would have handed the button to every signed-in user
+    /// the moment a row went blank.
+    #[test]
+    fn an_empty_bench_offers_the_button_to_nobody() {
+        assert!(!can_mark_reviewed("cpenzien", &[]));
+        assert!(!can_mark_reviewed("", &[]));
+    }
+
+    /// A blank entry never matches, and neither does a near-miss.
+    ///
+    /// A trailing comma in the settings row is the way a blank entry gets in.
+    /// Matching one would grant Done reviewing to a caller whose username the
+    /// auth layer left empty, which is the worst possible reading of a typo.
+    #[test]
+    fn a_blank_or_near_miss_username_never_matches() {
+        let bench = bench(&["cpenzien", ""]);
+        assert!(
+            !can_mark_reviewed("", &bench),
+            "a blank login is not a member"
+        );
+        assert!(!can_mark_reviewed("CPENZIEN", &bench), "usernames are ids");
+        assert!(
+            !can_mark_reviewed("cpenzien ", &bench),
+            "and are not trimmed"
+        );
+    }
+
+    /// The bench as a slice of owned names — the shape the settings row reads as.
+    fn bench(names: &[&str]) -> Vec<String> {
+        names.iter().map(|n| (*n).to_string()).collect()
     }
 
     /// The asked-for scenario's count comes back, not a neighbour's.

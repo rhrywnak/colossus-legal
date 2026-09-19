@@ -42,6 +42,7 @@ use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
 use crate::domain::wording_practice_print::PRACTICE_PRINT_WORDING_KEYS;
 use crate::domain::wording_practice_report::PRACTICE_REPORT_WORDING_KEYS;
+use crate::domain::wording_practice_review::PRACTICE_REVIEW_WORDING_KEYS;
 use crate::domain::wording_practice_row::PRACTICE_ROW_WORDING_KEYS;
 use crate::domain::wording_rehearsal::REHEARSAL_WORDING_KEYS;
 use crate::domain::wording_rehearsal_chrome::REHEARSAL_CHROME_KEYS;
@@ -149,6 +150,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
+        // REVIEW_PAGE (2026-09-19): the Review answers page's nine. Nested on
+        // the struct for the same Rule 17 reason as its siblings, and listed
+        // here for the same reason — one flat table, and a fixture missing them
+        // would let a snapshot build that the real store could not.
+        .chain(crate::domain::wording_practice_review::PracticeReviewWording::for_test_values())
         // Task 2.15 Tier 2: two TEXT rows that are not wording — one names a
         // file, one holds a comma-separated list — so they are seeded here rather
         // than borrowed from a `for_test_values` block.
@@ -198,10 +204,13 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // data, so a stored row (hotfix, 2026-08-19); Postgres does the
             // comparing, which is why nothing parses it here.
             ("practice_case_timezone", "America/Detroit".to_string()),
-            // SIMPLE_COUNTS: who reviews Marie's answers, and the name screens print.
-            // Case data, not wording — the first is a login.
-            ("practice_reviewer_username", "cpenzien".to_string()),
-            ("practice_reviewer_display_name", "Chuck".to_string()),
+            // REVIEW_PAGE: who reviews Marie's answers, and the names screens
+            // print. Case data, not wording — the first list is logins. One
+            // entry each, because the migration seeds the bench FROM the
+            // singular rows it replaces; the alignment of the two lists is what
+            // `settings_practice::reviewer_bench` refuses a snapshot over.
+            ("practice_reviewer_usernames", "cpenzien".to_string()),
+            ("practice_reviewer_display_names", "Chuck".to_string()),
             // QUESTION_CHAT: the dock's starting model and its prompt file.
             (
                 "practice_discuss_default_model",
@@ -888,14 +897,16 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        25,
+        26,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
          `answered_on_template`, which becomes the ONLY status a row carries \
          once the marks are retired from the interface. Plus the review loop's \
          nine: the deck review bar (three) and the notes (six), and GO v3's singular \
-         review-bar line"
+         review-bar line. Plus the review page's oldest-waiting clause \
+         (2026-09-19), which is the bar's fifth string and files here with the \
+         other four rather than with the page that occasioned it"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
@@ -930,6 +941,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          three on the print view, three sheet titles and two subtitles, the header \
          meta, four how-to lines, the antecedent and its named absence, the footer \
          and the SHEET number, and the six that say what the deck does not contain"
+    );
+    assert_eq!(
+        PRACTICE_REVIEW_WORDING_KEYS.len(),
+        9,
+        "REVIEW_PAGE (2026-09-19): the page's name, what an unanswered question \
+         says, the two note placeholders that are the only warning of where a \
+         note will land, the answered line and its author fallback, the two \
+         states that are not each other (load failed, empty deck), and the \
+         joiner between two reviewers' names"
     );
     assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
@@ -973,9 +993,100 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
             + PRACTICE_LIST_WORDING_KEYS.len()
+            + PRACTICE_REVIEW_WORDING_KEYS.len()
             + CHRONOLOGY_WORDING_KEYS.len()
             + FACT_CARD_WORDING_KEYS.len(),
-        "the seed and the twenty-two required lists must describe the same store"
+        "the seed and the twenty-three required lists must describe the same store"
+    );
+}
+
+/// A reviewer bench whose two lists differ in length REFUSES the snapshot.
+///
+/// ## Why this is a boot refusal and not a render-time fallback
+///
+/// It is the one failure in this feature that looks like working software.
+/// A missing row stops the service with a name; a bench of two logins and one
+/// name would boot, serve, and print `Chuck` beside a queue that two people
+/// own — and nothing downstream could tell that from the truth. The lists are
+/// index-aligned, so the alignment is what makes a name mean a login.
+#[test]
+fn a_misaligned_reviewer_bench_refuses_the_snapshot() {
+    for (logins, names) in [("cpenzien,roman", "Chuck"), ("cpenzien", "Chuck,Roman")] {
+        let mut rows = seeded();
+        rows.insert(
+            "practice_reviewer_usernames".to_string(),
+            row(
+                "practice_reviewer_usernames",
+                logins,
+                ValueKind::Text,
+                None,
+                None,
+            ),
+        );
+        rows.insert(
+            "practice_reviewer_display_names".to_string(),
+            row(
+                "practice_reviewer_display_names",
+                names,
+                ValueKind::Text,
+                None,
+                None,
+            ),
+        );
+        let error =
+            build_settings(&rows).expect_err("a misaligned bench must not build a snapshot");
+        let message = error.to_string();
+        // The refusal names the row an operator edits FIRST when adding a
+        // reviewer — the name row is the one they then forget.
+        assert!(
+            message.contains("practice_reviewer_usernames"),
+            "the refusal does not name the row: {message}"
+        );
+        assert!(
+            message.contains("practice_reviewer_display_names"),
+            "the refusal does not say what it must agree with: {message}"
+        );
+    }
+}
+
+/// An ALIGNED bench of two builds cleanly — the anti-vacuity half.
+///
+/// Without this, a `build_settings` that refused every bench would pass the test
+/// above forever while making a second reviewer impossible to configure.
+#[test]
+fn an_aligned_reviewer_bench_of_two_builds() {
+    let mut rows = seeded();
+    rows.insert(
+        "practice_reviewer_usernames".to_string(),
+        row(
+            "practice_reviewer_usernames",
+            "cpenzien,roman",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+    rows.insert(
+        "practice_reviewer_display_names".to_string(),
+        row(
+            "practice_reviewer_display_names",
+            "Chuck,Roman",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+    let settings = build_settings(&rows).expect("an aligned bench is valid");
+    assert_eq!(
+        settings.practice_read.reviewer_usernames,
+        ["cpenzien".to_string(), "roman".to_string()]
+    );
+    // And the NAMES keep their capitals — the defect the verbatim reader exists
+    // to prevent, asserted here through the whole boot path rather than only
+    // against the parser.
+    assert_eq!(
+        settings.practice_read.reviewer_display_names,
+        ["Chuck".to_string(), "Roman".to_string()]
     );
 }
 
@@ -1562,6 +1673,10 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // The budget fix: the two effort rows, and the read's cap CORRECTED to
         // 4096 — a correction the pass below is what sees.
         "pipeline_migrations/20260917141742_read_budget_and_effort.sql",
+        // REVIEW_PAGE: the reviewer BENCH — two rows seeded by SELECT from the
+        // two singular rows they retire, which is the third resolution shape
+        // `inherited_from_in` below was written for.
+        "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
     ]
     .iter()
     .map(|relative| {
@@ -1579,8 +1694,17 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // then the correction, not the original insert. Checking only the
         // insert would let this test go green while the live store holds
         // something else — the exact drift it exists to catch.
+        // Three shapes, in the order that decides what the store actually
+        // holds: a later CORRECTION, then a literal INSERT, then a row seeded
+        // by SELECT from the row it replaces — for which the value to compare
+        // is that PREDECESSOR's, resolved by the same two rules.
         let seeded_value = crate::domain::wording::tests::corrected_value_in(&sql, key)
             .or_else(|| seeded_value_in(&sql, key))
+            .or_else(|| {
+                let source = inherited_from_in(&sql, key)?;
+                crate::domain::wording::tests::corrected_value_in(&sql, &source)
+                    .or_else(|| seeded_value_in(&sql, &source))
+            })
             .unwrap_or_else(|| panic!("{key} is not seeded by the migration"));
 
         let in_fixture = &fixture
@@ -1624,6 +1748,33 @@ fn the_domain_test_snapshot_matches_the_seeded_store() {
         Settings::for_test(),
         "Settings::for_test() has drifted from the seeded store"
     );
+}
+
+/// The key a row is seeded FROM, when a migration writes it by `INSERT … SELECT`.
+///
+/// ## Why this shape exists at all
+///
+/// A row that REPLACES another must inherit its value, or a store whose operator
+/// had already edited the old row silently loses that edit on deploy. The
+/// reviewer bench is the first pair written that way: `practice_reviewer_usernames`
+/// takes whatever `practice_reviewer_username` holds, which on a store seeded by
+/// `simple_counts` is `cpenzien` and on Roman's DEV might not be.
+///
+/// So there is no literal in the INSERT to compare the fixture against, and the
+/// value to compare is the PREDECESSOR's. This finds that predecessor's key.
+///
+/// Crude in the same way [`seeded_value_in`] is, and bounded on purpose: the
+/// `WHERE key = '…'` it reads must fall inside the statement that names this key,
+/// so the window stops at the next `INSERT INTO`. Returns `None` when the shape
+/// does not match, so the caller fails with a message naming the key.
+fn inherited_from_in(sql: &str, key: &str) -> Option<String> {
+    let at = sql.find(&format!("    '{key}',"))?;
+    let rest = &sql[at..];
+    let window = rest.find("INSERT INTO").map_or(rest, |end| &rest[..end]);
+    let marker = "WHERE key = '";
+    let from = window.find(marker)? + marker.len();
+    let end = window[from..].find('\'')?;
+    Some(window[from..from + end].to_string())
 }
 
 /// Pull one key's seeded value out of the migration's INSERT.

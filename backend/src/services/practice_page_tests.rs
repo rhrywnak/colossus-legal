@@ -433,6 +433,12 @@ fn current(question_id: Uuid, at: chrono::DateTime<Utc>) -> CurrentAnswerRecord 
         question_id,
         answer_id: Uuid::from_u128(question_id.as_u128() ^ 0xA115),
         answer_text: "her words".to_string(),
+        // Nobody recorded a name on this sitting — the state of every sitting
+        // opened before the 2026-08-19 attribution hotfix. Nothing on the DECK
+        // row reads it (the row's line is `answered_on`, which carries no
+        // author); the tests that exercise the author arms are the three
+        // `answered_meta_line_*` below, which call the composer directly.
+        author_name: None,
         answered_at: at,
     }
 }
@@ -546,6 +552,74 @@ fn one_question_s_answer_never_lands_on_another_s_row() {
         dto.answered_on, None,
         "another question's answer reached this row"
     );
+}
+
+// ── `answered_meta_line` — the Review answers page's own line ───────────────
+//
+// CC_TASK_REVIEW_PAGE_v1. Three arms, and NONE of them is reachable through
+// `question_dto`: the deck row's line is `answered_on`, which carries no author,
+// and `answered_meta` is assembled in the API handler. So the composer is called
+// directly here — which is what the audit of 2026-09-19 found missing.
+
+/// The happy path: the day in the case's own zone, and the name on the sitting.
+#[test]
+fn answered_meta_line_names_the_day_and_the_author() {
+    let mut s = settings();
+    s.practice_read.case_timezone = "America/Detroit".to_string();
+    let line = answered_meta_line(&s, late_night_utc(), Some("Marie"));
+    assert!(line.contains("Marie"), "the author is missing: {line:?}");
+    // 22 Aug 01:30 UTC is still 21 Aug in Michigan — the SAME conversion the
+    // row's line makes, so the two surfaces cannot name different days.
+    assert!(line.contains("21 Aug"), "the case's own day, got {line:?}");
+    assert!(!line.contains('{'), "a placeholder survived: {line:?}");
+}
+
+/// `None` says so in the stored words, rather than trailing off after the dot.
+///
+/// Sittings opened before the 2026-08-19 attribution hotfix carry no name. A
+/// missing name and a blank name are different facts (Standing Rule 1), and a
+/// line reading `Answered 21 Aug · ` is the one that looks like a bug.
+#[test]
+fn answered_meta_line_with_no_author_says_so_in_the_stored_words() {
+    let s = settings();
+    let line = answered_meta_line(&s, late_night_utc(), None);
+    let unknown = &s.practice_wording.review.author_unknown;
+    assert!(
+        line.contains(unknown.as_str()),
+        "expected the stored {unknown:?}, got {line:?}"
+    );
+    assert!(
+        !line.trim_end().ends_with('\u{b7}'),
+        "the line trails off: {line:?}"
+    );
+}
+
+/// A WHITESPACE name takes the same arm as an absent one.
+///
+/// `practice_sessions.user_name` is a plain nullable TEXT column with no CHECK,
+/// so a sitting stamped with a blank display name is a row the database will
+/// accept. Rendered as-is it would print `Answered 21 Aug · ` and read exactly
+/// like a broken template.
+#[test]
+fn answered_meta_line_treats_a_blank_author_as_no_author() {
+    let s = settings();
+    let blank = answered_meta_line(&s, late_night_utc(), Some("   "));
+    let absent = answered_meta_line(&s, late_night_utc(), None);
+    assert_eq!(blank, absent);
+}
+
+/// The author is the STORED template's placeholder, not a literal join.
+///
+/// The repo's `render` matches UNBRACED keys, and a braced one matches nothing
+/// and ships a raw `{author}` to screen — which has happened here before. This
+/// is the test that catches it, because the string is well-typed either way.
+#[test]
+fn answered_meta_line_fills_both_placeholders_of_the_stored_template() {
+    let s = settings();
+    let line = answered_meta_line(&s, late_night_utc(), Some("Marie"));
+    for token in ["{when}", "{author}"] {
+        assert!(!line.contains(token), "{token} was not filled: {line:?}");
+    }
 }
 
 /// The printed answers sheet composes its date line the same way a row does.

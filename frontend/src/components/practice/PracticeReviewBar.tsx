@@ -39,8 +39,19 @@ interface Props {
 }
 
 /**
- * The bar's sentence: the singular row at exactly 1, the plural otherwise (GO v3).
+ * The bar's sentence: the singular row at exactly 1, the plural otherwise (GO v3),
+ * with the oldest-waiting clause appended when the server sent a date.
  * Exported so the pick is testable without rendering the bar.
+ *
+ * ## Why the clause is WITHHELD rather than emptied
+ *
+ * `oldest` is `undefined` when nothing is waiting, and on a deck where the read
+ * returned no date. Filling `{date}` with an empty string would print
+ * `· oldest waiting since ` — a sentence that trails off, which reads as a
+ * rendering fault rather than as an absent fact.
+ *
+ * The date arrives ALREADY FORMATTED, in the case's own timezone: the browser
+ * holds no date format, so it fills a placeholder and nothing else.
  */
 export function reviewBarLine(review: DeckReview, wording: PracticeWording): string {
   const template = pickByCount(
@@ -48,9 +59,15 @@ export function reviewBarLine(review: DeckReview, wording: PracticeWording): str
     wordingOf(wording, "deck_review_awaiting_one"),
     wordingOf(wording, "deck_review_awaiting_template"),
   );
-  return template
+  const line = template
     .replace("{count}", String(review.awaiting))
     .replace("{reviewer}", review.reviewer_display_name);
+  if (review.oldest === undefined || review.oldest === null) return line;
+  const oldest = wordingOf(wording, "deck_review_oldest_template").replace(
+    "{date}",
+    review.oldest,
+  );
+  return `${line} ${oldest}`;
 }
 
 const PracticeReviewBar: React.FC<Props> = ({ slug, scenarioId, review, wording, onReviewed }) => {

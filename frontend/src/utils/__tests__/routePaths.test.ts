@@ -56,6 +56,7 @@ import {
   homePath,
   peoplePath,
   practicePath,
+  practiceReviewPath,
   practicePrintPath,
   practiceAnswersPath,
   practiceQuestionPath,
@@ -207,6 +208,17 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     emit: () => practiceAnswersPath("awad v cfs", "id/with/slashes"),
   },
+  {
+    name: "practiceReviewPath",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/review",
+    emit: () =>
+      practiceReviewPath("awad-v-cfs", "3f2b1c9e-0000-4a1b-8c7d-000000000001"),
+  },
+  {
+    name: "practiceReviewPath (ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/review",
+    emit: () => practiceReviewPath("awad v cfs", "id/with/slashes"),
+  },
   // ── The navigation bar (nav cleanup, Part 2) ─────────────────────────────
   //
   // Every path in `NAV_ITEMS` / `ADMIN_ITEMS` is one of these builders, so the
@@ -335,6 +347,7 @@ describe("the guard can fail", () => {
     expect(routes).toContain(
       "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     );
+    expect(routes).toContain("/cases/:slug/trial-prep/practice/:scenarioId/review");
     // Was `/cases/:slug/rehearsal/:code` until v2.1 retired it. The sanity
     // check needs a route with a PARAMETER on a case-scoped path — that is the
     // shape a broken regex would drop first — so the proof matrix takes its
@@ -414,6 +427,15 @@ describe("the guard can fail", () => {
     );
     expect(routeFor(practiceAnswersPath("awad-v-cfs", "abc"))).toBe(
       "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
+    );
+    // And the fifth, added 2026-09-19. `review` is one segment where the
+    // parent route ends, so it must not be swallowed by the deck page itself —
+    // the shadowing risk every literal under this prefix carries.
+    expect(routeFor(practiceReviewPath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/review",
+    );
+    expect(routeFor(practicePath("awad-v-cfs", "abc"))).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId",
     );
   });
 

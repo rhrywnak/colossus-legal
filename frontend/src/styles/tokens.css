@@ -613,6 +613,17 @@
   --practice-warn-border: #e8dcae;
   --practice-warn-ink: #5f4d17;
 
+  /* CC_TASK_REVIEW_PAGE_v1's amber — the review bar, and a note on the Review
+     answers page. A THIRD amber, and deliberately so: --practice-warn-* is the
+     olive of a seed-question warning (something is WRONG with this deck) and
+     these are the warm ground of owed work (somebody is WAITING on you). The
+     mockup draws them as two different colours because they mean two different
+     things, and collapsing them would make the review bar read as a fault.
+     The ink is --burden-warning-text, which is already this exact hue: the
+     review count has used it since the bar was built. */
+  --practice-review-amber-bg: #fffaeb;
+  --practice-review-amber-border: #fedf89;
+
   /* The critique's waiting state: the bars that stand in for text that has not
      arrived yet. A gradient, so the sweep has something to sweep across. */
   --practice-shimmer: linear-gradient(90deg, #e4ebf5 25%, #f2f6fb 37%, #e4ebf5 63%);
