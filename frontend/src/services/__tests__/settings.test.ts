@@ -33,7 +33,7 @@ afterEach(() => {
 
 describe("fetchSettings", () => {
   it("reads the parameter list from the settings endpoint", async () => {
-    mockFetch.mockResolvedValue(ok({ settings: [] }));
+    mockFetch.mockResolvedValue(ok({ settings: [], areas: [] }));
 
     await fetchSettings();
 
@@ -49,6 +49,7 @@ describe("fetchSettings", () => {
           { key: "talking_points_cap", dormant_note: null },
           { key: "readiness_item_threshold_n", dormant_note: "…no effect today." },
         ],
+        areas: [{ id: "core", label: "Core", count: 2, note: null, blocks: [] }],
       }),
     );
 
@@ -70,6 +71,21 @@ describe("fetchSettings", () => {
     mockFetch.mockResolvedValue(ok({}));
 
     await expect(fetchSettings()).rejects.toThrow(/contract mismatch/);
+  });
+
+  it("throws when the payload carries no rail", async () => {
+    // Without the areas the page has no grouping and no counts, and would fall
+    // back to the flat 863-row column this rebuild replaced. That is a contract
+    // mismatch, not a degraded mode.
+    mockFetch.mockResolvedValue(ok({ settings: [{ key: "talking_points_cap" }] }));
+
+    await expect(fetchSettings()).rejects.toThrow(/carried no areas/);
+  });
+
+  it("accepts an empty rail, which is a real answer about an empty store", async () => {
+    mockFetch.mockResolvedValue(ok({ settings: [], areas: [] }));
+
+    await expect(fetchSettings()).resolves.toEqual({ settings: [], areas: [] });
   });
 });
 

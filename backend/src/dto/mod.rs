@@ -57,6 +57,12 @@ mod scenario_facts_wire_tests;
 pub mod scenario_orphans;
 pub mod schema;
 pub mod settings;
+
+/// The Settings page wire contract, proved against `contracts/settings_page.json`
+/// — the artifact the frontend's own test reads (CC_TASK_ADMIN_SETTINGS_PAGE_v1).
+#[cfg(test)]
+#[path = "settings_wire_tests.rs"]
+mod settings_wire_tests;
 pub mod theme_scan;
 pub mod trial_prep;
 pub mod war_room_progress;

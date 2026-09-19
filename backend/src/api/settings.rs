@@ -21,6 +21,8 @@
 //!
 //! `app_settings` lives in `colossus_legal_v2`: `&state.pipeline_pool`.
 
+use std::collections::HashMap;
+
 use axum::{
     extract::{Path, State},
     routing::{get, put},
@@ -31,9 +33,15 @@ use serde_json::json;
 use crate::{
     auth::{require_admin, AuthUser},
     domain::settings::ValueKind,
-    dto::settings::{SetSettingRequest, SettingChangedDto, SettingDto, SettingsPageDto},
+    dto::settings::{
+        AreaDto, BlockDto, SetSettingRequest, SettingChangedDto, SettingDto, SettingsPageDto,
+    },
     error::AppError,
     repositories::pipeline_repository::{list_settings, AppSettingRecord},
+    services::settings_map::{
+        locate, AREAS, UNDECLARED_AREA_ID, UNDECLARED_AREA_LABEL, UNDECLARED_AREA_NOTE,
+        UNDECLARED_BLOCK_ID,
+    },
     services::settings_store::SettingsError,
     services::settings_template_file::TemplateDir,
     services::settings_write::set_setting,
@@ -76,6 +84,19 @@ fn dormant_note(consumed_by: Option<&str>) -> Option<String> {
     })
 }
 
+/// "Changed — default: 2048", or `None` when the row still sits on its default.
+///
+/// ## Domain note: this is the page's landing list
+///
+/// Eight of the store's rows differ from what they shipped as. That set — not
+/// "whatever the last migration touched" — is what a human means by "what has
+/// been changed here", and it is the one list short enough to read. Composed
+/// here with every other user-visible sentence.
+fn changed_from_default(record: &AppSettingRecord) -> Option<String> {
+    (record.value != record.default_value)
+        .then(|| format!("Changed — default: {}", record.default_value))
+}
+
 /// "Last changed by Roman" / "Never changed since it shipped".
 fn last_changed(record: &AppSettingRecord) -> String {
     // The seed writes this marker, so a parameter nobody has touched is visibly
@@ -92,6 +113,7 @@ fn last_changed(record: &AppSettingRecord) -> String {
 
 /// Compose one parameter for display.
 fn to_dto(record: &AppSettingRecord) -> SettingDto {
+    let placed = locate(&record.key);
     SettingDto {
         key: record.key.clone(),
         value: record.value.clone(),
@@ -113,7 +135,88 @@ fn to_dto(record: &AppSettingRecord) -> SettingDto {
         bounds_label: bounds_label(record.min_value, record.max_value),
         dormant_note: dormant_note(record.consumed_by.as_deref()),
         last_changed: last_changed(record),
+        area_id: placed.area_id.to_string(),
+        block_id: placed.block_id.to_string(),
+        changed_from_default: changed_from_default(record),
     }
+}
+
+/// The rail: every area with its blocks, counted from the rows that arrived.
+///
+/// ## Why the counts are tallied from RECORDS, not from the key lists
+///
+/// A block declares the keys it owns; the store holds the rows that exist. Those
+/// are not the same set — fourteen keys this build declares are seeded by
+/// migrations that have not run yet. Counting the declaration would put a number
+/// on the rail that the page could not then show, and "Analysis report · 50" over
+/// a list of 43 rows is the kind of wrong that reads as a broken page.
+///
+/// The tally is keyed by block id alone, which is sound because
+/// `settings_map_tests::every_area_and_block_id_is_unique` fails the build if two
+/// blocks ever share one.
+fn summarise(records: &[AppSettingRecord]) -> Vec<AreaDto> {
+    let mut tally: HashMap<&str, usize> = HashMap::new();
+    for record in records {
+        *tally.entry(locate(&record.key).block_id).or_default() += 1;
+    }
+    let count_of = |id: &str| tally.get(id).copied().unwrap_or(0);
+
+    let mut areas: Vec<AreaDto> = AREAS
+        .iter()
+        .map(|area| {
+            let blocks: Vec<BlockDto> = area
+                .blocks
+                .iter()
+                .map(|block| BlockDto {
+                    id: block.id.to_string(),
+                    label: block.label.to_string(),
+                    count: count_of(block.id),
+                })
+                .collect();
+            AreaDto {
+                id: area.id.to_string(),
+                label: area.label.to_string(),
+                count: blocks.iter().map(|block| block.count).sum(),
+                note: None,
+                blocks,
+            }
+        })
+        .collect();
+
+    // The undeclared area is the one area that appears only when it has to. An
+    // empty "read by nothing" heading would be a standing accusation against a
+    // store that had nothing wrong with it — unlike the declared blocks above,
+    // which are shown at zero because a block the store has not been seeded with
+    // IS worth seeing.
+    let stray = count_of(UNDECLARED_BLOCK_ID);
+    if stray > 0 {
+        areas.push(AreaDto {
+            id: UNDECLARED_AREA_ID.to_string(),
+            label: UNDECLARED_AREA_LABEL.to_string(),
+            count: stray,
+            note: Some(UNDECLARED_AREA_NOTE.to_string()),
+            blocks: vec![BlockDto {
+                id: UNDECLARED_BLOCK_ID.to_string(),
+                label: UNDECLARED_AREA_LABEL.to_string(),
+                count: stray,
+            }],
+        });
+    }
+    areas
+}
+
+/// The stored keys no block in this build declares.
+///
+/// Lifted out of the handler so it can be tested without a database: the whole
+/// value of the WARN it feeds is that a retirement task can be written straight
+/// from the log line, and "does it actually name the rows" is exactly the kind
+/// of claim that is true right up until somebody simplifies the filter.
+fn undeclared_keys(records: &[AppSettingRecord]) -> Vec<&str> {
+    records
+        .iter()
+        .filter(|record| locate(&record.key).block_id == UNDECLARED_BLOCK_ID)
+        .map(|record| record.key.as_str())
+        .collect()
 }
 
 /// `GET /settings` — every parameter, live ones first.
@@ -131,9 +234,35 @@ pub async fn get_settings(
         }
     })?;
 
-    tracing::info!(parameters = records.len(), "served the settings page");
+    let areas = summarise(&records);
+    // Rows nothing declares are logged, not merely rendered: they are a defect
+    // in the STORE, and a defect visible only to whoever scrolls to the bottom
+    // of one admin page is a defect nobody schedules.
+    //
+    // The KEYS travel with the count, not just the number. "13 undeclared" tells
+    // an operator that something is wrong and then sends them to the UI to find
+    // out what — which makes the log entry a prompt to investigate rather than
+    // something a retirement task can be written from. Listed in full rather
+    // than truncated: the day this is long is the day it most needs reading.
+    let stray = undeclared_keys(&records);
+    if !stray.is_empty() {
+        tracing::warn!(
+            undeclared = stray.len(),
+            keys = ?stray,
+            "the settings store holds rows no block in this build declares; they \
+             are shown on the page as dead and read by nothing"
+        );
+    }
+
+    tracing::info!(
+        parameters = records.len(),
+        areas = areas.len(),
+        undeclared = stray.len(),
+        "served the settings page"
+    );
     Ok(Json(SettingsPageDto {
         settings: records.iter().map(to_dto).collect(),
+        areas,
     }))
 }
 
@@ -241,3 +370,10 @@ fn settings_error_to_app_error(error: SettingsError) -> AppError {
 #[cfg(test)]
 #[path = "settings_tests.rs"]
 mod tests;
+
+/// What the page is told about grouping — the rail, the counts, and which rows
+/// have moved off their defaults. A separate module because `settings_tests` is
+/// at Rule 17's limit and this is a different subject.
+#[cfg(test)]
+#[path = "settings_page_tests.rs"]
+mod page_tests;
