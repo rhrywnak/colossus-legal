@@ -118,6 +118,15 @@
   /* --accent-primary-hover: hover/active state for --accent-primary elements. */
   --accent-primary-hover: #175cd3;
 
+  /* --accent-on-fill: text and icons sitting ON a --accent-primary fill.
+     Added 2026-09-19 for the Settings page's Save button. `--v3-on-fill` is the
+     same colour but is scoped to `[data-surface="v3"]`, so on any surface
+     outside that subtree it resolves to nothing and the text renders in the
+     inherited ink — unreadable on a blue fill, and invisible to review because
+     a `var(--v3-on-fill, #fff)` fallback hides it. A filled accent button is a
+     :root-level need, so it gets a :root-level token. */
+  --accent-on-fill: #ffffff;
+
   /* --accent-bg-soft: pale accent fill for pill backgrounds and focus rings.
      The quiet companion to --accent-primary's saturated foreground. */
   --accent-bg-soft: #e0f2fe;

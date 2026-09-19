@@ -42,11 +42,56 @@ export type SettingDto = {
   dormant_note: string | null;
   /** "Last changed by Roman on 2026-08-01", or that it never has been. */
   last_changed: string;
+  /** The area of the page this row belongs to — decided by the backend. */
+  area_id: string;
+  /** The block inside that area. The browser holds no copy of the grouping. */
+  block_id: string;
+  /**
+   * "Changed — default: 2048" when the stored value has moved off its default;
+   * `null` when it has not.
+   *
+   * Both halves matter: `!== null` is the fact the landing list is built from,
+   * and the string is the sentence rendered under the row. The page never
+   * composes that sentence itself, and never re-derives the fact by comparing
+   * `value` to `default_value` — that comparison is the server's definition of
+   * "changed" and there is only meant to be one of it.
+   */
+  changed_from_default: string | null;
+};
+
+/** One openable group in the rail. */
+export type BlockDto = {
+  id: string;
+  label: string;
+  /** Stored rows that landed here. Counted by the backend, never by this page. */
+  count: number;
+};
+
+/** One entry in the page's left-hand rail. */
+export type AreaDto = {
+  id: string;
+  label: string;
+  count: number;
+  /** Said under the heading when the area needs explaining; `null` otherwise. */
+  note: string | null;
+  blocks: BlockDto[];
 };
 
 export type SettingsPageDto = {
   /** Live parameters first, then dormant — ordered by the backend. */
   settings: SettingDto[];
+  /**
+   * The rail, in the order the page shows it, with every count already taken.
+   *
+   * ## Why the counts are never computed here
+   *
+   * The mockup this page was built from carried ten area counts summing to 863.
+   * Three of them were out of date by the time it was built — the store had
+   * moved under it. A count the page worked out from the rows it happens to
+   * hold would be right only for as long as it held all of them, which is
+   * exactly the assumption a cap or a filter breaks.
+   */
+  areas: AreaDto[];
 };
 
 export type SettingChanged = {
@@ -76,6 +121,17 @@ export async function fetchSettings(): Promise<SettingsPageDto> {
     throw new Error(
       `The settings response is missing its parameter list — backend/frontend ` +
         `contract mismatch. If this persists, report it to the site administrator.`,
+    );
+  }
+  // The rail is load-bearing in its own right: without it the page has no
+  // grouping and no counts, and would render 860 rows in one flat list — which
+  // is precisely the page this one replaced. An empty array is a REAL answer
+  // (an empty store), so only a missing or wrong-typed field is refused.
+  if (!Array.isArray(parsed.areas)) {
+    throw new Error(
+      `The settings response carried no areas — backend/frontend contract ` +
+        `mismatch. The page cannot group ${parsed.settings.length} parameters ` +
+        `without them. If this persists, report it to the site administrator.`,
     );
   }
   return parsed as SettingsPageDto;
