@@ -173,6 +173,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // asked of two surfaces, and on the day this shipped Opus 5 was the
             // only Anthropic model active on PROD.
             ("chat_default_model", "claude-opus-5".to_string()),
+            // CARDTRIAGE_SPLIT: which way the Include picker opens. A TEXT row
+            // that is not wording — nobody reads it on a screen; it decides
+            // which radio is already chosen when the picker appears.
+            ("card_include_picker_default_stance", "supports".to_string()),
             ("gather_subject_filter", "widened".to_string()),
             // Task 396 P1: three TEXT rows that are not wording — they carry
             // extraction vocabulary rather than sentences — so like their four
@@ -746,7 +750,14 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // CHAT_DEFAULT_MODEL added one: the Chat default, which was
         // `const DEFAULT_CHAT_MODEL` in main.rs until the model it named was
         // deactivated and every unqualified /ask answered 400.
-        50,
+        // CARDTRIAGE_SPLIT added one: the Include picker's default stance.
+        //
+        // ⚑ 51, not 50. Both of those branches took this number from 49 to 50
+        // independently, so the merge saw the SAME line on both sides and took
+        // it once — with no conflict to mark. Two rows were added and the sum
+        // gained one. The arithmetic is the only thing that catches that, which
+        // is why this assertion is a number and not a `>=`.
+        51,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -771,7 +782,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          because a speaker nobody listed must show an extra card rather than \
          hide one she has to answer — and the Chat default, the one row in this \
          list that is verified against another TABLE at startup rather than \
-         merely parsed"
+         merely parsed — and the Include picker's default stance, which decides \
+         which way a candidate card's picker opens and was a constant in the \
+         browser until 2026-09-19"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -1097,6 +1110,103 @@ fn an_aligned_reviewer_bench_of_two_builds() {
     assert_eq!(
         settings.practice_read.reviewer_display_names,
         ["Chuck".to_string(), "Roman".to_string()]
+    );
+}
+
+/// A stance outside the vocabulary REFUSES the snapshot, naming both spellings.
+///
+/// ## Why this is a boot refusal and not a render-time fallback
+///
+/// The value this row replaced was a compiled-in constant, so it could not be
+/// wrong. A row can be: `disputes` is the obvious thing to type, and it is not
+/// the token the graph carries (`rebuts` is). Caught here, it is a named
+/// refusal at boot; caught nowhere, it would be an Include picker that opens on
+/// nothing, for one person, on one card, long after somebody typed it.
+#[test]
+fn an_illegal_card_stance_refuses_the_snapshot() {
+    // `disputes` is the obvious thing to type and is NOT the stored token;
+    // `contradicts` is the one the task instruction guessed; `Supports` is the
+    // capitalisation an operator would reasonably try. All three are refused.
+    for bad in ["disputes", "contradicts", "Supports", "supports,rebuts"] {
+        let mut rows = seeded();
+        rows.insert(
+            "card_include_picker_default_stance".to_string(),
+            row(
+                "card_include_picker_default_stance",
+                bad,
+                ValueKind::Text,
+                None,
+                None,
+            ),
+        );
+        let message = build_settings(&rows)
+            .expect_err(&format!("{bad:?} must not build a snapshot"))
+            .to_string();
+        assert!(
+            message.contains("card_include_picker_default_stance"),
+            "the refusal for {bad:?} does not name the row: {message}"
+        );
+        // Both spellings, because the remedy is to type one of them exactly.
+        assert!(
+            message.contains("supports") && message.contains("rebuts"),
+            "the refusal for {bad:?} does not name both legal values: {message}"
+        );
+    }
+}
+
+/// A BLANK row is refused too — by the text reader, before the vocabulary.
+///
+/// A different refusal from the one above and deliberately so: "you typed a
+/// word that is not a stance" and "you cleared the row" are different mistakes
+/// with different first moves, and the store keeps them apart.
+#[test]
+fn a_blank_card_stance_is_refused_as_a_blank_row() {
+    let mut rows = seeded();
+    rows.insert(
+        "card_include_picker_default_stance".to_string(),
+        row(
+            "card_include_picker_default_stance",
+            "   ",
+            ValueKind::Text,
+            None,
+            None,
+        ),
+    );
+    let message = build_settings(&rows)
+        .expect_err("a blank stance must not build a snapshot")
+        .to_string();
+    assert!(
+        message.contains("card_include_picker_default_stance"),
+        "{message}"
+    );
+}
+
+/// The two legal spellings both build, and build to DIFFERENT values.
+///
+/// The anti-vacuity half: a reader that refused everything would pass the test
+/// above forever, and one that returned `Supports` for both would make the row
+/// unable to say the thing it exists to say.
+#[test]
+fn both_card_stances_build_and_differ() {
+    let mut by_token = Vec::new();
+    for token in ["supports", "rebuts"] {
+        let mut rows = seeded();
+        rows.insert(
+            "card_include_picker_default_stance".to_string(),
+            row(
+                "card_include_picker_default_stance",
+                token,
+                ValueKind::Text,
+                None,
+                None,
+            ),
+        );
+        let settings = build_settings(&rows).expect("a legal stance builds");
+        by_token.push(settings.card_include_picker_default_stance);
+    }
+    assert_ne!(
+        by_token[0], by_token[1],
+        "the row cannot change what the picker opens on"
     );
 }
 
@@ -1689,6 +1799,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
         // CHAT_DEFAULT_MODEL: the Chat default stops being a compiled-in name.
         "pipeline_migrations/20260919130253_chat_default_model_row.sql",
+        // CARDTRIAGE_SPLIT: the Include picker's default stance.
+        "pipeline_migrations/20260919141424_card_include_picker_default_stance.sql",
     ]
     .iter()
     .map(|relative| {

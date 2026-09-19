@@ -3,7 +3,7 @@
  *
  * ## Why the fixtures live in one file
  *
- * Three test files now build a `ScenarioCard` and an `AllegationOptions`, and the
+ * Four test files now build a `ScenarioCard` and an `AllegationOptions`, and the
  * whole claim under test is that TWO WRAPPERS RENDER ONE PAYLOAD. Three
  * hand-typed payloads would let the candidate's fixture and the fact's fixture
  * drift apart — and a "same fields" test whose two sides were built from
@@ -161,5 +161,71 @@ export function optionsFixture(): AllegationOptions {
     total: 0,
     card_question_truncate_chars: 110,
     card_element_chips_visible_k: 2,
+  };
+}
+
+// ─── The triage queue's card (CC_TASK_CARDTRIAGE_SPLIT_v1) ──────────────────
+//
+// `fullCard` came here on 2026-09-19, when the prompt machines were split out
+// of `cardTriage` and their tests went with them. Both suites need the same §7
+// card, and two copies of a card fixture is precisely the drift this module's
+// header was written about.
+//
+// Distinct from `cardFixture` above and deliberately so: that one is the
+// one-card RENDERING fixture, built around the wording block two wrappers
+// share. This is the QUEUE's, built around the §7 elements a card must carry
+// before it can be ruled.
+
+/** A card with everything the payload can carry. */
+export function fullCard(overrides: Partial<ScenarioCard> = {}): ScenarioCard {
+  return {
+    code: "C-14",
+    graph_node_id: "ev-1",
+    quote: {
+      text: "I do not recall that meeting.",
+      context_before: "Q. Did you attend on March 3? A. ",
+      context_after: " Q. Who else was present?",
+      // Task 1.7C (D6) added these four to the payload. FIXTURE ONLY — not one
+      // assertion in this file changed: all 31 §7 reducer tests are byte-identical
+      // and still green. Both flanks sentence-complete, so neither notice is set.
+      context_before_complete: true,
+      context_after_complete: true,
+      context_before_notice: null,
+      context_after_notice: null,
+      question: "Did you attend the meeting on March 3, 2019?",
+    },
+    pinpoint: {
+      document_id: "doc-7",
+      document_title: "CFS interrogatory responses",
+      label: "CFS interrogatory responses at 14",
+      page: 14,
+      viewer_href: "/documents/doc-7?page=14&tab=document",
+    },
+    speaker: { name: "R. Phillips", attribution: "extracted" },
+    statement_kind: "partial admission",
+    stance: {
+      verb: "disputes",
+      object: "¶54 — CFS knew of the meeting",
+      summary: "This disputes ¶54 — CFS knew of the meeting",
+    },
+    bears_on: [
+      {
+        allegation_id: "alleg-54",
+        accusation: "¶54 — CFS knew of the meeting",
+        elements: ["Notice"],
+        count: "Count 2 — Negligence",
+      },
+    ],
+    grounding: { state: "exact", label: "Grounded — found on the page" },
+    confidence: { band: "medium", label: "Scan was fairly confident" },
+    status: "undecided",
+    status_label: "Not yet decided",
+    defer_required: false,
+    defer_required_reason: null,
+    defer_reason: null,
+    // Task 2.10: no human has linked this one — the ordinary state.
+    human_links: [],
+    human_link_summary: null,
+    ...overrides,
   };
 }

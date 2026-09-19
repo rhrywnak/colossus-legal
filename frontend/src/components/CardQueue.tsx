@@ -65,7 +65,7 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import type { ScenarioCard } from "../services/scenarioCards";
+import type { CardFactStance, ScenarioCard } from "../services/scenarioCards";
 import { useCardsPayload } from "./useCardsPayload";
 import CandidateFilterBar from "./CandidateFilterBar";
 import QueueNotices from "./QueueNotices";
@@ -315,7 +315,8 @@ const CardQueue: React.FC<Props> = ({
   // The read, and the four pieces of payload state it lands in, live in
   // `useCardsPayload` — see that module for why the two lists arrive as one.
   const onCards = useCallback(
-    (cards: ScenarioCard[]) => dispatch({ type: "cards_loaded", cards }),
+    (cards: ScenarioCard[], includeDefaultStance: CardFactStance) =>
+      dispatch({ type: "cards_loaded", cards, includeDefaultStance }),
     [dispatch],
   );
   const { loading, error, noTargetNotice, proposalSource, load } = useCardsPayload(

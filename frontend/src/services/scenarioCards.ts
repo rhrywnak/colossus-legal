@@ -397,6 +397,20 @@ export type ScenarioCardsResponse = {
    *  clicks (the 1.7E-a ruling). `null` when nothing in this pool is stuck. */
   link_progress: string | null;
   /**
+   * Which way the Include picker opens on a card from this payload — the
+   * `card_include_picker_default_stance` settings row
+   * (CC_TASK_CARDTRIAGE_SPLIT_v1).
+   *
+   * ## Why it rides the CARDS
+   *
+   * The queue's reducer opens the picker and is pure: it cannot read a store.
+   * Carrying the stance here puts it in hand at the moment the queue learns
+   * what it is triaging, and the picker cannot open before that. Required, not
+   * optional — an optional field with a `??` would be the compiled-in default
+   * this row replaced, wearing a nullish coalesce.
+   */
+  include_default_stance: CardFactStance;
+  /**
    * Present ONLY when this scenario names no target — in which case both card
    * lists are empty and this is the sentence saying why (2026-08-07).
    *
@@ -475,6 +489,20 @@ export async function fetchScenarioCards(
       `Candidate-card response for scenario "${scenarioId}" is missing ` +
         `pool/set_aside — backend/frontend contract mismatch. ` +
         `If this persists, report it to the site administrator.`,
+    );
+  }
+
+  // The stance is load-bearing the same way the two lists are: without it the
+  // picker has nothing to open on, and defaulting here would put the deleted
+  // constant back. Refused loudly, with the field named.
+  if (parsed.include_default_stance !== "supports" && parsed.include_default_stance !== "rebuts") {
+    throw new Error(
+      `Candidate-card response for scenario "${scenarioId}" carries no usable ` +
+        `include_default_stance (got ${JSON.stringify(parsed.include_default_stance)}) — ` +
+        `backend/frontend contract mismatch. An administrator can check the ` +
+        `card_include_picker_default_stance row in app_settings, which must read ` +
+        `'supports' or 'rebuts'; if the row is wrong the backend log carries a ` +
+        `boot-time refusal naming it.`,
     );
   }
   return parsed as ScenarioCardsResponse;

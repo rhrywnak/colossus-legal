@@ -107,6 +107,7 @@ impl Settings {
             theme_scan_max_tokens: 8192,
             theme_scan_default_model: "claude-opus-5".to_string(),
             chat_default_model: "claude-opus-5".to_string(),
+            card_include_picker_default_stance: crate::domain::fact_card::CardStance::Supports,
             theme_scan_prefilter_min_chars: 60,
             theme_scan_prefilter_statement_types: vec!["referral".to_string()],
             scan_wording: ScanWording::for_test(),

@@ -115,6 +115,11 @@ pub(crate) const KEY_GATHER_PROBE_FLOOR: &str = "gather_probe_floor";
 // the 13-inch hardware law is the difference between a rulable card and a wall.
 const KEY_CARD_QUESTION_TRUNCATE: &str = "card_question_truncate_chars";
 const KEY_CARD_ELEMENT_CHIPS_K: &str = "card_element_chips_visible_k";
+// Which way the Include picker opens (CC_TASK_CARDTRIAGE_SPLIT_v1, 2026-09-19).
+// A row rather than the browser constant it replaces: 802:142 is a property of
+// the evidence gathered so far, not a logical invariant. The vocabulary is
+// checked by `card_stance_of`, so an illegal value is a boot refusal.
+const KEY_CARD_INCLUDE_DEFAULT_STANCE: &str = "card_include_picker_default_stance";
 const KEY_PREFILTER_STATEMENT_TYPES: &str = "theme_scan_prefilter_statement_types";
 // Task 396 P1. Three TEXT rows that are NOT wording — they name extraction
 // vocabulary, not sentences anybody reads — so they belong in this list beside
@@ -177,6 +182,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_CHAT_DEFAULT_MODEL,
     KEY_CARD_QUESTION_TRUNCATE,
     KEY_CARD_ELEMENT_CHIPS_K,
+    KEY_CARD_INCLUDE_DEFAULT_STANCE,
     KEY_TIER_STRONG_PAIRS,
     KEY_TIER_HEDGED_PAIRS,
     KEY_TIER_OTHER_PAIRS,
@@ -277,7 +283,7 @@ impl From<SettingError> for SettingsError {
 // row say?"; what stays here answers "does the whole store make a usable
 // snapshot?" — which is why the cross-row band invariant is below and not there.
 use super::settings_row_readers::{
-    count_of, float_of, gather_filter_of, ratio_of, token_count_of, token_list_of,
+    card_stance_of, count_of, float_of, gather_filter_of, ratio_of, token_count_of, token_list_of,
 };
 // Re-exported, not re-implemented: `settings_wording` imports both from THIS
 // module's path, and the split is an internal reorganisation that has no business
@@ -340,6 +346,10 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         theme_scan_max_tokens: token_count_of(require(rows, KEY_SCAN_MAX_TOKENS)?)?,
         theme_scan_default_model: text_of(require(rows, KEY_SCAN_DEFAULT_MODEL)?)?,
         chat_default_model: text_of(require(rows, KEY_CHAT_DEFAULT_MODEL)?)?,
+        card_include_picker_default_stance: card_stance_of(require(
+            rows,
+            KEY_CARD_INCLUDE_DEFAULT_STANCE,
+        )?)?,
         theme_scan_prefilter_statement_types: token_list_of(require(
             rows,
             KEY_PREFILTER_STATEMENT_TYPES,

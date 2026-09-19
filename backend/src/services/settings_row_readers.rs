@@ -61,6 +61,29 @@ pub(super) fn gather_filter_of(
         })
 }
 
+/// Read one `text` row as a card stance, checking the vocabulary.
+///
+/// Same reason `gather_filter_of` above checks its three spellings here rather
+/// than at the call site: this runs inside the boot snapshot, so an illegal
+/// value stops the process with the legal ones named. Checked later — when the
+/// Include picker first opens — it would be a browser prefilled with nothing,
+/// on one card, for one person, hours after somebody typed it.
+pub(super) fn card_stance_of(
+    record: &AppSettingRecord,
+) -> Result<crate::domain::fact_card::CardStance, SettingError> {
+    let raw = text_of(record)?;
+    crate::domain::fact_card::CardStance::try_from(raw.as_str()).map_err(|_| {
+        SettingError::Unreadable {
+            key: record.key.clone(),
+            value: raw,
+            // The two spellings, not a description of them: the operator's
+            // remedy is to type one of these exactly. `rebuts` and not
+            // `disputes` — that is the token the graph itself carries.
+            expected: "one of supports, rebuts",
+        }
+    })
+}
+
 /// Read one row as a float, checking that its declared kind agrees.
 ///
 /// The kind check is not redundant with the parse: a row whose `value_kind` says

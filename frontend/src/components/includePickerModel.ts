@@ -79,7 +79,22 @@ export type IncludePickerState = { phase: "closed" } | ({ phase: "picking" } & I
  * to put that difference.
  */
 export type IncludePickerAction =
-  | { type: "open"; graphNodeId: string; options: IncludeOption[] }
+  /**
+   * Open the picker on one card.
+   *
+   * `defaultStance` is which way the stance control starts. It is a REQUIRED
+   * field and not an optional one with a fallback: an optional would be a
+   * compiled-in default wearing a `??`, which is the thing
+   * CC_TASK_CARDTRIAGE_SPLIT_v1 deleted. It comes from the
+   * `card_include_picker_default_stance` settings row, by way of the cards
+   * payload and `QueueState`.
+   */
+  | {
+      type: "open";
+      graphNodeId: string;
+      options: IncludeOption[];
+      defaultStance: CardFactStance;
+    }
   | { type: "chooseAllegation"; allegationId: string }
   | { type: "chooseStance"; stance: CardFactStance }
   | { type: "save" }
@@ -106,35 +121,6 @@ export const STANCES: readonly CardFactStance[] = ["supports", "rebuts"] as cons
 export const closedPicker: IncludePickerState = { phase: "closed" };
 
 /**
- * The stance a card opens on.
- *
- * `supports` because a curator including a fact is, overwhelmingly, saying it
- * helps — the measured split is 802 to 142. The other state is one click away and
- * the control says which one is chosen, so the default costs nothing to correct
- * and saves the common case a decision.
- *
- * ## ⚑ RULED 2026-09-17: this stays compiled in FOR NOW, deliberately
- *
- * The architecture gate called it a Standing-Rule-2 value that belongs in the
- * settings store, and it is right: 802:142 is a property of the evidence
- * gathered so far, not a logical invariant, and another case could reasonably
- * open on "Helps them".
- *
- * It is not a settings row yet because of where it is APPLIED. `cardTriage`'s
- * reducer opens the picker (`openPicker`), and that reducer has no access to the
- * settings snapshot — so reading a stored default means threading it through
- * `QueueState` or onto the queue's events, which is the same seam the
- * `cardTriage` split (`cardPrompts.ts`) is about. Roman ruled that the row
- * `card_include_picker_default_stance` ships WITH that split, where the
- * threading belongs, rather than being bolted on here first.
- *
- * So: no `// STRUCTURAL:` marker, because the structural argument is the weak
- * one. This is a deferral with a date and an owner, and this block is the record
- * of it — so the next reader, and the next gate, do not re-litigate it.
- */
-const DEFAULT_STANCE: CardFactStance = "supports";
-
-/**
  * Advance the picker.
  *
  * ## Rust Learning: this is the reducer shape, in TypeScript
@@ -159,7 +145,7 @@ export function includePickerStep(
           phase: "picking",
           graphNodeId: action.graphNodeId,
           allegationId: action.options[0]?.allegationId ?? null,
-          stance: DEFAULT_STANCE,
+          stance: action.defaultStance,
         },
         commit: null,
       };
