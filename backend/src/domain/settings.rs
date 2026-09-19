@@ -218,6 +218,29 @@ pub struct Settings {
     /// the colossus-ansible template entry it has owed since D2b) is a separate
     /// task in a separate repo.
     pub theme_scan_default_model: String,
+
+    /// The model the Chat page answers with when a request names none — and the
+    /// model its picker opens on (CC_TASK_CHAT_DEFAULT_MODEL_v1).
+    ///
+    /// ## Domain note: why this became a row on 2026-09-19
+    ///
+    /// It was `const DEFAULT_CHAT_MODEL` in `main.rs`, and the day that model
+    /// was deactivated in the Admin list it left the chat provider map — which
+    /// is built from the ACTIVE `llm_models` rows — and every `/ask` without an
+    /// explicit `model` answered 400. The name being compiled in meant the
+    /// remedy was a build. It is a Settings edit and a restart now.
+    ///
+    /// ## ⚑ This row is VERIFIED AGAINST llm_models AT STARTUP
+    ///
+    /// Unlike its neighbour above, a value here that names a missing, inactive
+    /// or non-Anthropic model is a REFUSAL TO START (`main::verify_chat_default`)
+    /// rather than something a later request discovers. The check cannot live in
+    /// this module: `build_settings` is a pure function over stored rows and has
+    /// no pool, and "is this model active?" is a question about a different
+    /// table. So it is a startup validation (Rule 15), sited where the settings
+    /// snapshot and the live model list are both in hand.
+    pub chat_default_model: String,
+
     /// Statement kinds that never reach the judge, lower-cased and de-duplicated
     /// at parse time. Empty (the stored token `none`) disables the rule.
     ///

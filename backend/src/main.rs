@@ -16,12 +16,13 @@ use tracing_subscriber::EnvFilter;
 use colossus_extract::providers::AnthropicProvider;
 use colossus_extract::LlmProvider;
 
-/// Model id the Chat endpoint uses when the request does not specify one.
-///
-/// Hardcoded rather than read from an env var so the default is explicit in
-/// source and doesn't silently drift with `LLM_MODEL` (which drives pipeline
-/// extraction). Pipeline extraction and Chat can legitimately differ.
-const DEFAULT_CHAT_MODEL: &str = "claude-sonnet-4-6";
+// The model catalogue. Read twice at startup: once to build the chat provider
+// map, once to verify the stored Chat default against the row it names.
+use colossus_legal_backend::repositories::pipeline_repository::models;
+// The rule the refusal below is built on. In the LIBRARY, not here: a predicate
+// that decides whether the process starts must be reachable by `cargo test`
+// without a binary, and `main.rs` is 145 lines over Rule 17 before this task.
+use colossus_legal_backend::services::chat_default;
 
 /// Per-chat-model `max_tokens` passed to `AnthropicProvider::new`. The
 /// Chat endpoint always wraps the provider in `RigSynthesizer::new(_, 4096)`
@@ -293,15 +294,11 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // distinct from pipeline extraction which pins to Some(0.0) for
     // determinism). Empty when ANTHROPIC_API_KEY is unset.
     let chat_providers = build_chat_providers(&config, &pipeline_pool).await;
-    if !chat_providers.is_empty() && !chat_providers.contains_key(DEFAULT_CHAT_MODEL) {
-        tracing::error!(
-            default = DEFAULT_CHAT_MODEL,
-            available = ?chat_providers.keys().collect::<Vec<_>>(),
-            "Chat default model not present in provider map — /ask with \
-             no `model` field will return 400 until the llm_models row is \
-             added or activated"
-        );
-    }
+
+    // The Chat default is a STORED ROW now, and this is where it stops being a
+    // hope. See `verify_chat_default` for why a fault here refuses the boot.
+    let default_chat_model = settings.current().chat_default_model.clone();
+    assert_chat_default_is_live(&default_chat_model, &chat_providers, &pipeline_pool).await;
 
     // Build the RAG pipeline from config (if API key is available).
     //
@@ -313,10 +310,10 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     //
     // The pipeline's built-in synthesizer is taken from the Chat default
     // provider so `ask()` and `ask_with_synthesizer(…default…)` agree on
-    // temperature semantics. Falls back to `llm_provider_from_env()` if
-    // the Chat default isn't in the provider map (typically because the
-    // `llm_models` row is missing) so admin paths still work.
-    let default_chat_provider = chat_providers.get(DEFAULT_CHAT_MODEL).cloned();
+    // temperature semantics. Falls back to `llm_provider_from_env()` when the
+    // map is EMPTY — the no-API-key case, which `assert_chat_default_is_live`
+    // deliberately lets through — so admin paths still work.
+    let default_chat_provider = chat_providers.get(&default_chat_model).cloned();
     let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts, default_chat_provider).await;
 
     // Audit log repository — records every admin action for accountability.
@@ -358,7 +355,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         embedding_provider,
         schema_metadata,
         chat_providers,
-        default_chat_model: DEFAULT_CHAT_MODEL.to_string(),
+        default_chat_model,
         registry,
         theme_scan_semaphore,
         // The stop-handle map starts EMPTY, and that is correct rather than a gap:
@@ -661,12 +658,92 @@ async fn build_rag_pipeline(
 /// query fails. Both are non-fatal: the `/ask` handler will surface a
 /// missing default model as 400, and `/chat/models` still serves the
 /// catalog from the DB directly.
+/// Refuse to start if the stored Chat default is not a model this process can
+/// answer with (CC_TASK_CHAT_DEFAULT_MODEL_v1).
+///
+/// ## Domain note: why this is a REFUSAL and not a warning
+///
+/// Until 2026-09-19 the default was `const DEFAULT_CHAT_MODEL` and the mismatch
+/// was a startup `tracing::error!` — a line in a log nobody was tailing. The day
+/// that model was deactivated in the Admin list, PROD booted cleanly and
+/// answered 400 to every `/ask` that did not name a model. A service that cannot
+/// do the one thing the page asks of it should not come up pretending it can
+/// (Rule 15: fail loudly and early).
+///
+/// ## Why an EMPTY provider map is let through
+///
+/// An empty map means `ANTHROPIC_API_KEY` is unset. Chat is already and
+/// honestly degraded there — `/ask` returns 503 before it ever resolves a model
+/// — and refusing to boot would take every non-chat surface down for a key that
+/// is deliberately absent in some deployments. WARN, and carry on.
+///
+/// ## Rust Learning: `std::process::exit` versus a panic here
+///
+/// A panic in `main` would print a backtrace above the message, which buries the
+/// sentence an operator needs. The error is logged with the remedy first, then
+/// the process exits non-zero — the same thing a panic achieves, without the
+/// noise. This is startup-once code, so there is nothing to unwind.
+async fn assert_chat_default_is_live(
+    configured: &str,
+    chat_providers: &HashMap<String, Arc<dyn LlmProvider>>,
+    pipeline_pool: &sqlx::PgPool,
+) {
+    if chat_providers.is_empty() {
+        tracing::warn!(
+            chat_default_model = configured,
+            "No Anthropic chat providers built (ANTHROPIC_API_KEY unset?) — \
+             /ask will answer 503 until a key is configured. The stored Chat \
+             default is NOT verified in this state."
+        );
+        return;
+    }
+
+    // Whatever its state — an inactive row must come back so the fault can say
+    // "deactivated" rather than "no such model".
+    let row = match models::get_model_by_id(pipeline_pool, configured).await {
+        Ok(row) => row,
+        Err(e) => {
+            // The remedy differs from every other branch below: nothing is
+            // wrong with the ROW here, the catalogue itself could not be read.
+            // Without saying so, an operator reads "refusing to start" beside a
+            // model id and goes looking at the model.
+            tracing::error!(
+                error = %e,
+                chat_default_model = configured,
+                pool = "pipeline_pool",
+                "Could not read llm_models to verify the Chat default — refusing \
+                 to start. Nothing is wrong with the row: check connectivity to \
+                 the pipeline database, and that its migrations have applied."
+            );
+            std::process::exit(1);
+        }
+    };
+
+    match chat_default::verify_chat_default(row.as_ref(), chat_providers.contains_key(configured)) {
+        Ok(()) => tracing::info!(
+            chat_default_model = configured,
+            "Chat default verified against llm_models"
+        ),
+        Err(fault) => {
+            tracing::error!(
+                chat_default_model = configured,
+                remedy = fault.remedy(),
+                fault = ?fault,
+                available = ?chat_providers.keys().collect::<Vec<_>>(),
+                "The stored Chat default cannot be served — refusing to start. \
+                 Edit the chat_default_model settings row, or fix the model it names."
+            );
+            std::process::exit(1);
+        }
+    }
+}
+
 async fn build_chat_providers(
     config: &AppConfig,
     pipeline_pool: &sqlx::PgPool,
 ) -> HashMap<String, Arc<dyn LlmProvider>> {
-    use colossus_legal_backend::repositories::pipeline_repository::models;
-
+    // `models` is imported at module scope now — the Chat-default verification
+    // above reads the same catalogue.
     let mut map: HashMap<String, Arc<dyn LlmProvider>> = HashMap::new();
 
     let api_key = match &config.anthropic_api_key {

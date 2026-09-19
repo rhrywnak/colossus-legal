@@ -93,9 +93,22 @@ pub struct AppState {
     pub chat_providers: HashMap<String, Arc<dyn LlmProvider>>,
 
     /// Model id the Chat endpoint uses when the request omits `model`.
-    /// Hardcoded at startup (see `main.rs`); may not be present in
-    /// `chat_providers` if the corresponding `llm_models` row is missing
-    /// or inactive — the `/ask` handler surfaces that as a 400.
+    ///
+    /// The `chat_default_model` settings row, VERIFIED at startup against
+    /// `llm_models` (CC_TASK_CHAT_DEFAULT_MODEL_v1). It was a compiled-in
+    /// constant until 2026-09-19, and the day the model it named was
+    /// deactivated in the Admin list, every `/ask` without a `model` field
+    /// answered 400 — so `main::assert_chat_default_is_live` now refuses the
+    /// boot rather than letting a request discover it.
+    ///
+    /// ## What that guarantees, and what it does not
+    ///
+    /// On a running server this id IS in `chat_providers` — with ONE deliberate
+    /// exception: an empty map (no `ANTHROPIC_API_KEY`), which the boot check
+    /// lets through because `/ask` already answers 503 there, before it resolves
+    /// a model at all. So the `/ask` handler keeps its 400 for an id it cannot
+    /// find; it is now unreachable for the DEFAULT and reachable only for a
+    /// model a request named itself.
     pub default_chat_model: String,
 
     /// Pipeline configuration registry — the authoritative directory

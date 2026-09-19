@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { askTheCase, AskResponse, ChatModel, fetchChatModels } from "../services/ask";
+import { askTheCase, AskResponse, fetchChatModels } from "../services/ask";
+import AskModelPicker, { offers, type ModelCatalogue } from "../components/ask/AskModelPicker";
 import {
   getQAHistory, getQAEntry, rateQAEntry, deleteQAEntry, mapEntryToResponse,
   QAEntrySummary, QAEntryFull,
@@ -25,16 +26,39 @@ const AskPage: React.FC = () => {
   const [historyLoading, setHistoryLoading] = useState(false);
   const [viewingHistoryEntry, setViewingHistoryEntry] = useState<QAEntryFull | null>(null);
   const [parentQaId, setParentQaId] = useState<string | null>(null);
-  const [chatModels, setChatModels] = useState<ChatModel[]>([]);
+  const [catalogue, setCatalogue] = useState<ModelCatalogue>({ state: "loading" });
   const [selectedModel, setSelectedModel] = useState<string>("");
 
-  // Fetch the chat-model catalog once on mount. The fallback inside
-  // fetchChatModels guarantees a non-empty models list even on failure.
+  // Fetch the chat-model catalog once on mount.
+  //
+  // ## ⚑ The failure is HANDLED here now (2026-09-19, ruling 4b)
+  //
+  // `fetchChatModels` used to swallow its own failure and hand back one
+  // hand-written model, so this `.then` could not fail and no `.catch` was
+  // needed. It throws now, and a promise rejection nobody catches is exactly the
+  // silent failure Standing Rule 1 forbids — so the catch is explicit, the cause
+  // goes to the console for a reader, and the picker says it could not load.
+  //
+  // Chat still works while the catalogue is down: `selectedModel` stays `""`,
+  // which sends no `model` field, which means "use the server default" — a
+  // stored row the backend now refuses to boot without.
   useEffect(() => {
-    fetchChatModels().then((res) => {
-      setChatModels(res.models);
-      setSelectedModel(res.default_model);
-    });
+    let live = true;
+    fetchChatModels()
+      .then((res) => {
+        if (!live) return;
+        setCatalogue({ state: "ready", models: res.models });
+        setSelectedModel(res.default_model);
+      })
+      .catch((cause: unknown) => {
+        // eslint-disable-next-line no-console
+        console.error("ask: the chat model catalogue could not be loaded", cause);
+        const detail = cause instanceof Error ? cause.message : String(cause);
+        if (live) setCatalogue({ state: "failed", detail });
+      });
+    return () => {
+      live = false;
+    };
   }, []);
 
   const loadHistory = async () => {
@@ -119,7 +143,7 @@ const AskPage: React.FC = () => {
       // it's still in the active catalog — a retired model would POST
       // back as a 400 on the next submit. Silently keep the current
       // selection if the historical model is no longer available.
-      if (full.model && chatModels.some((m) => m.model_id === full.model)) {
+      if (full.model && offers(catalogue, full.model)) {
         setSelectedModel(full.model);
       }
     } catch (e) {
@@ -203,46 +227,13 @@ const AskPage: React.FC = () => {
             }}
           />
           {/* Model picker — sits inside the input area, left of the send
-              button. Compact style matches claude.ai. During the initial
-              fetch we render a disabled placeholder so the <select> never
-              appears with zero options. */}
-          <div style={{
-            position: "absolute", bottom: "12px", right: "58px",
-            display: "flex", alignItems: "center",
-          }}>
-            <select
-              value={selectedModel}
-              onChange={(e) => setSelectedModel(e.target.value)}
-              disabled={chatModels.length === 0}
-              style={{
-                appearance: "none",
-                WebkitAppearance: "none",
-                border: "1px solid var(--border-default)",
-                borderRadius: "6px",
-                padding: "4px 24px 4px 8px",
-                fontSize: "0.78rem",
-                color: "var(--text-secondary)",
-                backgroundColor: "var(--bg-page)",
-                cursor: chatModels.length === 0 ? "wait" : "pointer",
-                fontFamily: "inherit",
-                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%2364748b' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                backgroundRepeat: "no-repeat",
-                backgroundPosition: "right 6px center",
-                outline: "none",
-              }}
-              title="Chat model"
-            >
-              {chatModels.length === 0 ? (
-                <option value="" disabled>Loading models…</option>
-              ) : (
-                chatModels.map((m) => (
-                  <option key={m.model_id} value={m.model_id}>
-                    {m.display_name.replace("Claude ", "")}
-                  </option>
-                ))
-              )}
-            </select>
-          </div>
+              button. Extracted on 2026-09-19 (ruling 4b): this page was already
+              over Rule 17's limit, and the picker grew a third state. */}
+          <AskModelPicker
+            catalogue={catalogue}
+            selected={selectedModel}
+            onSelect={setSelectedModel}
+          />
           <button
             type="submit"
             disabled={loading || !question.trim()}

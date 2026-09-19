@@ -168,6 +168,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // so like its two neighbours it is seeded here rather than borrowed
             // from a `for_test_values` block.
             ("theme_scan_default_model", "claude-opus-5".to_string()),
+            // The Chat default (2026-09-19). Same kind of row as its neighbour
+            // above and seeded with the same value — they are the same question
+            // asked of two surfaces, and on the day this shipped Opus 5 was the
+            // only Anthropic model active on PROD.
+            ("chat_default_model", "claude-opus-5".to_string()),
             ("gather_subject_filter", "widened".to_string()),
             // Task 396 P1: three TEXT rows that are not wording — they carry
             // extraction vocabulary rather than sentences — so like their four
@@ -738,7 +743,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // two: the reviewer's login and display name. QUESTION_CHAT added four:
         // the dock's default model, turn cap, prompt file and token cap. The
         // budget fix added two more: the read's and the dock's thinking dials.
-        49,
+        // CHAT_DEFAULT_MODEL added one: the Chat default, which was
+        // `const DEFAULT_CHAT_MODEL` in main.rs until the model it named was
+        // deactivated and every unqualified /ask answered 400.
+        50,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -761,7 +769,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          collapse to their title and source line — and FACT_CARD_v2 §3's \
          our-side speaker list, which is the INVERSE of naming the opposition \
          because a speaker nobody listed must show an extra card rather than \
-         hide one she has to answer"
+         hide one she has to answer — and the Chat default, the one row in this \
+         list that is verified against another TABLE at startup rather than \
+         merely parsed"
     );
     assert_eq!(
         WORDING_KEYS.len(),
@@ -1677,6 +1687,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // two singular rows they retire, which is the third resolution shape
         // `inherited_from_in` below was written for.
         "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
+        // CHAT_DEFAULT_MODEL: the Chat default stops being a compiled-in name.
+        "pipeline_migrations/20260919130253_chat_default_model_row.sql",
     ]
     .iter()
     .map(|relative| {
