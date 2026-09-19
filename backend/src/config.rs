@@ -181,7 +181,8 @@ pub struct AppConfig {
     /// `THEME_SCAN_MODEL`.
     ///
     /// `None` is a first-class state meaning "use the Chat default model"
-    /// (`DEFAULT_CHAT_MODEL`, resolved at startup in `main.rs`). We keep the
+    /// (the `chat_default_model` settings row — a compiled-in constant until
+    /// CC_TASK_CHAT_DEFAULT_MODEL_v1, 2026-09-19). We keep the
     /// scan's model SEPARATE from Chat's rather than hardcoding them equal: the
     /// scan (a deterministic relevance judge) and Chat (a natural-variation
     /// synthesis endpoint) are different jobs, and sharing one id would let a
@@ -591,8 +592,8 @@ impl AppConfig {
         let case_slug = std::env::var("CASE_SLUG").ok();
 
         // THEME_SCAN_MODEL — optional. `.ok()` maps "unset" → `None`, which
-        // main.rs resolves to `DEFAULT_CHAT_MODEL` when it builds the scan
-        // provider. Kept separate from the Chat model so the two jobs can
+        // the scan resolves to the `chat_default_model` settings row when it
+        // builds its provider. Kept separate from the Chat model so the jobs can
         // diverge (see the field doc). No hardcoded model id here — model
         // selection is a deployment decision (Standing Rule 2).
         // best-effort: env-var-unset → None is the documented success path here

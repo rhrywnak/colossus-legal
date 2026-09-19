@@ -1,6 +1,11 @@
 //! Service layer modules for business logic.
 
 pub mod audit_checks;
+pub mod chat_default;
+
+// The amended grep of CC_TASK_CHAT_DEFAULT_MODEL_v1, as a test (ruled
+// 2026-09-19): no Anthropic model id may be compiled into a surface that serves
+// one. Test-only, so it costs a release binary nothing.
 pub mod chronology_guard;
 pub mod chronology_read;
 pub mod chronology_subset_guard;
@@ -45,6 +50,9 @@ pub mod matrix_order;
 /// one composer both the drill-down and the Word export use (PROOF_MATRIX_v2 §3).
 pub mod matrix_rfa;
 pub mod matrix_strength;
+#[cfg(test)]
+#[path = "no_stale_model_literal_tests.rs"]
+mod no_stale_model_literal_tests;
 pub mod practice_answer_version;
 pub mod practice_changes;
 pub mod practice_clock;

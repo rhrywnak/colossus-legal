@@ -82,6 +82,12 @@ const KEY_PREFILTER_MIN_CHARS: &str = "theme_scan_prefilter_min_chars";
 // `THEME_SCAN_MAX_TOKENS` comment in `services::theme_scan` for the full story.
 const KEY_SCAN_MAX_TOKENS: &str = "theme_scan_max_tokens";
 const KEY_SCAN_DEFAULT_MODEL: &str = "theme_scan_default_model";
+// The Chat default (CC_TASK_CHAT_DEFAULT_MODEL_v1, 2026-09-19). A row rather
+// than a constant for the reason the whole task exists: the compiled-in name was
+// deactivated in the Admin list and every unqualified /ask answered 400 until a
+// build. Read as plain text HERE and verified against `llm_models` at startup —
+// see the field's doc on `domain::settings::Settings`.
+const KEY_CHAT_DEFAULT_MODEL: &str = "chat_default_model";
 // L2b (2026-09-01). Which parties a ranked gather may reach — strict, widened
 // or off. A row rather than a constant because when a card is missing from a
 // gather the first question is "filter problem or ranking problem?", and only a
@@ -168,6 +174,7 @@ pub const REQUIRED_KEYS: &[&str] = &[
     KEY_SCAN_MAX_TOKENS,
     KEY_PREFILTER_STATEMENT_TYPES,
     KEY_SCAN_DEFAULT_MODEL,
+    KEY_CHAT_DEFAULT_MODEL,
     KEY_CARD_QUESTION_TRUNCATE,
     KEY_CARD_ELEMENT_CHIPS_K,
     KEY_TIER_STRONG_PAIRS,
@@ -332,6 +339,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         theme_scan_prefilter_min_chars: count_of(require(rows, KEY_PREFILTER_MIN_CHARS)?)?,
         theme_scan_max_tokens: token_count_of(require(rows, KEY_SCAN_MAX_TOKENS)?)?,
         theme_scan_default_model: text_of(require(rows, KEY_SCAN_DEFAULT_MODEL)?)?,
+        chat_default_model: text_of(require(rows, KEY_CHAT_DEFAULT_MODEL)?)?,
         theme_scan_prefilter_statement_types: token_list_of(require(
             rows,
             KEY_PREFILTER_STATEMENT_TYPES,
