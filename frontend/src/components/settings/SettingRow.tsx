@@ -52,8 +52,17 @@ export const SettingRow: React.FC<{
   setting: SettingDto;
   /** The live query, so the row can mark what matched. "" when not searching. */
   query?: string;
+  /**
+   * The group that edits this row, when one does.
+   *
+   * Set only where a coupled row is still LISTED — search results reach across
+   * every area, so a search for "reviewer" finds rows whose editor is somewhere
+   * else. The row then shows its value and says where to change it, rather than
+   * offering a field whose save the backend refuses.
+   */
+  coupledInto?: { id: string; label: string };
   onSaved: (message: string) => void;
-}> = ({ setting, query = "", onSaved }) => {
+}> = ({ setting, query = "", coupledInto, onSaved }) => {
   const [draft, setDraft] = useState(setting.value);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -88,6 +97,21 @@ export const SettingRow: React.FC<{
         <Marked text={setting.key} query={query} />
       </div>
 
+      {coupledInto ? (
+        <div style={editRowStyle}>
+          <input
+            value={setting.value}
+            readOnly
+            aria-label={`${setting.key} (edited in ${coupledInto.label})`}
+            style={{ ...valueFieldStyle(false), opacity: 0.75 }}
+            data-coupled-readonly
+          />
+          <span style={footStyle}>
+            Edited together in “{coupledInto.label}” — open it under this
+            setting&rsquo;s own group to change it.
+          </span>
+        </div>
+      ) : (
       <div style={editRowStyle}>
         <input
           value={draft}
@@ -107,6 +131,7 @@ export const SettingRow: React.FC<{
           </button>
         )}
       </div>
+      )}
 
       <div style={footStyle}>
         {setting.changed_from_default ? (

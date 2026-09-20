@@ -16,7 +16,8 @@
 
 import React, { useState } from "react";
 
-import type { BlockDto, SettingDto } from "../../services/settings";
+import type { BlockDto, CoupledGroupDto, SettingDto } from "../../services/settings";
+import CoupledListEditor from "./CoupledListEditor";
 import SettingRow from "./SettingRow";
 import { filterWithin, needsGroupFilter } from "./settingsSearch";
 import {
@@ -31,10 +32,18 @@ export const SettingsGroup: React.FC<{
   block: BlockDto;
   /** Every stored row of this block, in the order the server sent them. */
   settings: readonly SettingDto[];
+  /**
+   * The coupled groups whose rows live in THIS block.
+   *
+   * Each renders as one editor in place of its rows — never alongside them, or
+   * the page would offer two controls for one value and one of them would be
+   * the single-row field the backend now refuses.
+   */
+  groups?: readonly CoupledGroupDto[];
   open: boolean;
   onToggle: () => void;
   onSaved: (message: string) => void;
-}> = ({ block, settings, open, onToggle, onSaved }) => {
+}> = ({ block, settings, groups = [], open, onToggle, onSaved }) => {
   const [filter, setFilter] = useState("");
 
   if (!open) {
@@ -85,6 +94,14 @@ export const SettingsGroup: React.FC<{
           </span>
         </div>
       )}
+
+      {/* The editors come first: they are the block's coupled rows, and a
+          control that writes several values belongs above the ones that write
+          one. The in-group filter narrows the single rows only — an editor is
+          one control, not a list of rows to search. */}
+      {groups.map((group) => (
+        <CoupledListEditor key={group.id} group={group} onSaved={onSaved} />
+      ))}
 
       {shown.map((setting) => (
         <SettingRow

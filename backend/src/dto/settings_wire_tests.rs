@@ -40,8 +40,9 @@ fn the_contract_bytes_deserialize_as_the_settings_page() {
     let page: SettingsPageDto = serde_json::from_str(body.trim())
         .unwrap_or_else(|e| panic!("the settings page contract must parse here: {e}\n{body}"));
 
-    assert_eq!(page.settings.len(), 2);
-    assert_eq!(page.areas.len(), 2);
+    assert_eq!(page.settings.len(), 3);
+    assert_eq!(page.areas.len(), 3);
+    assert_eq!(page.groups.len(), 1);
 
     // The row that has moved off its default carries the phrase AND the old
     // value — the landing list is built from exactly this field.
@@ -53,6 +54,10 @@ fn the_contract_bytes_deserialize_as_the_settings_page() {
     );
     assert_eq!(cap.area_id, "core");
     assert_eq!(cap.block_id, "core");
+    assert!(
+        cap.group_id.is_none(),
+        "an ordinary row is editable on its own and carries no group"
+    );
 }
 
 /// The dead group travels with its note, and its rows point at it. (M)
@@ -75,7 +80,7 @@ fn the_undeclared_group_travels_with_the_note_that_says_it_is_dead() {
          interpret is how these rows stayed invisible for a month"
     );
 
-    let stray = &page.settings[1];
+    let stray = &page.settings[2];
     assert_eq!(stray.area_id, last.id);
     assert!(
         stray.changed_from_default.is_none(),
@@ -107,5 +112,62 @@ fn a_field_the_contract_does_not_declare_is_refused() {
         parsed.is_err(),
         "an undeclared field must fail the parse — deny_unknown_fields is what \
          makes this contract a contract rather than a sample"
+    );
+}
+
+/// The coupled group travels whole: columns, entries, and the noun. (M)
+///
+/// ## Why this is in the CONTRACT and not only in a component test
+///
+/// The editor is driven entirely by this shape. Rename `entries` or drop
+/// `entry_noun` on the backend and nothing fails to compile on either side — the
+/// page renders a control with no rows and an Add button that says "Add a ",
+/// which reads as a styling bug. The two languages agree here or they agree
+/// nowhere.
+#[test]
+fn a_coupled_group_travels_with_its_columns_entries_and_noun() {
+    let page: SettingsPageDto =
+        serde_json::from_str(contract_bytes().trim()).expect("the contract parses");
+
+    let bench = &page.groups[0];
+    assert_eq!(bench.id, "reviewer_bench");
+    assert_eq!(bench.entry_noun, "reviewer");
+    assert_eq!(bench.columns.len(), 2);
+    assert_eq!(bench.columns[0].key, "practice_reviewer_usernames");
+    assert_eq!(bench.columns[1].key, "practice_reviewer_display_names");
+
+    // The entries arrive TRANSPOSED — one row per reviewer, one cell per column
+    // — which is the shape that makes a length mismatch unrepresentable.
+    assert_eq!(
+        bench.entries,
+        vec![vec!["cpenzien", "Chuck"], vec!["roman", "Roman"]]
+    );
+    for entry in &bench.entries {
+        assert_eq!(
+            entry.len(),
+            bench.columns.len(),
+            "every entry carries one cell per column, or the editor cannot draw it"
+        );
+    }
+}
+
+/// A row inside a coupled group says so, and names the group that edits it. (M)
+///
+/// This is what tells the page to render the editor instead of a lone text box —
+/// and it is the field that, renamed, would silently return the page to the
+/// state this task exists to fix.
+#[test]
+fn a_row_in_a_coupled_group_names_the_group_that_edits_it() {
+    let page: SettingsPageDto =
+        serde_json::from_str(contract_bytes().trim()).expect("the contract parses");
+
+    let reviewer = &page.settings[1];
+    assert_eq!(reviewer.key, "practice_reviewer_usernames");
+    assert_eq!(reviewer.group_id.as_deref(), Some("reviewer_bench"));
+    assert_eq!(
+        reviewer.group_id.as_deref(),
+        Some(page.groups[0].id.as_str()),
+        "the row's group_id must match a group that is actually served, or the \
+         page has a row it will not render and an editor with nothing to open"
     );
 }

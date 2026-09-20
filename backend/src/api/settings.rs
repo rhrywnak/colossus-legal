@@ -34,15 +34,17 @@ use crate::{
     auth::{require_admin, AuthUser},
     domain::settings::ValueKind,
     dto::settings::{
-        AreaDto, BlockDto, SetSettingRequest, SettingChangedDto, SettingDto, SettingsPageDto,
+        AreaDto, BlockDto, CoupledColumnDto, CoupledGroupDto, SetSettingRequest, SettingChangedDto,
+        SettingDto, SettingsPageDto,
     },
     error::AppError,
     repositories::pipeline_repository::{list_settings, AppSettingRecord},
+    services::settings_groups::{entries_of, group_of, COUPLED_GROUPS},
     services::settings_map::{
         locate, AREAS, UNDECLARED_AREA_ID, UNDECLARED_AREA_LABEL, UNDECLARED_AREA_NOTE,
         UNDECLARED_BLOCK_ID,
     },
-    services::settings_store::SettingsError,
+    services::settings_store::{by_key, SettingsError},
     services::settings_template_file::TemplateDir,
     services::settings_write::set_setting,
     state::AppState,
@@ -54,6 +56,10 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/settings", get(get_settings))
         .route("/settings/:key", put(put_setting))
+        .route(
+            "/settings/group/:group_id",
+            put(super::settings_group::put_setting_group),
+        )
 }
 
 /// Phrase the declared bounds, or `None` when a parameter is unbounded.
@@ -138,7 +144,36 @@ fn to_dto(record: &AppSettingRecord) -> SettingDto {
         area_id: placed.area_id.to_string(),
         block_id: placed.block_id.to_string(),
         changed_from_default: changed_from_default(record),
+        group_id: group_of(&record.key).map(|group| group.id.to_string()),
     }
+}
+
+/// Every coupled group, with its stored rows decoded into entries.
+///
+/// The page needs the CURRENT bench to render the editor, and it needs it
+/// transposed — see `CoupledGroupDto`. Assembled from the same records the rows
+/// were built from, so the editor and the rows behind it can never disagree.
+fn coupled_groups(records: &[AppSettingRecord]) -> Vec<CoupledGroupDto> {
+    let rows = by_key(records.to_vec());
+    COUPLED_GROUPS
+        .iter()
+        .map(|group| CoupledGroupDto {
+            id: group.id.to_string(),
+            label: group.label.to_string(),
+            note: group.note.to_string(),
+            entry_noun: group.entry_noun.to_string(),
+            columns: group
+                .columns
+                .iter()
+                .map(|column| CoupledColumnDto {
+                    key: column.key.to_string(),
+                    label: column.label.to_string(),
+                    placeholder: column.placeholder.to_string(),
+                })
+                .collect(),
+            entries: entries_of(group, &rows),
+        })
+        .collect()
 }
 
 /// The rail: every area with its blocks, counted from the rows that arrived.
@@ -263,6 +298,7 @@ pub async fn get_settings(
     Ok(Json(SettingsPageDto {
         settings: records.iter().map(to_dto).collect(),
         areas,
+        groups: coupled_groups(&records),
     }))
 }
 
@@ -317,22 +353,45 @@ pub async fn put_setting(
     }))
 }
 
+/// The 400-class: refusals a HUMAN caused, each carrying its own reason code.
+///
+/// Every message here reaches the operator verbatim — they are the only one who
+/// can act on any of it, and each sentence already names the parameter and what
+/// is wrong. The reason code is what lets the PAGE act too: `coupled_row` tells
+/// it to open the group's editor rather than only printing the refusal, which is
+/// the difference between the bare 400 this replaced and a signpost.
+fn human_caused_refusal(error: SettingsError) -> AppError {
+    let reason = match error {
+        SettingsError::Coupled { .. } => "coupled_row",
+        SettingsError::Pair { .. } => "invalid_pair",
+        _ => "invalid_setting",
+    };
+    AppError::BadRequest {
+        message: error.to_string(),
+        details: json!({ "reason": reason }),
+    }
+}
+
 /// Map a [`SettingsError`] onto its HTTP status.
 ///
 /// The refusals a HUMAN caused reach them verbatim — an out-of-bounds value, a
 /// misspelled key, a no-op — because they are the only one who can act on any of
 /// them, and each message already names the parameter and the limit. The two
 /// server faults stay opaque and are logged with their cause.
-fn settings_error_to_app_error(error: SettingsError) -> AppError {
+pub(super) fn settings_error_to_app_error(error: SettingsError) -> AppError {
     match error {
         // `FileNotFound` joins the human-caused refusals: the value is the
         // human's, the remedy is the human's (deploy the file, or fix the name),
         // and the message already names both the value and the path it looked in.
         SettingsError::Invalid { .. }
         | SettingsError::Unchanged { .. }
-        | SettingsError::FileNotFound { .. } => AppError::BadRequest {
+        | SettingsError::FileNotFound { .. }
+        | SettingsError::Coupled { .. }
+        | SettingsError::Pair { .. } => human_caused_refusal(error),
+        // A 404 for the same reason `UnknownKey` is one: the path names a
+        // resource this build does not have.
+        SettingsError::UnknownGroup { .. } => AppError::NotFound {
             message: error.to_string(),
-            details: json!({ "reason": "invalid_setting" }),
         },
         // A 404, not a 400: the key names a resource that does not exist. A page
         // showing a key this build has never heard of is a page out of date with

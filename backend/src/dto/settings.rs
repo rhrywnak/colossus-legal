@@ -60,6 +60,43 @@ pub struct SettingDto {
     /// itself — the one thing this module's header says the browser never does.
     /// `Option` carries both: `is_some()` is the fact, the string is the words.
     pub changed_from_default: Option<String>,
+    /// The coupled group that edits this row, when one does.
+    ///
+    /// `Some` means the row is NOT editable on its own: the page renders the
+    /// group's editor in its place and a single-row save is refused by the
+    /// backend (`SettingsError::Coupled`). `None` is the ordinary case.
+    pub group_id: Option<String>,
+}
+
+/// One column of a coupled group — a single stored row holding one list.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoupledColumnDto {
+    pub key: String,
+    pub label: String,
+    pub placeholder: String,
+}
+
+/// A set of rows the page edits as ONE control.
+///
+/// ## Domain note: why the entries arrive TRANSPOSED
+///
+/// The store holds one comma-separated list per column. The editor shows one row
+/// per entry. Serving the transpose — and not the raw rows — is what keeps the
+/// store's encoding out of the browser entirely: the separator, the `none`
+/// token and the de-duplication rules all stay on this side of the wire.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CoupledGroupDto {
+    pub id: String,
+    pub label: String,
+    /// One line saying what the group is, shown above the rows.
+    pub note: String,
+    /// What one entry is called, for the Add control ("Add a reviewer").
+    pub entry_noun: String,
+    pub columns: Vec<CoupledColumnDto>,
+    /// One inner list per entry, one cell per column, in column order.
+    pub entries: Vec<Vec<String>>,
 }
 
 /// One openable group in the rail, with how many rows it actually holds.
@@ -108,6 +145,11 @@ pub struct SettingsPageDto {
     /// blocks and their counts. The browser renders this list; it holds no copy
     /// of the grouping and cannot derive one.
     pub areas: Vec<AreaDto>,
+    /// The coupled groups, each with its current entries already decoded.
+    ///
+    /// Empty is a real answer: a build with no coupled rows serves `[]` and the
+    /// page renders nothing extra.
+    pub groups: Vec<CoupledGroupDto>,
 }
 
 /// Request body for changing one parameter.
@@ -123,6 +165,22 @@ pub struct SettingsPageDto {
 #[serde(deny_unknown_fields)]
 pub struct SetSettingRequest {
     pub value: String,
+}
+
+/// Request body for writing a whole coupled group.
+///
+/// ## ⚑ Why the length mismatch is unrepresentable here
+///
+/// The defect this shape exists to end was two lists that had to be the same
+/// length and were saved one at a time. `entries` carries ONE cell per column
+/// per entry, so "the logins have two and the names have one" cannot be
+/// submitted, cannot be spelled, and needs no validation. The remaining rules —
+/// no blank cell, no repeat, no comma, at least one entry — are the ones the
+/// shape cannot express; they live in `services::settings_pair`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SetSettingPairRequest {
+    pub entries: Vec<Vec<String>>,
 }
 
 /// What a change reports back.

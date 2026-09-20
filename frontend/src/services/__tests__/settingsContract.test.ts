@@ -30,8 +30,8 @@ import type { SettingsPageDto } from "../settings";
 import {
   changedFromDefault,
   searchSettings,
-  settingsInBlock,
 } from "../../components/settings/settingsSearch";
+import { uncoupledIn } from "../../components/settings/coupledList";
 
 const CONTRACT = readFileSync(
   fileURLToPath(new URL("../../../../contracts/settings_page.json", import.meta.url)),
@@ -60,7 +60,7 @@ describe("the settings page contract", () => {
   });
 
   it("carries a rail whose counts and labels are already taken", () => {
-    const [core, undeclared] = page.areas;
+    const [, core, undeclared] = page.areas;
 
     expect(core.id).toBe("core");
     expect(core.label).toBe("Core");
@@ -78,12 +78,20 @@ describe("the settings page contract", () => {
   it("groups the way the page will group it", () => {
     // The end-to-end claim: these bytes, through the page's own helpers, produce
     // the landing list, the block membership and the search the four states use.
-    expect(changedFromDefault(page.settings).map((s) => s.key)).toEqual([
+    // Both rows have moved off their defaults, so both are in the landing list
+    // — including the coupled one. That is deliberate: "what have I changed
+    // here?" must not hide a change because of how it is edited.
+    const changed = changedFromDefault(page.settings);
+    expect(changed.map((s) => s.key)).toEqual([
       "talking_points_cap",
+      "practice_reviewer_usernames",
     ]);
-    expect(settingsInBlock(page.settings, "undeclared_dead").map((s) => s.key)).toEqual([
-      "practice_notes_save_label",
-    ]);
+    // And the coupled one carries the group, so the landing list renders it
+    // with a pointer to the editor rather than a field that cannot be saved.
+    expect(changed[1].group_id).toBe("reviewer_bench");
+    expect(
+      uncoupledIn(page.settings, "undeclared_dead").map((s: { key: string }) => s.key),
+    ).toEqual(["practice_notes_save_label"]);
 
     const results = searchSettings(page.settings, page.areas, "talking");
     expect(results.total).toBe(1);

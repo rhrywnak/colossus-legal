@@ -196,14 +196,6 @@ export function changedFromDefault(
   return settings.filter((setting) => setting.changed_from_default !== null);
 }
 
-/** The rows of one block, in the order the server sent them. */
-export function settingsInBlock(
-  settings: readonly SettingDto[],
-  blockId: string,
-): SettingDto[] {
-  return settings.filter((setting) => setting.block_id === blockId);
-}
-
 /** Does an open group of this size get its own pinned filter box? */
 export function needsGroupFilter(rowCount: number): boolean {
   return rowCount > GROUP_FILTER_THRESHOLD;

@@ -228,6 +228,42 @@ pub enum SettingsError {
     #[error("{key} is already '{value}' — nothing to change")]
     Unchanged { key: String, value: String },
 
+    /// A row that is edited as part of a coupled GROUP was saved on its own.
+    ///
+    /// ## Why this refusal exists, and why it names the editor
+    ///
+    /// `practice_reviewer_usernames` and `practice_reviewer_display_names` are
+    /// read index-aligned, so a save that lengthens one and not the other is
+    /// refused by the boot check. Saving them one at a time is therefore
+    /// impossible in EITHER order — which is how v2.1.14 shipped unable to add a
+    /// second reviewer, with 5,540 tests green (Law 23).
+    ///
+    /// The old behaviour was a bare 400 from the length check. This is the same
+    /// refusal with the one thing the operator needed: where to go instead.
+    /// The label is NOT wrapped in quotes: group labels carry their own — the
+    /// reviewer bench reads `Who may press “Done reviewing”` — and wrapping
+    /// produced `in ““Done reviewing””`, seen against the running backend.
+    #[error(
+        "{key} is edited together with the other rows in {group}, not on its \
+         own — the lists are read in step, so changing one alone would leave \
+         them a different length. Use that editor on the Settings page; it \
+         saves them in one go."
+    )]
+    Coupled { key: String, group: String },
+
+    /// The submitted entries for a coupled group were refused.
+    ///
+    /// Carries the [`PairError`] verbatim for the same reason `Invalid` carries
+    /// its source: the sentence already names the group, the column and the row.
+    #[error("{source}")]
+    Pair {
+        #[source]
+        source: crate::services::settings_pair::PairError,
+    },
+
+    #[error("no coupled group named '{id}' exists in this build")]
+    UnknownGroup { id: String },
+
     #[error("failed to read the configuration store: {source}")]
     Read {
         #[source]

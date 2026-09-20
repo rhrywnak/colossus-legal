@@ -117,7 +117,14 @@ pub mod settings_row_readers;
 // Which block of the admin Settings page each stored key belongs to — the ONE
 // authority behind the page's grouping, by reference to the `*_KEYS` consts the
 // wording blocks already declare, never by re-listing keys.
+// Which settings rows must be edited TOGETHER — the coupled groups. Declared
+// server-side so the Settings page can render the editor without naming a
+// single application concept. See Law 23(b).
+// Validating and encoding a coupled group's submitted entries — pure, and the
+// place every rule `parse_verbatim_list` applies SILENTLY is applied loudly.
+pub mod settings_groups;
 pub mod settings_map;
+pub mod settings_pair;
 pub mod settings_store;
 pub mod settings_template_file;
 pub mod settings_wording;

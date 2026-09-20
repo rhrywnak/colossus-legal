@@ -26,7 +26,6 @@ import {
   normaliseQuery,
   searchSettings,
   SEARCH_RESULT_CAP,
-  settingsInBlock,
   splitBySpend,
 } from "../settingsSearch";
 
@@ -42,6 +41,7 @@ function setting(over: Partial<SettingDto> & { key: string }): SettingDto {
     area_id: "practice",
     block_id: "practice_report",
     changed_from_default: null,
+    group_id: null,
     ...over,
   };
 }
@@ -76,25 +76,6 @@ describe("the landing list", () => {
 
   it("is empty when every row sits on its default", () => {
     expect(changedFromDefault([setting({ key: "a" })])).toEqual([]);
-  });
-});
-
-// ── STATE 2 · AN AREA'S BLOCKS ───────────────────────────────────────────────
-
-describe("a block's rows", () => {
-  it("are the rows the server placed in it, in the order they arrived (M)", () => {
-    // MUTATION: group by `area_id` instead of `block_id` and the second row
-    // joins the first, because both are in Practice.
-    const rows = [
-      setting({ key: "report_1", block_id: "practice_report" }),
-      setting({ key: "print_1", block_id: "practice_print" }),
-      setting({ key: "report_2", block_id: "practice_report" }),
-    ];
-
-    expect(settingsInBlock(rows, "practice_report").map((r) => r.key)).toEqual([
-      "report_1",
-      "report_2",
-    ]);
   });
 });
 
