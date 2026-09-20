@@ -192,8 +192,14 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// — nothing has written a flag since 2026-08-23 and its control was never
 /// built. The end-of-sitting sheet still READS the stored notes, so this is one
 /// route fewer and no surface fewer.
+/// 314 since REVIEWER_PAIR_EDITOR_v1, which added ONE: `PUT
+/// /settings/group/:group_id`, the coupled-group write. No `HEAD` pair — axum
+/// pairs `HEAD` with `GET` only. It is a new address rather than a shape on
+/// `PUT /settings/:key` because that route must be able to REFUSE a coupled row
+/// and name the editor instead, which one route serving both contracts cannot
+/// say cleanly (ruled 2026-09-20).
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 313;
+const EXPECTED_ROUTE_LINES: usize = 314;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

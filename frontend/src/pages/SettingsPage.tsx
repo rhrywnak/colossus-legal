@@ -46,6 +46,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   fetchSettings,
   type AreaDto,
+  type CoupledGroupDto,
   type SettingDto,
 } from "../services/settings";
 import SettingRow from "../components/settings/SettingRow";
@@ -54,9 +55,12 @@ import SettingsAreaRail, {
 } from "../components/settings/SettingsAreaRail";
 import SettingsGroup from "../components/settings/SettingsGroup";
 import {
+  groupsInBlock,
+  uncoupledIn,
+} from "../components/settings/coupledList";
+import {
   changedFromDefault,
   searchSettings,
-  settingsInBlock,
   splitBySpend,
   SEARCH_RESULT_CAP,
 } from "../components/settings/settingsSearch";
@@ -72,6 +76,22 @@ import {
   searchStyle,
 } from "../components/settings/settingsPageStyles";
 
+/**
+ * The group that edits this row, for a row being LISTED rather than grouped.
+ *
+ * Search cuts across every area, so it finds rows whose editor lives somewhere
+ * else entirely. Those are shown with their value and a pointer, never with a
+ * field — the backend refuses a single-row save of them, and offering the field
+ * anyway would be inviting the one action that cannot work.
+ */
+const coupledInto = (
+  setting: SettingDto,
+  groups: readonly CoupledGroupDto[],
+): { id: string; label: string } | undefined => {
+  const group = groups.find((candidate) => candidate.id === setting.group_id);
+  return group ? { id: group.id, label: group.label } : undefined;
+};
+
 /** Plural without the "(s)". */
 const count = (n: number, one: string, many = `${one}s`) =>
   `${n} ${n === 1 ? one : many}`;
@@ -79,6 +99,7 @@ const count = (n: number, one: string, many = `${one}s`) =>
 const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<SettingDto[] | null>(null);
   const [areas, setAreas] = useState<AreaDto[]>([]);
+  const [groups, setGroups] = useState<CoupledGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [confirmation, setConfirmation] = useState<string | null>(null);
@@ -93,6 +114,7 @@ const SettingsPage: React.FC = () => {
       const page = await fetchSettings();
       setSettings(page.settings);
       setAreas(page.areas);
+      setGroups(page.groups);
       setError(null);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "The settings did not load.");
@@ -215,6 +237,7 @@ const SettingsPage: React.FC = () => {
                     key={setting.key}
                     setting={setting}
                     query={query}
+                    coupledInto={coupledInto(setting, groups)}
                     onSaved={onSaved}
                   />
                 ))}
@@ -248,7 +271,10 @@ const SettingsPage: React.FC = () => {
               <SettingsGroup
                 key={block.id}
                 block={block}
-                settings={settingsInBlock(settings, block.id)}
+                // Coupled rows are rendered by their group's editor, so they are
+                // withheld from the row list here — see `uncoupledIn`.
+                settings={uncoupledIn(settings, block.id)}
+                groups={groupsInBlock(settings, groups, block.id)}
                 open={openBlockId === block.id}
                 onToggle={() =>
                   setOpenBlockId(openBlockId === block.id ? null : block.id)
@@ -271,7 +297,12 @@ const SettingsPage: React.FC = () => {
               </div>
             ) : (
               changed.map((setting) => (
-                <SettingRow key={setting.key} setting={setting} onSaved={onSaved} />
+                <SettingRow
+                  key={setting.key}
+                  setting={setting}
+                  coupledInto={coupledInto(setting, groups)}
+                  onSaved={onSaved}
+                />
               ))
             )}
           </>

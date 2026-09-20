@@ -84,6 +84,8 @@ pub mod scenarios;
 pub mod schema;
 pub mod search;
 pub mod settings;
+// The coupled-group write route — split from `settings` for Rule 17.
+pub mod settings_group;
 pub mod timeline;
 pub mod timeline_subsets;
 pub mod timeline_write;

@@ -1969,17 +1969,32 @@ fn the_trial_path_is_the_same_builder_the_boot_uses() {
     // of `settings_store` when that file reached 294 non-comment lines. This
     // test found the move by failing, which is the whole point of it reading
     // source rather than trusting a comment.
+    //
+    // It found the SECOND move the same way, on 2026-09-20: the coupled-group
+    // write needs several candidates in the trial at once, so the body moved to
+    // `trial_snapshot_many` and `trial_snapshot` became a one-line delegate to
+    // it. The claim under test is unchanged — the pre-write trial runs the real
+    // builder — so this points at the function that now does the work rather
+    // than being relaxed to accept either.
     let source = std::fs::read_to_string(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src/services/settings_write.rs"),
     )
     .expect("readable");
 
     let trial_fn = source
-        .split_once("async fn trial_snapshot(")
+        .split_once("async fn trial_snapshot_many(")
         .map(|(_, rest)| rest)
         .and_then(|rest| rest.split_once("\n}"))
         .map(|(body, _)| body)
-        .expect("trial_snapshot exists");
+        .expect("trial_snapshot_many exists");
+
+    // And the single-row trial still reaches it, so no write path skips the
+    // builder by taking the older function.
+    assert!(
+        source.contains("trial_snapshot_many(pool, &[(key, candidate)]).await"),
+        "the single-row trial must delegate to the many-candidate one, or one \
+         write path would stop being pre-checked"
+    );
 
     assert!(
         trial_fn.contains("build_settings(&trial)"),

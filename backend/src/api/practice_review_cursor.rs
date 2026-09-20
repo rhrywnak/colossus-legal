@@ -153,7 +153,10 @@ pub(super) async fn deck_review(
 /// allocation, no `HashSet` built per request for a list of two. `r == user_id`
 /// compares a `&String` with a `&str` through `PartialEq<str>`, which is why
 /// neither side needs a `.as_str()`.
-pub(super) fn can_mark_reviewed(user_id: &str, reviewers: &[String]) -> bool {
+// `pub(crate)` since 2026-09-20 so `settings_journey_tests` can assert the REAL
+// membership rule at the end of "add a second reviewer". A journey that checked
+// a copy of this logic would pass while the thing it claims to prove was broken.
+pub(crate) fn can_mark_reviewed(user_id: &str, reviewers: &[String]) -> bool {
     // A blank caller is refused before the list is consulted. The reader drops
     // blank entries, so a bench cannot hold one today — but `"" == ""` is true,
     // and this is the one comparison in the build where being wrong hands a

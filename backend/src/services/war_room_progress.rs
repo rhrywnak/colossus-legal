@@ -62,10 +62,23 @@ pub fn review_queue_reviewer(settings: &crate::domain::settings::Settings) -> &[
 /// somebody it does not. The joiner is a stored row and carries no spaces of its
 /// own — the store trims every value — so they are supplied here.
 ///
-/// An EMPTY bench cannot reach this: `settings_practice::reviewer_bench`
-/// refuses a snapshot whose lists are misaligned, and a blank row is refused by
-/// `token_list_of` before that. So this never returns an empty string over a
-/// store the boot check accepted.
+/// ## ⚑ An empty bench CAN reach this, and is refused at the door instead
+///
+/// This comment used to claim an empty bench was impossible here, because
+/// `settings_practice::reviewer_bench` refuses misaligned lists. That was wrong
+/// twice over, found 2026-09-20: the bench is read by `verbatim_list_of`, not
+/// `token_list_of`, and `parse_verbatim_list` returns an EMPTY list for the
+/// literal `none`. So `("none", "none")` is `0 == 0` — aligned, accepted, and a
+/// bench with nobody on it. This function would then return `""`, and
+/// `can_mark_reviewed` would be false for everyone, so the review queue could
+/// never be cleared by anybody.
+///
+/// It had never fired because reaching that state needs both rows written at
+/// once, which was impossible — the same deadlock that made adding a reviewer
+/// impossible was hiding it. The coupled-group write makes it reachable in one
+/// click, so `settings_pair::encode_entries` refuses an empty group outright
+/// (ruled 2026-09-20). The guarantee below is real again, and this is now the
+/// reason why rather than an assumption about it.
 pub fn reviewer_display_line(settings: &crate::domain::settings::Settings) -> String {
     let joiner = format!(" {} ", settings.practice_wording.review.name_joiner);
     settings.practice_read.reviewer_display_names.join(&joiner)
