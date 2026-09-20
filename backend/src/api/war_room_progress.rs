@@ -30,7 +30,8 @@ use crate::{
     repositories::pipeline_repository::review_cursor::awaiting_review,
     repositories::pipeline_repository::war_room_status::{changed_counts, deck_counts, last_scans},
     services::war_room_progress::{
-        evidence_counts, fold_progress, review_queue_reviewer, EvidenceCounts, FamilyRows,
+        evidence_counts, fold_progress, practice_witness, review_queue_reviewer, EvidenceCounts,
+        FamilyRows,
     },
     state::AppState,
 };
@@ -62,11 +63,17 @@ pub(crate) async fn read_progress(
     let pool = &state.pipeline_pool;
     let settings = state.settings.current();
     let reviewers = review_queue_reviewer(&settings);
+    // The count's OWNER, not the viewer — see `practice_witness`. Her own notes
+    // do not badge her tile (ruled 2026-09-20).
+    let witness = practice_witness(&settings);
     let (evidence, scans, deck, changed, awaiting) = tokio::try_join!(
         read_evidence_counts(state, scenario_ids),
         family("last scan", last_scans(pool, scenario_ids)),
         family("deck counts", deck_counts(pool, scenario_ids)),
-        family("changed counts", changed_counts(pool, scenario_ids)),
+        family(
+            "changed counts",
+            changed_counts(pool, scenario_ids, witness)
+        ),
         family(
             "awaiting review",
             awaiting_review(pool, scenario_ids, reviewers)
@@ -95,6 +102,9 @@ pub(crate) async fn read_progress(
         // The whole bench, so a log line can answer "whose queue was this?"
         // after the fact — `?` is `Debug`, which is what a slice has.
         reviewers = ?reviewers,
+        // The witness too, so a log line can answer "whose changed count was
+        // this, and was the row pointed at the right login?" after the fact.
+        witness,
         elapsed_ms = started.elapsed().as_millis() as u64,
         "read the war room's scenario status"
     );

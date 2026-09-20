@@ -121,8 +121,31 @@ pub struct PracticeRowWording {
     /// `MIN(…) FILTER (…)`), so the bar cannot name a day the count excluded.
     /// Withheld entirely when there is no date rather than rendered empty.
     pub deck_review_oldest_template: String,
-    /// The review bar's button.
+    /// The review bar's button. Opens the confirmation; it does not write.
     pub deck_review_done_label: String,
+    /// The confirmation's question, for a count that is not 1 —
+    /// `Mark all {count} answers in {code} as reviewed?`
+    ///
+    /// Domain note: the press moves ONE SHARED mark for the whole reviewer
+    /// bench and there is no undo, so the question names both the number and
+    /// the deck. Until v2.1.15 there was no question at all: one click on Done
+    /// reviewing and the mark had moved for everybody.
+    pub deck_review_confirm_template: String,
+    /// Its singular, read when exactly one answer waits (`pickByCount`).
+    ///
+    /// Domain note: a separate row rather than a plural rule, for the reason
+    /// the awaiting pair gives — this is the one screen whose whole job is to
+    /// be read before an irreversible click, and "1 answers" is not a sentence
+    /// to put in front of a lawyer at that moment.
+    pub deck_review_confirm_one: String,
+    /// The affirmative, and the ONLY control that moves the mark.
+    ///
+    /// Domain note: a question is answered Yes, never restated as the verb
+    /// (Roman, 2026-09-20) — a second "Done reviewing" here would ask the
+    /// reader to confirm a sentence they have just read.
+    pub deck_review_confirm_yes_label: String,
+    /// The retreat. Sends nothing; Escape does the same.
+    pub deck_review_confirm_cancel_label: String,
     /// Shown when Done reviewing fails; the count stays as it was.
     pub deck_review_failed: String,
     /// Opens the note box on the answers page.
@@ -163,6 +186,11 @@ pub(crate) const KEY_DECK_REVIEW_AWAITING_TEMPLATE: &str = "practice_deck_review
 pub(crate) const KEY_DECK_REVIEW_AWAITING_ONE: &str = "practice_deck_review_awaiting_one";
 pub(crate) const KEY_DECK_REVIEW_OLDEST_TEMPLATE: &str = "practice_deck_review_oldest_template";
 pub(crate) const KEY_DECK_REVIEW_DONE_LABEL: &str = "practice_deck_review_done_label";
+pub(crate) const KEY_DECK_REVIEW_CONFIRM_TEMPLATE: &str = "practice_deck_review_confirm_template";
+pub(crate) const KEY_DECK_REVIEW_CONFIRM_ONE: &str = "practice_deck_review_confirm_one";
+pub(crate) const KEY_DECK_REVIEW_CONFIRM_YES_LABEL: &str = "practice_deck_review_confirm_yes_label";
+pub(crate) const KEY_DECK_REVIEW_CONFIRM_CANCEL_LABEL: &str =
+    "practice_deck_review_confirm_cancel_label";
 pub(crate) const KEY_DECK_REVIEW_FAILED: &str = "practice_deck_review_failed";
 pub(crate) const KEY_NOTE_ADD_LABEL: &str = "practice_row_note_add_label";
 pub(crate) const KEY_NOTE_SAVE_LABEL: &str = "practice_row_note_save_label";
@@ -191,6 +219,10 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_DECK_REVIEW_AWAITING_ONE,
     KEY_DECK_REVIEW_OLDEST_TEMPLATE,
     KEY_DECK_REVIEW_DONE_LABEL,
+    KEY_DECK_REVIEW_CONFIRM_TEMPLATE,
+    KEY_DECK_REVIEW_CONFIRM_ONE,
+    KEY_DECK_REVIEW_CONFIRM_YES_LABEL,
+    KEY_DECK_REVIEW_CONFIRM_CANCEL_LABEL,
     KEY_DECK_REVIEW_FAILED,
     KEY_NOTE_ADD_LABEL,
     KEY_NOTE_SAVE_LABEL,
@@ -236,6 +268,10 @@ pub fn build_practice_row_wording<E>(
         deck_review_awaiting_one: read(KEY_DECK_REVIEW_AWAITING_ONE)?,
         deck_review_oldest_template: read(KEY_DECK_REVIEW_OLDEST_TEMPLATE)?,
         deck_review_done_label: read(KEY_DECK_REVIEW_DONE_LABEL)?,
+        deck_review_confirm_template: read(KEY_DECK_REVIEW_CONFIRM_TEMPLATE)?,
+        deck_review_confirm_one: read(KEY_DECK_REVIEW_CONFIRM_ONE)?,
+        deck_review_confirm_yes_label: read(KEY_DECK_REVIEW_CONFIRM_YES_LABEL)?,
+        deck_review_confirm_cancel_label: read(KEY_DECK_REVIEW_CONFIRM_CANCEL_LABEL)?,
         deck_review_failed: read(KEY_DECK_REVIEW_FAILED)?,
         note_add_label: read(KEY_NOTE_ADD_LABEL)?,
         note_save_label: read(KEY_NOTE_SAVE_LABEL)?,

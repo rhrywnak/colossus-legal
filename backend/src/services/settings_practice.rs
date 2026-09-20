@@ -21,14 +21,14 @@ use crate::domain::practice_params::{
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
     KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_PROMPT_FILE, KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
-    KEY_PRACTICE_REVIEWER_USERNAMES, KEY_PRACTICE_TACTIC_NAMES,
+    KEY_PRACTICE_REVIEWER_USERNAMES, KEY_PRACTICE_TACTIC_NAMES, KEY_PRACTICE_WITNESS_USERNAME,
 };
 use crate::domain::settings::SettingError;
 use crate::repositories::pipeline_repository::AppSettingRecord;
 use crate::services::settings_row_readers::{token_count_of, token_list_of, verbatim_list_of};
 use crate::services::settings_store::{require, text_of};
 
-/// Assemble the practice read's twelve parameters, or name the row that is wrong.
+/// Assemble the practice read's parameter block, or name the row that is wrong.
 ///
 /// Same seam every other block obeys: the STORE owns what a row is (declared
 /// kind, non-blank, comma-separated tokens) and the DOMAIN owns what the values
@@ -61,6 +61,7 @@ pub(crate) fn build_practice_read_params(
         case_timezone: text_of(require(rows, KEY_PRACTICE_CASE_TIMEZONE)?)?,
         reviewer_usernames: bench.logins,
         reviewer_display_names: bench.names,
+        witness_username: text_of(require(rows, KEY_PRACTICE_WITNESS_USERNAME)?)?,
         discuss_default_model: text_of(require(rows, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL)?)?,
         discuss_max_turns: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TURNS)?)?,
         discuss_prompt_file: text_of(require(rows, KEY_PRACTICE_DISCUSS_PROMPT_FILE)?)?,

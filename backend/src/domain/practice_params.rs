@@ -161,6 +161,24 @@ pub struct PracticeReadParams {
     /// failure here that looks like working software.
     pub reviewer_display_names: Vec<String>,
 
+    /// The login of the witness the War Room's "new or changed" count is
+    /// addressed to — see [`KEY_PRACTICE_WITNESS_USERNAME`].
+    ///
+    /// ## Domain note: the count's OWNER is the filter, not the viewer
+    ///
+    /// Marie's own note to Chuck badged Marie's own tile. The obvious remedy —
+    /// "do not count what the READER wrote" — is unavailable twice over: this
+    /// build has no is-the-reader-the-witness concept (CC's 2026-09-16 STOP),
+    /// and the count is one GLOBAL number by ruling (2026-09-17), so a
+    /// per-viewer filter would give three people three different truths about
+    /// one deck — exactly the state v2.1.10 was written to end.
+    ///
+    /// So the filter is the number's OWNER. One login, one row, one meaning: a
+    /// note is a message to somebody else, and a message to herself is not work
+    /// waiting on her. Question EDITS are untouched and still count whoever made
+    /// them, including hers.
+    pub witness_username: String,
+
     // ── Discuss with AI (CC_TASK_QUESTION_CHAT_v1) ────────────────────────────
     /// The model the dock starts on — [`KEY_PRACTICE_DISCUSS_DEFAULT_MODEL`].
     pub discuss_default_model: String,
@@ -260,6 +278,13 @@ pub const KEY_PRACTICE_REVIEWER_USERNAMES: &str = "practice_reviewer_usernames";
 /// words, so adding an attorney is two edits and not a hunt through sentences.
 pub const KEY_PRACTICE_REVIEWER_DISPLAY_NAMES: &str = "practice_reviewer_display_names";
 
+/// The witness's own login — see [`PracticeReadParams::witness_username`].
+///
+/// Case data (who the witness is), so a stored row: a login compiled in would
+/// make "which witness is this deck for?" a rebuild, and this system is already
+/// two attorneys and one witness away from needing a second one.
+pub const KEY_PRACTICE_WITNESS_USERNAME: &str = "practice_witness_username";
+
 /// How much the model may THINK before writing one answer read.
 ///
 /// ## Domain note: the read is a verdict, not a deliberation
@@ -290,6 +315,7 @@ pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_CASE_TIMEZONE,
     KEY_PRACTICE_REVIEWER_USERNAMES,
     KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
+    KEY_PRACTICE_WITNESS_USERNAME,
     KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
     KEY_PRACTICE_DISCUSS_MAX_TURNS,
     KEY_PRACTICE_DISCUSS_PROMPT_FILE,
@@ -340,6 +366,10 @@ impl PracticeReadParams {
             // the list themselves; this fixture is pinned to the migration.
             reviewer_usernames: vec!["cpenzien".to_string()],
             reviewer_display_names: vec!["Chuck".to_string()],
+            // The login the migration seeds, and the same one `war_room_status`'s
+            // live fixtures answer as — so a proof that her own note stops
+            // badging her is reading the value this build actually ships.
+            witness_username: "docmarie".to_string(),
             discuss_default_model: "claude-opus-5".to_string(),
             discuss_max_turns: 40,
             discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),

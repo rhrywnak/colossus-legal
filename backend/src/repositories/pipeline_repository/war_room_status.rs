@@ -166,6 +166,34 @@ pub struct ChangedCountRow {
 /// `cur.answer_id`, and "a note on the current answer" is expressible at all.
 /// `LEFT … ON true` keeps a question with no notes (its `MAX` is NULL).
 ///
+/// ## Domain note: her OWN notes do not badge her (ruled 2026-09-20)
+///
+/// `witness` is the `practice_witness_username` settings row, and a note that
+/// login wrote never reaches this count. Until v2.1.15 it did: Marie wrote
+/// Chuck a note on 19 September and her own tile came back reading "1 new or
+/// changed for Marie", because this LATERAL had no author leg at all.
+///
+/// It filters by the count's OWNER, never by the signed-in viewer. The number
+/// is one global fact by ruling (2026-09-17) and this build has no
+/// is-the-reader-the-witness concept, so a viewer filter would give three
+/// people three different truths about one deck. A message she wrote to
+/// somebody else is not work waiting on her, whoever is looking at the tile.
+///
+/// The NULL case is named for the reason `review_cursor` names it: notes from
+/// before 2026-08-19 carry `author_id = NULL`, `NULL <> 'docmarie'` is NULL,
+/// and a NULL here drops the note from a `WHERE` — so an unattributed note
+/// would silently stop counting. NULL means "not the witness", not "skip it".
+///
+/// Question EDITS are deliberately untouched. `chg` reads
+/// `practice_deck_changes` with no author leg, so a question SHE moved or
+/// reworded still badges her — the badge asks her to re-read a question whose
+/// words have changed, and it is no less true when she changed them.
+///
+/// Chuck's queue is a different query in a different module
+/// (`review_cursor::awaiting_review`), and it is untouched: her notes must keep
+/// counting as work awaiting his review, which is the loop this closes the
+/// other half of.
+///
 /// And nothing counts in a scenario with no answer at all (`latest IS NULL`): a
 /// deck she has never opened is not "changed", however many `added` rows its
 /// seeding wrote. `practice_sessions` is joined only to learn which scenario an
@@ -177,6 +205,7 @@ pub struct ChangedCountRow {
 pub async fn changed_counts(
     pool: &PgPool,
     scenario_ids: &[Uuid],
+    witness: &str,
 ) -> Result<Vec<ChangedCountRow>, PipelineRepoError> {
     let sql = format!(
         "WITH {CURRENT_ANSWERS_CTE}, \
@@ -201,11 +230,13 @@ pub async fn changed_counts(
          LEFT JOIN LATERAL ( \
             SELECT MAX(n.created_at) AS at FROM practice_notes n \
             WHERE n.question_id = q.id AND n.struck_at IS NULL \
+              AND (n.author_id IS NULL OR n.author_id <> $2) \
               AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id)) nt ON true \
          GROUP BY ids.scenario_id"
     );
     sqlx::query_as::<_, ChangedCountRow>(&sql)
         .bind(scenario_ids)
+        .bind(witness)
         .fetch_all(pool)
         .await
         .map_err(PipelineRepoError::from)

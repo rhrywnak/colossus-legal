@@ -192,11 +192,18 @@ fn requested_keys() -> Vec<(String, String)> {
 const MIRROR_FILES: &[&str] = &[
     "src/dto/practice_wording.rs",
     "src/dto/practice_wording_review.rs",
+    // REVIEW_COUNTS_HONEST: the review bar's eight strings, split out under
+    // Rule 17 the same way the review page's ten were. A sibling added here and
+    // not to this list would not be a false pass — its fields would simply be
+    // missing from the scan, and every key the browser asks for out of it would
+    // fail as "declared nowhere". Loud, not silent, which is why the list is a
+    // list and not a directory walk.
+    "src/dto/practice_wording_deck_review.rs",
 ];
 
-/// Every `String` field the served wording object carries, across both structs.
+/// Every `String` field the served wording object carries, across all three structs.
 ///
-/// `#[serde(flatten)]` makes the two serialize as ONE object, so from the
+/// `#[serde(flatten)]` makes them serialize as ONE object, so from the
 /// browser's side there is no seam here at all — which is exactly why the scan
 /// must not have one either.
 fn mirror_fields() -> BTreeSet<String> {

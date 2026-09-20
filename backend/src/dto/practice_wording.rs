@@ -20,6 +20,7 @@
 
 use serde::{Deserialize, Serialize};
 
+use super::practice_wording_deck_review::PracticeDeckReviewWordingDto;
 use super::practice_wording_review::PracticeReviewWordingDto;
 
 // The constructor that flattens the stored blocks into this shape lives in
@@ -193,10 +194,12 @@ pub struct PracticeWordingDto {
     /// `Answered on {when}` — the one status a one-page deck row carries.
     pub row_answered_on_template: String,
     // The review loop (CC_TASK_REVIEW_LOOP_v1): the deck's review bar and notes.
-    pub deck_review_awaiting_template: String,
-    pub deck_review_awaiting_one: String,
-    pub deck_review_done_label: String,
-    pub deck_review_failed: String,
+    /// The review bar's eight strings — its count, its button, the question that
+    /// button asks, and its failure line. Flattened into this object so the
+    /// browser still reads one flat map; declared in a sibling file for the
+    /// Rule 17 reason that module's header sets out.
+    #[serde(flatten)]
+    pub deck_review: PracticeDeckReviewWordingDto,
     pub row_note_add_label: String,
     pub row_note_save_label: String,
     pub row_note_cancel_label: String,

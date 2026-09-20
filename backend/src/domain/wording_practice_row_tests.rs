@@ -46,6 +46,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
     // REVIEW_PAGE: the bar's oldest-waiting clause (ruling STOP-A).
     "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
+    // REVIEW_COUNTS_HONEST: the confirmation Done reviewing now asks first.
+    "pipeline_migrations/20260920161341_practice_witness_row_and_done_confirm_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -89,6 +91,16 @@ const TEST_SEED: &[(&str, &str)] = &[
     ),
     (KEY_DECK_REVIEW_DONE_LABEL, "Done reviewing"),
     (KEY_DECK_REVIEW_FAILED, "Could not mark this deck reviewed \u{2014} nothing was changed."),
+    (
+        KEY_DECK_REVIEW_CONFIRM_TEMPLATE,
+        "Mark all {count} answers in {code} as reviewed?",
+    ),
+    (
+        KEY_DECK_REVIEW_CONFIRM_ONE,
+        "Mark the {count} answer in {code} as reviewed?",
+    ),
+    (KEY_DECK_REVIEW_CONFIRM_YES_LABEL, "Yes"),
+    (KEY_DECK_REVIEW_CONFIRM_CANCEL_LABEL, "Cancel"),
     (KEY_NOTE_ADD_LABEL, "Add a note"),
     (KEY_NOTE_SAVE_LABEL, "Save note"),
     (KEY_NOTE_CANCEL_LABEL, "Cancel"),
@@ -231,6 +243,16 @@ fn every_template_carries_its_placeholders() {
             vec!["{date}"],
         ),
         (
+            "deck_review_confirm_template",
+            &w.deck_review_confirm_template,
+            vec!["{count}", "{code}"],
+        ),
+        (
+            "deck_review_confirm_one",
+            &w.deck_review_confirm_one,
+            vec!["{count}", "{code}"],
+        ),
+        (
             "note_struck_template",
             &w.note_struck_template,
             vec!["{when}"],
@@ -265,6 +287,14 @@ fn the_plain_labels_carry_no_placeholder() {
         ("points_to_sheet_prefix", &w.points_to_sheet_prefix),
         ("unfinished_today_word", &w.unfinished_today_word),
         ("deck_review_done_label", &w.deck_review_done_label),
+        (
+            "deck_review_confirm_yes_label",
+            &w.deck_review_confirm_yes_label,
+        ),
+        (
+            "deck_review_confirm_cancel_label",
+            &w.deck_review_confirm_cancel_label,
+        ),
         ("deck_review_failed", &w.deck_review_failed),
         ("note_add_label", &w.note_add_label),
         ("note_save_label", &w.note_save_label),

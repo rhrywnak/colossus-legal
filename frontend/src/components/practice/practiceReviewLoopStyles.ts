@@ -49,6 +49,75 @@ export const reviewCount: CSSProperties = {
 export const reviewError: CSSProperties = { color: "var(--practice-red)", fontSize: 14, width: "100%" };
 
 /**
+ * The confirmation, inside the bar and under its sentence.
+ *
+ * ## Why it sits INSIDE the amber bar and not over the page
+ *
+ * `ScanConfirmBar` draws its own box because it interrupts a header it does not
+ * belong to. This question belongs to the bar that asked it: the count it names
+ * is the sentence directly above, and lifting it into a floating panel would
+ * separate the number from the question about the number. `width: "100%"` puts
+ * it on its own row of the bar's wrap, which is also where `reviewError`
+ * already goes.
+ *
+ * It is not a modal. Nothing is trapped and Cancel is not the only way out,
+ * because the deck behind it is where somebody checks what they are about to
+ * sweep before answering.
+ */
+export const reviewConfirm: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "8px 12px",
+  width: "100%",
+  paddingTop: 10,
+  marginTop: 2,
+  borderTop: "1px solid var(--practice-review-amber-border)",
+};
+
+/** The question. Ink, not amber: it is a sentence to read, not a warning. */
+export const reviewConfirmSentence: CSSProperties = {
+  color: INK,
+  fontSize: 14,
+  flex: 1,
+  minWidth: 220,
+};
+
+/**
+ * The affirmative. Amber FILL — the one control that moves the shared mark.
+ *
+ * The house pair, same as `ScanConfirmBar`'s accent fill: the colour that means
+ * owed work, and the on-fill foreground that goes with it. The retreat below is
+ * the same SHAPE with no fill, deliberately — it must be as easy to hit, not as
+ * loud.
+ */
+export const reviewConfirmYes: CSSProperties = {
+  fontFamily: "inherit",
+  fontSize: 13,
+  fontWeight: 600,
+  padding: "6px 16px",
+  borderRadius: 999,
+  border: "1px solid var(--burden-warning-text)",
+  background: "var(--burden-warning-text)",
+  color: "var(--v3-on-fill)",
+  cursor: "pointer",
+  flexShrink: 0,
+};
+
+/** The retreat. Same shape, no fill. */
+export const reviewConfirmCancel: CSSProperties = {
+  fontFamily: "inherit",
+  fontSize: 13,
+  padding: "6px 16px",
+  borderRadius: 999,
+  border: "1px solid var(--practice-review-amber-border)",
+  background: "transparent",
+  color: MUTED,
+  cursor: "pointer",
+  flexShrink: 0,
+};
+
+/**
  * The two grounds a note is drawn on.
  *
  * ## Why a note has two looks and not one

@@ -21,6 +21,7 @@
 //! wrapper, or a re-export.
 
 use super::practice_wording::PracticeWordingDto;
+use super::practice_wording_deck_review::PracticeDeckReviewWordingDto;
 use super::practice_wording_review::PracticeReviewWordingDto;
 use crate::domain::wording_practice::PracticeWording;
 use crate::domain::wording_practice_report::PracticeReportWording;
@@ -171,10 +172,7 @@ impl PracticeWordingDto {
             answer_empty_hint: drill.row.answer_empty_hint.clone(),
             answer_already_recorded: drill.row.answer_already_recorded.clone(),
             row_answered_on_template: drill.row.answered_on_template.clone(),
-            deck_review_awaiting_template: drill.row.deck_review_awaiting_template.clone(),
-            deck_review_awaiting_one: drill.row.deck_review_awaiting_one.clone(),
-            deck_review_done_label: drill.row.deck_review_done_label.clone(),
-            deck_review_failed: drill.row.deck_review_failed.clone(),
+            deck_review: PracticeDeckReviewWordingDto::from_blocks(drill),
             row_note_add_label: drill.row.note_add_label.clone(),
             row_note_save_label: drill.row.note_save_label.clone(),
             row_note_cancel_label: drill.row.note_cancel_label.clone(),

@@ -204,6 +204,7 @@ const PracticeStart: React.FC<Props> = ({
       <PracticeReviewBar
         slug={slug}
         scenarioId={scenarioId}
+        code={code}
         review={review}
         wording={wording}
         onReviewed={onReviewed}

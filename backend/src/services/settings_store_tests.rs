@@ -220,6 +220,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // `settings_practice::reviewer_bench` refuses a snapshot over.
             ("practice_reviewer_usernames", "cpenzien".to_string()),
             ("practice_reviewer_display_names", "Chuck".to_string()),
+            // REVIEW_COUNTS_HONEST: the WITNESS — the login the War Room's "new
+            // or changed" count is addressed to, and whose own notes therefore
+            // do not badge her. Not on the bench above and never compared to it:
+            // her notes still count as work awaiting a reviewer.
+            ("practice_witness_username", "docmarie".to_string()),
             // QUESTION_CHAT: the dock's starting model and its prompt file.
             (
                 "practice_discuss_default_model",
@@ -751,13 +756,17 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // `const DEFAULT_CHAT_MODEL` in main.rs until the model it named was
         // deactivated and every unqualified /ask answered 400.
         // CARDTRIAGE_SPLIT added one: the Include picker's default stance.
+        // REVIEW_COUNTS_HONEST added one: `practice_witness_username`, the login
+        // the War Room's "new or changed" count is addressed to. It is a
+        // PRACTICE parameter, so it lands in `PRACTICE_PARAM_KEYS` (20 → 21) and
+        // `REQUIRED_KEYS` is unchanged at 31 — the sum is what moves.
         //
-        // ⚑ 51, not 50. Both of those branches took this number from 49 to 50
-        // independently, so the merge saw the SAME line on both sides and took
-        // it once — with no conflict to mark. Two rows were added and the sum
-        // gained one. The arithmetic is the only thing that catches that, which
-        // is why this assertion is a number and not a `>=`.
-        51,
+        // ⚑ 52, not 51. Both of the CARDTRIAGE branches took this number from 49
+        // to 50 independently, so the merge saw the SAME line on both sides and
+        // took it once — with no conflict to mark. Two rows were added and the
+        // sum gained one. The arithmetic is the only thing that catches that,
+        // which is why this assertion is a number and not a `>=`.
+        52,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -920,7 +929,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        26,
+        30,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
@@ -929,7 +938,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          nine: the deck review bar (three) and the notes (six), and GO v3's singular \
          review-bar line. Plus the review page's oldest-waiting clause \
          (2026-09-19), which is the bar's fifth string and files here with the \
-         other four rather than with the page that occasioned it"
+         other four rather than with the page that occasioned it. Plus \
+         REVIEW_COUNTS_HONEST's four (2026-09-20): the confirmation Done \
+         reviewing now asks before it writes — the question in both numbers, \
+         and its Yes and its Cancel"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
@@ -1801,6 +1813,8 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260919130253_chat_default_model_row.sql",
         // CARDTRIAGE_SPLIT: the Include picker's default stance.
         "pipeline_migrations/20260919141424_card_include_picker_default_stance.sql",
+        // REVIEW_COUNTS_HONEST: the witness the "new or changed" count belongs to.
+        "pipeline_migrations/20260920161341_practice_witness_row_and_done_confirm_wording.sql",
     ]
     .iter()
     .map(|relative| {

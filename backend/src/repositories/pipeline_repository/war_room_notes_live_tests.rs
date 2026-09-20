@@ -11,7 +11,10 @@ use chrono::{DateTime, Duration, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
-use super::live_tests::{answer, changed, cleanup, pipeline_pool, question, scenario, TestResult};
+use super::live_tests::{
+    answer, change, changed, changed_for, cleanup, pipeline_pool, question, scenario, TestResult,
+    WITNESS,
+};
 
 /// A note written by Chuck at `at`, on the question or on one answer.
 async fn note(
@@ -21,15 +24,36 @@ async fn note(
     answer_id: Option<Uuid>,
     at: DateTime<Utc>,
 ) -> TestResult<Uuid> {
+    note_by(pool, scenario_id, question_id, answer_id, at, "chuck").await
+}
+
+/// The same note, written by a NAMED login.
+///
+/// Split out for CC_TASK_REVIEW_COUNTS_HONEST_v1: the witness's own note must
+/// not badge her, and proving that needs a note nobody else wrote. Every caller
+/// above keeps Chuck, so nothing they assert moves.
+///
+/// `author_id` is the login and `author` is the display name — the filter reads
+/// the ID, and the two are written together here so a fixture cannot accidentally
+/// prove the filter works by leaving the id NULL.
+async fn note_by(
+    pool: &PgPool,
+    scenario_id: Uuid,
+    question_id: Uuid,
+    answer_id: Option<Uuid>,
+    at: DateTime<Utc>,
+    author_id: &str,
+) -> TestResult<Uuid> {
     let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_notes \
          (scenario_id, question_id, answer_id, author, author_id, text, created_at) \
-         VALUES ($1, $2, $3, 'Chuck', 'chuck', 'hold the number', $4) RETURNING id",
+         VALUES ($1, $2, $3, $5, $5, 'hold the number', $4) RETURNING id",
     )
     .bind(scenario_id)
     .bind(question_id)
     .bind(answer_id)
     .bind(at)
+    .bind(author_id)
     .fetch_one(pool)
     .await?;
     Ok(row.0)
@@ -114,4 +138,149 @@ async fn note_on_an_unanswered_question_uses_her_latest_answer() -> TestResult<(
     note(&pool, s, open, None, t0 + Duration::minutes(1)).await?;
     assert_eq!(changed(&pool, s).await?, 1);
     cleanup(&pool, s, "note_unanswered").await
+}
+
+// ── The witness's own notes (CC_TASK_REVIEW_COUNTS_HONEST_v1) ────────────────
+//
+// J1's defect, in one line: Marie wrote Chuck a note on 19 September and her own
+// War Room tile came back reading "1 new or changed for Marie". The note LATERAL
+// in `changed_counts` had no author leg at all, so a message she sent was
+// counted as a message she had not read.
+//
+// The filter is the count's OWNER — the `practice_witness_username` row — and
+// never the signed-in viewer: the number is one global fact by ruling
+// (2026-09-17), so a per-viewer filter would give three people three different
+// truths about one deck.
+
+/// **J1** (M) Her own unstruck note on a question she answered: 0.
+///
+/// Red on main before this task — the same fixture read 1.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn witness_own_note_does_not_badge_her() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "note_own").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer(&pool, s, q, t0).await?;
+    note_by(&pool, s, q, Some(a), t0 + Duration::minutes(1), WITNESS).await?;
+    assert_eq!(
+        changed(&pool, s).await?,
+        0,
+        "a note she wrote herself is a message to somebody else, not work waiting on her"
+    );
+    cleanup(&pool, s, "note_own").await
+}
+
+/// (M) The SAME store, counted against a different witness: 1.
+///
+/// The mutation proof for the row itself. If the filter named a login in code
+/// rather than reading `practice_witness_username`, this would still read 0 and
+/// the test above would be proving nothing about the setting.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn the_filter_follows_the_witness_row() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "note_own_other").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer(&pool, s, q, t0).await?;
+    note_by(&pool, s, q, Some(a), t0 + Duration::minutes(1), WITNESS).await?;
+    assert_eq!(
+        changed_for(&pool, s, "somebody_else").await?,
+        1,
+        "pointed at another login, her note is a stranger's note and counts again"
+    );
+    cleanup(&pool, s, "note_own_other").await
+}
+
+/// ANTI-VACUITY: the filter is about the AUTHOR, not the clock.
+///
+/// Her own note written BEFORE her answer already read 0 on main, for the
+/// ordinary reason. This asserts the new leg did not merely re-prove that: the
+/// note here post-dates the answer and is still dropped.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn her_note_is_dropped_by_the_author_and_not_the_order() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "note_own_order").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "george", 1).await?;
+    let a = answer(&pool, s, q, t0).await?;
+    // An hour AFTER the answer — the arm that makes a stranger's note count.
+    note_by(&pool, s, q, Some(a), t0 + Duration::hours(1), WITNESS).await?;
+    assert_eq!(changed(&pool, s).await?, 0);
+    // And Chuck's note at the very same instant DOES count, on the same store.
+    note_by(&pool, s, q, Some(a), t0 + Duration::hours(1), "chuck").await?;
+    assert_eq!(
+        changed(&pool, s).await?,
+        1,
+        "the leg drops HER note, not every note newer than her answer"
+    );
+    cleanup(&pool, s, "note_own_order").await
+}
+
+/// An unattributed note (pre-2026-08-19, `author_id IS NULL`) still counts.
+///
+/// `NULL <> 'marie'` is NULL, which a WHERE drops — so without the explicit NULL
+/// arm every note written before attribution existed would silently stop
+/// counting. NULL means "not the witness", never "skip it".
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn an_unattributed_note_still_counts() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "note_null_author").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer(&pool, s, q, t0).await?;
+    sqlx::query(
+        "INSERT INTO practice_notes \
+         (scenario_id, question_id, answer_id, author, author_id, text, created_at) \
+         VALUES ($1, $2, $3, 'unknown', NULL, 'from before attribution', $4)",
+    )
+    .bind(s)
+    .bind(q)
+    .bind(a)
+    .bind(t0 + Duration::minutes(1))
+    .execute(&pool)
+    .await?;
+    assert_eq!(changed(&pool, s).await?, 1);
+    cleanup(&pool, s, "note_null_author").await
+}
+
+/// **J3** REGRESSION: somebody else's EDIT still badges her.
+///
+/// The witness filter is on NOTES only. A question Chuck reworded after she
+/// answered it is still a question whose words have changed under her answer,
+/// and that is the badge doing its job.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn another_persons_edit_still_badges_her() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "edit_after_answer").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "chuck", 1).await?;
+    answer(&pool, s, q, t0).await?;
+    changed(&pool, s).await?;
+    change(&pool, s, q, "reworded", t0 + Duration::minutes(1)).await?;
+    assert_eq!(changed(&pool, s).await?, 1);
+    cleanup(&pool, s, "edit_after_answer").await
+}
+
+/// And her OWN edit badges her too — edits are not filtered by author.
+///
+/// Deliberate, and the line the ruling draws: a note is a message, an edit is a
+/// change to the words she answered. Re-reading a question she reworded herself
+/// is still work, and `chg` carries no author leg for that reason.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn her_own_edit_still_badges_her() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "own_edit").await?;
+    let t0 = Utc::now();
+    let q = question(&pool, s, "george", 1).await?;
+    answer(&pool, s, q, t0).await?;
+    change(&pool, s, q, "reworded", t0 + Duration::minutes(1)).await?;
+    assert_eq!(changed(&pool, s).await?, 1);
+    cleanup(&pool, s, "own_edit").await
 }

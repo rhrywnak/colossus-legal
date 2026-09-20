@@ -162,6 +162,7 @@ const PracticeReviewPage: React.FC = () => {
     <PracticeReviewBar
       slug={slug}
       scenarioId={scenarioId}
+      code={deck.code}
       review={deck.review}
       wording={deck.wording}
       onReviewed={reload}

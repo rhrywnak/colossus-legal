@@ -100,7 +100,7 @@ pub(crate) async fn answer(
     question_id: Uuid,
     at: DateTime<Utc>,
 ) -> TestResult<Uuid> {
-    answer_by(pool, scenario_id, question_id, at, Some("marie")).await
+    answer_by(pool, scenario_id, question_id, at, Some(WITNESS)).await
 }
 
 /// An answer written by a named user (or by an unattributed, pre-2026-08-19
@@ -133,7 +133,11 @@ pub(crate) async fn answer_by(
     Ok(row.0)
 }
 
-async fn change(
+/// One row in `practice_deck_changes` — an EDIT to the deck, at `at`.
+///
+/// `pub(crate)` since CC_TASK_REVIEW_COUNTS_HONEST_v1: the notes file needs it
+/// to prove that the witness filter is on notes ONLY and leaves edits alone.
+pub(crate) async fn change(
     pool: &PgPool,
     scenario_id: Uuid,
     question_id: Uuid,
@@ -154,8 +158,31 @@ async fn change(
     Ok(())
 }
 
+/// The login every fixture answer is written under, and therefore the WITNESS
+/// these proofs count against.
+///
+/// Held as a const because two facts have to agree for the witness filter to
+/// mean anything: the login `answer()` stamps its sitting with, and the login
+/// `changed()` passes to `changed_counts`. Written out twice they would drift,
+/// and the proof that her own note stops badging her would quietly become a
+/// proof that a stranger's note does.
+pub(crate) const WITNESS: &str = "marie";
+
+/// Her count, against the standing witness.
+///
+/// Every existing caller keeps its two arguments: the notes these fixtures write
+/// are Chuck's, and Chuck is not the witness, so nothing they assert changes.
 pub(crate) async fn changed(pool: &PgPool, id: Uuid) -> TestResult<i64> {
-    let rows = changed_counts(pool, &[id]).await?;
+    changed_for(pool, id, WITNESS).await
+}
+
+/// Her count, against a NAMED witness — the mutation handle.
+///
+/// Pointing this at somebody else is the second mutation proof: the witness's
+/// own note stops being filtered and the count goes back up, which is what
+/// shows the filter is reading the row rather than a hard-coded name.
+pub(crate) async fn changed_for(pool: &PgPool, id: Uuid, witness: &str) -> TestResult<i64> {
+    let rows = changed_counts(pool, &[id], witness).await?;
     assert_eq!(rows.len(), 1, "one row per scenario asked for");
     Ok(rows[0].changed)
 }
@@ -174,7 +201,7 @@ async fn aggregate_returns_one_row_per_scenario_including_empty() -> TestResult<
     let ids = [bare, full];
 
     let deck = deck_counts(&pool, &ids).await?;
-    let changed_rows = changed_counts(&pool, &ids).await?;
+    let changed_rows = changed_counts(&pool, &ids, WITNESS).await?;
     assert_eq!((deck.len(), changed_rows.len()), (2, 2));
 
     let d = deck

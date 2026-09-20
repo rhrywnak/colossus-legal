@@ -52,6 +52,28 @@ pub fn review_queue_reviewer(settings: &crate::domain::settings::Settings) -> &[
     &settings.practice_read.reviewer_usernames
 }
 
+/// Whose "new or changed" count this is — the row that OWNS the number.
+///
+/// ## Domain note: ONE place names the witness, for the same reason
+///
+/// The sibling above names the reviewer bench so the two readers of the review
+/// queue cannot disagree. This names the witness so the one reader of the
+/// changed count cannot disagree with the Settings page. It is the count's
+/// OWNER, never the signed-in viewer: the number is global by ruling
+/// (2026-09-17), and a per-viewer filter would hand three people three
+/// different truths about one deck.
+///
+/// ## Rust Learning: `&str` out of a `String` field
+///
+/// The caller binds this into SQL and compares it to a text column, so a slice
+/// is everything it needs. Returning `&String` would force any future caller
+/// holding a `&str` of its own to allocate one to call this; deref coercion
+/// turns the `&String` this function has into the `&str` it returns at no cost.
+/// Same trade as the slice above, one value narrower.
+pub fn practice_witness(settings: &crate::domain::settings::Settings) -> &str {
+    &settings.practice_read.witness_username
+}
+
 /// The bench as screens print it: every reviewer's display name, joined.
 ///
 /// ## Domain note: `{reviewer}` names WHOEVER owes the work
@@ -284,6 +306,40 @@ mod reviewer_tests {
         assert_eq!(
             review_queue_reviewer(&settings),
             ["roman".to_string(), "docmarie".to_string()]
+        );
+    }
+
+    /// (M) The witness comes from the settings row too: change the row and the
+    /// login the changed count is filtered against follows.
+    ///
+    /// The sibling proof above, for the sibling accessor. It is not covered by
+    /// the live-DB tests — those hand `changed_counts` a login directly, which
+    /// proves the SQL leg and says nothing about where the login came from. A
+    /// `practice_witness` that returned a compiled-in name would pass every one
+    /// of them, and this is the test that would not.
+    #[test]
+    fn the_practice_witness_is_the_settings_row() {
+        let mut settings = crate::domain::settings::Settings::for_test();
+        assert_eq!(practice_witness(&settings), "docmarie");
+        settings.practice_read.witness_username = "someone_else".to_string();
+        assert_eq!(practice_witness(&settings), "someone_else");
+    }
+
+    /// ANTI-CONFLATION: the witness is NOT the reviewer bench.
+    ///
+    /// They are two settings rows answering two questions, and the whole ruling
+    /// rests on their being different people — her notes must stop badging HER
+    /// while still counting as work awaiting THEM. An accessor wired to the
+    /// wrong row would satisfy the test above and invert the feature.
+    #[test]
+    fn the_witness_is_not_read_from_the_reviewer_bench() {
+        let mut settings = crate::domain::settings::Settings::for_test();
+        settings.practice_read.reviewer_usernames = vec!["cpenzien".to_string()];
+        settings.practice_read.witness_username = "docmarie".to_string();
+        assert_eq!(practice_witness(&settings), "docmarie");
+        assert!(
+            !review_queue_reviewer(&settings).contains(&practice_witness(&settings).to_string()),
+            "the witness must not be on the bench — her notes await the reviewers"
         );
     }
 
