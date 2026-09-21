@@ -138,8 +138,18 @@ pub const AREAS: &[Area] = &[
                 keys: PRACTICE_EDITOR_WORDING_KEYS,
             },
             Block {
+                id: "question_chat_params",
+                label: "Discussion — model, prompt, narrative and limits",
+                keys: crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS,
+            },
+            Block {
+                id: "question_chat",
+                label: "Discussion panel — the words beside a question",
+                keys: crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS,
+            },
+            Block {
                 id: "practice_discuss",
-                label: "Discuss with AI",
+                label: "Discuss with AI (the earlier dock)",
                 keys: PRACTICE_DISCUSS_WORDING_KEYS,
             },
             Block {

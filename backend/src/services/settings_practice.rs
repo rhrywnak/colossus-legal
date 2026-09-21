@@ -131,7 +131,7 @@ fn reviewer_bench(rows: &HashMap<String, AppSettingRecord>) -> Result<ReviewerBe
 /// the only useful thing to say is which row and what the words are. The refusal
 /// stops the snapshot, exactly as a malformed number does — a bad effort reaches
 /// the API as an HTTP 400 in the middle of a paid call otherwise.
-fn effort_of(
+pub(super) fn effort_of(
     rows: &HashMap<String, AppSettingRecord>,
     key: &str,
 ) -> Result<Option<crate::domain::llm_effort::Effort>, SettingError> {

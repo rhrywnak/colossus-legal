@@ -1,0 +1,248 @@
+//! Sending a message to the question chat — the half that runs BEFORE the reply
+//! streams, and so can still answer with a plain HTTP status.
+//!
+//! Order matters and is the point of this module:
+//!
+//! 1. refuse what can be refused without spending anything — blank text, a
+//!    thread that is not yours, no engine, an unusable model, the reply cap, a
+//!    missing prompt or narrative, a package too large for the model;
+//! 2. only then STORE her message — so a model failure never loses what she typed;
+//! 3. hand back a [`PreparedTurn`] that [`crate::services::chat_question_stream`]
+//!    runs in its own task.
+
+use std::sync::Arc;
+
+use colossus_chat::{AnthropicBackend, ChatRequest, ChatTool, Message, Role};
+use serde_json::json;
+use uuid::Uuid;
+
+use crate::domain::chat_params::QuestionChatParams;
+use crate::repositories::pipeline_repository::chat_discussions::{
+    append_message, assistant_reply_count, get_or_create_discussion, list_messages, NewMessage,
+    ANCHOR_QUESTION,
+};
+use crate::repositories::pipeline_repository::models::{get_model_by_id, LlmModelRecord};
+use crate::repositories::pipeline_repository::PipelineRepoError;
+use crate::services::chat_model_check::unusable_reason;
+use crate::services::chat_question_context::{render_attempts, render_context};
+use crate::services::chat_question_error::{store, ChatRunError};
+use crate::services::chat_question_gather::{display_name, gather};
+use crate::services::chat_question_text::{estimate_tokens, PackagedDocument};
+use crate::services::chat_question_tools::tools;
+use crate::state::AppState;
+
+/// Everything the streaming task needs, owned — it outlives the request.
+pub struct PreparedTurn {
+    pub question_id: Uuid,
+    pub owner: String,
+    pub discussion_id: Uuid,
+    pub user_seq: i32,
+    pub model: String,
+    pub backend: Arc<AnthropicBackend>,
+    pub request: ChatRequest,
+    pub tools: Vec<Arc<dyn ChatTool>>,
+    pub documents: Arc<Vec<PackagedDocument>>,
+    pub max_rounds: u32,
+}
+
+/// Validate, store her message, and prepare the model call.
+///
+/// # Errors
+/// See [`ChatRunError`]; each has its own status.
+pub async fn prepare_turn(
+    state: &AppState,
+    question_id: Uuid,
+    owner: &str,
+    viewer: &str,
+    text: &str,
+) -> Result<PreparedTurn, ChatRunError> {
+    let settings = state.settings.current();
+    let chat = &settings.question_chat;
+    let text = text.trim();
+    let (backend, model_row) = refuse_early(state, question_id, owner, viewer, text).await?;
+    let pool = &state.pipeline_pool;
+    let gathered = gather(state, question_id, viewer).await?;
+    let discussion =
+        get_or_create_discussion(pool, ANCHOR_QUESTION, &question_id.to_string(), owner)
+            .await
+            .map_err(store("get_or_create_discussion", question_id))?;
+    let replies = assistant_reply_count(pool, discussion.id)
+        .await
+        .map_err(store("assistant_reply_count", question_id))?;
+    if replies >= i64::from(chat.max_turns) {
+        return Err(ChatRunError::CapReached {
+            max: chat.max_turns,
+        });
+    }
+    let prompt = read_template(state, "the question chat's prompt", &chat.prompt_file).await?;
+    let narrative = read_template(state, "the case narrative", &chat.narrative_file).await?;
+    let context = render_context(&gathered.context);
+    check_size(
+        &[&prompt, &narrative, &context],
+        &gathered.documents,
+        model_row.as_ref(),
+        chat,
+    )?;
+
+    let user_seq = store_user_message(state, question_id, discussion.id, text).await?;
+    let history = replay_history(state, question_id, discussion.id).await?;
+    let answers = render_attempts(&gathered.context);
+    let documents = Arc::new(gathered.documents);
+    Ok(PreparedTurn {
+        question_id,
+        owner: owner.to_string(),
+        discussion_id: discussion.id,
+        user_seq,
+        model: chat.model.clone(),
+        backend,
+        request: build_request(chat, prompt, narrative, context, &documents, history),
+        tools: tools(Arc::clone(&documents), answers),
+        documents,
+        max_rounds: chat.max_tool_rounds,
+    })
+}
+
+/// Store her message — BEFORE the model is asked, so a failure never loses it.
+async fn store_user_message(
+    state: &AppState,
+    question_id: Uuid,
+    discussion_id: Uuid,
+    text: &str,
+) -> Result<i32, ChatRunError> {
+    let message = NewMessage {
+        role: "user",
+        content: json!([{"type": "text", "text": text}]),
+        rendered_text: Some(text.to_string()),
+        ..NewMessage::default()
+    };
+    append_message(&state.pipeline_pool, discussion_id, &message)
+        .await
+        .map_err(store("append_message", question_id))
+}
+
+/// Everything refusable before a single row is read or written.
+async fn refuse_early(
+    state: &AppState,
+    question_id: Uuid,
+    owner: &str,
+    viewer: &str,
+    text: &str,
+) -> Result<(Arc<AnthropicBackend>, Option<LlmModelRecord>), ChatRunError> {
+    let settings = state.settings.current();
+    if text.is_empty() {
+        return Err(ChatRunError::BlankText);
+    }
+    if owner != viewer {
+        return Err(ChatRunError::NotOwner {
+            owner: display_name(&settings, owner),
+        });
+    }
+    let backend = state.chat_engine.clone().ok_or(ChatRunError::EngineOff)?;
+    let model_row = get_model_by_id(&state.pipeline_pool, &settings.question_chat.model)
+        .await
+        .map_err(|e| store("get_model_by_id", question_id)(PipelineRepoError::from(e)))?;
+    if let Some(reason) = unusable_reason(model_row.as_ref()) {
+        return Err(ChatRunError::ModelUnusable(reason));
+    }
+    Ok((backend, model_row))
+}
+
+/// Refuse, by name and number, a package the model's context cannot hold with
+/// the configured headroom left for the conversation and the reply.
+fn check_size(
+    texts: &[&str],
+    documents: &[PackagedDocument],
+    model: Option<&LlmModelRecord>,
+    chat: &QuestionChatParams,
+) -> Result<(), ChatRunError> {
+    let mut parts: Vec<&str> = texts.to_vec();
+    parts.extend(documents.iter().map(|d| d.block.text.as_str()));
+    let estimate = estimate_tokens(&parts);
+    // A row with no recorded context size is treated as holding nothing: an
+    // unknown limit refuses rather than guessing large.
+    let limit = model
+        .and_then(|m| m.max_context_tokens)
+        .and_then(|n| usize::try_from(n).ok())
+        .unwrap_or(0);
+    let headroom = usize::try_from(chat.context_headroom_tokens).unwrap_or(usize::MAX);
+    if estimate.saturating_add(headroom) > limit {
+        return Err(ChatRunError::ContextTooLarge {
+            estimate,
+            limit,
+            model: chat.model.clone(),
+        });
+    }
+    Ok(())
+}
+
+/// The engine request, every value from configuration.
+fn build_request(
+    chat: &QuestionChatParams,
+    prompt: String,
+    narrative: String,
+    context: String,
+    documents: &[PackagedDocument],
+    history: Vec<Message>,
+) -> ChatRequest {
+    ChatRequest {
+        model: chat.model.clone(),
+        max_tokens: chat.max_tokens,
+        system: vec![prompt, narrative],
+        documents: documents.iter().map(|d| d.block.clone()).collect(),
+        context,
+        history,
+        tools: Vec::new(),
+        effort: chat.effort.map(|e| e.as_wire().to_string()),
+        // Opus 5 thinks adaptively by default; sending it explicitly keeps the
+        // behavior the same on a model whose default differs.
+        adaptive_thinking: true,
+        compaction_trigger_tokens: chat.compaction_trigger_tokens.map(u64::from),
+        cache_ttl: chat.cache_ttl,
+    }
+}
+
+/// The stored thread as the model must see it again: every message verbatim,
+/// EXCEPT failed assistant turns (a failure marker has no content to replay).
+async fn replay_history(
+    state: &AppState,
+    question_id: Uuid,
+    discussion_id: Uuid,
+) -> Result<Vec<Message>, ChatRunError> {
+    let rows = list_messages(&state.pipeline_pool, discussion_id)
+        .await
+        .map_err(store("list_messages", question_id))?;
+    Ok(rows
+        .into_iter()
+        .filter(|m| m.failure.is_none())
+        .map(|m| Message {
+            role: if m.role == "assistant" {
+                Role::Assistant
+            } else {
+                Role::User
+            },
+            content: m.content.as_array().cloned().unwrap_or_default(),
+        })
+        .collect())
+}
+
+/// Read a template-directory file, distinguishing absent from empty.
+async fn read_template(
+    state: &AppState,
+    what: &'static str,
+    file: &str,
+) -> Result<String, ChatRunError> {
+    let path = std::path::Path::new(state.registry.template_dir()).join(file.trim());
+    match tokio::fs::read_to_string(&path).await {
+        Ok(text) if text.trim().is_empty() => Err(ChatRunError::FileUnreadable {
+            what,
+            path: path.display().to_string(),
+            detail: "the file is EMPTY".into(),
+        }),
+        Ok(text) => Ok(text),
+        Err(e) => Err(ChatRunError::FileUnreadable {
+            what,
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        }),
+    }
+}

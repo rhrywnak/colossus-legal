@@ -198,8 +198,14 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// `PUT /settings/:key` because that route must be able to REFUSE a coupled row
 /// and name the editor instead, which one route serving both contracts cannot
 /// say cleanly (ruled 2026-09-20).
+///
+/// 322 since CHAT_ENGINE_v1, which added EIGHT: three `GET`s, each with its axum
+/// `HEAD` pair — `/chat/question/:question_id/threads`, `…/threads/:username`
+/// and `…/earlier` — and two `POST`s, `…/threads/:username/messages` (the
+/// streamed send) and `…/threads/:username/read`. `…/earlier` has no write verb
+/// by design: the old dock's thread is read-only (ADDENDUM_1).
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 314;
+const EXPECTED_ROUTE_LINES: usize = 322;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

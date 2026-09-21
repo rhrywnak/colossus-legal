@@ -173,6 +173,7 @@ impl PracticeWordingDto {
             answer_already_recorded: drill.row.answer_already_recorded.clone(),
             row_answered_on_template: drill.row.answered_on_template.clone(),
             deck_review: PracticeDeckReviewWordingDto::from_blocks(drill),
+            chat: super::practice_wording_chat::PracticeChatWordingDto::from_blocks(drill),
             row_note_add_label: drill.row.note_add_label.clone(),
             row_note_save_label: drill.row.note_save_label.clone(),
             row_note_cancel_label: drill.row.note_cancel_label.clone(),

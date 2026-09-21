@@ -386,6 +386,7 @@ pub(super) fn settings_error_to_app_error(error: SettingsError) -> AppError {
         SettingsError::Invalid { .. }
         | SettingsError::Unchanged { .. }
         | SettingsError::FileNotFound { .. }
+        | SettingsError::ModelNotUsable { .. }
         | SettingsError::Coupled { .. }
         | SettingsError::Pair { .. } => human_caused_refusal(error),
         // A 404 for the same reason `UnknownKey` is one: the path names a

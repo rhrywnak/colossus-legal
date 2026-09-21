@@ -3,7 +3,7 @@
 //! This crate knows how to hold a conversation with a model: stream it, cache
 //! the expensive prefix, hand it documents it must quote from, let it call
 //! tools, and let the provider compact a long history. It knows NOTHING about
-//! any particular case, witness, or legal matter. Everything specific — the
+//! any particular project, person, or subject matter. Everything specific — the
 //! system prompt, the documents, the tools, the model id — arrives from the
 //! caller as configuration and data.
 //!

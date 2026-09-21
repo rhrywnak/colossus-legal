@@ -350,6 +350,8 @@ pub struct Settings {
     /// back. Nested for the reason the wording blocks are — see
     /// `domain::practice_params`.
     pub practice_read: PracticeReadParams,
+    /// The question chat's model, prompt, narrative and bounds (CC_TASK_CHAT_ENGINE_v1).
+    pub question_chat: crate::domain::chat_params::QuestionChatParams,
     /// Which `(statement_type, evidence_strength)` pairs count as strong,
     /// hedged, or other proof (task 396, P1).
     ///

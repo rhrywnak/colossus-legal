@@ -107,6 +107,16 @@ const OUR_SIDE_SPEAKERS: &str = "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas 
 
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
+    // CC_TASK_CHAT_ENGINE_v1: the chat's six count rows, with the bounds the
+    // migration seeds.
+    for (key, value, min, max) in
+        crate::domain::chat_params::QuestionChatParams::for_test_count_rows()
+    {
+        rows.insert(
+            key.to_string(),
+            row(key, value, ValueKind::Count, Some(min), Some(max)),
+        );
+    }
     // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
     // 2026-08-07 scenario-authoring block, 2.15's scan block, and the
     // one-card-grammar block): the lists key ONE table, and a fixture holding
@@ -143,6 +153,9 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // build that the real store could not.
         .chain(crate::domain::wording_practice_row::PracticeRowWording::for_test_values())
         .chain(crate::domain::wording_practice_discuss::PracticeDiscussWording::for_test_values())
+        .chain(crate::domain::wording_question_chat::QuestionChatWording::for_test_values())
+        // CC_TASK_CHAT_ENGINE_v1: the chat's text parameters — one flat table.
+        .chain(crate::domain::chat_params::QuestionChatParams::for_test_values())
         // PRACTICE v1 Part B: the deck editor's words and the review page's,
         // nested on the struct for the same Rule 17 reason and listed here for
         // the same reason as their siblings — one flat table.
@@ -928,6 +941,21 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          and the cap pair"
     );
     assert_eq!(
+        crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
+        41,
+        "CHAT_ENGINE: the discussion panel — the Discuss button and its hint, the \
+         switcher and its rows, the header's visibility line and chip, expand and \
+         collapse, the strip, the composer, the Earlier team discussion, and the \
+         waiting and failure lines"
+    );
+    assert_eq!(
+        crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len(),
+        12,
+        "CHAT_ENGINE: model, prompt, narrative, output cap, effort, tool rounds, \
+         context headroom, cache TTL, compaction trigger, turn cap, browser idle, \
+         and the witness's name"
+    );
+    assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
         30,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
@@ -1024,6 +1052,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_DISCUSS_WORDING_KEYS.len()
+            + crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len()
+            + crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()

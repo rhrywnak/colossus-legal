@@ -368,7 +368,12 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         // its per-run provider from an llm_models row via provider_for_model,
         // whose anthropic branch wraps this engine.
         extraction_engine: Arc::clone(&app_context.extraction_engine),
+        // The question chat's own backend (CC_TASK_CHAT_ENGINE_v1) — `None`, with
+        // a logged reason, when there is no API key.
+        chat_engine: colossus_legal_backend::services::chat_engine_setup::build_chat_backend(),
     };
+    // BOOT PRECONDITIONS for the question chat — see `chat_model_check::assert_chat_ready`.
+    colossus_legal_backend::services::chat_model_check::assert_chat_ready(&state).await;
 
     // Ensure the Qdrant collection exists with the correct dimensions.
     // Running this at startup (before any handler can run) makes the

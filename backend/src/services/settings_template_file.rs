@@ -30,6 +30,7 @@
 
 use std::path::PathBuf;
 
+use crate::domain::chat_params::{KEY_CHAT_CASE_NARRATIVE_FILE, KEY_QUESTION_CHAT_PROMPT_FILE};
 use crate::domain::practice_params::KEY_PRACTICE_READ_PROMPT_FILE;
 use crate::domain::settings::Settings;
 use crate::pipeline::registry::PipelineRegistry;
@@ -86,7 +87,10 @@ pub(crate) fn check_named_file(
     templates: &TemplateDir,
 ) -> Result<(), SettingsError> {
     match key {
-        KEY_THEME_SCAN_PROMPT_FILE | KEY_PRACTICE_READ_PROMPT_FILE
+        KEY_THEME_SCAN_PROMPT_FILE
+        | KEY_PRACTICE_READ_PROMPT_FILE
+        | KEY_QUESTION_CHAT_PROMPT_FILE
+        | KEY_CHAT_CASE_NARRATIVE_FILE
             if !templates.resolves(candidate) =>
         {
             Err(SettingsError::FileNotFound {
@@ -295,6 +299,22 @@ mod tests {
     /// is what keeps the rule specific; this is what proves the match is doing it,
     /// rather than a branch that happens to fire on the one key ever tested.
     #[test]
+    fn the_chat_prompt_and_narrative_rows_are_checked_as_files() {
+        let scratch = Scratch::new("chat-files");
+        let dir = TemplateDir::new(scratch.0.to_string_lossy().to_string());
+        for key in [KEY_QUESTION_CHAT_PROMPT_FILE, KEY_CHAT_CASE_NARRATIVE_FILE] {
+            assert!(
+                check_named_file(key, "absent.md", &dir).is_err(),
+                "{key} names a file and must be refused when it is not deployed"
+            );
+        }
+        fs::write(scratch.0.join("case_narrative_v1.md"), "the story").expect("writable");
+        assert!(
+            check_named_file(KEY_CHAT_CASE_NARRATIVE_FILE, "case_narrative_v1.md", &dir).is_ok()
+        );
+    }
+
+    #[test]
     fn a_row_that_names_no_file_is_never_checked_against_the_filesystem() {
         let scratch = Scratch::new("other-keys");
         let dir = TemplateDir::new(scratch.0.to_string_lossy().to_string());
@@ -335,6 +355,19 @@ pub fn assert_prompts_deployed(settings: &Settings, registry: &PipelineRegistry)
             KEY_PRACTICE_READ_PROMPT_FILE,
             "Practice read",
             &settings.practice_read.prompt_file,
+        ),
+        // CC_TASK_CHAT_ENGINE_v1 (GO ruling on STOP 3): the chat's prompt AND the
+        // case narrative. A chat without the case story is the starved package the
+        // 2026-09-21 audit proved; refusing to boot is the ruled remedy.
+        (
+            KEY_QUESTION_CHAT_PROMPT_FILE,
+            "Question chat",
+            &settings.question_chat.prompt_file,
+        ),
+        (
+            KEY_CHAT_CASE_NARRATIVE_FILE,
+            "Question chat (case narrative)",
+            &settings.question_chat.narrative_file,
         ),
     ] {
         assert_prompt_deployed(key, surface, file, registry);

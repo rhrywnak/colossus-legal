@@ -91,17 +91,17 @@ use crate::pipeline::response_anatomy::anatomy_line;
 // env var and find exactly one definition.
 
 /// Anthropic API key env var.
-const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
+pub(crate) const ANTHROPIC_API_KEY_ENV: &str = "ANTHROPIC_API_KEY";
 /// Optional override for the API base URL.
-const BASE_URL_ENV: &str = "ANTHROPIC_BASE_URL";
+pub(crate) const BASE_URL_ENV: &str = "ANTHROPIC_BASE_URL";
 /// Optional override for the `anthropic-version` header.
-const API_VERSION_ENV: &str = "ANTHROPIC_API_VERSION";
+pub(crate) const API_VERSION_ENV: &str = "ANTHROPIC_API_VERSION";
 /// Optional override for the inter-event idle timeout, in seconds.
-const IDLE_TIMEOUT_SECS_ENV: &str = "LLM_STREAM_IDLE_TIMEOUT_SECS";
+pub(crate) const IDLE_TIMEOUT_SECS_ENV: &str = "LLM_STREAM_IDLE_TIMEOUT_SECS";
 /// Optional override for the TCP connect timeout, in seconds.
-const CONNECT_TIMEOUT_SECS_ENV: &str = "EXTRACTION_ENGINE_CONNECT_TIMEOUT_SECS";
+pub(crate) const CONNECT_TIMEOUT_SECS_ENV: &str = "EXTRACTION_ENGINE_CONNECT_TIMEOUT_SECS";
 /// Optional override for the TCP keep-alive interval, in seconds.
-const TCP_KEEPALIVE_SECS_ENV: &str = "EXTRACTION_ENGINE_TCP_KEEPALIVE_SECS";
+pub(crate) const TCP_KEEPALIVE_SECS_ENV: &str = "EXTRACTION_ENGINE_TCP_KEEPALIVE_SECS";
 /// The RETIRED whole-request timeout key. Read only so a deployment that still
 /// sets it is told, loudly, that it no longer does anything — a config key that
 /// silently stops mattering is the kind of quiet drift Standing Rule 1 forbids.
@@ -113,14 +113,14 @@ const RETIRED_TIMEOUT_SECS_ENV: &str = "EXTRACTION_ENGINE_TIMEOUT_SECS";
 /// per-deployment address (those are the Neo4j / Qdrant / Postgres hosts, which
 /// have no in-code default at all). It is env-overridable so a proxy or a
 /// record/replay harness can be pointed at without a rebuild.
-const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
+pub(crate) const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
 
 /// Default `anthropic-version` header value.
 ///
 /// CONST-with-override: the Messages API version this module's wire types were
 /// written against. Overridable so a version bump can be trialled by config, but
 /// defaulted in code because the parsing here is written for THIS version.
-const DEFAULT_API_VERSION: &str = "2023-06-01";
+pub(crate) const DEFAULT_API_VERSION: &str = "2023-06-01";
 
 /// Path of the Messages endpoint, appended to the base URL.
 const MESSAGES_PATH: &str = "/v1/messages";
@@ -130,14 +130,14 @@ const MESSAGES_PATH: &str = "/v1/messages";
 /// 120s is roughly twenty times Anthropic's `ping` cadence on a healthy stream,
 /// so it cannot fire on a merely-thinking model, while still abandoning a wedged
 /// connection two minutes after it wedges rather than ten.
-const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 120;
+pub(crate) const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 120;
 
 /// Default TCP connect timeout.
-const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
+pub(crate) const DEFAULT_CONNECT_TIMEOUT_SECS: u64 = 10;
 
 /// Default TCP keep-alive interval. Carried over unchanged from the previous
 /// adapter: some networks drop idle connections during long responses.
-const DEFAULT_TCP_KEEPALIVE_SECS: u64 = 60;
+pub(crate) const DEFAULT_TCP_KEEPALIVE_SECS: u64 = 60;
 
 /// Streaming Anthropic implementation of [`ExtractionEngine`].
 ///
@@ -266,7 +266,7 @@ impl AnthropicStreamingEngine {
 }
 
 /// Read a string env var, falling back to `default` when unset or empty.
-fn read_string_env(name: &str, default: &str) -> String {
+pub(crate) fn read_string_env(name: &str, default: &str) -> String {
     match std::env::var(name) {
         Ok(raw) if !raw.trim().is_empty() => raw.trim().to_string(),
         // An empty value is treated as unset rather than as a request for an
@@ -282,7 +282,7 @@ fn read_string_env(name: &str, default: &str) -> String {
 /// `AppContext::from_deps_and_env` for `PIPELINE_LLM_CONCURRENCY` — established
 /// house style. A present-but-unparseable value emits a `tracing::warn!`, so the
 /// failure stays observable per Rule 1 even though the engine still starts.
-fn read_secs_env(name: &str, default: u64) -> u64 {
+pub(crate) fn read_secs_env(name: &str, default: u64) -> u64 {
     let Ok(raw) = std::env::var(name) else {
         return default;
     };

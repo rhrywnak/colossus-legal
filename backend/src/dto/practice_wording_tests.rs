@@ -45,6 +45,7 @@ fn the_mirror_carries_every_declared_key_from_both_blocks() {
             + PRACTICE_PRINT_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
             + PRACTICE_DISCUSS_WORDING_KEYS.len()
+            + crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_LIST_WORDING_KEYS.len()
             + PRACTICE_REVIEW_WORDING_KEYS.len()
@@ -65,6 +66,8 @@ fn every_wire_key_is_a_stored_key_without_its_prefix() {
                 || PRACTICE_PRINT_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_DISCUSS_WORDING_KEYS.contains(&stored.as_str())
+                || crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS
+                    .contains(&stored.as_str())
                 || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_LIST_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_REVIEW_WORDING_KEYS.contains(&stored.as_str()),

@@ -50,3 +50,8 @@ mod sql_invariants;
 /// from here.
 #[cfg(test)]
 mod template_invariants;
+
+/// The chat-engine crate stays case-blind (CC_TASK_CHAT_ENGINE_v1): a scan of the
+/// crate's sources for this case's names and this product's vocabulary.
+#[cfg(test)]
+mod chat_engine_invariants;

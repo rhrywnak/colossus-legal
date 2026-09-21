@@ -170,10 +170,13 @@ fn record_reply(
     outcome.stop_reason = reply.stop_reason;
 }
 
+/// One pending tool call: `(tool_use id, tool name, result)` once awaited.
+type ToolCall = Pin<Box<dyn Future<Output = (String, String, Result<String, String>)> + Send>>;
+
 /// Run every `tool_use` block concurrently; return one `tool_result` per call, in
 /// the order the calls were made. A tool that fails — or a tool the model named
 /// that this turn never offered — returns `is_error: true`: the model is told and
-/// can recover, and the witness's turn is not thrown away over a bad tool name.
+/// can recover, and the person's turn is not thrown away over a bad tool name.
 async fn run_tools(
     content: &[Value],
     tools: &[Arc<dyn ChatTool>],
@@ -185,9 +188,7 @@ async fn run_tools(
     // immediately-ready error. Those are two different future TYPES, and a `Vec`
     // holds one type — so each is boxed as `Pin<Box<dyn Future + Send>>`, the
     // common trait-object type, and `join_all` drives them all concurrently.
-    let mut calls: Vec<
-        Pin<Box<dyn Future<Output = (String, String, Result<String, String>)> + Send>>,
-    > = Vec::new();
+    let mut calls: Vec<ToolCall> = Vec::new();
     for block in content {
         if block.get("type").and_then(Value::as_str) != Some("tool_use") {
             continue;

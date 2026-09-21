@@ -200,6 +200,9 @@ pub struct PracticeWordingDto {
     /// Rule 17 reason that module's header sets out.
     #[serde(flatten)]
     pub deck_review: PracticeDeckReviewWordingDto,
+    /// The discussion panel's strings (CC_TASK_CHAT_ENGINE_v1), flattened the same way.
+    #[serde(flatten)]
+    pub chat: super::practice_wording_chat::PracticeChatWordingDto,
     pub row_note_add_label: String,
     pub row_note_save_label: String,
     pub row_note_cancel_label: String,

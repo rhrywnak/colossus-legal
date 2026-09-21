@@ -156,6 +156,12 @@ pub struct LlmModelRecord {
     /// the DB, and the boundary maps it to the enum so an unknown token is
     /// refused by name rather than silently mis-labelling a model as free.
     pub billing_class: String,
+
+    /// Calls to this model carry Citations and server-side compaction (the
+    /// Anthropic Messages API). `BOOLEAN NOT NULL DEFAULT false` (migration
+    /// `20260921140958`). The question chat refuses a model where this is false:
+    /// without platform-enforced quotes, "no citation, no claim" cannot hold.
+    pub grounded: bool,
 }
 
 /// SELECT column list shared by all `llm_models` queries in this module.
@@ -169,7 +175,7 @@ const SELECT_COLUMNS: &str = "id, display_name, provider, api_endpoint, \
     is_active, created_at, notes, \
     default_temperature::float8 AS default_temperature, \
     temperature_mode, timeout_secs, structured_output_mode, max_concurrency, \
-    billing_class";
+    billing_class, grounded";
 
 /// Fetch a single model by ID. Returns `None` if the ID does not exist.
 ///

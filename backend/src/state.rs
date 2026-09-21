@@ -179,6 +179,11 @@ pub struct AppState {
     /// can call `provider_for_model` — whose anthropic branch wraps this engine —
     /// instead of building its own boot-time Anthropic provider (Chunk B rewire).
     pub extraction_engine: Arc<dyn ExtractionEngine>,
+
+    /// The question chat's engine (CC_TASK_CHAT_ENGINE_v1): ONE HTTP client for
+    /// every chat turn, built at boot. `None` when there is no `ANTHROPIC_API_KEY`
+    /// — every chat request then answers a named 503 instead of failing in flight.
+    pub chat_engine: Option<Arc<colossus_chat::AnthropicBackend>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

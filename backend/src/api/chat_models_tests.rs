@@ -28,6 +28,7 @@ fn model(id: &str, display: &str, billing_class: &str) -> LlmModelRecord {
         structured_output_mode: None,
         max_concurrency: None,
         billing_class: billing_class.to_string(),
+        grounded: false,
     }
 }
 

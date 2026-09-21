@@ -131,6 +131,7 @@ pub async fn set_setting(
 
     validate_candidate(&record, new_value)?;
     check_named_file(key, new_value, templates)?;
+    crate::services::chat_model_check::check_chat_model_on_save(pool, key, new_value).await?;
     trial_snapshot(pool, key, new_value).await?;
 
     let now = Utc::now();

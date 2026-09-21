@@ -35,7 +35,7 @@ const MAX_BREAKPOINTS: usize = 4;
 pub enum CacheTtl {
     /// Five minutes (the provider default; cheapest write).
     FiveMinutes,
-    /// One hour (a costlier write that survives the gaps of a practice sitting).
+    /// One hour (a costlier write that survives the pauses of a long conversation).
     OneHour,
 }
 

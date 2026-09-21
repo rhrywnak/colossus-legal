@@ -123,6 +123,7 @@ impl Settings {
             practice_wording: PracticeWording::for_test(),
             practice_report_wording: PracticeReportWording::for_test(),
             practice_read: PracticeReadParams::for_test(),
+            question_chat: crate::domain::chat_params::QuestionChatParams::for_test(),
             evidence_tier_map: EvidenceTierMap::for_test(),
             card_question_truncate_chars: 110,
             card_element_chips_visible_k: 2,

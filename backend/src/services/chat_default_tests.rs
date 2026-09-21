@@ -41,6 +41,7 @@ fn row(id: &str, provider: &str, is_active: bool) -> LlmModelRecord {
         structured_output_mode: None,
         max_concurrency: None,
         billing_class: "billed".to_string(),
+        grounded: false,
     }
 }
 

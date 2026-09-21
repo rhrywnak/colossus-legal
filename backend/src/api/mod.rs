@@ -23,6 +23,7 @@ pub mod case_header;
 pub mod case_health;
 pub mod case_summary;
 pub mod causes_of_action;
+pub mod chat_discussion_routes;
 pub mod chat_models;
 pub mod claims;
 pub mod contradictions;
@@ -138,6 +139,8 @@ pub fn router() -> Router<AppState> {
         .merge(scenario_accusation::routes())
         .merge(rehearsal::routes())
         .merge(practice::routes())
+        // The question chat (CC_TASK_CHAT_ENGINE_v1).
+        .merge(chat_discussion_routes::routes())
         .merge(settings::routes())
         .merge(timeline::routes())
         .merge(routes::subset::routes())

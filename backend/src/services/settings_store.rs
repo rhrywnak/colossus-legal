@@ -225,6 +225,15 @@ pub enum SettingsError {
         path: String,
     },
 
+    /// A chat-model row naming a model the chat cannot use (CC_TASK_CHAT_ENGINE_v1,
+    /// ruling D3): absent, inactive, or without platform-enforced citations.
+    #[error("{key} cannot be '{value}': {reason}")]
+    ModelNotUsable {
+        key: String,
+        value: String,
+        reason: String,
+    },
+
     #[error("{key} is already '{value}' — nothing to change")]
     Unchanged { key: String, value: String },
 
@@ -405,6 +414,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         practice_wording: words.practice,
         practice_report_wording: words.practice_report,
         practice_read: crate::services::settings_practice::build_practice_read_params(rows)?,
+        question_chat: crate::services::settings_chat::build_question_chat_params(rows)?,
         evidence_tier_map,
     })
 }
