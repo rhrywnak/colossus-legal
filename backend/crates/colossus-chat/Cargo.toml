@@ -1,0 +1,28 @@
+[package]
+name = "colossus-chat"
+version = "0.1.0"
+edition = "2021"
+description = "A case-blind chat engine over the Anthropic Messages API: streaming, prompt caching, citation-enabled documents, a bounded tool loop, and server-side compaction. Everything specific to a project enters as configuration and data."
+publish = false
+
+# ## Why these, and why these versions
+#
+# Every dependency here is ALREADY in the backend's lockfile at the same major
+# version, so adding this crate compiles no new third-party code. `reqwest` is
+# 0.13 because that is the client the backend's streaming engine was built on
+# (see `backend/Cargo.toml`, the `reqwest_13` entry: 0.12 hangs inside Podman
+# against api.anthropic.com without `.http1_only()`, and the 0.13 instance is the
+# one that carries it). Cargo unifies features across the workspace, so the TLS
+# features rig-core enables on 0.13 apply here too.
+[dependencies]
+reqwest = { version = "0.13" }
+tokio = { version = "1", features = ["time", "sync", "macros", "rt"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+async-trait = "0.1"
+thiserror = "2"
+tracing = "0.1"
+futures = "0.3"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }

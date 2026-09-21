@@ -3,7 +3,19 @@ name = "colossus-legal-backend"
 version = "2.1.16"
 edition = "2021"
 
+# ## Rust Learning: a workspace whose root is also a package
+#
+# `[workspace]` turns this directory into a Cargo workspace: one `Cargo.lock` and
+# one `target/` shared by every member. The root package (the backend itself) is a
+# member implicitly; `members` adds the chat-engine crate (CC_TASK_CHAT_ENGINE_v1,
+# ruling D1). `cargo test --workspace` now runs both.
+[workspace]
+members = ["crates/colossus-chat"]
+
 [dependencies]
+# The case-blind chat engine (CC_TASK_CHAT_ENGINE_v1). A path dependency: it lives
+# in this repo and builds with it; promotion to colossus-rs needs no API change.
+colossus-chat = { path = "crates/colossus-chat" }
 colossus-auth = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.15.0" }
 colossus-extract = { git = "https://github.com/rhrywnak/colossus-rs.git", tag = "v0.15.0" }
 # ## Rust Learning: Git dependency with feature flags

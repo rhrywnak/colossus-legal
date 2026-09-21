@@ -715,6 +715,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "colossus-chat"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "futures",
+ "reqwest 0.13.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "colossus-extract"
 version = "0.6.0"
 source = "git+https://github.com/rhrywnak/colossus-rs.git?tag=v0.15.0#751bdd3d950b4e2325196c4d7389972cf725647b"
@@ -758,6 +772,7 @@ dependencies = [
  "chrono-tz",
  "clap",
  "colossus-auth",
+ "colossus-chat",
  "colossus-extract",
  "colossus-graph",
  "colossus-pdf",

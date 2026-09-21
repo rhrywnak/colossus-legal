@@ -54,6 +54,12 @@ WORKDIR /build
 # cached dependency build — saving 5-10 minutes on rebuilds when only your
 # source code changed. This is called "dependency caching."
 COPY Cargo.toml Cargo.lock ./
+# The workspace member (CC_TASK_CHAT_ENGINE_v1). Cargo refuses to resolve a
+# workspace whose members are missing, so the member's MANIFEST comes in with the
+# root one, and a placeholder lib.rs stands in for its source during the
+# dependency-cache build — the same trick as the dummy main.rs below.
+COPY crates/colossus-chat/Cargo.toml crates/colossus-chat/Cargo.toml
+RUN mkdir -p crates/colossus-chat/src && touch crates/colossus-chat/src/lib.rs
 
 # Create a dummy main.rs so cargo can resolve and build dependencies.
 # This is a common Rust Docker trick: we need a valid Rust project for cargo
@@ -86,6 +92,8 @@ RUN rm -rf src
 
 # Now copy the real source code and migrations
 COPY src/ src/
+# The chat-engine crate's real source replaces its placeholder.
+COPY crates/ crates/
 COPY migrations/ migrations/
 COPY pipeline_migrations/ pipeline_migrations/
 COPY extraction_schemas/ extraction_schemas/
@@ -96,7 +104,7 @@ COPY practice_decks/ practice_decks/
 COPY config/ config/
 
 # Touch main.rs to ensure cargo rebuilds our code (not the cached dummy)
-RUN touch src/main.rs src/lib.rs
+RUN touch src/main.rs src/lib.rs crates/colossus-chat/src/lib.rs
 
 # Build the actual application
 # SQLX_OFFLINE=true: sqlx compile-time macros skip database connectivity checks.

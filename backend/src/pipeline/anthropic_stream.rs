@@ -61,11 +61,14 @@ use serde::Deserialize;
 
 use crate::pipeline::response_anatomy::BlockCounts;
 
-/// The SSE field prefix carrying an event's JSON payload.
-///
-/// CONST: the Server-Sent Events wire format (W3C `text/event-stream`), not a
-/// setting. A deployment cannot choose a different spelling for it.
-const SSE_DATA_FIELD: &str = "data:";
+// ## Why these two are re-exported rather than defined here
+//
+// The byte framer and the `Progress` signal moved to the shared `colossus-chat`
+// crate (CC_TASK_CHAT_ENGINE_v1, ruling D2) so the extraction engine and the chat
+// engine read the SSE wire through ONE implementation. Re-exporting them under
+// their old paths keeps every caller — and every test — in this repo unchanged.
+pub use colossus_chat::sse::SseDecoder;
+pub use colossus_chat::transport::Progress;
 
 /// How much of an unparseable payload is quoted back in an error message.
 ///
@@ -317,107 +320,8 @@ struct WireErrorBody {
 const BLOCK_TYPE_TEXT: &str = "text";
 
 // ─────────────────────────────────────────────────────────────────
-// Byte framing
-// ─────────────────────────────────────────────────────────────────
-
-/// Incremental `text/event-stream` framer.
-///
-/// Bytes arrive in arbitrary chunks that split lines and even split multi-byte
-/// characters. The decoder buffers **bytes** and only decodes a line once its
-/// terminating `\n` has arrived, so a UTF-8 sequence straddling a chunk boundary
-/// is reassembled before anyone tries to read it.
-///
-/// ## Rust Learning: why the buffer is `Vec<u8>` and not `String`
-///
-/// `String` must be valid UTF-8 at all times, so pushing a half-decoded
-/// character into one is not merely unwise — it will not compile without a
-/// lossy conversion, and lossy is exactly what we must not do here (a `U+FFFD`
-/// substituted into a document quote is a grounding failure much later, in a
-/// place that gives no hint where it came from). Buffering raw bytes and
-/// decoding whole lines keeps the failure at the boundary where it happened.
-#[derive(Debug, Default)]
-pub struct SseDecoder {
-    /// Bytes received but not yet terminated by a newline.
-    pending: Vec<u8>,
-    /// `data:` field values collected for the event currently being framed.
-    /// SSE allows several `data:` lines per event; they join with `\n`.
-    data: String,
-}
-
-impl SseDecoder {
-    /// Create an empty decoder.
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    /// Feed the next chunk of socket bytes; return every COMPLETE event payload
-    /// it completed, in order.
-    ///
-    /// An empty return is normal and meaningful: it means the chunk carried only
-    /// part of a line, or only SSE fields we ignore (`event:`, `id:`, comments).
-    /// It is NOT a failure and, importantly, it is NOT evidence of an idle
-    /// stream — see [`crate::pipeline::anthropic_transport`] for why the idle
-    /// clock is reset on decoded EVENTS rather than on received bytes.
-    ///
-    /// # Errors
-    ///
-    /// [`StreamError::InvalidUtf8`] if a complete line is not valid UTF-8.
-    pub fn push_bytes(&mut self, chunk: &[u8]) -> Result<Vec<String>, StreamError> {
-        self.pending.extend_from_slice(chunk);
-        let mut payloads = Vec::new();
-
-        // ## Rust Learning: draining a buffer by index rather than by iterator
-        //
-        // We cannot iterate `self.pending` while also mutating it, so the loop
-        // finds the next newline by position, splits the buffer with
-        // `Vec::drain`, and repeats. `drain(..=idx)` removes the line AND its
-        // terminator in one move and yields them; collecting into a `Vec<u8>`
-        // ends the borrow before the next iteration begins.
-        while let Some(idx) = self.pending.iter().position(|b| *b == b'\n') {
-            let line: Vec<u8> = self.pending.drain(..=idx).collect();
-            let line =
-                std::str::from_utf8(&line).map_err(|source| StreamError::InvalidUtf8 { source })?;
-            // Trim the terminator in both framings — a `\r\n` stream is legal
-            // SSE and a stray `\r` left on a JSON payload would fail the parse.
-            let line = line.trim_end_matches('\n').trim_end_matches('\r');
-
-            if line.is_empty() {
-                // Blank line = end of event. An event with no `data:` field
-                // (a bare `event:` or a keep-alive comment) yields nothing.
-                if !self.data.is_empty() {
-                    payloads.push(std::mem::take(&mut self.data));
-                }
-            } else if let Some(rest) = line.strip_prefix(SSE_DATA_FIELD) {
-                if !self.data.is_empty() {
-                    self.data.push('\n');
-                }
-                // The spec strips exactly ONE leading space after the colon.
-                self.data.push_str(rest.strip_prefix(' ').unwrap_or(rest));
-            }
-            // Any other field (`event:`, `id:`, `retry:`, `:comment`) is
-            // ignored: the payload JSON carries its own `type`, so the
-            // `event:` line is redundant for us.
-        }
-
-        Ok(payloads)
-    }
-}
-
-// ─────────────────────────────────────────────────────────────────
 // Message accumulation
 // ─────────────────────────────────────────────────────────────────
-
-/// Whether the accumulator has seen the end of the message.
-///
-/// Returned by [`MessageAccumulator::push`] so the transport loop knows when to
-/// stop reading the socket rather than waiting for the server to close it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Progress {
-    /// More events are expected.
-    Continue,
-    /// `message_stop` was seen; call [`MessageAccumulator::finish`].
-    Done,
-}
 
 /// Rebuilds a [`StreamedMessage`] from decoded event payloads.
 #[derive(Debug, Default)]
@@ -601,6 +505,38 @@ impl MessageAccumulator {
         if let Some(slot) = self.blocks.get_mut(index) {
             *slot = value;
         }
+    }
+}
+
+/// A framing failure in the shared decoder is this module's `InvalidUtf8`.
+///
+/// ## Rust Learning: `From` is what makes `?` convert errors
+///
+/// `decoder.push_bytes(chunk)?` inside a function returning `StreamError` calls
+/// `StreamError::from(SseError)` automatically. Implementing `From` once here
+/// is what let the framer move to another crate without touching a single caller.
+impl From<colossus_chat::sse::SseError> for StreamError {
+    fn from(e: colossus_chat::sse::SseError) -> Self {
+        StreamError::InvalidUtf8 { source: e.source }
+    }
+}
+
+/// The accumulator as the shared stream driver sees it — a thin delegation to
+/// the inherent methods above, so behavior is exactly what it was before D2.
+impl colossus_chat::transport::EventFold for MessageAccumulator {
+    type Output = StreamedMessage;
+    type Error = StreamError;
+
+    fn push(&mut self, payload: &str) -> Result<Progress, StreamError> {
+        MessageAccumulator::push(self, payload)
+    }
+
+    fn events_seen(&self) -> usize {
+        MessageAccumulator::events_seen(self)
+    }
+
+    fn finish(self) -> Result<StreamedMessage, StreamError> {
+        MessageAccumulator::finish(self)
     }
 }
 
