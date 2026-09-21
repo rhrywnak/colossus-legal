@@ -135,6 +135,8 @@ pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
         "ai_display_name": chat.ai_display_name,
         // The size guard's divisor: a refusal is diagnosable from the row alone.
         "chars_per_token": chat.chars_per_token,
+        // The reply cap this turn was admitted under.
+        "max_turns": chat.max_turns,
     })
 }
 
@@ -311,5 +313,6 @@ mod tests {
         assert_eq!(c["asker_redirect"], "the witness's own lawyer, on redirect");
         assert_eq!(c["ai_display_name"], "The AI");
         assert_eq!(c["chars_per_token"], 3);
+        assert_eq!(c["max_turns"], 200);
     }
 }
