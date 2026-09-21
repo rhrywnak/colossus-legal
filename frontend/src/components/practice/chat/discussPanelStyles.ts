@@ -8,9 +8,21 @@ import type { CSSProperties } from "react";
 
 // Board 1 — the side panel.
 export const shell: CSSProperties = { display: "flex", alignItems: "stretch", background: "#f4f3f0" };
+
+/**
+ * The shell with the panel OPEN fills the window below its own top edge, so the
+ * question and the thread scroll independently and the composer is always on
+ * screen — the mockup's board is one fixed-height frame. `top` is where the shell
+ * starts (under the app's header), measured by the page.
+ */
+export function shellOpen(top: number): CSSProperties {
+  return { ...shell, height: `calc(100vh - ${Math.max(0, Math.round(top))}px)`, overflow: "hidden" };
+}
 /** The same shell with the panel shut: no colour of its own, so the page looks as it always did. */
 export const shellShut: CSSProperties = { display: "flex", alignItems: "stretch" };
-export const leftPane: CSSProperties = { boxSizing: "border-box", minWidth: 0, overflowY: "auto" };
+// `flexShrink: 0`: the left pane keeps the width the divider gave it; a long
+// header line in the panel must never squeeze the question.
+export const leftPane: CSSProperties = { boxSizing: "border-box", minWidth: 0, overflowY: "auto", flexShrink: 0 };
 export const divider: CSSProperties = {
   width: 10,
   boxSizing: "border-box",
@@ -32,9 +44,7 @@ export const panel: CSSProperties = {
   flexDirection: "column",
   background: "#ffffff",
   color: "#23221f",
-  position: "sticky",
-  top: 0,
-  height: "100vh",
+  height: "100%",
   fontFamily: "system-ui, sans-serif",
 };
 export const header: CSSProperties = {
@@ -58,6 +68,8 @@ export const switcherButton: CSSProperties = {
   fontSize: 14,
   fontWeight: 700,
   color: "#23221f",
+  whiteSpace: "nowrap",
+  flexShrink: 0,
 };
 export const switcherButtonOpen: CSSProperties = { ...switcherButton, border: "1px solid #3d3a33" };
 export const visibility: CSSProperties = { flexGrow: 1, display: "flex", flexDirection: "column", gap: 2 };
@@ -138,6 +150,8 @@ export const cardTitle: CSSProperties = {
   textTransform: "uppercase",
 };
 export const cardQuote: CSSProperties = { fontSize: 13.5, fontStyle: "italic", color: "#55503f", lineHeight: 1.5 };
+/** The Earlier discussion's author · time line (ADDENDUM_1; not on the mockup). */
+export const byline: CSSProperties = { fontSize: 11.5, color: "#8a8578", marginBottom: -10 };
 export const quietLine: CSSProperties = { fontSize: 13, color: "#8a8578", lineHeight: 1.5 };
 export const failureLine: CSSProperties = {
   alignSelf: "flex-start",

@@ -158,7 +158,14 @@ const DiscussPanel: React.FC<Props> = (props) => {
           onSelect={setSelection}
           onExpand={props.onExpand}
         />
-        <DiscussMessages w={w} messages={messages} pending={pending} full={full} maxTurns={threads.max_turns} />
+        <DiscussMessages
+          w={w}
+          messages={messages}
+          pending={pending}
+          full={full}
+          maxTurns={threads.max_turns}
+          showAuthors={selection.kind === "earlier"}
+        />
         {problem !== null && (
           <div style={{ ...st.failureLine, margin: full ? "0 180px 8px" : "0 24px 8px" }} role="alert">
             {problem}

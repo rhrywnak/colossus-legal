@@ -18,6 +18,9 @@ type Props = {
   pending: Pending | null;
   full: boolean;
   maxTurns: number;
+  /** Print each message's author and time above it — the Earlier team
+   *  discussion (ADDENDUM_1), whose messages come from several people. */
+  showAuthors?: boolean;
 };
 
 /** Paragraphs inside a bubble keep the mockup's line breaks (`<br><br>`). */
@@ -65,20 +68,35 @@ const Reply: React.FC<{ message: ChatMessage; full: boolean; w: Words; maxTurns:
   </div>
 );
 
-const DiscussMessages: React.FC<Props> = ({ w, messages, pending, full, maxTurns }) => {
+/** `Roman · Fri 19 Sep · 8:00 am`, right- or left-aligned with its bubble. */
+const Byline: React.FC<{ m: ChatMessage }> = ({ m }) => (
+  <div style={{ ...st.byline, alignSelf: m.role === "user" ? "flex-end" : "flex-start" }}>
+    {m.author_name} · {m.at}
+  </div>
+);
+
+const DiscussMessages: React.FC<Props> = ({ w, messages, pending, full, maxTurns, showAuthors = false }) => {
   const waiting = pending === null ? null : waitingLine(w, pending);
+  // Keep the newest words in view as the thread loads and the reply streams in.
+  const bottom = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [messages.length, pending?.text]);
   return (
     <div style={full ? st.messagesFull : st.messages} data-chat-messages>
       {messages.length === 0 && pending === null && <div style={st.quietLine}>{w("chat_empty")}</div>}
-      {messages.map((m) =>
-        m.role === "user" ? (
-          <div key={m.seq} style={full ? st.userBubbleFull : st.userBubble} data-chat-role="user">
-            {m.segments.map((s) => s.text).join("")}
-          </div>
-        ) : (
-          <Reply key={m.seq} message={m} full={full} w={w} maxTurns={maxTurns} />
-        ),
-      )}
+      {messages.map((m) => (
+        <React.Fragment key={m.seq}>
+          {showAuthors && <Byline m={m} />}
+          {m.role === "user" ? (
+            <div style={full ? st.userBubbleFull : st.userBubble} data-chat-role="user">
+              {m.segments.map((s) => s.text).join("")}
+            </div>
+          ) : (
+            <Reply message={m} full={full} w={w} maxTurns={maxTurns} />
+          )}
+        </React.Fragment>
+      ))}
       {pending !== null && pending.finished === null && pending.text !== "" && (
         <div style={full ? st.replyColumnFull : st.replyColumn}>
           <Prose text={pending.text} first />
@@ -89,6 +107,7 @@ const DiscussMessages: React.FC<Props> = ({ w, messages, pending, full, maxTurns
           {waiting}
         </div>
       )}
+      <div ref={bottom} />
     </div>
   );
 };

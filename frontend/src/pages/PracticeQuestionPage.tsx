@@ -80,6 +80,16 @@ const PracticeQuestionPage: React.FC = () => {
   const navigate = useNavigate();
   const discussMode: DiscussMode = parseDiscussMode(location.search);
   const panes = useResizablePanes({ defaultPercent: 44, minPercent: 30, maxPercent: 70 });
+  // Where the shell starts on the page (below the app header) — measured, not
+  // assumed, so the open panel fills exactly the rest of the window.
+  const [shellTop, setShellTop] = React.useState(0);
+  // `loaded` is a dependency because the shell does not exist while the page
+  // shows its loading state — measuring then finds nothing to measure.
+  const loaded = deck !== null && answers !== null;
+  React.useLayoutEffect(() => {
+    const el = panes.containerRef.current;
+    if (el !== null) setShellTop(el.getBoundingClientRect().top + window.scrollY);
+  }, [panes.containerRef, discussMode, loaded]);
 
   // The Answer-analysis switch, as this browser left it on the deck page. Read
   // ONCE on mount: the switch is set on another address, and re-reading storage
@@ -201,9 +211,11 @@ const PracticeQuestionPage: React.FC = () => {
 
   const sideOpen = discussMode === "side";
   return (
-    <div ref={panes.containerRef} style={sideOpen ? chat.shell : chat.shellShut}>
+    <div ref={panes.containerRef} style={sideOpen ? chat.shellOpen(shellTop) : chat.shellShut}>
       <div
-        style={sideOpen ? { ...chat.leftPane, width: `${panes.splitPercent}%` } : { ...chat.leftPane, width: "100%" }}
+        style={
+          sideOpen ? { ...chat.leftPane, width: `${panes.splitPercent}%` } : { ...chat.leftPane, width: "100%" }
+        }
       >
         <div style={s.page} data-surface="practice">
           <style>{c.CRITIQUE_CSS}</style>

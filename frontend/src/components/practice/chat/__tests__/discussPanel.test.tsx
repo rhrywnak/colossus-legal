@@ -234,3 +234,24 @@ describe("the address", () => {
     expect(parseDiscussMode("")).toBe("closed");
   });
 });
+
+describe("the Earlier team discussion", () => {
+  it("prints each message's stored author and time", () => {
+    const old: ChatMessage = {
+      seq: 1,
+      role: "user",
+      author_name: "Roman",
+      segments: [{ text: "Old-dock note", cards: [] }],
+      at: "Wed 17 Sep · 5:36 pm",
+      failure: null,
+    };
+    const html = renderToStaticMarkup(
+      <DiscussMessages w={w} messages={[old]} pending={null} full={true} maxTurns={200} showAuthors />,
+    );
+    expect(html).toContain("Roman · Wed 17 Sep · 5:36 pm");
+    const plain = renderToStaticMarkup(
+      <DiscussMessages w={w} messages={[old]} pending={null} full={true} maxTurns={200} />,
+    );
+    expect(plain).not.toContain("Wed 17 Sep");
+  });
+});
