@@ -23,10 +23,13 @@
 // this page can edit them.
 
 import React from "react";
-import { useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 
 import PracticeAnswerNotes from "../components/practice/PracticeAnswerNotes";
-import QuestionDiscussDock, { DiscussButton } from "../components/practice/QuestionDiscussDock";
+import DiscussPanel from "../components/practice/chat/DiscussPanel";
+import { type DiscussMode, parseDiscussMode } from "../components/practice/chat/discussPanelView";
+import * as chat from "../components/practice/chat/discussPanelStyles";
+import { useResizablePanes } from "../hooks/useResizablePanes";
 import Critique from "../components/practice/PracticeCritiqueBlock";
 import { critiqueFor } from "../components/practice/practiceCritique";
 import { answerChrome, LONG_WAIT_MS } from "../components/practice/practiceAnswerPhase";
@@ -46,7 +49,7 @@ import {
   type QuestionAnswers,
 } from "../services/practiceAnswers";
 import { browserStore, readAnalysis } from "../components/practice/answerAnalysis";
-import { practicePath } from "../utils/routePaths";
+import { practicePath, practiceQuestionDiscussPath } from "../utils/routePaths";
 import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
 
@@ -69,9 +72,14 @@ const PracticeQuestionPage: React.FC = () => {
   const [result, setResult] = React.useState<AnswerResult | null>(null);
   const [writeError, setWriteError] = React.useState<string | null>(null);
   const [showEarlier, setShowEarlier] = React.useState(false);
-  // Discuss with AI: open or not. The drawer is a SIBLING of the page content, so
-  // opening it never remounts the answer box above (see QuestionDiscussDock).
-  const [discussOpen, setDiscussOpen] = React.useState(false);
+  // The discussion panel (CC_TASK_CHAT_ENGINE_v1): shut, beside the question, or
+  // full screen — IN THE ADDRESS (`?discuss=side|full`, GO ruling Q4), so Back and
+  // a reload keep it. The panel is a SIBLING of the question inside a shell that
+  // is always rendered, so opening it never remounts the answer box.
+  const location = useLocation();
+  const navigate = useNavigate();
+  const discussMode: DiscussMode = parseDiscussMode(location.search);
+  const panes = useResizablePanes({ defaultPercent: 44, minPercent: 30, maxPercent: 70 });
 
   // The Answer-analysis switch, as this browser left it on the deck page. Read
   // ONCE on mount: the switch is set on another address, and re-reading storage
@@ -175,6 +183,15 @@ const PracticeQuestionPage: React.FC = () => {
       });
   };
 
+  const setDiscussMode = (mode: DiscussMode) =>
+    navigate(
+      mode === "closed"
+        ? practiceQuestionDiscussPath(slug, scenarioId, question.id, null)
+        : practiceQuestionDiscussPath(slug, scenarioId, question.id, mode),
+      { replace: true },
+    );
+  const position = deck.questions.findIndex((row) => row.id === question.id) + 1;
+
   const earlier = answers.earlier;
   // ⚑ The working state's three visible facts come from ONE pure decision, so
   // that something can test them: nothing in this project can render a
@@ -182,114 +199,138 @@ const PracticeQuestionPage: React.FC = () => {
   const chrome = answerChrome(working ? "working" : "idle", analysisOn);
   const view = critiqueFor(result);
 
+  const sideOpen = discussMode === "side";
   return (
-    <div style={s.page} data-surface="practice">
-      <style>{c.CRITIQUE_CSS}</style>
-      {crumb}
+    <div ref={panes.containerRef} style={sideOpen ? chat.shell : chat.shellShut}>
+      <div
+        style={sideOpen ? { ...chat.leftPane, width: `${panes.splitPercent}%` } : { ...chat.leftPane, width: "100%" }}
+      >
+        <div style={s.page} data-surface="practice">
+          <style>{c.CRITIQUE_CSS}</style>
+          {crumb}
 
-      {/* Mockup Screen 1's button, and the window it opens. Self-contained:
-          it fetches its own data and hides itself when this scenario carries
-          no subset, so this page's own reads are untouched. */}
-      <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
+          {/* Mockup Screen 1's button, and the window it opens. Self-contained:
+              it fetches its own data and hides itself when this scenario carries
+              no subset, so this page's own reads are untouched. */}
+          <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
 
-      <section style={s.card}>
-        <p style={q.question}>{question.text}</p>
-        {question.receipt !== null && <p style={q.from}>{question.receipt}</p>}
+          <section style={s.card}>
+            <p style={q.question}>{question.text}</p>
+            {question.receipt !== null && <p style={q.from}>{question.receipt}</p>}
 
-        <p style={q.label}>{w("answer_label")}</p>
-        <textarea
-          style={chrome.boxLocked ? { ...q.box, ...q.boxLocked } : q.box}
-          value={draft}
-          readOnly={chrome.boxLocked}
-          aria-label={w("answer_label")}
-          onChange={(event) => setDraft(event.target.value)}
-        />
+            <p style={q.label}>{w("answer_label")}</p>
+            <textarea
+              style={chrome.boxLocked ? { ...q.box, ...q.boxLocked } : q.box}
+              value={draft}
+              readOnly={chrome.boxLocked}
+              aria-label={w("answer_label")}
+              onChange={(event) => setDraft(event.target.value)}
+            />
 
-        {/* One quiet line. Collapsed, never editable — Chuck's reading of an
-            older version points at the words he read. */}
-        {earlier.length > 0 && (
-          <>
-            <button
-              type="button"
-              style={q.quiet}
-              data-practice-link
-              aria-expanded={showEarlier}
-              onClick={() => setShowEarlier((was) => !was)}
-            >
-              {earlier.length === 1
-                ? w("earlier_version_one")
-                : w("earlier_versions_template").replace("{n}", String(earlier.length))}
-            </button>
-            {showEarlier && (
-              <div style={q.earlier}>
-                {earlier.map((version) => (
-                  <div key={version.answer_id} style={q.earlierRow}>
-                    <div style={q.earlierWhen}>{version.answered_on}</div>
-                    <p style={q.earlierText}>{version.text}</p>
+            {/* One quiet line. Collapsed, never editable — Chuck's reading of an
+                older version points at the words he read. */}
+            {earlier.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  style={q.quiet}
+                  data-practice-link
+                  aria-expanded={showEarlier}
+                  onClick={() => setShowEarlier((was) => !was)}
+                >
+                  {earlier.length === 1
+                    ? w("earlier_version_one")
+                    : w("earlier_versions_template").replace("{n}", String(earlier.length))}
+                </button>
+                {showEarlier && (
+                  <div style={q.earlier}>
+                    {earlier.map((version) => (
+                      <div key={version.answer_id} style={q.earlierRow}>
+                        <div style={q.earlierWhen}>{version.answered_on}</div>
+                        <p style={q.earlierText}>{version.text}</p>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
+              </>
+            )}
+
+            {writeError !== null && (
+              <div style={{ ...s.feedback, marginTop: 12 }} role="alert">
+                {writeError}
               </div>
             )}
-          </>
-        )}
 
-        {writeError !== null && (
-          <div style={{ ...s.feedback, marginTop: 12 }} role="alert">
-            {writeError}
-          </div>
-        )}
+            <div style={q.buttons}>
+              <button
+                type="button"
+                style={
+                  chrome.buttonDisabled ? { ...s.buttonPrimary, ...q.buttonWorking } : s.buttonPrimary
+                }
+                disabled={chrome.buttonDisabled}
+                onClick={onAnswer}
+              >
+                {w(chrome.buttonLabelKey)}
+              </button>
+              {chrome.stopOffered && (
+                <button
+                  type="button"
+                  style={s.button}
+                  onClick={() => {
+                    abandoned.current = true;
+                    setWorking(false);
+                  }}
+                >
+                  {w("read_stop_waiting")}
+                </button>
+              )}
+              <button type="button" style={chat.openButton} onClick={() => setDiscussMode("side")}>
+                {w("chat_open_label")}
+              </button>
+              <a style={q.back} href={practicePath(slug, scenarioId)}>
+                {w("back_label")}
+              </a>
+            </div>
+            <p style={chat.openHint}>{w("chat_open_hint")}</p>
 
-        <div style={q.buttons}>
-          <button
-            type="button"
-            style={
-              chrome.buttonDisabled ? { ...s.buttonPrimary, ...q.buttonWorking } : s.buttonPrimary
-            }
-            disabled={chrome.buttonDisabled}
-            onClick={onAnswer}
-          >
-            {w(chrome.buttonLabelKey)}
-          </button>
-          {chrome.stopOffered && (
-            <button
-              type="button"
-              style={s.button}
-              onClick={() => {
-                abandoned.current = true;
-                setWorking(false);
-              }}
-            >
-              {w("read_stop_waiting")}
-            </button>
-          )}
-          <DiscussButton wording={deck.wording} onOpen={() => setDiscussOpen(true)} />
-          <a style={q.back} href={practicePath(slug, scenarioId)}>
-            {w("back_label")}
-          </a>
+            {/* PRESENT AND EMPTY from the press, not from the resolution. */}
+            <Critique
+              view={chrome.critiquePresent ? { kind: "working", longWait } : view}
+              wording={deck.wording}
+            />
+
+            {/* Chuck's notes to Marie on this answer (REVIEW_LOOP_v1 §4). */}
+            <PracticeAnswerNotes
+              questionId={question.id}
+              answers={answers}
+              wording={deck.wording}
+              onChanged={setAnswers}
+            />
+          </section>
         </div>
-
-        {/* PRESENT AND EMPTY from the press, not from the resolution. */}
-        <Critique
-          view={chrome.critiquePresent ? { kind: "working", longWait } : view}
-          wording={deck.wording}
-        />
-
-        {/* Chuck's notes to Marie on this answer (REVIEW_LOOP_v1 §4). */}
-        <PracticeAnswerNotes
-          questionId={question.id}
-          answers={answers}
-          wording={deck.wording}
-          onChanged={setAnswers}
-        />
-      </section>
-
-      {discussOpen && (
-        <QuestionDiscussDock
+      </div>
+      {sideOpen && (
+        <div
+          style={chat.divider}
+          title={w("chat_resize_label")}
+          onMouseDown={panes.dividerProps.onMouseDown}
+          role="separator"
+          aria-orientation="vertical"
+        >
+          <div style={chat.dividerGrip} />
+        </div>
+      )}
+      {discussMode !== "closed" && (
+        <DiscussPanel
           questionId={question.id}
           wording={deck.wording}
-          draft={draft}
-          savedAnswer={answers.current?.text ?? null}
-          onClose={() => setDiscussOpen(false)}
+          full={discussMode === "full"}
+          codeLine={`${deck.code} · ${question.kind.toUpperCase()} · Q${position}`}
+          questionText={question.text}
+          answerText={answers.current?.text ?? null}
+          onExpand={() => setDiscussMode("full")}
+          onCollapse={() => setDiscussMode("side")}
+          onBack={() => setDiscussMode("closed")}
         />
       )}
     </div>

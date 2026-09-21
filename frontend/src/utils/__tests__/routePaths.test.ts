@@ -59,6 +59,7 @@ import {
   practiceReviewPath,
   practicePrintPath,
   practiceAnswersPath,
+  practiceQuestionDiscussPath,
   practiceQuestionPath,
   practiceSessionPath,
   proofMatrixPath,
@@ -191,6 +192,27 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
         "3f2b1c9e-0000-4a1b-8c7d-000000000001",
         "3f2b1c9e-0000-4a1b-8c7d-000000000003",
       ),
+  },
+  {
+    name: "practiceQuestionDiscussPath (side)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () =>
+      practiceQuestionDiscussPath(
+        "awad-v-cfs",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000001",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000003",
+        "side",
+      ),
+  },
+  {
+    name: "practiceQuestionDiscussPath (full, ids need escaping)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () => practiceQuestionDiscussPath("awad v cfs", "id/with/slashes", "qid/with/slashes", "full"),
+  },
+  {
+    name: "practiceQuestionDiscussPath (shut)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () => practiceQuestionDiscussPath("awad-v-cfs", "s", "q", null),
   },
   {
     name: "practiceQuestionPath (ids need escaping)",

@@ -224,6 +224,27 @@ export function practiceQuestionPath(
 }
 
 /**
+ * ONE question with its discussion panel open — beside it (`side`) or full screen
+ * (`full`); `null` is the question with the panel shut (CC_TASK_CHAT_ENGINE_v1).
+ *
+ * ## Why a QUERY and not a segment
+ *
+ * It is the same page in a different arrangement, not a different page: the
+ * question, her answer box and its state are the same either way (GO ruling Q4 —
+ * addressable so Back and a reload keep it). A segment would make three
+ * addresses for one screen.
+ */
+export function practiceQuestionDiscussPath(
+  slug: string,
+  scenarioId: string,
+  questionId: string,
+  mode: "side" | "full" | null,
+): string {
+  const path = practiceQuestionPath(slug, scenarioId, questionId);
+  return mode === null ? path : `${path}?discuss=${mode}`;
+}
+
+/**
  * The practice walk, for one side.
  *
  * Declared as `/cases/:slug/trial-prep/practice/:scenarioId/walk`, with the side

@@ -56,6 +56,9 @@ use std::path::{Path, PathBuf};
 // than mis-serving a request.
 const SURFACE_DIRS: &[&str] = &[
     "../frontend/src/components/practice",
+    // CC_TASK_CHAT_ENGINE_v1: the discussion panel's own folder. The scan does not
+    // recurse, so a subfolder is invisible to it until it is named here.
+    "../frontend/src/components/practice/chat",
     "../frontend/src/pages",
 ];
 
@@ -199,6 +202,8 @@ const MIRROR_FILES: &[&str] = &[
     // fail as "declared nowhere". Loud, not silent, which is why the list is a
     // list and not a directory walk.
     "src/dto/practice_wording_deck_review.rs",
+    // CHAT_ENGINE_v1: the discussion panel's forty-one strings, flattened the same way.
+    "src/dto/practice_wording_chat.rs",
 ];
 
 /// Every `String` field the served wording object carries, across all three structs.
@@ -245,6 +250,7 @@ fn every_key_the_practice_surfaces_request_has_a_field_on_the_wire() {
     for (sentinel, from) in [
         ("practice_mode_label", "components/practice"),
         ("print_answers_page_title", "pages"),
+        ("chat_switcher_footer", "components/practice/chat"),
     ] {
         assert!(
             requested.iter().any(|(key, _)| key == sentinel),
@@ -258,6 +264,7 @@ fn every_key_the_practice_surfaces_request_has_a_field_on_the_wire() {
     for (sentinel, from) in [
         ("row_delete_label", "practice_wording.rs"),
         ("review_title", "practice_wording_review.rs"),
+        ("chat_open_hint", "practice_wording_chat.rs"),
     ] {
         assert!(
             fields.contains(sentinel),
