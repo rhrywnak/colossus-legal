@@ -735,10 +735,28 @@ fn a_cap_too_large_for_the_wire_is_refused_rather_than_wrapped() {
     );
 }
 
+/// The seeded store builds the chat block field for field as the migration seeds
+/// it — every one of its eighteen values, the AI's name and the token estimate
+/// included.
+#[test]
+fn the_seeded_store_builds_the_chat_block_exactly() {
+    let settings = build_settings(&seeded()).expect("the seeded store builds");
+    assert_eq!(
+        settings.question_chat,
+        crate::domain::chat_params::QuestionChatParams::for_test()
+    );
+    assert_eq!(settings.question_chat.ai_display_name, "The AI");
+    assert_eq!(settings.question_chat.chars_per_token, 3);
+}
+
 /// Every required parameter is required. No exceptions, no defaults.
 #[test]
 fn any_missing_parameter_refuses_the_whole_snapshot() {
-    for key in REQUIRED_KEYS.iter().chain(PRACTICE_PARAM_KEYS) {
+    for key in REQUIRED_KEYS
+        .iter()
+        .chain(PRACTICE_PARAM_KEYS)
+        .chain(crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS)
+    {
         let mut rows = seeded();
         rows.remove(*key);
 
