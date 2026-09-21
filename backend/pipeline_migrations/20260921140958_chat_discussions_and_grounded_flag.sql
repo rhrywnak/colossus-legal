@@ -169,6 +169,12 @@ VALUES
     ('question_chat_error_preview_chars', '500', 'count', '500', 50, 20000,
      'How much of a provider''s error body, or of a malformed stream event, a chat failure quotes in its stored detail and log line. Read at boot (the engine is built once).',
      NULL, now(), 'migration'),
+    ('question_chat_ai_display_name', 'The AI', 'text', 'The AI', NULL, NULL,
+     'The name the model''s messages carry — on screen, and in the other threads the model is shown.',
+     NULL, now(), 'migration'),
+    ('question_chat_chars_per_token', '3', 'count', '3', 1, 10,
+     'Characters per token the context-size guard assumes. Deliberately low (English prose runs nearer 4) so the guard refuses early rather than late; the API still refuses an oversized request by name.',
+     NULL, now(), 'migration'),
     -- Case data: the witness's name as threads show it and as the AI is told it.
     -- The login (practice_witness_username) is not a name — on DEV its Authentik
     -- display name is the login itself — so the name is its own row. One value,
@@ -285,8 +291,8 @@ BEGIN
     SELECT count(*) INTO params FROM app_settings
      WHERE key LIKE 'question_chat\_%'
         OR key IN ('chat_case_narrative_file', 'chat_witness_display_name');
-    IF params <> 16 THEN
-        RAISE EXCEPTION 'chat parameter rows: expected 16, found %', params;
+    IF params <> 18 THEN
+        RAISE EXCEPTION 'chat parameter rows: expected 18, found %', params;
     END IF;
 
     SELECT count(*) INTO words FROM app_settings WHERE key LIKE 'practice_chat\_%';

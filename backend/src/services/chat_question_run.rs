@@ -127,6 +127,11 @@ pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
         "context_headroom_tokens": chat.context_headroom_tokens,
         "prompt_file": chat.prompt_file,
         "narrative_file": chat.narrative_file,
+        // The four values rendered INTO the package the model reads.
+        "witness_display_name": chat.witness_display_name,
+        "asker_cross": chat.asker_cross,
+        "asker_direct": chat.asker_direct,
+        "asker_redirect": chat.asker_redirect,
     })
 }
 
@@ -185,7 +190,7 @@ fn check_size(
 ) -> Result<(), ChatRunError> {
     let mut parts: Vec<&str> = texts.to_vec();
     parts.extend(documents.iter().map(|d| d.block.text.as_str()));
-    let estimate = estimate_tokens(&parts);
+    let estimate = estimate_tokens(&parts, usize::try_from(chat.chars_per_token).unwrap_or(1));
     // A row with no recorded context size is treated as holding nothing: an
     // unknown limit refuses rather than guessing large.
     // best-effort: a context size that is absent, negative, or too large for this
@@ -294,5 +299,12 @@ mod tests {
         assert_eq!(c["context_headroom_tokens"], 80000);
         assert_eq!(c["prompt_file"], "question_chat_prompt_v1.md");
         assert_eq!(c["narrative_file"], "case_narrative_v1.md");
+        assert_eq!(c["witness_display_name"], "Marie");
+        assert_eq!(c["asker_cross"], "opposing counsel, on cross-examination");
+        assert_eq!(
+            c["asker_direct"],
+            "the witness's own lawyer, on direct examination"
+        );
+        assert_eq!(c["asker_redirect"], "the witness's own lawyer, on redirect");
     }
 }

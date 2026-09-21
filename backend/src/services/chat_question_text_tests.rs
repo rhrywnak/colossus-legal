@@ -69,5 +69,10 @@ fn pages_are_joined_and_mapped_back() {
 
 #[test]
 fn the_estimate_is_conservative() {
-    assert_eq!(estimate_tokens(&["abcdef", "abc"]), 3);
+    assert_eq!(estimate_tokens(&["abcdef", "abc"], 3), 3);
+    assert_eq!(
+        estimate_tokens(&["abcd"], 0),
+        4,
+        "a zero divisor is read as 1"
+    );
 }

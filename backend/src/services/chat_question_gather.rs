@@ -234,7 +234,7 @@ async fn sibling_threads(
             .into_iter()
             .filter_map(|m| {
                 let speaker = if m.role == "assistant" {
-                    "The AI".to_string()
+                    settings.question_chat.ai_display_name.clone()
                 } else {
                     owner.clone()
                 };

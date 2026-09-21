@@ -19,6 +19,9 @@ use crate::domain::chat_params::{
     KEY_QUESTION_CHAT_MAX_TOOL_ROUNDS, KEY_QUESTION_CHAT_MAX_TURNS, KEY_QUESTION_CHAT_MODEL,
     KEY_QUESTION_CHAT_PROMPT_FILE,
 };
+use crate::domain::chat_params::{
+    KEY_QUESTION_CHAT_AI_DISPLAY_NAME, KEY_QUESTION_CHAT_CHARS_PER_TOKEN,
+};
 use crate::domain::settings::SettingError;
 use crate::repositories::pipeline_repository::AppSettingRecord;
 use crate::services::settings_practice::effort_of;
@@ -55,6 +58,8 @@ pub(crate) fn build_question_chat_params(
         asker_direct: text(KEY_QUESTION_CHAT_ASKER_DIRECT)?,
         asker_redirect: text(KEY_QUESTION_CHAT_ASKER_REDIRECT)?,
         error_preview_chars: count(KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS)?,
+        ai_display_name: text(KEY_QUESTION_CHAT_AI_DISPLAY_NAME)?,
+        chars_per_token: count(KEY_QUESTION_CHAT_CHARS_PER_TOKEN)?,
     })
 }
 

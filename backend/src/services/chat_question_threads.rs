@@ -177,7 +177,7 @@ pub async fn thread_payload(
             .iter()
             .filter_map(|m| {
                 let author = if m.role == "assistant" {
-                    "The AI"
+                    settings.question_chat.ai_display_name.as_str()
                 } else {
                     owner_name.as_str()
                 };

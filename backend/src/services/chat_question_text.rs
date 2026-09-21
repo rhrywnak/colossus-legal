@@ -30,13 +30,6 @@ const DOCUMENT_DATE_FORMAT: &str = "%B %-d, %Y";
 /// STRUCTURAL: a separator inside the text, not wording.
 const PAGE_JOIN: &str = "\n\n";
 
-/// The conservative characters-per-token figure for the size guard.
-///
-/// STRUCTURAL: an estimate, deliberately LOW (English prose runs nearer 4), so
-/// the guard refuses early rather than late. It is not the last word — the API
-/// itself refuses an oversized request by name, and that refusal is surfaced.
-pub const CHARS_PER_TOKEN_ESTIMATE: usize = 3;
-
 /// A document block and the page each character range came from.
 #[derive(Debug, Clone, PartialEq)]
 pub struct PackagedDocument {
@@ -166,9 +159,10 @@ pub fn has_internal_key(text: &str) -> bool {
     (0..chars.len()).any(|i| key_at(&chars, i).is_some())
 }
 
-/// A rough token count for the size guard. See [`CHARS_PER_TOKEN_ESTIMATE`].
-pub fn estimate_tokens(parts: &[&str]) -> usize {
-    parts.iter().map(|p| p.chars().count()).sum::<usize>() / CHARS_PER_TOKEN_ESTIMATE
+/// A rough token count for the size guard, at the configured
+/// `question_chat_chars_per_token` (a zero is read as 1 — never a division by zero).
+pub fn estimate_tokens(parts: &[&str], chars_per_token: usize) -> usize {
+    parts.iter().map(|p| p.chars().count()).sum::<usize>() / chars_per_token.max(1)
 }
 
 #[cfg(test)]

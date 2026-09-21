@@ -107,7 +107,7 @@ const OUR_SIDE_SPEAKERS: &str = "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas 
 
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // CC_TASK_CHAT_ENGINE_v1: the chat's seven count rows, with the bounds the
+    // CC_TASK_CHAT_ENGINE_v1: the chat's eight count rows, with the bounds the
     // migration seeds.
     for (key, value, min, max) in
         crate::domain::chat_params::QuestionChatParams::for_test_count_rows()
@@ -950,7 +950,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len(),
-        16,
+        18,
         "CHAT_ENGINE: model, prompt, narrative, output cap, effort, tool rounds, \
          context headroom, cache TTL, compaction trigger, turn cap, browser idle, \
          the witness's name, the three asker phrasings, and the error preview length"

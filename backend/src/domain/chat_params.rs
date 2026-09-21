@@ -1,6 +1,6 @@
 //! The question chat's parameters (CC_TASK_CHAT_ENGINE_v1).
 //!
-//! Sixteen stored values that decide which model answers, what it is told, and the
+//! Eighteen stored values that decide which model answers, what it is told, and the
 //! bounds on one reply. They live in their own block — not as fields on
 //! `Settings` and not inside `PracticeReadParams` — because they configure a
 //! different conversation from the one-shot read, and because `settings.rs` and
@@ -53,6 +53,10 @@ pub struct QuestionChatParams {
     /// How much of an error body / malformed event a failure quotes. Read at
     /// boot, when the engine is built.
     pub error_preview_chars: u32,
+    /// The name the model's messages carry, on screen and in sibling threads.
+    pub ai_display_name: String,
+    /// Characters per token the context-size guard assumes.
+    pub chars_per_token: u32,
 }
 
 // KEYS: the stable identifiers. Renaming one is a migration.
@@ -74,6 +78,8 @@ pub const KEY_QUESTION_CHAT_ASKER_CROSS: &str = "question_chat_asker_cross";
 pub const KEY_QUESTION_CHAT_ASKER_DIRECT: &str = "question_chat_asker_direct";
 pub const KEY_QUESTION_CHAT_ASKER_REDIRECT: &str = "question_chat_asker_redirect";
 pub const KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS: &str = "question_chat_error_preview_chars";
+pub const KEY_QUESTION_CHAT_AI_DISPLAY_NAME: &str = "question_chat_ai_display_name";
+pub const KEY_QUESTION_CHAT_CHARS_PER_TOKEN: &str = "question_chat_chars_per_token";
 
 /// The smallest compaction trigger the API accepts (its documented minimum).
 ///
@@ -99,6 +105,8 @@ pub const QUESTION_CHAT_PARAM_KEYS: &[&str] = &[
     KEY_QUESTION_CHAT_ASKER_DIRECT,
     KEY_QUESTION_CHAT_ASKER_REDIRECT,
     KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS,
+    KEY_QUESTION_CHAT_AI_DISPLAY_NAME,
+    KEY_QUESTION_CHAT_CHARS_PER_TOKEN,
 ];
 
 #[cfg(test)]
@@ -125,6 +133,7 @@ impl QuestionChatParams {
                 KEY_QUESTION_CHAT_ASKER_REDIRECT,
                 "the witness's own lawyer, on redirect",
             ),
+            (KEY_QUESTION_CHAT_AI_DISPLAY_NAME, "The AI"),
         ]
         .into_iter()
         .map(|(k, v)| (k, v.to_string()))
@@ -132,8 +141,9 @@ impl QuestionChatParams {
     }
 
     /// The seeded COUNT rows with their bounds: `(key, value, min, max)`.
-    pub fn for_test_count_rows() -> [(&'static str, &'static str, f64, f64); 7] {
+    pub fn for_test_count_rows() -> [(&'static str, &'static str, f64, f64); 8] {
         [
+            (KEY_QUESTION_CHAT_CHARS_PER_TOKEN, "3", 1.0, 10.0),
             (KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS, "500", 50.0, 20000.0),
             (KEY_QUESTION_CHAT_MAX_TOKENS, "16000", 256.0, 64000.0),
             (KEY_QUESTION_CHAT_MAX_TOOL_ROUNDS, "6", 1.0, 20.0),
@@ -178,6 +188,8 @@ impl QuestionChatParams {
             asker_direct: "the witness's own lawyer, on direct examination".into(),
             asker_redirect: "the witness's own lawyer, on redirect".into(),
             error_preview_chars: 500,
+            ai_display_name: "The AI".into(),
+            chars_per_token: 3,
         }
     }
 }
