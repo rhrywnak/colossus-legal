@@ -44,7 +44,17 @@ const COMPACTION_BETA: &str = "compact-2026-01-12";
 /// that point. A test, or a second provider, supplies a different implementor
 /// and nothing downstream changes.
 pub fn build_chat_backend(chat: &QuestionChatParams) -> Option<Arc<dyn ChatBackend>> {
-    let Ok(api_key) = std::env::var(ANTHROPIC_API_KEY_ENV) else {
+    build_with_key(std::env::var(ANTHROPIC_API_KEY_ENV).ok(), chat)
+}
+
+/// The builder with the key passed in — so both outcomes are testable without
+/// touching the process environment (env-mutating tests race each other here).
+/// `None` = no key: the chat is OFF, said once at boot and as a 503 per request.
+pub fn build_with_key(
+    api_key: Option<String>,
+    chat: &QuestionChatParams,
+) -> Option<Arc<dyn ChatBackend>> {
+    let Some(api_key) = api_key.filter(|k| !k.trim().is_empty()) else {
         tracing::warn!(
             env_var = ANTHROPIC_API_KEY_ENV,
             "question chat is OFF: {ANTHROPIC_API_KEY_ENV} is unset, so every chat request \
@@ -83,5 +93,21 @@ pub fn build_chat_backend(chat: &QuestionChatParams) -> Option<Arc<dyn ChatBacke
             tracing::error!(error = %e, "question chat is OFF: its HTTP client could not be built");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn no_key_means_no_engine_and_a_key_builds_one() {
+        let chat = QuestionChatParams::for_test();
+        assert!(build_with_key(None, &chat).is_none());
+        assert!(
+            build_with_key(Some("  ".into()), &chat).is_none(),
+            "a blank key is no key"
+        );
+        assert!(build_with_key(Some("test-key".into()), &chat).is_some());
     }
 }

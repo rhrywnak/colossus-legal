@@ -211,3 +211,31 @@ fn take_text_yields_only_fresh_prose() {
     assert_eq!(acc.take_text(), "a");
     assert_eq!(acc.take_text(), "");
 }
+
+#[test]
+fn a_non_json_payload_is_malformed_and_quotes_only_the_configured_preview() {
+    let mut acc = ChatAccumulator::new(5);
+    match acc.push("not json at all") {
+        Err(e @ ChatStreamError::Malformed { .. }) => {
+            let text = e.to_string();
+            assert!(text.contains("not JSON"), "{text}");
+            assert!(
+                text.ends_with("payload was: not j"),
+                "the preview is cut at 5 chars: {text}"
+            );
+        }
+        other => panic!("expected Malformed, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_delta_for_an_unopened_block_is_malformed() {
+    let events = vec![
+        start(json!({})),
+        json!({"type":"content_block_delta","index":3,"delta":{"type":"text_delta","text":"x"}}),
+    ];
+    assert!(matches!(
+        fold(&events),
+        Err(ChatStreamError::Malformed { .. })
+    ));
+}

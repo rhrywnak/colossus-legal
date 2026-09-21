@@ -365,3 +365,61 @@ where
 
     fold.finish().map_err(TransportError::Stream)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::accumulate::{ChatAccumulator, ChatStreamError};
+
+    /// A source that yields nothing, ever — a wedged connection.
+    struct Silent;
+
+    #[async_trait::async_trait]
+    impl ChunkSource<ChatStreamError> for Silent {
+        async fn next_chunk(&mut self) -> Result<Option<Vec<u8>>, TransportError<ChatStreamError>> {
+            tokio::time::sleep(Duration::from_secs(86_400)).await;
+            Ok(None)
+        }
+    }
+
+    /// The idle timeout fires on silence, names its window, and is the only limit.
+    #[tokio::test(start_paused = true)]
+    async fn a_silent_stream_is_an_idle_timeout_naming_its_window() {
+        let err = drive(
+            &mut Silent,
+            ChatAccumulator::new(200),
+            Duration::from_secs(120),
+            |_| {},
+        )
+        .await
+        .unwrap_err();
+        match &err {
+            TransportError::IdleTimeout {
+                idle_secs,
+                events_seen,
+            } => {
+                assert_eq!((*idle_secs, *events_seen), (120, 0));
+            }
+            other => panic!("expected IdleTimeout, got {other:?}"),
+        }
+        assert!(err
+            .to_string()
+            .contains("no server-sent event arrived for 120s"));
+    }
+
+    #[test]
+    fn classify_names_429_529_and_truncates_other_bodies() {
+        let r: TransportError<ChatStreamError> = classify_status(429, Some("3"), "", 10);
+        assert!(matches!(
+            r,
+            TransportError::Rejected {
+                kind: RejectionKind::RateLimited,
+                retry_after_secs: Some(3)
+            }
+        ));
+        let s: TransportError<ChatStreamError> = classify_status(500, None, "0123456789ABC", 10);
+        assert!(
+            matches!(s, TransportError::Status { status: 500, ref body } if body == "0123456789")
+        );
+    }
+}
