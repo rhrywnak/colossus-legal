@@ -88,9 +88,17 @@ CREATE TABLE IF NOT EXISTS discussion_messages (
     cache_creation_tokens INTEGER,
     cache_read_tokens     INTEGER,
     ms                    INTEGER,
-    -- A named failure marker (refused / truncated / stalled / …). NULL = succeeded.
+    -- A named failure marker (refused / truncated / stalled / failed). NULL = succeeded.
     -- A failed assistant turn is kept for the record and NOT replayed to the model.
     failure               TEXT,
+    -- The failure's full sentence (which bound, which stop reason, which transport
+    -- error), so an operator reads WHY from the row itself, not only from the logs.
+    failure_detail        TEXT,
+    -- The resolved configuration the turn ran under (model, output cap, effort,
+    -- cache TTL, tool rounds, compaction trigger, headroom, prompt and narrative
+    -- files) — on the LAST assistant row of each turn. Settings change; this
+    -- records what applied, the counterpart of extraction_runs.processing_config.
+    run_config            JSONB,
     created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
     CONSTRAINT discussion_messages_seq_unique UNIQUE (discussion_id, seq),
     CONSTRAINT discussion_messages_model_iff_assistant
@@ -145,6 +153,21 @@ VALUES
      NULL, now(), 'migration'),
     ('question_chat_client_idle_timeout_secs', '150', 'count', '150', 30, 900,
      'How long the browser waits with no word from the server before it gives up on a reply. Longer than the server''s own stall detector, so the server always names the failure first.',
+     NULL, now(), 'migration'),
+    -- How the model is told who asks, by the question's KIND (cross / direct /
+    -- redirect — the practice_questions.kind vocabulary). Model-facing prose, not
+    -- screen wording: which is why they are parameters and not practice_chat_* rows.
+    ('question_chat_asker_cross', 'opposing counsel, on cross-examination', 'text', 'opposing counsel, on cross-examination', NULL, NULL,
+     'How the question chat tells the model who asks a cross-examination question.',
+     NULL, now(), 'migration'),
+    ('question_chat_asker_direct', 'the witness''s own lawyer, on direct examination', 'text', 'the witness''s own lawyer, on direct examination', NULL, NULL,
+     'How the question chat tells the model who asks a direct-examination question.',
+     NULL, now(), 'migration'),
+    ('question_chat_asker_redirect', 'the witness''s own lawyer, on redirect', 'text', 'the witness''s own lawyer, on redirect', NULL, NULL,
+     'How the question chat tells the model who asks a redirect question.',
+     NULL, now(), 'migration'),
+    ('question_chat_error_preview_chars', '500', 'count', '500', 50, 20000,
+     'How much of a provider''s error body, or of a malformed stream event, a chat failure quotes in its stored detail and log line. Read at boot (the engine is built once).',
      NULL, now(), 'migration'),
     -- Case data: the witness's name as threads show it and as the AI is told it.
     -- The login (practice_witness_username) is not a name — on DEV its Authentik
@@ -241,6 +264,8 @@ VALUES
      'Shown when a reply is cut off at question_chat_max_tokens.', NULL, now(), 'migration'),
     ('practice_chat_load_failed', 'The discussion could not be loaded.', 'text', 'The discussion could not be loaded.', NULL, NULL,
      'Shown when the threads cannot be read.', NULL, now(), 'migration'),
+    ('practice_chat_read_mark_failed', 'Your place in this thread could not be saved — its messages may show as new again.', 'text', 'Your place in this thread could not be saved — its messages may show as new again.', NULL, NULL,
+     'Shown when opening a thread could not move your read mark (the unread badge would stay lit).', NULL, now(), 'migration'),
     ('practice_chat_cap_reached_template', 'This thread has reached its limit of {max} replies.', 'text', 'This thread has reached its limit of {max} replies.', NULL, NULL,
      'Shown when question_chat_max_turns is reached; the message is not sent.', NULL, now(), 'migration')
 ON CONFLICT (key) DO NOTHING;
@@ -260,13 +285,13 @@ BEGIN
     SELECT count(*) INTO params FROM app_settings
      WHERE key LIKE 'question_chat\_%'
         OR key IN ('chat_case_narrative_file', 'chat_witness_display_name');
-    IF params <> 12 THEN
-        RAISE EXCEPTION 'chat parameter rows: expected 12, found %', params;
+    IF params <> 16 THEN
+        RAISE EXCEPTION 'chat parameter rows: expected 16, found %', params;
     END IF;
 
     SELECT count(*) INTO words FROM app_settings WHERE key LIKE 'practice_chat\_%';
-    IF words <> 41 THEN
-        RAISE EXCEPTION 'chat wording rows: expected 41, found %', words;
+    IF words <> 42 THEN
+        RAISE EXCEPTION 'chat wording rows: expected 42, found %', words;
     END IF;
 
     IF NOT EXISTS (

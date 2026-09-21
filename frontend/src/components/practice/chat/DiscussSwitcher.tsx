@@ -26,7 +26,7 @@ type Props = {
 };
 
 const Chevron: React.FC<{ up: boolean }> = ({ up }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#55503f" strokeWidth="2.5" aria-hidden="true">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2.5" aria-hidden="true">
     <path d={up ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} />
   </svg>
 );

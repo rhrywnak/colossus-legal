@@ -202,7 +202,7 @@ const MIRROR_FILES: &[&str] = &[
     // fail as "declared nowhere". Loud, not silent, which is why the list is a
     // list and not a directory walk.
     "src/dto/practice_wording_deck_review.rs",
-    // CHAT_ENGINE_v1: the discussion panel's forty-one strings, flattened the same way.
+    // CHAT_ENGINE_v1: the discussion panel's forty-two strings, flattened the same way.
     "src/dto/practice_wording_chat.rs",
 ];
 

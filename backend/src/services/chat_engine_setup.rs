@@ -13,7 +13,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use colossus_chat::{AnthropicBackend, EngineConfig};
+use colossus_chat::{AnthropicBackend, ChatBackend, EngineConfig};
+
+use crate::domain::chat_params::QuestionChatParams;
 
 use crate::pipeline::anthropic_engine::{
     read_secs_env, read_string_env, ANTHROPIC_API_KEY_ENV, API_VERSION_ENV, BASE_URL_ENV,
@@ -24,7 +26,7 @@ use crate::pipeline::anthropic_engine::{
 
 /// The `anthropic-beta` value that turns on server-side compaction.
 ///
-/// CONST: protocol vocabulary paired with the `compact_20260112` edit type the
+/// STRUCTURAL: protocol vocabulary paired with the `compact_20260112` edit type the
 /// crate sends — the two change together, in code, when the API revises them.
 /// Whether compaction RUNS is the `question_chat_compaction_trigger_tokens` row;
 /// the header alone does nothing.
@@ -33,7 +35,15 @@ const COMPACTION_BETA: &str = "compact-2026-01-12";
 /// Build the chat backend, or `None` with a logged reason when there is no API
 /// key — the same "no key, no chat" state the Chat providers map has, reported
 /// by name at every chat request as a 503 rather than a panic.
-pub fn build_chat_backend() -> Option<Arc<AnthropicBackend>> {
+///
+/// ## Rust Learning: returning `Arc<dyn ChatBackend>`, not the concrete type
+///
+/// Callers hold the TRAIT (Standing Rule 10: call provider traits, never concrete
+/// implementations). `Arc::new(backend)` makes an `Arc<AnthropicBackend>`, and the
+/// return type coerces it to `Arc<dyn ChatBackend>` — the vtable is attached at
+/// that point. A test, or a second provider, supplies a different implementor
+/// and nothing downstream changes.
+pub fn build_chat_backend(chat: &QuestionChatParams) -> Option<Arc<dyn ChatBackend>> {
     let Ok(api_key) = std::env::var(ANTHROPIC_API_KEY_ENV) else {
         tracing::warn!(
             env_var = ANTHROPIC_API_KEY_ENV,
@@ -59,6 +69,8 @@ pub fn build_chat_backend() -> Option<Arc<AnthropicBackend>> {
             IDLE_TIMEOUT_SECS_ENV,
             DEFAULT_IDLE_TIMEOUT_SECS,
         )),
+        // The settings row `question_chat_error_preview_chars`, read at boot.
+        error_preview_chars: usize::try_from(chat.error_preview_chars).unwrap_or(usize::MAX),
     };
     tracing::info!(
         base_url = %config.base_url,
@@ -66,7 +78,7 @@ pub fn build_chat_backend() -> Option<Arc<AnthropicBackend>> {
         "question chat engine configured (streaming, citations, compaction beta)"
     );
     match AnthropicBackend::new(config) {
-        Ok(backend) => Some(Arc::new(backend)),
+        Ok(backend) => Some(Arc::new(backend) as Arc<dyn ChatBackend>),
         Err(e) => {
             tracing::error!(error = %e, "question chat is OFF: its HTTP client could not be built");
             None

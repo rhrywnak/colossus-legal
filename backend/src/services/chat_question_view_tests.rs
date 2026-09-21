@@ -96,3 +96,53 @@ fn short_day_uses_the_case_timezone() {
     let at = chrono::Utc.with_ymd_and_hms(2026, 9, 20, 2, 0, 0).unwrap();
     assert_eq!(short_day(at, "America/Detroit"), "Sep 19");
 }
+
+#[test]
+fn an_old_dock_turn_keeps_its_author_and_maps_model_to_assistant() {
+    let turn = DiscussionTurnRecord {
+        id: uuid::Uuid::nil(),
+        question_id: uuid::Uuid::nil(),
+        author_user_id: "roman".into(),
+        author_name: "Roman".into(),
+        role: "model".into(),
+        model_id: Some("claude-opus-5".into()),
+        text: "Lead with the 2016 response.".into(),
+        input_tokens: None,
+        output_tokens: None,
+        ms: None,
+        created_at: chrono::Utc
+            .with_ymd_and_hms(2026, 9, 17, 21, 36, 0)
+            .unwrap(),
+    };
+    let dto = earlier_dto(&turn, 2, "America/Detroit");
+    assert_eq!(dto.seq, 3);
+    assert_eq!(dto.role, "assistant");
+    assert_eq!(dto.author_name, "Roman");
+    assert_eq!(dto.segments[0].text, "Lead with the 2016 response.");
+    assert!(
+        dto.at.contains("5:36"),
+        "the case timezone applies: {}",
+        dto.at
+    );
+    assert_eq!(
+        earlier_dto(
+            &DiscussionTurnRecord {
+                role: "user".into(),
+                ..turn
+            },
+            0,
+            "UTC"
+        )
+        .role,
+        "user"
+    );
+}
+
+#[test]
+fn a_stored_citation_list_that_does_not_decode_shows_the_words_without_cards() {
+    let mut m = record("assistant", Some("words"), None);
+    m.citations = Some(json!([{"not": "a card"}]));
+    let dto = message_dto(&m, "The AI", "UTC").unwrap();
+    assert_eq!(dto.segments[0].text, "words");
+    assert!(dto.segments[0].cards.is_empty());
+}

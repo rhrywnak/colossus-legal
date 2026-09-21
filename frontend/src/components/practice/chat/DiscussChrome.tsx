@@ -13,7 +13,7 @@ import { chipText, type Selection, visibilityLine, type Words } from "./discussP
 import * as st from "./discussPanelStyles";
 
 const ExpandIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#55503f" strokeWidth="2" aria-hidden="true">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2" aria-hidden="true">
     <path d="M15 3h6v6" />
     <path d="M9 21H3v-6" />
     <path d="M21 3l-7 7" />
@@ -22,7 +22,7 @@ const ExpandIcon = () => (
 );
 
 const CollapseIcon = () => (
-  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#55503f" strokeWidth="2" aria-hidden="true">
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2" aria-hidden="true">
     <path d="M4 14h6v6" />
     <path d="M20 10h-6V4" />
     <path d="M14 10l7-7" />
@@ -31,7 +31,7 @@ const CollapseIcon = () => (
 );
 
 const BackIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#55503f" strokeWidth="2.5" aria-hidden="true">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2.5" aria-hidden="true">
     <path d="M19 12H5" />
     <path d="M12 19l-7-7 7-7" />
   </svg>

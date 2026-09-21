@@ -732,3 +732,37 @@
   --print-draft-bg: #fdf8e6;
   --print-draft-border: #e8dcae;
 }
+
+/* ---------------------------------------------------------------------------
+ * The discussion panel (CC_TASK_CHAT_ENGINE_v1) — mockup DISCUSS_CHAT_MOCKUP_v2's
+ * warm palette, value for value, so the panel reads as the ratified mockup.
+ * Referenced only by components/practice/chat/discussPanelStyles.ts.
+ * ------------------------------------------------------------------------- */
+:root {
+  --chat-anchor-bg: #f4f3f0;       /* the question pane and the full-screen strip */
+  --chat-divider-bg: #ece8e0;      /* the drag divider; the switcher footer rule */
+  --chat-divider-grip: #b9b2a4;
+  --chat-border-strong: #ddd8cf;
+  --chat-surface: #ffffff;
+  --chat-ink: #23221f;
+  --chat-rule: #e2ddd3;            /* header and composer rules */
+  --chat-field-bg: #faf9f5;        /* inputs, the switcher button, reply bubbles */
+  --chat-control-border: #cfc9bd;
+  --chat-accent-dark: #3d3a33;     /* Send, Discuss this answer, the first avatar */
+  --chat-muted: #8a8578;
+  --chat-grounded-ink: #2c6e49;    /* the grounded chip */
+  --chat-grounded-bg: #e9f3ec;
+  --chat-grounded-border: #bcd9c6;
+  --chat-user-bubble: #eef0f4;
+  --chat-reply-border: #e6e1d6;
+  --chat-card-border: #d8d2c6;
+  --chat-card-title: #8a5a2b;      /* DOCUMENT NAME — DATE */
+  --chat-quote-ink: #55503f;       /* the quoted passage; icons */
+  --chat-warn-ink: #a07030;        /* unread badge; failure lines */
+  --chat-warn-bg: #fdf6ee;
+  --chat-warn-border: #ecd9bd;
+  --chat-row-selected: #f1efe9;
+  --chat-preview-ink: #6e6a5e;
+  --chat-avatar-2: #6b7d8f;
+  --chat-avatar-3: #a08c5a;
+}

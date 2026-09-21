@@ -107,7 +107,7 @@ const OUR_SIDE_SPEAKERS: &str = "Marie Awad, Jeffrey Sharp, Jeff Sharp, Douglas 
 
 fn seeded() -> HashMap<String, AppSettingRecord> {
     let mut rows = numeric_rows();
-    // CC_TASK_CHAT_ENGINE_v1: the chat's six count rows, with the bounds the
+    // CC_TASK_CHAT_ENGINE_v1: the chat's seven count rows, with the bounds the
     // migration seeds.
     for (key, value, min, max) in
         crate::domain::chat_params::QuestionChatParams::for_test_count_rows()
@@ -942,7 +942,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
-        41,
+        42,
         "CHAT_ENGINE: the discussion panel — the Discuss button and its hint, the \
          switcher and its rows, the header's visibility line and chip, expand and \
          collapse, the strip, the composer, the Earlier team discussion, and the \
@@ -950,10 +950,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len(),
-        12,
+        16,
         "CHAT_ENGINE: model, prompt, narrative, output cap, effort, tool rounds, \
          context headroom, cache TTL, compaction trigger, turn cap, browser idle, \
-         and the witness's name"
+         the witness's name, the three asker phrasings, and the error preview length"
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),

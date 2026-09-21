@@ -45,9 +45,23 @@ use std::time::Duration;
 use crate::pipeline::anthropic_stream::{MessageAccumulator, StreamError, StreamedMessage};
 
 pub use colossus_chat::transport::{
-    classify_status as classify_status_generic, parse_retry_after, preview_body, RejectionKind,
-    ResponseChunks, ERROR_BODY_PREVIEW_CHARS, RETRY_AFTER,
+    classify_status as classify_status_generic, parse_retry_after, RejectionKind, ResponseChunks,
+    RETRY_AFTER,
 };
+
+/// How much of a non-2xx response body is carried into the error message.
+///
+/// CONST: error-message ergonomics. Anthropic error bodies are small JSON
+/// objects; the cap exists so an HTML error page from an intercepting proxy
+/// cannot flood `pipeline_jobs.error`. (The extraction engine's own value, as it
+/// was before the transport moved to `colossus-chat`; the crate takes it as an
+/// argument, and the chat engine's comes from its settings row.)
+pub const ERROR_BODY_PREVIEW_CHARS: usize = 500;
+
+/// Truncate a response body for an error message, at this engine's length.
+pub fn preview_body(body: &str) -> String {
+    colossus_chat::transport::preview_body(body, ERROR_BODY_PREVIEW_CHARS)
+}
 
 /// Everything the transport can fail with, fixed to the extraction stream's
 /// error type.
@@ -63,7 +77,7 @@ pub type TransportError = colossus_chat::transport::TransportError<StreamError>;
 /// Classify a non-success HTTP status — the crate's classifier at this module's
 /// error type. See `colossus_chat::transport::classify_status`.
 pub fn classify_status(status: u16, retry_after: Option<&str>, body: &str) -> TransportError {
-    classify_status_generic(status, retry_after, body)
+    classify_status_generic(status, retry_after, body, ERROR_BODY_PREVIEW_CHARS)
 }
 
 /// The source of response-body bytes that [`drive`] reads, at this module's

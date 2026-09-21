@@ -56,6 +56,7 @@ pub struct PracticeChatWordingDto {
     pub chat_refused: String,
     pub chat_truncated: String,
     pub chat_load_failed: String,
+    pub chat_read_mark_failed: String,
     pub chat_cap_reached_template: String,
 }
 
@@ -104,6 +105,7 @@ impl PracticeChatWordingDto {
             chat_refused: c.refused.clone(),
             chat_truncated: c.truncated.clone(),
             chat_load_failed: c.load_failed.clone(),
+            chat_read_mark_failed: c.read_mark_failed.clone(),
             chat_cap_reached_template: c.cap_reached_template.clone(),
         }
     }

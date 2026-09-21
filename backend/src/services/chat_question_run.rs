@@ -12,14 +12,14 @@
 
 use std::sync::Arc;
 
-use colossus_chat::{AnthropicBackend, ChatRequest, ChatTool, Message, Role};
+use colossus_chat::{ChatBackend, ChatRequest, ChatTool, Message, Role};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::domain::chat_params::QuestionChatParams;
 use crate::repositories::pipeline_repository::chat_discussions::{
-    append_message, assistant_reply_count, get_or_create_discussion, list_messages, NewMessage,
-    ANCHOR_QUESTION,
+    append_message, assistant_reply_count, get_or_create_discussion, list_messages,
+    DiscussionRecord, NewMessage, ANCHOR_QUESTION,
 };
 use crate::repositories::pipeline_repository::models::{get_model_by_id, LlmModelRecord};
 use crate::repositories::pipeline_repository::PipelineRepoError;
@@ -38,11 +38,13 @@ pub struct PreparedTurn {
     pub discussion_id: Uuid,
     pub user_seq: i32,
     pub model: String,
-    pub backend: Arc<AnthropicBackend>,
+    pub backend: Arc<dyn ChatBackend>,
     pub request: ChatRequest,
     pub tools: Vec<Arc<dyn ChatTool>>,
     pub documents: Arc<Vec<PackagedDocument>>,
     pub max_rounds: u32,
+    /// The resolved configuration, stored with the turn's result.
+    pub run_config: serde_json::Value,
 }
 
 /// Validate, store her message, and prepare the model call.
@@ -60,20 +62,8 @@ pub async fn prepare_turn(
     let chat = &settings.question_chat;
     let text = text.trim();
     let (backend, model_row) = refuse_early(state, question_id, owner, viewer, text).await?;
-    let pool = &state.pipeline_pool;
     let gathered = gather(state, question_id, viewer).await?;
-    let discussion =
-        get_or_create_discussion(pool, ANCHOR_QUESTION, &question_id.to_string(), owner)
-            .await
-            .map_err(store("get_or_create_discussion", question_id))?;
-    let replies = assistant_reply_count(pool, discussion.id)
-        .await
-        .map_err(store("assistant_reply_count", question_id))?;
-    if replies >= i64::from(chat.max_turns) {
-        return Err(ChatRunError::CapReached {
-            max: chat.max_turns,
-        });
-    }
+    let discussion = open_thread_under_cap(state, question_id, owner, chat.max_turns).await?;
     let prompt = read_template(state, "the question chat's prompt", &chat.prompt_file).await?;
     let narrative = read_template(state, "the case narrative", &chat.narrative_file).await?;
     let context = render_context(&gathered.context);
@@ -99,6 +89,44 @@ pub async fn prepare_turn(
         tools: tools(Arc::clone(&documents), answers),
         documents,
         max_rounds: chat.max_tool_rounds,
+        run_config: run_config(chat),
+    })
+}
+
+/// The owner's thread (created on first use), refused by name at the reply cap.
+async fn open_thread_under_cap(
+    state: &AppState,
+    question_id: Uuid,
+    owner: &str,
+    max_turns: u32,
+) -> Result<DiscussionRecord, ChatRunError> {
+    let pool = &state.pipeline_pool;
+    let discussion =
+        get_or_create_discussion(pool, ANCHOR_QUESTION, &question_id.to_string(), owner)
+            .await
+            .map_err(store("get_or_create_discussion", question_id))?;
+    let replies = assistant_reply_count(pool, discussion.id)
+        .await
+        .map_err(store("assistant_reply_count", question_id))?;
+    if replies >= i64::from(max_turns) {
+        return Err(ChatRunError::CapReached { max: max_turns });
+    }
+    Ok(discussion)
+}
+
+/// What this turn ran under, stored on its last assistant row — settings change,
+/// and a turn read back later must say which values applied to IT.
+pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
+    json!({
+        "model": chat.model,
+        "max_tokens": chat.max_tokens,
+        "effort": chat.effort.map(|e| e.as_wire()),
+        "cache_ttl": format!("{:?}", chat.cache_ttl),
+        "max_tool_rounds": chat.max_tool_rounds,
+        "compaction_trigger_tokens": chat.compaction_trigger_tokens,
+        "context_headroom_tokens": chat.context_headroom_tokens,
+        "prompt_file": chat.prompt_file,
+        "narrative_file": chat.narrative_file,
     })
 }
 
@@ -127,7 +155,7 @@ async fn refuse_early(
     owner: &str,
     viewer: &str,
     text: &str,
-) -> Result<(Arc<AnthropicBackend>, Option<LlmModelRecord>), ChatRunError> {
+) -> Result<(Arc<dyn ChatBackend>, Option<LlmModelRecord>), ChatRunError> {
     let settings = state.settings.current();
     if text.is_empty() {
         return Err(ChatRunError::BlankText);
@@ -160,6 +188,8 @@ fn check_size(
     let estimate = estimate_tokens(&parts);
     // A row with no recorded context size is treated as holding nothing: an
     // unknown limit refuses rather than guessing large.
+    // best-effort: a context size that is absent, negative, or too large for this
+    // platform is read as 0 — i.e. the guard REFUSES, by name, rather than guess.
     let limit = model
         .and_then(|m| m.max_context_tokens)
         .and_then(|n| usize::try_from(n).ok())
@@ -244,5 +274,25 @@ async fn read_template(
             path: path.display().to_string(),
             detail: e.to_string(),
         }),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The snapshot names every value that shapes a turn, as the store holds it.
+    #[test]
+    fn the_run_config_records_what_the_turn_ran_under() {
+        let c = run_config(&QuestionChatParams::for_test());
+        assert_eq!(c["model"], "claude-opus-5");
+        assert_eq!(c["max_tokens"], 16000);
+        assert_eq!(c["effort"], "high");
+        assert_eq!(c["cache_ttl"], "OneHour");
+        assert_eq!(c["max_tool_rounds"], 6);
+        assert_eq!(c["compaction_trigger_tokens"], 700000);
+        assert_eq!(c["context_headroom_tokens"], 80000);
+        assert_eq!(c["prompt_file"], "question_chat_prompt_v1.md");
+        assert_eq!(c["narrative_file"], "case_narrative_v1.md");
     }
 }

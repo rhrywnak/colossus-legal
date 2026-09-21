@@ -342,6 +342,10 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // would deadlock the semaphore), so `Semaphore::new` gets a usable size.
     let theme_scan_semaphore = Arc::new(Semaphore::new(config.theme_scan_concurrency));
 
+    // The question chat's backend — built before `settings` moves into the state.
+    let chat_engine = colossus_legal_backend::services::chat_engine_setup::build_chat_backend(
+        &settings.current().question_chat,
+    );
     // Shared application state (global AppState)
     let state = AppState {
         settings,
@@ -370,7 +374,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         extraction_engine: Arc::clone(&app_context.extraction_engine),
         // The question chat's own backend (CC_TASK_CHAT_ENGINE_v1) — `None`, with
         // a logged reason, when there is no API key.
-        chat_engine: colossus_legal_backend::services::chat_engine_setup::build_chat_backend(),
+        chat_engine,
     };
     // BOOT PRECONDITIONS for the question chat — see `chat_model_check::assert_chat_ready`.
     colossus_legal_backend::services::chat_model_check::assert_chat_ready(&state).await;

@@ -5,7 +5,7 @@ use serde_json::json;
 
 /// Fold a list of event objects; return the finished message.
 fn fold(events: &[Value]) -> Result<AssistantMessage, ChatStreamError> {
-    let mut acc = ChatAccumulator::new();
+    let mut acc = ChatAccumulator::new(200);
     for e in events {
         if acc.push(&e.to_string())? == Progress::Done {
             break;
@@ -196,7 +196,7 @@ fn an_error_event_names_the_provider_error() {
 
 #[test]
 fn take_text_yields_only_fresh_prose() {
-    let mut acc = ChatAccumulator::new();
+    let mut acc = ChatAccumulator::new(200);
     acc.push(&start(json!({})).to_string()).unwrap();
     acc.push(
         &json!({"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}})

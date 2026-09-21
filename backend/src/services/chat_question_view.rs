@@ -97,11 +97,7 @@ pub fn message_dto(m: &MessageRecord, author_name: &str, timezone: &str) -> Opti
     if m.rendered_text.is_none() && m.failure.is_none() {
         return None;
     }
-    let cards: Vec<StoredCard> = m
-        .citations
-        .clone()
-        .and_then(|c| serde_json::from_value(c).ok())
-        .unwrap_or_default();
+    let cards = stored_cards(m);
     let segments = match &m.rendered_text {
         Some(_) if m.role == "assistant" => segments(&m.content, &cards),
         Some(text) => vec![SegmentDto {
@@ -118,6 +114,22 @@ pub fn message_dto(m: &MessageRecord, author_name: &str, timezone: &str) -> Opti
         at: local_stamp(m.created_at, timezone),
         failure: m.failure.clone(),
     })
+}
+
+/// A message's stored cards. Rows this build wrote always decode; one that does
+/// not is LOGGED by seq and shown without cards — the words still render, and the
+/// log says which row lost its passages.
+fn stored_cards(m: &MessageRecord) -> Vec<StoredCard> {
+    let Some(raw) = m.citations.clone() else {
+        return Vec::new();
+    };
+    match serde_json::from_value(raw) {
+        Ok(cards) => cards,
+        Err(e) => {
+            tracing::error!(seq = m.seq, error = %e, "question chat: a stored citation list does not decode; shown without cards");
+            Vec::new()
+        }
+    }
 }
 
 /// An old-dock turn (ADDENDUM_1) in the same shape — no cards, author as stored.

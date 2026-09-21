@@ -7,7 +7,7 @@
 
 /// The SSE field prefix carrying an event's JSON payload.
 ///
-/// CONST: the Server-Sent Events wire format (W3C `text/event-stream`), not a
+/// STRUCTURAL: the Server-Sent Events wire format (W3C `text/event-stream`), not a
 /// setting. A deployment cannot choose a different spelling for it.
 const SSE_DATA_FIELD: &str = "data:";
 

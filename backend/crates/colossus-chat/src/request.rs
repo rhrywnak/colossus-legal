@@ -27,7 +27,7 @@
 
 use serde_json::{json, Map, Value};
 
-/// CONST: the Messages API allows at most four `cache_control` breakpoints.
+/// STRUCTURAL: the Messages API allows at most four `cache_control` breakpoints.
 const MAX_BREAKPOINTS: usize = 4;
 
 /// How long a cache entry lives. The API offers exactly these two.

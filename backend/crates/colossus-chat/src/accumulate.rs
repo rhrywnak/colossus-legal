@@ -18,11 +18,14 @@
 
 use serde_json::{Map, Value};
 
+use crate::blocks::{
+    append_str, grow, grow_strings, index_field, malformed, push_array, set_field, str_field,
+};
 use crate::sse::SseError;
 use crate::transport::{EventFold, Progress};
 use crate::usage::Usage;
 
-// CONST: Anthropic Messages API streaming vocabulary — wire protocol, not settings.
+// STRUCTURAL: Anthropic Messages API streaming vocabulary — wire protocol, not settings.
 const EV_MESSAGE_START: &str = "message_start";
 const EV_BLOCK_START: &str = "content_block_start";
 const EV_BLOCK_DELTA: &str = "content_block_delta";
@@ -43,11 +46,6 @@ const KNOWN_BLOCKS: [&str; 5] = [
     BLOCK_TOOL_USE,
     BLOCK_COMPACTION,
 ];
-
-/// How much of an unparseable payload is quoted back in an error.
-///
-/// CONST: error-message ergonomics, not a tunable.
-const PREVIEW_CHARS: usize = 200;
 
 /// Everything that can go wrong rebuilding a chat message from its stream.
 #[derive(Debug, thiserror::Error)]
@@ -150,12 +148,18 @@ pub struct ChatAccumulator {
     events_seen: usize,
     /// Prose that arrived since the caller last took it.
     fresh_text: String,
+    /// How much of a malformed payload an error quotes (the caller's configuration).
+    preview_chars: usize,
 }
 
 impl ChatAccumulator {
-    /// Create an empty accumulator.
-    pub fn new() -> Self {
-        Self::default()
+    /// Create an empty accumulator. `preview_chars` bounds how much of a malformed
+    /// payload an error quotes — the caller's configuration, never a constant here.
+    pub fn new(preview_chars: usize) -> Self {
+        Self {
+            preview_chars,
+            ..Self::default()
+        }
     }
 
     /// Take the prose that arrived since the last call (empty when none did).
@@ -164,7 +168,8 @@ impl ChatAccumulator {
     }
 
     fn fold(&mut self, event: &Value, payload: &str) -> Result<Progress, ChatStreamError> {
-        match str_field(event, "type", payload)? {
+        let p = self.preview_chars;
+        match str_field(event, "type", payload, p)? {
             EV_MESSAGE_START => {
                 if let Some(usage) = event.get("message").and_then(|m| m.get("usage")) {
                     self.usage.absorb(usage);
@@ -211,12 +216,13 @@ impl ChatAccumulator {
     }
 
     fn open(&mut self, event: &Value, payload: &str) -> Result<(), ChatStreamError> {
-        let index = index_field(event, payload)?;
+        let p = self.preview_chars;
+        let index = index_field(event, payload, p)?;
         let block = event
             .get("content_block")
             .cloned()
-            .ok_or_else(|| malformed("content_block_start without content_block", payload))?;
-        let kind = str_field(&block, "type", payload)?.to_string();
+            .ok_or_else(|| malformed("content_block_start without content_block", payload, p))?;
+        let kind = str_field(&block, "type", payload, p)?.to_string();
         if !KNOWN_BLOCKS.contains(&kind.as_str()) {
             return Err(ChatStreamError::UnknownBlock { kind });
         }
@@ -227,19 +233,20 @@ impl ChatAccumulator {
     }
 
     fn delta(&mut self, event: &Value, payload: &str) -> Result<(), ChatStreamError> {
-        let index = index_field(event, payload)?;
+        let p = self.preview_chars;
+        let index = index_field(event, payload, p)?;
         let delta = event
             .get("delta")
-            .ok_or_else(|| malformed("content_block_delta without delta", payload))?;
-        let kind = str_field(delta, "type", payload)?;
+            .ok_or_else(|| malformed("content_block_delta without delta", payload, p))?;
+        let kind = str_field(delta, "type", payload, p)?;
         let block = self
             .blocks
             .get_mut(index)
             .and_then(Option::as_mut)
-            .ok_or_else(|| malformed("delta for a block that was never opened", payload))?;
+            .ok_or_else(|| malformed("delta for a block that was never opened", payload, p))?;
         match kind {
             "text_delta" => {
-                let text = str_field(delta, "text", payload)?;
+                let text = str_field(delta, "text", payload, p)?;
                 append_str(block, "text", text);
                 self.fresh_text.push_str(text);
             }
@@ -247,17 +254,19 @@ impl ChatAccumulator {
                 let citation = delta
                     .get("citation")
                     .cloned()
-                    .ok_or_else(|| malformed("citations_delta without citation", payload))?;
+                    .ok_or_else(|| malformed("citations_delta without citation", payload, p))?;
                 push_array(block, "citations", citation);
             }
             "thinking_delta" => {
-                append_str(block, "thinking", str_field(delta, "thinking", payload)?)
+                append_str(block, "thinking", str_field(delta, "thinking", payload, p)?)
             }
-            "signature_delta" => {
-                append_str(block, "signature", str_field(delta, "signature", payload)?)
-            }
+            "signature_delta" => append_str(
+                block,
+                "signature",
+                str_field(delta, "signature", payload, p)?,
+            ),
             "input_json_delta" => {
-                let part = str_field(delta, "partial_json", payload)?;
+                let part = str_field(delta, "partial_json", payload, p)?;
                 if let Some(buf) = self.tool_json.get_mut(index) {
                     buf.push_str(part);
                 }
@@ -279,12 +288,14 @@ impl ChatAccumulator {
     }
 
     fn close(&mut self, event: &Value, payload: &str) -> Result<(), ChatStreamError> {
-        let index = index_field(event, payload)?;
+        let p = self.preview_chars;
+        let index = index_field(event, payload, p)?;
         let json = self.tool_json.get(index).cloned().unwrap_or_default();
         let Some(Some(block)) = self.blocks.get_mut(index) else {
             return Err(malformed(
                 "content_block_stop for a block never opened",
                 payload,
+                p,
             ));
         };
         if block.get("type").and_then(Value::as_str) == Some(BLOCK_TOOL_USE) {
@@ -311,8 +322,9 @@ impl EventFold for ChatAccumulator {
     type Error = ChatStreamError;
 
     fn push(&mut self, payload: &str) -> Result<Progress, ChatStreamError> {
+        let p = self.preview_chars;
         let event: Value = serde_json::from_str(payload)
-            .map_err(|e| malformed(&format!("not JSON: {e}"), payload))?;
+            .map_err(|e| malformed(&format!("not JSON: {e}"), payload, p))?;
         self.events_seen += 1;
         self.fold(&event, payload)
     }
@@ -334,73 +346,6 @@ impl EventFold for ChatAccumulator {
             stop_reason,
             usage: self.usage,
         })
-    }
-}
-
-fn malformed(reason: &str, payload: &str) -> ChatStreamError {
-    ChatStreamError::Malformed {
-        reason: reason.to_string(),
-        preview: payload.chars().take(PREVIEW_CHARS).collect(),
-    }
-}
-
-fn str_field<'a>(v: &'a Value, key: &str, payload: &str) -> Result<&'a str, ChatStreamError> {
-    v.get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| malformed(&format!("missing string field `{key}`"), payload))
-}
-
-fn index_field(v: &Value, payload: &str) -> Result<usize, ChatStreamError> {
-    v.get("index")
-        .and_then(Value::as_u64)
-        .and_then(|i| usize::try_from(i).ok())
-        .ok_or_else(|| malformed("missing block index", payload))
-}
-
-fn grow(v: &mut Vec<Option<Value>>, index: usize) {
-    if v.len() <= index {
-        v.resize_with(index + 1, || None);
-    }
-}
-
-fn grow_strings(v: &mut Vec<String>, index: usize) {
-    if v.len() <= index {
-        v.resize_with(index + 1, String::new);
-    }
-}
-
-/// Set a field on a block object. A block is always an object (the protocol
-/// guarantees it, and `open` refused anything without a `type`), so a non-object
-/// here is unreachable; it is simply left untouched rather than panicking.
-fn set_field(block: &mut Value, key: &str, value: Value) {
-    if let Some(obj) = block.as_object_mut() {
-        obj.insert(key.to_string(), value);
-    }
-}
-
-fn append_str(block: &mut Value, key: &str, text: &str) {
-    if let Some(obj) = block.as_object_mut() {
-        let current = obj
-            .get(key)
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        obj.insert(key.to_string(), Value::String(current + text));
-    }
-}
-
-fn push_array(block: &mut Value, key: &str, item: Value) {
-    if let Some(obj) = block.as_object_mut() {
-        let entry = obj
-            .entry(key.to_string())
-            .or_insert_with(|| Value::Array(Vec::new()));
-        // A `null` citations field (the start block may carry one) becomes a list.
-        if !entry.is_array() {
-            *entry = Value::Array(Vec::new());
-        }
-        if let Some(list) = entry.as_array_mut() {
-            list.push(item);
-        }
     }
 }
 

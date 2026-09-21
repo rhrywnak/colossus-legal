@@ -87,10 +87,15 @@ impl ChatRunError {
                 tracing::error!(%question_id, by = username, %message, "question chat: not available");
                 AppError::ServiceUnavailable { message }
             }
-            Self::Store { .. } => {
+            Self::Store { operation, .. } => {
                 tracing::error!(%question_id, by = username, %message, "question chat: store failure");
+                // WHAT failed and WHERE, for the person reading it; the database's
+                // own words stay in the log line above.
                 AppError::Internal {
-                    message: "the discussion could not be completed".to_string(),
+                    message: format!(
+                        "the discussion for question {question_id} could not be read or saved \
+                         ({operation} failed) — reload the page and try again"
+                    ),
                 }
             }
         }
@@ -107,6 +112,23 @@ mod tests {
             .into_response()
             .status()
             .as_u16()
+    }
+
+    /// A store failure tells the person WHICH operation failed and what to do.
+    #[test]
+    fn a_store_failure_names_the_operation_and_the_remedy() {
+        let e = ChatRunError::Store {
+            operation: "append_message",
+            question_id: Uuid::nil(),
+            source: PipelineRepoError::from(sqlx::Error::RowNotFound),
+        };
+        match e.into_app_error(Uuid::nil(), "docmarie") {
+            AppError::Internal { message } => {
+                assert!(message.contains("append_message failed"), "{message}");
+                assert!(message.contains("reload the page"), "{message}");
+            }
+            other => panic!("expected Internal, got {other:?}"),
+        }
     }
 
     /// Every failure has its own status — never collapsed into one 500.
@@ -131,6 +153,16 @@ mod tests {
         );
         assert_eq!(status(ChatRunError::EngineOff), 503);
         assert_eq!(status(ChatRunError::ModelUnusable("x".into())), 503);
+        let unreadable = ChatRunError::FileUnreadable {
+            what: "the case narrative",
+            path: "/t/case_narrative_v1.md".into(),
+            detail: "the file is EMPTY".into(),
+        };
+        assert_eq!(
+            unreadable.to_string(),
+            "the case narrative could not be read from /t/case_narrative_v1.md: the file is EMPTY"
+        );
+        assert_eq!(status(unreadable), 503);
         assert_eq!(
             status(ChatRunError::Store {
                 operation: "x",

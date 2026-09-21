@@ -43,23 +43,8 @@ pub async fn threads_payload(
     let model = get_model_by_id(pool, &chat.model)
         .await
         .map_err(|e| store("get_model_by_id", question_id)(PipelineRepoError::from(e)))?;
-
-    // Participants in switcher order, the viewer first; then anyone else who has
-    // a thread (a login outside the bench is shown, never hidden).
-    let mut order = participants(&settings);
-    if let Some(i) = order.iter().position(|u| u == viewer) {
-        let me = order.remove(i);
-        order.insert(0, me);
-    } else {
-        order.insert(0, viewer.to_string());
-    }
-    for t in &stored {
-        if !order.contains(&t.username) {
-            order.push(t.username.clone());
-        }
-    }
     let today = short_day(Utc::now(), tz);
-    let threads = order
+    let threads = switcher_order(&participants(&settings), viewer, &stored)
         .iter()
         .map(|u| {
             row(
@@ -77,35 +62,60 @@ pub async fn threads_payload(
         .filter(|t| !t.is_viewer)
         .map(|t| t.display_name.clone())
         .collect();
-
-    let old = list_thread(pool, question_id)
-        .await
-        .map_err(store("list_thread", question_id))?;
-    let earlier = old.last().map(|last| EarlierRowDto {
-        message_count: i64::try_from(old.len()).unwrap_or(i64::MAX),
-        last_on: short_day(last.created_at, tz),
-        preview: last.text.clone(),
-    });
-
     Ok(ChatThreadsPayload {
         question_id: question_id.to_string(),
         viewer: viewer.to_string(),
-        model_short_name: model.as_ref().map_or_else(
-            || chat.model.clone(),
-            |m| {
-                m.display_name
-                    .strip_prefix(CHIP_DROPPED_PREFIX)
-                    .unwrap_or(&m.display_name)
-                    .to_string()
-            },
-        ),
+        model_short_name: model
+            .as_ref()
+            .map_or_else(|| chat.model.clone(), |m| chip_name(&m.display_name)),
         grounded: model.as_ref().is_some_and(|m| m.grounded && m.is_active),
         others,
         threads,
-        earlier,
+        earlier: earlier_row(state, question_id, tz).await?,
         client_idle_timeout_secs: chat.client_idle_timeout_secs,
         max_turns: chat.max_turns,
     })
+}
+
+/// Switcher order: the viewer first, then the case's participants, then anyone
+/// else who has a thread (a login outside the bench is shown, never hidden).
+pub fn switcher_order(
+    participants: &[String],
+    viewer: &str,
+    stored: &[ThreadSummary],
+) -> Vec<String> {
+    let mut order = vec![viewer.to_string()];
+    order.extend(participants.iter().filter(|u| *u != viewer).cloned());
+    for t in stored {
+        if !order.contains(&t.username) {
+            order.push(t.username.clone());
+        }
+    }
+    order
+}
+
+/// "Claude Opus 5" → "Opus 5" — the chip names the model, not the vendor.
+pub fn chip_name(display_name: &str) -> String {
+    display_name
+        .strip_prefix(CHIP_DROPPED_PREFIX)
+        .unwrap_or(display_name)
+        .to_string()
+}
+
+/// The Earlier team discussion row, when the question has old-dock rows.
+async fn earlier_row(
+    state: &AppState,
+    question_id: Uuid,
+    tz: &str,
+) -> Result<Option<EarlierRowDto>, ChatRunError> {
+    let old = list_thread(&state.pipeline_pool, question_id)
+        .await
+        .map_err(store("list_thread", question_id))?;
+    Ok(old.last().map(|last| EarlierRowDto {
+        message_count: i64::try_from(old.len()).unwrap_or(i64::MAX),
+        last_on: short_day(last.created_at, tz),
+        preview: last.text.clone(),
+    }))
 }
 
 fn row(
@@ -207,4 +217,42 @@ pub async fn earlier_payload(
             .map(|(i, t)| earlier_dto(t, i, tz))
             .collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn summary(username: &str) -> ThreadSummary {
+        ThreadSummary {
+            id: Uuid::nil(),
+            username: username.into(),
+            created_at: Utc::now(),
+            visible_count: 1,
+            last_seq: 1,
+            seen_seq: 0,
+            unread: 1,
+            last_text: None,
+        }
+    }
+
+    #[test]
+    fn the_viewer_leads_then_the_case_then_anyone_else_with_a_thread() {
+        let case = vec!["docmarie".to_string(), "cpenzien".into(), "roman".into()];
+        assert_eq!(
+            switcher_order(&case, "cpenzien", &[]),
+            vec!["cpenzien", "docmarie", "roman"]
+        );
+        // A login outside the case who has written is shown, never hidden.
+        assert_eq!(
+            switcher_order(&case, "docmarie", &[summary("akadmin"), summary("roman")]),
+            vec!["docmarie", "cpenzien", "roman", "akadmin"]
+        );
+    }
+
+    #[test]
+    fn the_chip_drops_the_vendor_prefix_only() {
+        assert_eq!(chip_name("Claude Opus 5"), "Opus 5");
+        assert_eq!(chip_name("Qwen 32B"), "Qwen 32B");
+    }
 }

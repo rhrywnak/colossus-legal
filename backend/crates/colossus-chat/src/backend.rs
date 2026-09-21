@@ -20,7 +20,7 @@ use crate::transport::{self, ResponseChunks, TransportError};
 /// The transport error at this crate's stream-error type.
 pub type ChatTransportError = TransportError<ChatStreamError>;
 
-/// CONST: the Messages endpoint path (protocol, not a setting).
+/// STRUCTURAL: the Messages endpoint path (protocol, not a setting).
 const MESSAGES_PATH: &str = "/v1/messages";
 
 /// Connection settings. Every value comes from the caller's configuration; the
@@ -41,6 +41,8 @@ pub struct EngineConfig {
     pub tcp_keepalive: Duration,
     /// Fail a call when no event completes in this window.
     pub idle_timeout: Duration,
+    /// How much of an error body or malformed event a failure quotes.
+    pub error_preview_chars: usize,
 }
 
 /// One streamed model call.
@@ -115,6 +117,9 @@ impl AnthropicBackend {
         let retry_after = response
             .headers()
             .get(transport::RETRY_AFTER)
+            // best-effort: a retry-after that is not ASCII is "the provider did
+            // not say" — the same `None` an absent header gives, and the status
+            // itself is still reported.
             .and_then(|v| v.to_str().ok())
             .map(str::to_string);
         // A body that cannot be read is reported as such, not as an empty body.
@@ -126,6 +131,7 @@ impl AnthropicBackend {
             status,
             retry_after.as_deref(),
             &text,
+            self.config.error_preview_chars,
         ))
     }
 }
@@ -141,7 +147,7 @@ impl ChatBackend for AnthropicBackend {
         let mut chunks = ResponseChunks::new(response);
         transport::drive(
             &mut chunks,
-            ChatAccumulator::new(),
+            ChatAccumulator::new(self.config.error_preview_chars),
             self.config.idle_timeout,
             |fold: &mut ChatAccumulator| {
                 let fresh = fold.take_text();

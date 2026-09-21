@@ -136,10 +136,14 @@ impl ChatTool for GetAnswerHistory {
     }
 }
 
+/// A page bound from the model's input. `None` = not given (or not a page number
+/// an `i32` can hold) and the range stays open on that side — the tool then
+/// returns every page, or names an empty range as an error.
 fn page_arg(input: &Value, key: &str) -> Option<i32> {
     input
         .get(key)
         .and_then(Value::as_i64)
+        // best-effort: a bound past i32 is no real page; treated as unbounded.
         .and_then(|n| i32::try_from(n).ok())
 }
 

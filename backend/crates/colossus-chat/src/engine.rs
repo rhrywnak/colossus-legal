@@ -29,7 +29,7 @@ use crate::request::{build_body, ChatRequest, Message, RequestError, Role};
 use crate::tools::ChatTool;
 use crate::usage::Usage;
 
-// CONST: stop_reason vocabulary (wire protocol).
+// STRUCTURAL: stop_reason vocabulary (wire protocol).
 const STOP_TOOL_USE: &str = "tool_use";
 const STOP_END_TURN: &str = "end_turn";
 const STOP_SEQUENCE: &str = "stop_sequence";

@@ -8,6 +8,9 @@
 //! as a warning naming the question, never swallowed (Standing Rule 1).
 
 use neo4rs::query;
+
+use crate::domain::chat_params::QuestionChatParams;
+use crate::neo4j::schema::CONTAINED_IN;
 use uuid::Uuid;
 
 use crate::domain::scenario_code::scenario_code;
@@ -29,13 +32,13 @@ use crate::services::chat_question_text::{package_documents, PackagedDocument};
 use crate::services::practice_page::point_receipt;
 use crate::state::AppState;
 
-/// CONST: the question-row side vocabulary (the column's CHECK) and how the model
-/// is told who asks. Protocol of this table, not case data: the CHECK itself
-/// fixes the two values.
-const SIDE_CROSS: &str = "george";
-const ASKER_CROSS: &str = "opposing counsel, on cross-examination";
-const ASKER_DIRECT: &str = "her own lawyer";
-/// CONST: the `source_kind` whose `source_ref` is a graph Evidence id.
+/// STRUCTURAL: the `practice_questions.kind` vocabulary (its CHECK) — schema,
+/// not case data; the words each kind is SPOKEN as are settings rows.
+const KIND_CROSS: &str = "cross";
+const KIND_DIRECT: &str = "direct";
+const KIND_REDIRECT: &str = "redirect";
+/// STRUCTURAL: the `source_kind` whose `source_ref` is a graph Evidence id (the
+/// column's CHECK vocabulary).
 const SOURCE_INSTANCE: &str = "instance";
 
 /// Everything one turn needs, gathered.
@@ -81,6 +84,16 @@ pub async fn require_question(
         .ok_or(ChatRunError::QuestionNotFound(question_id))
 }
 
+/// The rows the package is built from, read in one place.
+struct Rows {
+    scenario: crate::repositories::pipeline_repository::scenario_store::ScenarioRecord,
+    points: Vec<(i32, String, Option<String>)>,
+    attempts: Vec<crate::repositories::pipeline_repository::practice_notes::AttemptRecord>,
+    notes: Vec<crate::repositories::pipeline_repository::practice_notes::NoteRecord>,
+    earlier:
+        Vec<crate::repositories::pipeline_repository::practice_discussions::DiscussionTurnRecord>,
+}
+
 /// Gather the package for `viewer`'s turn on `question_id`.
 ///
 /// # Errors
@@ -91,65 +104,31 @@ pub async fn gather(
     viewer: &str,
 ) -> Result<Gathered, ChatRunError> {
     let settings = state.settings.current();
-    let pool = &state.pipeline_pool;
     let q = require_question(state, question_id).await?;
-    let scenario = get_scenario(pool, q.scenario_id)
-        .await
-        .map_err(store("get_scenario", question_id))?
-        .ok_or(ChatRunError::QuestionNotFound(question_id))?;
-    let points = list_points(pool, q.scenario_id)
-        .await
-        .map_err(store("list_points", question_id))?;
-    let seeded = list_point_receipts(pool, q.scenario_id)
-        .await
-        .map_err(store("list_point_receipts", question_id))?;
-    let attempts = attempts_for_question(pool, q.scenario_id, question_id)
-        .await
-        .map_err(store("attempts_for_question", question_id))?;
-    let notes = notes_for_question(pool, question_id)
-        .await
-        .map_err(store("notes_for_question", question_id))?
-        .into_iter()
-        .filter(|n| n.struck_at.is_none())
-        .collect();
-    let earlier = list_thread(pool, question_id)
-        .await
-        .map_err(store("list_thread", question_id))?;
+    let rows = read_rows(state, &q).await?;
     let siblings = sibling_threads(state, &settings, question_id, viewer).await?;
-    let corpus = load_corpus(pool)
+    let corpus = load_corpus(&state.pipeline_pool)
         .await
         .map_err(store("load_corpus", question_id))?;
     let primary = primary_document(state, &q).await;
-
     let read = &settings.practice_read;
-    let tactic_name = q
-        .tactic
-        .and_then(|t| usize::try_from(t).ok())
-        .and_then(|t| read.tactic_names.get(t.saturating_sub(1)).cloned());
+    let chat = &settings.question_chat;
     let context = QuestionContext {
-        scenario_code: scenario_code(scenario.code_ordinal),
+        scenario_code: scenario_code(rows.scenario.code_ordinal),
         question_text: q.text.clone(),
         kind: q.kind.clone(),
-        asker: if q.side == SIDE_CROSS {
-            ASKER_CROSS
-        } else {
-            ASKER_DIRECT
-        }
-        .to_string(),
-        tactic_name,
-        attack: scenario.theme_statement.clone(),
+        asker: asker_for(&q.kind, chat),
+        tactic_name: tactic_name(q.tactic, &read.tactic_names),
+        attack: rows.scenario.theme_statement.clone(),
         watch_for: q.watch_for.clone(),
-        points: points
-            .iter()
-            .map(|p| (p.position, p.text.clone(), point_receipt(p, &seeded)))
-            .collect(),
+        points: rows.points,
         pair_said: q.pair_said.clone(),
         pair_admitted: q.pair_admitted.clone(),
-        attempts,
-        notes,
+        attempts: rows.attempts,
+        notes: rows.notes,
         siblings,
-        earlier,
-        witness_name: settings.question_chat.witness_display_name.clone(),
+        earlier: rows.earlier,
+        witness_name: chat.witness_display_name.clone(),
         viewer_name: display_name(&settings, viewer),
         case_timezone: read.case_timezone.clone(),
     };
@@ -159,6 +138,79 @@ pub async fn gather(
         context,
         documents,
     })
+}
+
+/// The question's scenario, points with their receipts, answers, standing notes
+/// and the old dock's thread — every read named by operation.
+async fn read_rows(state: &AppState, q: &PracticeQuestionRecord) -> Result<Rows, ChatRunError> {
+    let pool = &state.pipeline_pool;
+    let id = q.id;
+    let scenario = get_scenario(pool, q.scenario_id)
+        .await
+        .map_err(store("get_scenario", id))?
+        .ok_or(ChatRunError::QuestionNotFound(id))?;
+    let points = list_points(pool, q.scenario_id)
+        .await
+        .map_err(store("list_points", id))?;
+    let seeded = list_point_receipts(pool, q.scenario_id)
+        .await
+        .map_err(store("list_point_receipts", id))?;
+    let attempts = attempts_for_question(pool, q.scenario_id, id)
+        .await
+        .map_err(store("attempts_for_question", id))?;
+    let notes = notes_for_question(pool, id)
+        .await
+        .map_err(store("notes_for_question", id))?
+        .into_iter()
+        .filter(|n| n.struck_at.is_none())
+        .collect();
+    let earlier = list_thread(pool, id)
+        .await
+        .map_err(store("list_thread", id))?;
+    Ok(Rows {
+        scenario,
+        points: points
+            .iter()
+            .map(|p| (p.position, p.text.clone(), point_receipt(p, &seeded)))
+            .collect(),
+        attempts,
+        notes,
+        earlier,
+    })
+}
+
+/// How the model is told who asks — by the question's KIND, in the configured
+/// words (`question_chat_asker_*`). A kind this build does not know is named to
+/// the model as itself and logged, never silently read as one of the three.
+pub fn asker_for(kind: &str, chat: &QuestionChatParams) -> String {
+    match kind {
+        KIND_CROSS => chat.asker_cross.clone(),
+        KIND_DIRECT => chat.asker_direct.clone(),
+        KIND_REDIRECT => chat.asker_redirect.clone(),
+        other => {
+            tracing::warn!(
+                kind = other,
+                "question chat: a question kind with no configured asker"
+            );
+            other.to_string()
+        }
+    }
+}
+
+/// The tactic card's name, or `None` for a question without one. A number outside
+/// the stored vocabulary is logged — the column's CHECK makes it unreachable.
+pub fn tactic_name(tactic: Option<i16>, names: &[String]) -> Option<String> {
+    let card = tactic?;
+    // best-effort: a negative card number (impossible under the column's CHECK)
+    // falls through to the warning below rather than being silently dropped.
+    let name = usize::try_from(card)
+        .ok()
+        .and_then(|n| n.checked_sub(1))
+        .and_then(|i| names.get(i).cloned());
+    if name.is_none() {
+        tracing::warn!(card, "question chat: a tactic card with no stored name");
+    }
+    name
 }
 
 /// Every OTHER person's thread on this question, as speaker/text lines.
@@ -206,13 +258,21 @@ async fn primary_document(state: &AppState, q: &PracticeQuestionRecord) -> Optio
         (SOURCE_INSTANCE, Some(r)) => r.to_string(),
         _ => return None,
     };
-    let cypher = query(
-        "MATCH (e {id: $id})-[:CONTAINED_IN]->(d:Document) RETURN d.source_document_id AS doc LIMIT 1",
-    )
+    let cypher = query(&format!(
+        "MATCH (e {{id: $id}})-[:{CONTAINED_IN}]->(d:Document) \
+         RETURN d.source_document_id AS doc LIMIT 1"
+    ))
     .param("id", evidence_id.clone());
     match state.graph.execute(cypher).await {
         Ok(mut rows) => match rows.next().await {
-            Ok(Some(row)) => row.get::<String>("doc").ok(),
+            Ok(Some(row)) => match row.get::<String>("doc") {
+                Ok(doc) => Some(doc),
+                Err(e) => {
+                    tracing::warn!(question_id = %q.id, %evidence_id, error = %e,
+                        "question chat: the source Document has no source_document_id; no primary document");
+                    None
+                }
+            },
             Ok(None) => {
                 tracing::warn!(question_id = %q.id, %evidence_id,
                     "question chat: the question's source Evidence node is not in the graph; no primary document");
@@ -229,5 +289,59 @@ async fn primary_document(state: &AppState, q: &PracticeQuestionRecord) -> Optio
                 "question chat: the graph could not be asked for the primary document; the corpus is still complete");
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::settings::Settings;
+
+    /// The fixture's bench is one reviewer; the case has two. Widen it as the
+    /// seeded store has it.
+    fn settings() -> Settings {
+        let mut s = Settings::for_test();
+        s.practice_read.reviewer_usernames = vec!["cpenzien".into(), "roman".into()];
+        s.practice_read.reviewer_display_names = vec!["Chuck".into(), "Roman".into()];
+        s
+    }
+
+    #[test]
+    fn display_name_resolves_the_witness_the_bench_and_anyone_else() {
+        let s = settings();
+        assert_eq!(display_name(&s, "docmarie"), "Marie");
+        assert_eq!(display_name(&s, "cpenzien"), "Chuck");
+        assert_eq!(display_name(&s, "roman"), "Roman");
+        // Someone outside the case is shown by login — never wrong, never blank.
+        assert_eq!(display_name(&s, "akadmin"), "akadmin");
+    }
+
+    #[test]
+    fn participants_are_the_witness_then_the_bench_in_order() {
+        assert_eq!(
+            participants(&settings()),
+            vec!["docmarie", "cpenzien", "roman"]
+        );
+    }
+
+    #[test]
+    fn the_asker_comes_from_the_kind_in_configured_words() {
+        let chat = QuestionChatParams::for_test();
+        assert_eq!(asker_for("cross", &chat), chat.asker_cross);
+        assert_eq!(asker_for("direct", &chat), chat.asker_direct);
+        assert_eq!(asker_for("redirect", &chat), chat.asker_redirect);
+        // An unknown kind is named as itself — never silently read as another.
+        assert_eq!(asker_for("voir_dire", &chat), "voir_dire");
+    }
+
+    #[test]
+    fn tactic_names_are_one_based_and_out_of_range_is_none() {
+        let names = vec!["Bait".to_string(), "Loop".to_string()];
+        assert_eq!(tactic_name(Some(1), &names).as_deref(), Some("Bait"));
+        assert_eq!(tactic_name(Some(2), &names).as_deref(), Some("Loop"));
+        assert_eq!(tactic_name(Some(3), &names), None);
+        assert_eq!(tactic_name(Some(0), &names), None);
+        assert_eq!(tactic_name(Some(-1), &names), None);
+        assert_eq!(tactic_name(None, &names), None);
     }
 }

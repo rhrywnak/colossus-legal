@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 
 /// `GET /chat/question/:question_id/threads` — the switcher and the header.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ChatThreadsPayload {
     pub question_id: String,
     /// The signed-in login.
@@ -30,6 +31,7 @@ pub struct ChatThreadsPayload {
 
 /// One row of the switcher.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct ThreadRowDto {
     pub username: String,
     pub display_name: String,
@@ -47,6 +49,7 @@ pub struct ThreadRowDto {
 
 /// The Earlier team discussion row.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct EarlierRowDto {
     pub message_count: i64,
     /// The last message's day, e.g. `Sep 17`.
@@ -56,6 +59,7 @@ pub struct EarlierRowDto {
 
 /// `GET …/threads/:username` or `GET …/earlier` — one thread's messages.
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ThreadPayload {
     pub username: Option<String>,
     pub display_name: String,
@@ -65,6 +69,7 @@ pub struct ThreadPayload {
 
 /// One message as the thread shows it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct MessageDto {
     pub seq: i32,
     /// `user` or `assistant`.
@@ -81,6 +86,7 @@ pub struct MessageDto {
 
 /// A run of prose and the cards that back it.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct SegmentDto {
     pub text: String,
     pub cards: Vec<CitationCardDto>,
@@ -89,6 +95,7 @@ pub struct SegmentDto {
 /// A citation card: the document's name and date, and the passage — sliced from
 /// the STORED document, never composed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct CitationCardDto {
     pub document_title: String,
     pub document_date: Option<String>,
@@ -112,6 +119,7 @@ pub struct MarkReadRequest {
 
 /// A stored citation card (the `discussion_messages.citations` JSONB element).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
 pub struct StoredCard {
     /// Which content block of the message it annotates.
     pub block_index: usize,

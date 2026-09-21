@@ -1,6 +1,6 @@
 //! The question chat's parameters (CC_TASK_CHAT_ENGINE_v1).
 //!
-//! Twelve stored values that decide which model answers, what it is told, and the
+//! Sixteen stored values that decide which model answers, what it is told, and the
 //! bounds on one reply. They live in their own block — not as fields on
 //! `Settings` and not inside `PracticeReadParams` — because they configure a
 //! different conversation from the one-shot read, and because `settings.rs` and
@@ -46,6 +46,13 @@ pub struct QuestionChatParams {
     pub client_idle_timeout_secs: u32,
     /// The witness's name on threads and in the package (case data).
     pub witness_display_name: String,
+    /// How the model is told who asks, per question kind — model-facing prose.
+    pub asker_cross: String,
+    pub asker_direct: String,
+    pub asker_redirect: String,
+    /// How much of an error body / malformed event a failure quotes. Read at
+    /// boot, when the engine is built.
+    pub error_preview_chars: u32,
 }
 
 // KEYS: the stable identifiers. Renaming one is a migration.
@@ -63,6 +70,10 @@ pub const KEY_QUESTION_CHAT_MAX_TURNS: &str = "question_chat_max_turns";
 pub const KEY_QUESTION_CHAT_CLIENT_IDLE_TIMEOUT_SECS: &str =
     "question_chat_client_idle_timeout_secs";
 pub const KEY_CHAT_WITNESS_DISPLAY_NAME: &str = "chat_witness_display_name";
+pub const KEY_QUESTION_CHAT_ASKER_CROSS: &str = "question_chat_asker_cross";
+pub const KEY_QUESTION_CHAT_ASKER_DIRECT: &str = "question_chat_asker_direct";
+pub const KEY_QUESTION_CHAT_ASKER_REDIRECT: &str = "question_chat_asker_redirect";
+pub const KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS: &str = "question_chat_error_preview_chars";
 
 /// The smallest compaction trigger the API accepts (its documented minimum).
 ///
@@ -84,6 +95,10 @@ pub const QUESTION_CHAT_PARAM_KEYS: &[&str] = &[
     KEY_QUESTION_CHAT_MAX_TURNS,
     KEY_QUESTION_CHAT_CLIENT_IDLE_TIMEOUT_SECS,
     KEY_CHAT_WITNESS_DISPLAY_NAME,
+    KEY_QUESTION_CHAT_ASKER_CROSS,
+    KEY_QUESTION_CHAT_ASKER_DIRECT,
+    KEY_QUESTION_CHAT_ASKER_REDIRECT,
+    KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS,
 ];
 
 #[cfg(test)]
@@ -98,6 +113,18 @@ impl QuestionChatParams {
             (KEY_QUESTION_CHAT_EFFORT, "high"),
             (KEY_QUESTION_CHAT_CACHE_TTL, "1h"),
             (KEY_CHAT_WITNESS_DISPLAY_NAME, "Marie"),
+            (
+                KEY_QUESTION_CHAT_ASKER_CROSS,
+                "opposing counsel, on cross-examination",
+            ),
+            (
+                KEY_QUESTION_CHAT_ASKER_DIRECT,
+                "the witness's own lawyer, on direct examination",
+            ),
+            (
+                KEY_QUESTION_CHAT_ASKER_REDIRECT,
+                "the witness's own lawyer, on redirect",
+            ),
         ]
         .into_iter()
         .map(|(k, v)| (k, v.to_string()))
@@ -105,8 +132,9 @@ impl QuestionChatParams {
     }
 
     /// The seeded COUNT rows with their bounds: `(key, value, min, max)`.
-    pub fn for_test_count_rows() -> [(&'static str, &'static str, f64, f64); 6] {
+    pub fn for_test_count_rows() -> [(&'static str, &'static str, f64, f64); 7] {
         [
+            (KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS, "500", 50.0, 20000.0),
             (KEY_QUESTION_CHAT_MAX_TOKENS, "16000", 256.0, 64000.0),
             (KEY_QUESTION_CHAT_MAX_TOOL_ROUNDS, "6", 1.0, 20.0),
             (
@@ -146,6 +174,10 @@ impl QuestionChatParams {
             max_turns: 200,
             client_idle_timeout_secs: 150,
             witness_display_name: "Marie".into(),
+            asker_cross: "opposing counsel, on cross-examination".into(),
+            asker_direct: "the witness's own lawyer, on direct examination".into(),
+            asker_redirect: "the witness's own lawyer, on redirect".into(),
+            error_preview_chars: 500,
         }
     }
 }

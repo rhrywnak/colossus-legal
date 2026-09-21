@@ -18,7 +18,7 @@ use uuid::Uuid;
 
 use super::PipelineRepoError;
 
-/// CONST: the one anchor type this build writes (the column's CHECK vocabulary).
+/// STRUCTURAL: the one anchor type this build writes (the column's CHECK vocabulary).
 pub const ANCHOR_QUESTION: &str = "question";
 
 /// A thread's header row.
@@ -76,6 +76,10 @@ pub struct NewMessage {
     pub cache_read_tokens: Option<i32>,
     pub ms: Option<i32>,
     pub failure: Option<String>,
+    /// The failure's full sentence, stored so the row says WHY by itself.
+    pub failure_detail: Option<String>,
+    /// The resolved configuration the turn ran under (last assistant row only).
+    pub run_config: Option<Value>,
 }
 
 /// One stored document with its text, page by page.
@@ -207,8 +211,10 @@ pub async fn append_message(
     let (seq,): (i32,) = sqlx::query_as(
         "INSERT INTO discussion_messages \
             (discussion_id, seq, role, content, rendered_text, citations, model, stop_reason, \
-             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, ms, failure) \
-         SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13 \
+             input_tokens, output_tokens, cache_creation_tokens, cache_read_tokens, ms, failure, \
+             failure_detail, run_config) \
+         SELECT $1, COALESCE(MAX(seq), 0) + 1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, \
+                $14, $15 \
            FROM discussion_messages WHERE discussion_id = $1 \
          RETURNING seq",
     )
@@ -225,6 +231,8 @@ pub async fn append_message(
     .bind(m.cache_read_tokens)
     .bind(m.ms)
     .bind(&m.failure)
+    .bind(&m.failure_detail)
+    .bind(&m.run_config)
     .fetch_one(pool)
     .await?;
     Ok(seq)

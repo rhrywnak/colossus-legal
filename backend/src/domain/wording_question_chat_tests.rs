@@ -53,6 +53,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_REFUSED, "The model declined to answer that. Your message is saved above — try putting it another way."),
     (KEY_TRUNCATED, "The reply ran past its length limit and is not shown. Your message is saved above — send again to retry."),
     (KEY_LOAD_FAILED, "The discussion could not be loaded."),
+    (KEY_READ_MARK_FAILED, "Your place in this thread could not be saved — its messages may show as new again."),
     (KEY_CAP_REACHED_TEMPLATE, "This thread has reached its limit of {max} replies."),
 ];
 

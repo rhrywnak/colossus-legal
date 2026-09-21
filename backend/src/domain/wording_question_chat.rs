@@ -17,7 +17,7 @@
 //
 // The KEY list, struct, builder and the test fixture were emitted from the
 // migration's INSERT (`20260921140958_chat_discussions_and_grounded_flag.sql`),
-// so the four copies of 41 strings cannot drift by a typo.
+// so the four copies of 42 strings cannot drift by a typo.
 
 /// The words the discussion panel speaks.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,6 +102,8 @@ pub struct QuestionChatWording {
     pub truncated: String,
     /// Shown when the threads cannot be read.
     pub load_failed: String,
+    /// Shown when opening a thread could not move your read mark (the unread badge would stay lit).
+    pub read_mark_failed: String,
     /// Shown when question_chat_max_turns is reached; the message is not sent.
     pub cap_reached_template: String,
 }
@@ -147,6 +149,7 @@ pub(crate) const KEY_STALLED: &str = "practice_chat_stalled";
 pub(crate) const KEY_REFUSED: &str = "practice_chat_refused";
 pub(crate) const KEY_TRUNCATED: &str = "practice_chat_truncated";
 pub(crate) const KEY_LOAD_FAILED: &str = "practice_chat_load_failed";
+pub(crate) const KEY_READ_MARK_FAILED: &str = "practice_chat_read_mark_failed";
 pub(crate) const KEY_CAP_REACHED_TEMPLATE: &str = "practice_chat_cap_reached_template";
 
 /// Every panel key this build reads, so a missing one is caught at boot BY NAME.
@@ -191,6 +194,7 @@ pub const QUESTION_CHAT_WORDING_KEYS: &[&str] = &[
     KEY_REFUSED,
     KEY_TRUNCATED,
     KEY_LOAD_FAILED,
+    KEY_READ_MARK_FAILED,
     KEY_CAP_REACHED_TEMPLATE,
 ];
 
@@ -244,6 +248,7 @@ pub fn build_question_chat_wording<E>(
         refused: read(KEY_REFUSED)?,
         truncated: read(KEY_TRUNCATED)?,
         load_failed: read(KEY_LOAD_FAILED)?,
+        read_mark_failed: read(KEY_READ_MARK_FAILED)?,
         cap_reached_template: read(KEY_CAP_REACHED_TEMPLATE)?,
     })
 }

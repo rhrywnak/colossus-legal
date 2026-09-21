@@ -86,6 +86,7 @@ fn config(base_url: String) -> EngineConfig {
         connect_timeout: Duration::from_secs(5),
         tcp_keepalive: Duration::from_secs(30),
         idle_timeout: Duration::from_secs(5),
+        error_preview_chars: 500,
     }
 }
 

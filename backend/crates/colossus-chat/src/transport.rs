@@ -40,22 +40,15 @@ use crate::sse::{SseDecoder, SseError};
 
 /// HTTP status meaning "rate limited" (`rate_limit_error`).
 ///
-/// CONST: an HTTP status code — protocol vocabulary, not a setting.
+/// STRUCTURAL: an HTTP status code — protocol vocabulary, not a setting.
 const STATUS_TOO_MANY_REQUESTS: u16 = 429;
 
 /// HTTP status Anthropic returns for `overloaded_error`.
 ///
-/// CONST: Anthropic's documented overload status. Grouped with 429 because both
+/// STRUCTURAL: Anthropic's documented overload status. Grouped with 429 because both
 /// mean the SAME operational thing — the request was refused at the front door
 /// and no generation began. See [`RejectionKind`].
 const STATUS_OVERLOADED: u16 = 529;
-
-/// How much of a non-2xx response body is carried into the error message.
-///
-/// CONST: error-message ergonomics. Anthropic error bodies are small JSON
-/// objects; the cap exists so an HTML error page from an intercepting proxy
-/// cannot flood a stored error column.
-pub const ERROR_BODY_PREVIEW_CHARS: usize = 500;
 
 /// The response header carrying the provider's requested backoff, in seconds.
 /// Exposed so the one spelling lives in one place.
@@ -163,7 +156,7 @@ pub enum TransportError<E: std::error::Error + 'static> {
     Status {
         /// The HTTP status code.
         status: u16,
-        /// The response body, truncated to [`ERROR_BODY_PREVIEW_CHARS`].
+        /// The response body, truncated to the caller's preview length.
         body: String,
     },
 
@@ -217,9 +210,11 @@ pub fn parse_retry_after(raw: Option<&str>) -> Option<u64> {
     raw.and_then(|value| value.trim().parse::<u64>().ok())
 }
 
-/// Truncate a response body for inclusion in an error message.
-pub fn preview_body(body: &str) -> String {
-    body.chars().take(ERROR_BODY_PREVIEW_CHARS).collect()
+/// Truncate a response body for inclusion in an error message. `max` is the
+/// caller's configuration: an HTML error page from an intercepting proxy must not
+/// flood a stored error column, and how much is enough is the caller's call.
+pub fn preview_body(body: &str, max: usize) -> String {
+    body.chars().take(max).collect()
 }
 
 /// Classify a non-success HTTP status into a [`TransportError`].
@@ -232,6 +227,7 @@ pub fn classify_status<E: std::error::Error + 'static>(
     status: u16,
     retry_after: Option<&str>,
     body: &str,
+    preview_max: usize,
 ) -> TransportError<E> {
     let kind = match status {
         STATUS_TOO_MANY_REQUESTS => Some(RejectionKind::RateLimited),
@@ -245,7 +241,7 @@ pub fn classify_status<E: std::error::Error + 'static>(
         },
         None => TransportError::Status {
             status,
-            body: preview_body(body),
+            body: preview_body(body, preview_max),
         },
     }
 }

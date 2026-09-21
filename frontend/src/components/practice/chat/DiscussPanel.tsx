@@ -88,10 +88,12 @@ const DiscussPanel: React.FC<Props> = (props) => {
         setMessages(t.messages);
         const last = t.messages[t.messages.length - 1];
         if (selection.kind === "thread" && last !== undefined) {
-          markChatRead(questionId, selection.username, last.seq).catch((cause: unknown) =>
-            // The badge stays lit; the thread itself is fine. Logged, not shown.
-            console.error("question chat: the read mark could not be moved", cause),
-          );
+          markChatRead(questionId, selection.username, last.seq).catch((cause: unknown) => {
+            // The thread itself is fine; the badge would stay lit. Said on screen,
+            // because a count that silently stops clearing looks like new messages.
+            console.error("question chat: the read mark could not be moved", cause);
+            if (live) setProblem(w("chat_read_mark_failed"));
+          });
         }
       })
       .catch((cause: unknown) => {
@@ -136,7 +138,12 @@ const DiscussPanel: React.FC<Props> = (props) => {
         // The server's copy replaces the optimistic one, with the reply after it.
         loadThread(questionId, selection)
           .then((t) => setMessages(t.messages))
-          .catch((cause: unknown) => console.error("question chat: reload after send failed", cause));
+          .catch((cause: unknown) => {
+            // The reply is stored; what failed is reading it back. Said on screen so
+            // a stale thread is never mistaken for a reply that did not come.
+            console.error("question chat: reload after send failed", cause);
+            setProblem(w("chat_load_failed"));
+          });
         refreshThreads();
       });
   };

@@ -195,10 +195,13 @@ function parseBlock(block: string): ChatStreamEvent | null {
   try {
     return { event: name, data: JSON.parse(data.join("\n")) } as ChatStreamEvent;
   } catch (cause) {
-    // A malformed event is said out loud and dropped; the stream's `done` or
-    // `failed` still settles the send.
+    // A malformed event becomes a FAILED event, so the panel shows the failure
+    // sentence instead of a reply that silently lost part of itself.
     console.error("question chat: an event could not be parsed", name, cause);
-    return null;
+    return {
+      event: "failed",
+      data: { failure: "failed", detail: `the server sent a malformed "${name}" event`, messages: [] },
+    };
   }
 }
 

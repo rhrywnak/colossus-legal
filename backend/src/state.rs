@@ -183,7 +183,7 @@ pub struct AppState {
     /// The question chat's engine (CC_TASK_CHAT_ENGINE_v1): ONE HTTP client for
     /// every chat turn, built at boot. `None` when there is no `ANTHROPIC_API_KEY`
     /// — every chat request then answers a named 503 instead of failing in flight.
-    pub chat_engine: Option<Arc<colossus_chat::AnthropicBackend>>,
+    pub chat_engine: Option<Arc<dyn colossus_chat::ChatBackend>>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
