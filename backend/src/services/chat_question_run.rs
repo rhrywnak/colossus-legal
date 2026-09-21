@@ -132,6 +132,9 @@ pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
         "asker_cross": chat.asker_cross,
         "asker_direct": chat.asker_direct,
         "asker_redirect": chat.asker_redirect,
+        "ai_display_name": chat.ai_display_name,
+        // The size guard's divisor: a refusal is diagnosable from the row alone.
+        "chars_per_token": chat.chars_per_token,
     })
 }
 
@@ -306,5 +309,7 @@ mod tests {
             "the witness's own lawyer, on direct examination"
         );
         assert_eq!(c["asker_redirect"], "the witness's own lawyer, on redirect");
+        assert_eq!(c["ai_display_name"], "The AI");
+        assert_eq!(c["chars_per_token"], 3);
     }
 }
