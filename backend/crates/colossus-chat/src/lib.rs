@@ -17,6 +17,28 @@
 //!
 //! - [`sse`] — `text/event-stream` framing (shared with the extraction engine).
 //! - [`transport`] — the idle-timeout stream driver (shared with the extraction engine).
+//! - [`request`] — the caller's request and the Messages body built from it.
+//! - [`accumulate`] — full-fidelity reassembly of a streamed assistant message.
+//! - [`usage`] — token accounting including cache reads and writes.
+//! - [`citation`] — every quotation checked against the caller's stored text.
+//! - [`tools`] — the tool contract.
+//! - [`backend`] — one streamed call over HTTP, behind a trait.
+//! - [`engine`] — the bounded tool loop that runs one conversational turn.
 
+pub mod accumulate;
+pub mod backend;
+pub mod citation;
+pub mod engine;
+pub mod request;
 pub mod sse;
+pub mod tools;
 pub mod transport;
+pub mod usage;
+
+pub use accumulate::{AssistantMessage, ChatStreamError};
+pub use backend::{AnthropicBackend, ChatBackend, ChatTransportError, EngineConfig};
+pub use citation::{RejectedCitation, VerifiedCitation};
+pub use engine::{run_turn, ChatError, ChatEvent, ChatOutcome};
+pub use request::{CacheTtl, ChatDocument, ChatRequest, Message, RequestError, Role, ToolSpec};
+pub use tools::ChatTool;
+pub use usage::Usage;
