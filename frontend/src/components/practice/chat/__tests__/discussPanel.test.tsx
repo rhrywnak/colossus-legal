@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { SseParser, type ChatMessage, type ChatThreads, type ThreadRow } from "../../../../services/questionChat";
-import { Header } from "../DiscussChrome";
+import { Header, headerLine } from "../DiscussChrome";
 import DiscussMessages from "../DiscussMessages";
 import DiscussSwitcher from "../DiscussSwitcher";
 import {
@@ -287,5 +287,94 @@ describe("the side panel's close button", () => {
 
   it("is absent in full screen, which keeps Back and Collapse on its strip", () => {
     expect(header(true)).not.toContain("Close discussion");
+  });
+});
+
+// v2.2.2 — the header's second line, per selection (PROD S-11 defect).
+describe("the side header's line under the controls", () => {
+  const earlier = { kind: "earlier" as const };
+  const OWN = "Chuck and Roman can read this thread · resumed from Sep 19";
+  const EARLIER = WORDS.chat_earlier_readonly_line;
+  const OTHER = WORDS.chat_readonly_line;
+  const draw = (selection: Parameters<typeof headerLine>[2], full = false) =>
+    renderToStaticMarkup(
+      <Header
+        w={w}
+        threads={threads()}
+        selection={selection}
+        full={full}
+        onSelect={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+  it("shows who can read it on the viewer's own thread", () => {
+    expect(headerLine(w, threads(), mine)).toBe(OWN);
+    expect(draw(mine)).toContain(OWN);
+  });
+
+  it("shows nothing on another person's thread — the footer says it", () => {
+    expect(headerLine(w, threads(), chucks)).toBeNull();
+    expect(draw(chucks)).not.toContain(OTHER);
+  });
+
+  it("shows nothing on the earlier discussion — the footer says it", () => {
+    expect(headerLine(w, threads(), earlier)).toBeNull();
+    expect(draw(earlier)).not.toContain(EARLIER);
+  });
+
+  it("keeps the line OUT of the controls row, so it can never be squeezed", () => {
+    const html = draw(mine);
+    // The row ends with the close button; the line comes after the row closes.
+    expect(html.indexOf('aria-label="Close discussion"')).toBeLessThan(html.indexOf(OWN));
+    expect(html).toMatch(/<\/button><\/div><div[^>]*>Chuck and Roman can read this thread/);
+  });
+
+  it("leaves full screen as it was: one row, no line", () => {
+    for (const selection of [mine, chucks, earlier]) {
+      const html = draw(selection, true);
+      expect(html).not.toContain(OWN);
+      expect(html).not.toContain(EARLIER);
+      expect(html).not.toContain(OTHER);
+      expect(html).not.toContain("Close discussion");
+    }
+  });
+});
+
+// v2.2.2 GO — on a narrow panel the switcher's LABEL gives way, never the buttons.
+describe("the switcher on a narrow panel", () => {
+  const html = renderToStaticMarkup(
+    <DiscussSwitcher w={w} threads={threads()} selection={{ kind: "earlier" }} onSelect={() => {}} />,
+  );
+
+  it("puts the label in its own ellipsizing element", () => {
+    expect(html).toMatch(
+      /<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">Earlier team discussion<\/span>/,
+    );
+  });
+
+  it("lets the button shrink, and keeps the full label readable in its title", () => {
+    expect(html).toMatch(/aria-label="Switch thread"[^>]*title="Earlier team discussion"/);
+    // The anchor shrinks, AND the button is capped to it — uncapped, the button
+    // kept its content width and painted over the expand button (seen live).
+    expect(html).toMatch(/<div style="position:relative;min-width:0;flex-shrink:1">/);
+    expect(html).toMatch(/<button[^>]*style="[^"]*min-width:0;max-width:100%;flex-shrink:1/);
+  });
+
+  it("makes the model chip give way before the thread's name", () => {
+    const header = renderToStaticMarkup(
+      <Header
+        w={w}
+        threads={threads()}
+        selection={{ kind: "earlier" }}
+        full={false}
+        onSelect={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(header).toMatch(/min-width:0;flex-shrink:3;overflow:hidden;text-overflow:ellipsis/);
+    expect(header).toMatch(/title="Opus 5 · grounded"/);
   });
 });

@@ -11,7 +11,7 @@ import React from "react";
 
 import type { ChatThreads } from "../../../services/questionChat";
 import DiscussSwitcher from "./DiscussSwitcher";
-import { chipText, type Selection, visibilityLine, type Words } from "./discussPanelView";
+import { chipText, rowFor, type Selection, visibilityLine, type Words } from "./discussPanelView";
 import * as st from "./discussPanelStyles";
 
 const ExpandIcon = () => (
@@ -47,6 +47,21 @@ const BackIcon = () => (
   </svg>
 );
 
+/**
+ * The side header's line under the top row, or `null` for none (v2.2.2).
+ *
+ * Only on the VIEWER's OWN thread, where it says who can read what she writes.
+ * On a read-only selection — the earlier discussion, or someone else's thread —
+ * the composer footer already shows the read-only sentence, and the header
+ * repeating it put the same words on screen twice.
+ */
+export function headerLine(w: Words, threads: ChatThreads, selection: Selection): string | null {
+  if (selection.kind === "earlier") return null;
+  const row = rowFor(threads, selection);
+  if (row !== null && !row.is_viewer) return null;
+  return visibilityLine(w, threads, selection);
+}
+
 export const Header: React.FC<{
   w: Words;
   threads: ChatThreads;
@@ -56,42 +71,54 @@ export const Header: React.FC<{
   onExpand: () => void;
   /** Shuts the panel and drops `?discuss` — side mode only. */
   onClose: () => void;
-}> = ({ w, threads, selection, full, onSelect, onExpand, onClose }) => (
-  <div style={full ? st.headerFull : st.header}>
-    <DiscussSwitcher w={w} threads={threads} selection={selection} onSelect={onSelect} />
-    {full ? (
+}> = ({ w, threads, selection, full, onSelect, onExpand, onClose }) => {
+  // One row of controls, identical in both modes: switcher · spacer · chip ·
+  // (side only) expand · close. The spacer takes the slack, so no text is ever
+  // squeezed into what is left between the controls.
+  const controls = (
+    <>
+      <DiscussSwitcher w={w} threads={threads} selection={selection} onSelect={onSelect} />
       <div style={{ flexGrow: 1 }} />
-    ) : (
-      <div style={st.visibility}>
-        <div style={st.visibilityText}>{visibilityLine(w, threads, selection)}</div>
-      </div>
-    )}
-    {threads.grounded && <div style={st.chip}>{chipText(w, threads)}</div>}
-    {!full && (
-      <button
-        type="button"
-        aria-label={w("chat_expand_label")}
-        title={w("chat_expand_label")}
-        style={st.iconButton}
-        onClick={onExpand}
-      >
-        <ExpandIcon />
-      </button>
-    )}
-    {/* Side mode only: full screen already has Back and Collapse on its strip. */}
-    {!full && (
-      <button
-        type="button"
-        aria-label={w("chat_close_label")}
-        title={w("chat_close_label")}
-        style={st.iconButton}
-        onClick={onClose}
-      >
-        <CloseIcon />
-      </button>
-    )}
-  </div>
-);
+      {threads.grounded && (
+        <div style={st.chip} title={chipText(w, threads)}>
+          {chipText(w, threads)}
+        </div>
+      )}
+      {!full && (
+        <button
+          type="button"
+          aria-label={w("chat_expand_label")}
+          title={w("chat_expand_label")}
+          style={st.iconButton}
+          onClick={onExpand}
+        >
+          <ExpandIcon />
+        </button>
+      )}
+      {/* Side mode only: full screen already has Back and Collapse on its strip. */}
+      {!full && (
+        <button
+          type="button"
+          aria-label={w("chat_close_label")}
+          title={w("chat_close_label")}
+          style={st.iconButton}
+          onClick={onClose}
+        >
+          <CloseIcon />
+        </button>
+      )}
+    </>
+  );
+  // Full screen: unchanged — one row, no visibility line.
+  if (full) return <div style={st.headerFull}>{controls}</div>;
+  const line = headerLine(w, threads, selection);
+  return (
+    <div style={st.headerSide}>
+      <div style={st.headerRow}>{controls}</div>
+      {line !== null && <div style={st.visibilityText}>{line}</div>}
+    </div>
+  );
+};
 
 export const Strip: React.FC<{
   w: Words;

@@ -72,10 +72,20 @@ export const switcherButton: CSSProperties = {
   fontWeight: 700,
   color: "var(--chat-ink)",
   whiteSpace: "nowrap",
-  flexShrink: 0,
+  // v2.2.2 GO: the switcher gives way on a narrow panel — its label ellipsizes
+  // (switcherLabelText) so the expand and close buttons never leave the panel.
+  // `maxWidth` too: a button sizes to its content unless capped, and uncapped it
+  // spilled over the expand button while its anchor shrank beneath it.
+  minWidth: 0, maxWidth: "100%",
+  flexShrink: 1,
 };
+export const switcherLabelText: CSSProperties = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", minWidth: 0 };
 export const switcherButtonOpen: CSSProperties = { ...switcherButton, border: "1px solid var(--chat-accent-dark)" };
-export const visibility: CSSProperties = { flexGrow: 1, display: "flex", flexDirection: "column", gap: 2 };
+// v2.2.2: the side header is a COLUMN — a top row that never wraps text, then the
+// visibility line on its own full-width line. It used to share the row with the
+// switcher, chip and two buttons, and a long line was squeezed to ~70px (PROD, S-11).
+export const headerSide: CSSProperties = { ...header, flexDirection: "column", alignItems: "stretch", gap: 6 };
+export const headerRow: CSSProperties = { display: "flex", alignItems: "center", gap: 12 };
 export const visibilityText: CSSProperties = { fontSize: 12, color: "var(--chat-muted)" };
 export const chip: CSSProperties = {
   padding: "4px 10px",
@@ -86,6 +96,14 @@ export const chip: CSSProperties = {
   border: "1px solid var(--chat-grounded-border)",
   borderRadius: 999,
   whiteSpace: "nowrap",
+  // v2.2.2: the one control that may give way. At the narrowest panel the row's
+  // fixed widths exceed the room, and without this the expand and close buttons
+  // were pushed past the panel's edge. The chip ellipsizes; its title keeps the
+  // whole text. `flexShrink: 3` so it gives way before the thread's name does —
+  // the name is what the reader needs; the model is one hover away.
+  minWidth: 0, flexShrink: 3,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 export const iconButton: CSSProperties = {
   width: 32,
@@ -235,7 +253,7 @@ export const stripLine: CSSProperties = {
   overflow: "hidden",
   textOverflow: "ellipsis",
 };
-export const menuAnchor: CSSProperties = { position: "relative" };
+export const menuAnchor: CSSProperties = { position: "relative", minWidth: 0, flexShrink: 1 };
 export const menu: CSSProperties = {
   position: "absolute",
   top: 42,

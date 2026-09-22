@@ -26,7 +26,7 @@ type Props = {
 };
 
 const Chevron: React.FC<{ up: boolean }> = ({ up }) => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2.5" aria-hidden="true">
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)", flexShrink: 0 }} strokeWidth="2.5" aria-hidden="true">
     <path d={up ? "M18 15l-6-6-6 6" : "M6 9l6 6 6-6"} />
   </svg>
 );
@@ -47,9 +47,13 @@ const DiscussSwitcher: React.FC<Props> = ({ w, threads, selection, onSelect }) =
         aria-label={w("chat_switch_label")}
         aria-expanded={open}
         style={open ? st.switcherButtonOpen : st.switcherButton}
+        // The full label, readable when a narrow panel ellipsizes it (v2.2.2 GO).
+        title={switcherLabel(w, threads, selection)}
         onClick={() => setOpen((was) => !was)}
       >
-        {switcherLabel(w, threads, selection)}
+        {/* In its own element so it — and not the chevron or the buttons beside
+            the switcher — is what gives way on a narrow panel. */}
+        <span style={st.switcherLabelText}>{switcherLabel(w, threads, selection)}</span>
         <Chevron up={open} />
       </button>
       {open && (
