@@ -132,6 +132,7 @@ fn a_model_decline_still_passes_its_sentence_to_the_model() {
     declined.read_abstain_reason = Some("That looks like a test entry.".into());
     let mut c = context();
     c.attempts = vec![declined];
+    assert!(c.attempts[0].read_declined() && !c.attempts[0].read_failed());
 
     let text = render_attempts(&c);
     assert!(

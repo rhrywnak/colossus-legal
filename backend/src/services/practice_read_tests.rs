@@ -113,6 +113,10 @@ fn a_model_decline_still_shows_the_abstain_line_and_the_models_sentence() {
     );
     assert_ne!(outcome.text.as_deref(), Some(FAILED));
     assert!(!outcome.failed(), "a model decline is not a system failure");
+    assert!(
+        outcome.declined(),
+        "the flag the screen's neutral decline arm reads"
+    );
 }
 
 /// A read that failed still says what it spent.
@@ -191,4 +195,77 @@ fn only_a_system_failure_counts_as_a_failed_read() {
         None,
         Some("no read: the answer analysis switch was off, so no model was asked")
     ));
+}
+
+/// ADDENDUM_3: decline, failure and a clean read are three distinct states, and
+/// the two abstain flags never agree — the same prefix decides both.
+#[test]
+fn decline_failure_and_a_clean_read_are_told_apart() {
+    use crate::services::practice_read_outcome::{
+        is_declined_read, is_failed_read, MODEL_ABSTAINED_PREFIX,
+    };
+    let declined_error = format!("{MODEL_ABSTAINED_PREFIX}That looks like a test entry.");
+    let cases: [(&str, Option<&str>, Option<&str>, bool, bool); 5] = [
+        // (what, abstain_reason, read_error, failed, declined)
+        (
+            "model decline",
+            Some("That looks like a test entry."),
+            Some(&declined_error),
+            false,
+            true,
+        ),
+        (
+            "system failure",
+            Some("the model could not be reached"),
+            Some("the call failed: 529"),
+            true,
+            false,
+        ),
+        (
+            "input failed to load",
+            Some("an input failed to load"),
+            None,
+            true,
+            false,
+        ),
+        ("clean judgement", None, None, false, false),
+        (
+            "analysis off",
+            None,
+            Some("no read: the answer analysis switch was off, so no model was asked"),
+            false,
+            false,
+        ),
+    ];
+    for (what, reason, error, failed, declined) in cases {
+        assert_eq!(is_failed_read(reason, error), failed, "{what}: failed");
+        assert_eq!(
+            is_declined_read(reason, error),
+            declined,
+            "{what}: declined"
+        );
+        assert!(!(failed && declined), "{what}: never both");
+    }
+}
+
+/// A clean three-part read is neither declined nor failed.
+#[test]
+fn an_accepted_read_is_neither_declined_nor_failed() {
+    use crate::services::practice_read_parse::ReadParts;
+    let outcome = finished(
+        AttemptsEnd::Accepted {
+            reply: ReadReply::Parts(ReadParts {
+                call: "Fine. Short.".to_string(),
+                why: String::new(),
+                pointers: Vec::new(),
+                keys: Vec::new(),
+                ok: true,
+            }),
+            raw: "{}".to_string(),
+            overruns: Vec::new(),
+        },
+        1,
+    );
+    assert!(!outcome.declined());
+    assert!(!outcome.failed());
 }

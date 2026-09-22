@@ -163,6 +163,16 @@ impl StandingAnswer {
             self.read_error.as_deref(),
         )
     }
+
+    /// Whether the stored analysis was the model declining to judge the answer.
+    /// The dock still passes that sentence to the model (ADDENDUM_3 ruling); this
+    /// names the state for any caller that must tell it apart.
+    pub fn read_declined(&self) -> bool {
+        crate::services::practice_read_outcome::is_declined_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
 }
 
 /// The current answer to a question, or `None` when nobody has answered.

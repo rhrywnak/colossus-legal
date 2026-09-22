@@ -21,6 +21,7 @@ const result = (over: Partial<AnswerResult> = {}): AnswerResult => ({
   saved_label: null,
   saved_line: null,
   read_failed: false,
+  read_declined: false,
   ...over,
 });
 
@@ -133,6 +134,23 @@ describe("a failed answer analysis", () => {
   });
 
   it("leaves an unflagged sentence as the older-read arm", () => {
+    expect(critiqueFor(result({ read_text: "Fine.", read_ok: true })).kind).toBe("sentence");
+  });
+});
+
+// ADDENDUM_3 — a model decline is not "fine" and not an older analysis.
+describe("a model decline", () => {
+  const line = "The analysis couldn't judge this answer. That looks like a test entry.";
+
+  it("is its own state, ahead of the older-analysis sentence", () => {
+    expect(critiqueFor(result({ read_text: line, read_declined: true }))).toEqual({
+      kind: "declined",
+      text: line,
+    });
+  });
+
+  it("is not confused with a failure, nor a clean read with either", () => {
+    expect(critiqueFor(result({ read_text: "Failed line", read_failed: true })).kind).toBe("failed");
     expect(critiqueFor(result({ read_text: "Fine.", read_ok: true })).kind).toBe("sentence");
   });
 });

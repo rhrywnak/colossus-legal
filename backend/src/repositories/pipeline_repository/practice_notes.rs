@@ -223,6 +223,14 @@ impl AttemptRecord {
             self.read_error.as_deref(),
         )
     }
+
+    /// Whether this attempt's analysis was the model declining to judge it.
+    pub fn read_declined(&self) -> bool {
+        crate::services::practice_read_outcome::is_declined_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
 }
 
 /// Every attempt at one question, OLDEST first.

@@ -301,6 +301,7 @@ export type ReadSource = {
  *   pub saved_label: Option<String>        → saved_label: string | null
  *   pub saved_line: Option<String>         → saved_line: string | null
  *   pub read_failed: bool                  → read_failed: boolean
+ *   pub read_declined: bool                → read_declined: boolean
  *     (both ALWAYS present on the wire — `null`, never absent — so the parser
  *     below refuses a response missing either as a contract mismatch)
  *
@@ -346,6 +347,12 @@ export type AnswerResult = {
    * (ADDENDUM_1). Always present on the wire.
    */
   read_failed: boolean;
+  /**
+   * `true` when the MODEL declined to judge the answer — `read_text` is then
+   * the abstain line and the model's sentence, drawn on a neutral rail with no
+   * hint (ADDENDUM_3). Always present on the wire; never true with `read_failed`.
+   */
+  read_declined: boolean;
 };
 
 /** One row of Chuck's sheet — every cell already a word. */
@@ -600,10 +607,11 @@ export async function submitPracticeAnswer(input: {
   if (
     parsed.saved_label === undefined ||
     parsed.saved_line === undefined ||
-    typeof parsed.read_failed !== "boolean"
+    typeof parsed.read_failed !== "boolean" ||
+    typeof parsed.read_declined !== "boolean"
   ) {
     throw new Error(
-      "Your answer was recorded, but the response is missing saved_label/saved_line/read_failed — " +
+      "Your answer was recorded, but the response is missing saved_label/saved_line/read_failed/read_declined — " +
         "backend/frontend contract mismatch. Report it to the site administrator.",
     );
   }
@@ -622,6 +630,7 @@ export async function submitPracticeAnswer(input: {
     saved_label: parsed.saved_label,
     saved_line: parsed.saved_line,
     read_failed: parsed.read_failed,
+    read_declined: parsed.read_declined,
   };
 }
 

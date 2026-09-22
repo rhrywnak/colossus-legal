@@ -23,6 +23,13 @@ export type CritiqueView =
    * neither a verdict nor an older analysis, and a green rail said it was fine.
    */
   | { kind: "failed"; text: string }
+  /**
+   * The MODEL declined to judge the answer (ADDENDUM_3): the abstain line and
+   * the model's own sentence, on the same NEUTRAL rail as `failed` and with no
+   * hint. Green said "fine" and the hint said "press again for a fuller one" —
+   * both false for an answer the model would not judge.
+   */
+  | { kind: "declined"; text: string }
   /** The read failed, abstained, or she stopped waiting. Nothing is drawn. */
   | { kind: "none" };
 
@@ -59,6 +66,10 @@ export function critiqueFor(result: AnswerResult | null): CritiqueView {
   // otherwise be drawn as an older analysis. The server decides it is a failure.
   if (result.read_failed && result.read_text !== null) {
     return { kind: "failed", text: result.read_text };
+  }
+  // Same reason: a decline also has text and no parts. The server decides it.
+  if (result.read_declined && result.read_text !== null) {
+    return { kind: "declined", text: result.read_text };
   }
   if (result.read_parts !== null) return { kind: "parts", result };
   if (result.read_text !== null) {

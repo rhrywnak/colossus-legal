@@ -223,6 +223,7 @@ pub async fn post_practice_answer(
         }),
         read_sources,
         read_failed: outcome.failed(),
+        read_declined: outcome.declined(),
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
@@ -359,6 +360,7 @@ pub async fn post_skip_question(
         saved_line: None,
         // No read was asked for, so none failed.
         read_failed: false,
+        read_declined: false,
     }))
 }
 

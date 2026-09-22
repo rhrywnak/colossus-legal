@@ -437,6 +437,11 @@ pub struct AnswerResponse {
     /// failure line, and the screen draws it on a neutral rail with no hint
     /// (ADDENDUM_1). `false` for a judgement, a model's decline, or no read.
     pub read_failed: bool,
+    /// `true` when the MODEL declined to judge the answer
+    /// (`practice_read_outcome::is_declined_read`) — `read_text` is the abstain
+    /// line plus the model's sentence, drawn on a neutral rail with no hint
+    /// (ADDENDUM_3). Never true together with `read_failed`.
+    pub read_declined: bool,
 }
 
 /// One row of Chuck's sheet, every cell already a word.

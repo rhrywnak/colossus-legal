@@ -229,3 +229,20 @@ fn an_empty_reply_is_a_failure_not_a_turn() {
         Ok("Lead with R1.".to_string())
     );
 }
+
+/// ADDENDUM_3: a stored decline is named a decline, and still reaches the model
+/// as its own sentence (the chat context is unchanged by the ruling).
+#[test]
+fn a_stored_decline_is_named_and_still_passed_to_the_model() {
+    let mut declined = saved("test");
+    declined.read_text =
+        Some("The analysis couldn't judge this answer. That looks like a test entry.".into());
+    declined.read_error = Some("the model abstained: That looks like a test entry.".into());
+    declined.read_abstain_reason = Some("That looks like a test entry.".into());
+    assert!(declined.read_declined());
+    assert!(!declined.read_failed());
+    assert_eq!(
+        analysis_for(Some(&declined)),
+        Some("The analysis couldn't judge this answer. That looks like a test entry.")
+    );
+}
