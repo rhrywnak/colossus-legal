@@ -174,6 +174,10 @@ impl PracticeWordingDto {
             row_answered_on_template: drill.row.answered_on_template.clone(),
             deck_review: PracticeDeckReviewWordingDto::from_blocks(drill),
             chat: super::practice_wording_chat::PracticeChatWordingDto::from_blocks(drill),
+            answer_box:
+                super::practice_wording_answer_box::PracticeAnswerBoxWordingDto::from_blocks(
+                    drill, report,
+                ),
             row_note_add_label: drill.row.note_add_label.clone(),
             row_note_save_label: drill.row.note_save_label.clone(),
             row_note_cancel_label: drill.row.note_cancel_label.clone(),

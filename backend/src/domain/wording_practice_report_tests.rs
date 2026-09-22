@@ -36,17 +36,28 @@ const CORRECTION_MIGRATION: &str =
 const T1_SEED_MIGRATION: &str =
     "pipeline_migrations/20260820165501_practice_read_t1_per_part_storage.sql";
 
+/// The v2.2.1 fixes migration, which seeds the read's one failure line.
+const V221_SEED_MIGRATION: &str = "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql";
+
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_WHAT_YOU_SAID_KICKER, "What you said"),
-    (KEY_READ_TAG, "system read"),
+    // CORRECTED by v2.2.1 ADDENDUM_2 (was "system read").
+    (KEY_READ_TAG, "AI analysis"),
     (
         KEY_READ_FOOTNOTE,
         "one sentence, against your points, the watch-for and the ALWAYS card. It names the tactic. The boxes below are yours.",
     ),
-    (KEY_READ_UNAVAILABLE, "no system read this time"),
-    (KEY_READ_ABSTAIN_LINE, "I can't read this one."),
+    // CORRECTED by v2.2.1's ADDENDUM_1 (Roman's vocabulary ruling): the v0 seed
+    // was "no system read this time"; "read" is never shown to a user now.
+    (KEY_READ_UNAVAILABLE, "No answer analysis for this answer."),
+    // CORRECTED by v2.2.1 ADDENDUM_2 (was "I can't read this one.").
+    (KEY_READ_ABSTAIN_LINE, "The analysis couldn't judge this answer."),
+    (
+        KEY_READ_FAILED_LINE,
+        "Your answer is saved, but the answer analysis didn't come back this time. Press Answer to try again, or use Discuss this answer to go over it.",
+    ),
     (
         KEY_READ_DONT_RECALL_LINE,
         "Fine. \"I don't recall\" is a complete answer.",
@@ -148,11 +159,16 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the practice migration is on disk");
     let t1 = std::fs::read_to_string(root.join(T1_SEED_MIGRATION))
         .expect("the T1 per-part storage migration is on disk");
+    let v221 = std::fs::read_to_string(root.join(V221_SEED_MIGRATION))
+        .expect("the v2.2.1 fixes migration is on disk");
 
     for key in PRACTICE_REPORT_WORDING_KEYS {
-        let seeded = corrected_value_in(&corrections, key)
+        // The newest correction wins: v2.2.1 corrects `practice_read_unavailable`.
+        let seeded = corrected_value_in(&v221, key)
+            .or_else(|| corrected_value_in(&corrections, key))
             .or_else(|| seeded_value_in(&sql, key))
             .or_else(|| seeded_value_in(&t1, key))
+            .or_else(|| seeded_value_in(&v221, key))
             .unwrap_or_else(|| {
                 panic!(
                     "{key} is declared to the boot loader but seeded by no migration \

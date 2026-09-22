@@ -67,11 +67,15 @@ fn an_input_that_failed_to_load_abstains_and_says_so_twice() {
         scenario_id: uuid::Uuid::nil(),
         source: anyhow::anyhow!("connection reset by peer"),
     };
-    let outcome = ReadOutcome::from_payload_failure("I can't read this one.", &failure);
+    let outcome =
+        ReadOutcome::from_payload_failure("The analysis couldn't judge this answer.", &failure);
     let row = outcome.to_row();
 
     // Marie's half — she is told the read declined, not shown a blank.
-    assert_eq!(row.read_text.as_deref(), Some("I can't read this one."));
+    assert_eq!(
+        row.read_text.as_deref(),
+        Some("The analysis couldn't judge this answer.")
+    );
     assert_eq!(
         row.read_abstain_reason.as_deref(),
         Some("her talking points could not be loaded")
@@ -183,13 +187,15 @@ fn every_read_outcome_writes_a_distinguishable_row() {
         ..Default::default()
     };
     let model_abstained = ReadOutcome {
-        text: Some("I can't read this one. That looks like a test entry.".to_string()),
+        text: Some(
+            "The analysis couldn't judge this answer. That looks like a test entry.".to_string(),
+        ),
         abstain_reason: Some("That looks like a test entry.".to_string()),
         error: Some("the model abstained: That looks like a test entry.".to_string()),
         ..Default::default()
     };
     let load_failed = ReadOutcome::from_payload_failure(
-        "I can't read this one.",
+        "The analysis couldn't judge this answer.",
         &PayloadFailure::TacticUnnamed { card: 5 },
     );
     let stored = ReadOutcome::stored("Fine. \"I don't recall\" is a complete answer.".to_string());

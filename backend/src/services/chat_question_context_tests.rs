@@ -15,6 +15,8 @@ fn attempt(answer: &str, read: Option<&str>, ok: Option<bool>) -> AttemptRecord 
         mark: "answered".into(),
         read_text: read.map(str::to_string),
         read_ok: ok,
+        read_error: None,
+        read_abstain_reason: None,
         self_check: serde_json::json!({}),
         help_opened: false,
         points_to: None,
@@ -94,4 +96,49 @@ fn every_section_is_present_and_an_empty_one_says_so() {
     }
     assert!(text.contains("Read (marked fine):"));
     assert!(text.contains("What they admitted under oath: (none recorded)"));
+}
+
+/// ADDENDUM_1: a FAILED analysis reaches the model as "no answer analysis (it
+/// failed)" — never as Marie's failure sentence.
+#[test]
+fn a_failed_analysis_is_named_as_failed_not_passed_on_as_her_sentence() {
+    let mut failed = attempt(
+        "My answer.",
+        Some("Your answer is saved, but the answer analysis didn't come back this time."),
+        None,
+    );
+    failed.read_error = Some("the call failed: timeout".into());
+    failed.read_abstain_reason = Some("the model could not be reached".into());
+    let mut c = context();
+    c.attempts = vec![failed];
+
+    let text = render_attempts(&c);
+    assert!(
+        text.contains("Read: no answer analysis (it failed)"),
+        "{text}"
+    );
+    assert!(!text.contains("didn't come back"), "{text}");
+}
+
+/// A MODEL decline is not a failure: its sentence still reaches the model.
+#[test]
+fn a_model_decline_still_passes_its_sentence_to_the_model() {
+    let mut declined = attempt(
+        "test",
+        Some("The analysis couldn't judge this answer. That looks like a test entry."),
+        None,
+    );
+    declined.read_error = Some("the model abstained: That looks like a test entry.".into());
+    declined.read_abstain_reason = Some("That looks like a test entry.".into());
+    let mut c = context();
+    c.attempts = vec![declined];
+    assert!(c.attempts[0].read_declined() && !c.attempts[0].read_failed());
+
+    let text = render_attempts(&c);
+    assert!(
+        text.contains(
+            "Read: The analysis couldn't judge this answer. That looks like a test entry."
+        ),
+        "{text}"
+    );
 }

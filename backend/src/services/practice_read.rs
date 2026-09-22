@@ -10,9 +10,11 @@
 //! parseable parts citing only keys it was sent. Every other outcome — an unknown
 //! model, a missing prompt file, a timeout, a rate limit, an input that failed to
 //! load, a reply that would not parse twice running — takes the ABSTAIN arm: she
-//! reads the stored "I can't read this one." line, `read_abstain_reason` says why
-//! in plain English, and `read_error` says which failure it was in the operator's
-//! terms. That split is Standing Rule 1 exactly.
+//! reads the one stored failure line (`practice_read_failed_line`, v2.2.1: "Your
+//! answer is saved…"), `read_abstain_reason` says why in plain English, and
+//! `read_error` says which failure it was in the operator's terms. That split is
+//! Standing Rule 1 exactly. The attempt loop itself lives in
+//! [`super::practice_read_attempts`].
 //!
 //! ## What changed in T1, and why it is architecture rather than polish
 //!
@@ -31,30 +33,29 @@
 
 use std::time::Instant;
 
-use crate::services::practice_model_call::{call_model, elapsed_ms, response_tokens};
-use crate::services::practice_read_outcome::ReadOutcome;
+use crate::services::practice_model_call::{call_model, elapsed_ms};
+use crate::services::practice_read_attempts::{
+    run_attempts, AttemptRules, Attempts, AttemptsEnd, TokenCost, MAX_ATTEMPTS,
+};
+use crate::services::practice_read_outcome::{ReadOutcome, MODEL_ABSTAINED_PREFIX};
 use crate::services::practice_read_parse::{
-    compose_abstain_text, compose_read_text, parse_reply, Overrun, ReadReply, ReplyRejection,
+    compose_abstain_text, compose_read_text, Overrun, ReadReply, ReplyRejection,
 };
 use crate::services::practice_read_payload::{build_user_message, ReadPayload};
-use crate::services::practice_read_setup::{prepare, ReadSetup};
+use crate::services::practice_read_setup::prepare;
 use crate::state::AppState;
 
-/// How many times one answer may be sent to the model.
-///
-/// STRUCTURAL, not a tunable: it is the arithmetic of Roman's rule, not a dial.
-/// A ceiling overrun or a reply that will not parse is re-requested ONCE — twice
-/// total — because a formatting slip is not the witness's fault and must not cost
-/// her the coaching, while a third attempt would spend a witness's evening
-/// waiting on a model that is not going to comply. Raising this on the Settings
-/// page would let an operator turn one answer into an unbounded spend.
-//
-// STRUCTURAL: the two-attempt bound is the arithmetic of Roman's ruling of
-// 2026-08-20, not a per-deployment dial. See the doc comment above.
-// CONST: structural — not a tunable; never a settings row.
-const MAX_ATTEMPTS: u8 = 2;
-
 /// Judge one typed answer, and never propagate a failure.
+///
+/// ## Domain note: two lines, two audiences (Roman, 2026-09-21)
+///
+/// Every SYSTEM failure — set-up, an unreachable model, a reply unusable twice —
+/// shows Marie the one `practice_read_failed_line`: her answer is saved, and she
+/// can press Answer again or discuss it. The specific cause goes to the
+/// operator's columns (`read_error`, `read_abstain_reason`) and the log, never
+/// to her screen. Only a MODEL decline shows `practice_read_abstain_line` plus
+/// the model's own sentence, because that is the model speaking to her about her
+/// answer rather than the system reporting a fault.
 ///
 /// # Panics
 /// None. Every path returns a [`ReadOutcome`]; the abstain arms carry the reason.
@@ -62,13 +63,14 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
     let snapshot = state.settings.current();
     let model_id = snapshot.practice_read.model.clone();
     let abstain_line = snapshot.practice_report_wording.read_abstain_line.clone();
+    let failed_line = snapshot.practice_report_wording.read_failed_line.clone();
 
     let setup = match prepare(state, &model_id).await {
         Ok(setup) => setup,
         Err(reason) => {
             tracing::error!(model = %model_id, reason = %reason, "practice read: not attempted");
             return ReadOutcome::abstained(
-                &abstain_line,
+                &failed_line,
                 "the read could not be set up — this is a deployment fault, not your answer"
                     .to_string(),
                 reason,
@@ -81,204 +83,120 @@ pub async fn read_answer(state: &AppState, payload: &ReadPayload) -> ReadOutcome
     let user = build_user_message(payload);
     let citable = payload.citable_keys();
     let started = Instant::now();
-    let mut last: Option<String> = None;
-    // Accumulated across EVERY attempt, not just the one that succeeded.
+    let ctx = AttemptRules {
+        rules: setup.rules(),
+        citable: &citable,
+        corrections: setup.corrections.as_ref(),
+        model_id: &model_id,
+    };
+    // The one plumbing (`practice_model_call`). Its retry is the RATE-LIMIT cap,
+    // not the re-request inside `run_attempts`: that one exists because a reply
+    // can be badly FORMATTED, which asking again does fix.
     //
-    // ## Domain note: what the row's token counts mean
-    //
-    // A re-request doubles the spend, and `read_ms` already reports the whole
-    // wall-clock cost because that is what Marie waited. The tokens follow the
-    // same rule for the same reason: a row saying one call's worth after two were
-    // made would understate the cost of exactly the answers that were most
-    // expensive, and a wave of re-requests would be invisible in any total.
-    let mut spent = TokenCost::default();
+    // `move` copies the four references into the closure, and the inner
+    // `async move` takes the owned message — so each future owns what it reads.
+    let (system, params, provider) = (&setup.system, &setup.params, setup.provider.as_ref());
+    let run = run_attempts(&ctx, &user, move |message: String| async move {
+        call_model(state, provider, system, &message, params).await
+    })
+    .await;
+    let ms = elapsed_ms(started);
 
-    for attempt in 1..=MAX_ATTEMPTS {
-        // The one plumbing (`practice_model_call`). Its retry is the RATE-LIMIT
-        // cap, not the `MAX_ATTEMPTS` re-request loop this line sits inside: that
-        // one exists because a reply can be badly FORMATTED, which asking again
-        // does fix.
-        let result = call_model(
-            state,
-            setup.provider.as_ref(),
-            &setup.system,
-            &user,
-            &setup.params,
-        )
-        .await;
-        let ms = elapsed_ms(started);
-
-        let response = match result {
-            Ok(response) => response,
-            Err(e) => {
-                // A call that never returned is not a formatting slip and does not
-                // improve by being asked again — the retry that IS worth making
-                // (a rate limit) already happened inside the call above.
-                let reason = format!("the call failed: {e}");
-                tracing::warn!(model = %model_id, ms, attempt, reason = %reason, "practice read: call failed");
-                let mut outcome = ReadOutcome::abstained(
-                    &abstain_line,
-                    "the model could not be reached".to_string(),
-                    reason,
-                    Some(model_id),
-                    Some(ms),
-                );
-                // What the EARLIER attempts cost stands whatever this one did.
-                // Without this the row showed NULL tokens for a read that had
-                // already spent thousands — measured on the 2026-09-17 v4 failure,
-                // where attempt 1 completed and attempt 2 was truncated.
-                spent.stamp(&mut outcome);
-                // The prompt WAS loaded and sent, so the row records which one:
-                // "which prompt was live" is the second question of any morning
-                // after, and T3's no-op rule keys on this column.
-                outcome.version = Some(setup.version.clone());
-                outcome.attempts = Some(i16::from(attempt));
-                // A first attempt that came back unusable, followed by a second
-                // that never came back at all, still leaves something to diagnose
-                // from — and this is the only place it survives.
-                outcome.raw_reply = last;
-                return outcome;
-            }
-        };
-        // The store's INTEGER form of the counts (see `response_tokens`).
-        let (input, output) = response_tokens(&response);
-        spent.add(input, output);
-        let tokens = (spent.input, spent.output);
-
-        match parse_reply(&response.text, setup.rules(), &citable) {
-            Ok((reply, overruns)) => {
-                // An overrun on the FIRST attempt buys one more try at a tidy
-                // reply. On the last it is kept as returned — never truncated,
-                // never discarded — and logged with the part and the count.
-                if !overruns.is_empty() && attempt < MAX_ATTEMPTS {
-                    log_overruns(&model_id, attempt, &overruns, "re-requesting once");
-                    tracing::warn!(
-                        model = %model_id, ms, attempt,
-                        input_tokens = tokens.0, output_tokens = tokens.1,
-                        "practice read: re-requesting — this attempt's cost stands whatever the next returns"
-                    );
-                    last = Some(response.text);
-                    continue;
-                }
-                if !overruns.is_empty() {
-                    log_overruns(&model_id, attempt, &overruns, "stored as returned");
-                }
-                return accept(
-                    &setup,
-                    reply,
-                    response.text,
-                    &abstain_line,
-                    model_id,
-                    ms,
-                    tokens,
-                    overruns,
-                    i16::from(attempt),
-                );
-            }
-            Err(rejection) => {
-                let reason = format!("{rejection}");
-                if attempt < MAX_ATTEMPTS {
-                    tracing::warn!(
-                        model = %model_id, ms, attempt, reason = %reason,
-                        input_tokens = tokens.0, output_tokens = tokens.1,
-                        reply = %clip(&response.text),
-                        "practice read: reply unusable — re-requesting once"
-                    );
-                    last = Some(response.text);
-                    continue;
-                }
-                tracing::warn!(
-                    model = %model_id, ms, attempt, reason = %reason,
-                    reply = %clip(&response.text),
-                    "practice read: reply unusable twice — abstaining"
-                );
-                let mut outcome = ReadOutcome::abstained(
-                    &abstain_line,
-                    plain_reason_for(&rejection).to_string(),
-                    reason,
-                    Some(model_id),
-                    Some(ms),
-                );
-                spent.stamp(&mut outcome);
-                outcome.version = Some(setup.version.clone());
-                outcome.attempts = Some(i16::from(attempt));
-                outcome.raw_reply = Some(response.text);
-                return outcome;
-            }
-        }
-    }
-
-    // Unreachable: the loop returns on every path of its final iteration. Written
-    // as an abstain rather than `unreachable!()` because a panic here would be a
-    // 500 on an answer a witness has already typed, and MAX_ATTEMPTS is the kind
-    // of constant a later edit could set to zero.
-    tracing::error!(model = %model_id, "practice read: the attempt loop ended without a verdict");
-    let mut outcome = ReadOutcome::abstained(
+    finish(
+        &setup.version,
+        run,
         &abstain_line,
-        "the read did not complete".to_string(),
-        format!("the attempt loop ended after {MAX_ATTEMPTS} attempts without a verdict"),
-        Some(model_id),
-        Some(elapsed_ms(started)),
-    );
-    outcome.raw_reply = last;
+        &failed_line,
+        model_id,
+        ms,
+    )
+}
+
+/// Turn a finished attempt loop into the row that will be stored.
+///
+/// Pure — `version` rather than the whole setup, so a test can drive every arm
+/// without building a provider.
+pub(super) fn finish(
+    version: &str,
+    run: Attempts,
+    abstain_line: &str,
+    failed_line: &str,
+    model_id: String,
+    ms: i32,
+) -> ReadOutcome {
+    let Attempts {
+        end,
+        attempts,
+        spent,
+    } = run;
+    let tokens = (spent.input, spent.output);
+    let (plain, error, raw) = match end {
+        AttemptsEnd::Accepted {
+            reply,
+            raw,
+            overruns,
+        } => {
+            return accept(
+                version,
+                reply,
+                raw,
+                abstain_line,
+                model_id,
+                ms,
+                tokens,
+                overruns,
+                i16::from(attempts),
+            );
+        }
+        AttemptsEnd::Rejected { rejection, raw } => (
+            plain_reason_for(&rejection).to_string(),
+            format!("{rejection}"),
+            Some(raw),
+        ),
+        AttemptsEnd::CallFailed { error, last_raw } => (
+            "the model could not be reached".to_string(),
+            error,
+            last_raw,
+        ),
+        AttemptsEnd::NoAttempt => (
+            "the read did not complete".to_string(),
+            format!("the attempt loop ended after {MAX_ATTEMPTS} attempts without a verdict"),
+            None,
+        ),
+    };
+    let mut outcome = ReadOutcome::abstained(failed_line, plain, error, Some(model_id), Some(ms));
+    // What the attempts cost stands whatever the last one did — the 2026-09-17
+    // row stored NULL tokens for a read that had spent thousands.
+    stamp(spent, &mut outcome);
+    // The prompt WAS loaded, so the row records which one: "which prompt was
+    // live" is the second question of any morning after.
+    if attempts > 0 {
+        outcome.version = Some(version.to_string());
+        outcome.attempts = Some(i16::from(attempts));
+    }
+    // A reply that came back unusable is the only diagnosis there is.
+    outcome.raw_reply = raw;
     outcome
 }
 
-/// What every attempt on one answer has cost so far.
+/// Write the running token total onto an outcome that is about to be stored.
 ///
-/// ## Rust Learning: `Option` addition that keeps "not reported" distinct from zero
+/// ## Why this is a named function and not two assignments at each arm
 ///
-/// A provider may report no token count at all. Adding `None` to a running total
-/// must not turn it into `Some(0)` — that would claim a call was free — so an
-/// unreported attempt leaves the total exactly as it was, and a total that was
-/// never reported at all stays `None`. `saturating_add` because the columns are
-/// INTEGER and wrapping a cost into a negative number is worse than capping it.
-#[derive(Debug, Default, Clone, Copy)]
-struct TokenCost {
-    input: Option<i32>,
-    output: Option<i32>,
+/// Every abstain arm owes the same honesty, and the one that DIDN'T pay it is
+/// how a 2026-09-17 read that spent thousands of tokens stored NULL for both
+/// counts: the call-failure arm returned before copying. One named move is a
+/// thing a test can hold.
+fn stamp(spent: TokenCost, outcome: &mut ReadOutcome) {
+    outcome.input_tokens = spent.input;
+    outcome.output_tokens = spent.output;
 }
 
-impl TokenCost {
-    fn add(&mut self, input: Option<i32>, output: Option<i32>) {
-        self.input = accumulate(self.input, input);
-        self.output = accumulate(self.output, output);
-    }
-
-    /// Write the running total onto an outcome that is about to be stored.
-    ///
-    /// ## Why this is a method and not two assignments at each arm
-    ///
-    /// Both abstain arms owe the same honesty, and the one that DIDN'T pay it is
-    /// how a 2026-09-17 read that spent thousands of tokens stored NULL for both
-    /// counts: the call-failure arm returned before copying. One named move,
-    /// called from both arms, is a thing a test can hold.
-    fn stamp(self, outcome: &mut ReadOutcome) {
-        outcome.input_tokens = self.input;
-        outcome.output_tokens = self.output;
-    }
-}
-
-/// One side of the running total.
-fn accumulate(running: Option<i32>, next: Option<i32>) -> Option<i32> {
-    match (running, next) {
-        (Some(a), Some(b)) => Some(a.saturating_add(b)),
-        (Some(a), None) => Some(a),
-        (None, next) => next,
-    }
-}
-
-/// Milliseconds since the first attempt began.
+/// The plain-English reason one reply could not be used — for `read_abstain_reason`.
 ///
-/// Domain note: this spans EVERY attempt, so a re-requested read records the
-/// whole wall-clock cost rather than only the successful half. That is the honest
-/// number — it is what Marie waited.
-/// The first 300 characters of a reply, for a log line.
-fn clip(reply: &str) -> String {
-    reply.chars().take(300).collect()
-}
-
-/// Marie's half of the reason one reply could not be used.
+/// Domain note: since v2.2.1 this is an OPERATOR's column, not Marie's screen.
+/// She reads `practice_read_failed_line` whatever the cause (Roman, 2026-09-21);
+/// this sentence stays on the row so the morning after can say which it was.
 fn plain_reason_for(rejection: &ReplyRejection) -> &'static str {
     match rejection {
         ReplyRejection::Empty => "the model sent nothing back",
@@ -291,28 +209,18 @@ fn plain_reason_for(rejection: &ReplyRejection) -> &'static str {
         ReplyRejection::UnknownKey { .. } => {
             "the model cited something it was not given, so the read was not trusted"
         }
-    }
-}
-
-/// One line per overrun — the part and the count, as the ruling requires.
-fn log_overruns(model_id: &str, attempt: u8, overruns: &[Overrun], disposition: &str) {
-    for overrun in overruns {
-        tracing::warn!(
-            model = %model_id,
-            attempt,
-            part = %overrun.part,
-            words = overrun.words,
-            limit = overrun.limit,
-            disposition,
-            "practice read: a part came back over its ceiling"
-        );
+        // v2.2.1: keys belong in `keys`; one in the prose would have put a
+        // meaningless label on her screen.
+        ReplyRejection::KeyInProse { .. } => {
+            "the model's answer used internal labels instead of words, so it was not shown"
+        }
     }
 }
 
 /// Turn a usable reply into the row that will be stored.
 #[allow(clippy::too_many_arguments)]
 fn accept(
-    setup: &ReadSetup,
+    version: &str,
     reply: ReadReply,
     raw: String,
     abstain_line: &str,
@@ -335,8 +243,8 @@ fn accept(
             ReadOutcome {
                 text: Some(compose_abstain_text(abstain_line, Some(&reason))),
                 abstain_reason: Some(reason.clone()),
-                error: Some(format!("the model abstained: {reason}")),
-                version: Some(setup.version.clone()),
+                error: Some(format!("{MODEL_ABSTAINED_PREFIX}{reason}")),
+                version: Some(version.to_string()),
                 attempts: Some(attempts),
                 input_tokens,
                 output_tokens,
@@ -364,7 +272,7 @@ fn accept(
                 ok: Some(parts.ok),
                 error: None,
                 abstain_reason: None,
-                version: Some(setup.version.clone()),
+                version: Some(version.to_string()),
                 parts: Some(parts),
                 attempts: Some(attempts),
                 overruns,
@@ -383,79 +291,5 @@ fn accept(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::{accumulate, TokenCost, MAX_ATTEMPTS};
-    use crate::services::practice_read_outcome::ReadOutcome;
-
-    /// A read that failed still says what it spent.
-    ///
-    /// The DEV row of 2026-09-17 is the case: attempt 1 completed, attempt 2 was
-    /// truncated at the ceiling, and the stored row carried NULL for both token
-    /// columns — a read costing thousands of tokens that no total would ever
-    /// count. The cost of the attempts that DID return is not erased by a later
-    /// one that did not.
-    #[test]
-    fn a_failed_call_still_records_what_the_attempts_cost() {
-        let mut spent = TokenCost::default();
-        spent.add(Some(4436), Some(699));
-
-        let mut outcome = ReadOutcome::default();
-        spent.stamp(&mut outcome);
-
-        assert_eq!(outcome.input_tokens, Some(4436));
-        assert_eq!(outcome.output_tokens, Some(699));
-    }
-
-    /// And a read that never reached the model reports no spend, not zero spend.
-    #[test]
-    fn a_read_that_never_called_reports_no_spend_rather_than_zero() {
-        let mut outcome = ReadOutcome::default();
-        TokenCost::default().stamp(&mut outcome);
-
-        assert_eq!(outcome.input_tokens, None);
-        assert_eq!(outcome.output_tokens, None);
-    }
-
-    /// One answer is sent to the model AT MOST twice.
-    ///
-    /// The re-request is bounded, and the bound is arithmetic rather than a dial.
-    /// A `MAX_ATTEMPTS` raised on a Settings page would let one typed answer
-    /// become an unbounded spend against a model that is not going to comply; a
-    /// `MAX_ATTEMPTS` of 1 would silently retire the re-request rule, and every
-    /// formatting slip would go back to costing Marie her coaching.
-    #[test]
-    fn one_answer_is_never_sent_to_the_model_more_than_twice() {
-        assert_eq!(MAX_ATTEMPTS, 2);
-    }
-
-    /// Two attempts cost what two attempts cost.
-    ///
-    /// `read_ms` already spans every attempt, because that is what Marie waited.
-    /// The tokens follow the same rule: a row reporting one call's worth after two
-    /// were made understates exactly the answers that were most expensive, and a
-    /// wave of re-requests would then be invisible in any total anybody computes.
-    #[test]
-    fn a_re_requested_read_records_what_both_attempts_cost() {
-        let mut spent = TokenCost::default();
-        spent.add(Some(2100), Some(180));
-        spent.add(Some(2100), Some(240));
-
-        assert_eq!(spent.input, Some(4200));
-        assert_eq!(spent.output, Some(420));
-    }
-
-    /// An unreported count is not a free call.
-    ///
-    /// A provider that reports no tokens must leave the running total alone.
-    /// Folding `None` in as zero would let one silent attempt make a two-call
-    /// answer look like a one-call answer, which is the same lie the test above
-    /// exists to prevent, arrived at from the other direction.
-    #[test]
-    fn an_unreported_token_count_never_reads_as_zero() {
-        assert_eq!(accumulate(None, None), None, "never reported stays unknown");
-        assert_eq!(accumulate(Some(2100), None), Some(2100));
-        assert_eq!(accumulate(None, Some(2100)), Some(2100));
-        // And it never wraps into a negative cost.
-        assert_eq!(accumulate(Some(i32::MAX), Some(10)), Some(i32::MAX));
-    }
-}
+#[path = "practice_read_tests.rs"]
+mod tests;

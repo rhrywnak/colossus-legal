@@ -207,9 +207,30 @@ pub struct AttemptRecord {
     pub mark: String,
     pub read_text: Option<String>,
     pub read_ok: Option<bool>,
+    /// With `read_abstain_reason`: whether this read FAILED (see `read_failed`).
+    pub read_error: Option<String>,
+    pub read_abstain_reason: Option<String>,
     pub self_check: serde_json::Value,
     pub help_opened: bool,
     pub points_to: Option<serde_json::Value>,
+}
+
+impl AttemptRecord {
+    /// Whether this attempt's answer analysis failed for a system reason.
+    pub fn read_failed(&self) -> bool {
+        crate::services::practice_read_outcome::is_failed_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
+
+    /// Whether this attempt's analysis was the model declining to judge it.
+    pub fn read_declined(&self) -> bool {
+        crate::services::practice_read_outcome::is_declined_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
 }
 
 /// Every attempt at one question, OLDEST first.
@@ -228,7 +249,8 @@ pub async fn attempts_for_question(
 ) -> Result<Vec<AttemptRecord>, PipelineRepoError> {
     sqlx::query_as::<_, AttemptRecord>(
         "SELECT a.id, COALESCE(a.question_text, q.text) AS question_text, a.answer_text, \
-                a.answered_at, a.mark, a.read_text, a.read_ok, a.self_check, \
+                a.answered_at, a.mark, a.read_text, a.read_ok, a.read_error, \
+                a.read_abstain_reason, a.self_check, \
                 a.help_opened, a.points_to \
          FROM practice_answers a \
          JOIN practice_sessions s ON s.id = a.session_id \

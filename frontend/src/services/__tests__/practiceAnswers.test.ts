@@ -53,9 +53,21 @@ describe("one question's answers", () => {
 
   it("carries the current answer and the earlier ones apart", async () => {
     ok({
-      current: { answer_id: "a2", text: "what stands", answered_on: "Answered on 22 Aug", notes: [] },
+      current: {
+        answer_id: "a2",
+        text: "what stands",
+        answered_on: "Answered on 22 Aug",
+        saved_label: "Your answer — saved Sat 22 Aug · 9:15 am",
+        notes: [],
+      },
       earlier: [
-        { answer_id: "a1", text: "what came before", answered_on: "Answered on 19 Aug", notes: [] },
+        {
+          answer_id: "a1",
+          text: "what came before",
+          answered_on: "Answered on 19 Aug",
+          saved_label: "Your answer — saved Wed 19 Aug · 5:36 pm",
+          notes: [],
+        },
       ],
       question_notes: [],
     });
@@ -64,6 +76,17 @@ describe("one question's answers", () => {
     expect(answers.current?.text).toBe("what stands");
     expect(answers.earlier).toHaveLength(1);
     expect(answers.earlier[0].text).toBe("what came before");
+    // v2.2.1: the label that says the pre-filled box is on file.
+    expect(answers.current?.saved_label).toBe("Your answer — saved Sat 22 Aug · 9:15 am");
+  });
+
+  it("REFUSES a current answer with no saved label rather than rendering it as a draft", async () => {
+    ok({
+      current: { answer_id: "a2", text: "what stands", answered_on: "Answered on 22 Aug", notes: [] },
+      earlier: [],
+      question_notes: [],
+    });
+    await expect(fetchQuestionAnswers("q-1")).rejects.toThrow(/saved_label/);
   });
 
   it("accepts a null current — she has not answered yet", async () => {

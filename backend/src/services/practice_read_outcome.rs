@@ -89,7 +89,61 @@ pub const STORED_READ_VERSION: &str = "stored:dont-recall";
 pub const READ_NOT_REQUESTED: &str =
     "no read: the answer analysis switch was off, so no model was asked";
 
+/// How `read_error` opens when the MODEL declined — composed by
+/// `practice_read::accept`, and read back by [`is_failed_read`].
+///
+/// STRUCTURAL: a diagnostic prefix in a log column that this build writes and
+/// this build parses; one constant so the writer and the reader cannot drift.
+// STRUCTURAL: the writer/reader contract for model-decline rows in read_error.
+pub const MODEL_ABSTAINED_PREFIX: &str = "the model abstained: ";
+
+/// Whether a stored read is a SYSTEM failure — the answer analysis did not come
+/// back — as opposed to a judgement, a model's decline, or no read at all.
+///
+/// ## Domain note: why this is derived and not a column (ADDENDUM_1)
+///
+/// Every abstain carries `read_abstain_reason`; the MODEL's own decline is the
+/// one whose `read_error` opens with [`MODEL_ABSTAINED_PREFIX`]. Deriving the
+/// flag from those two columns needs no migration and classifies every row
+/// already on disk the same way: a pre-v2.2.1 failure ("I can't read this one."
+/// with a system cause) is a failure too, and renders as one.
+///
+/// Used by the answer response, the one-page critique's neutral rail, and the
+/// two chat context packages — one rule, one function.
+pub fn is_failed_read(abstain_reason: Option<&str>, error: Option<&str>) -> bool {
+    abstain_reason.is_some() && !error.is_some_and(|e| e.starts_with(MODEL_ABSTAINED_PREFIX))
+}
+
+/// Whether a stored read is the MODEL's own decline to judge the answer — as
+/// opposed to a judgement, a system failure, or no read at all.
+///
+/// ## Domain note: the other half of the abstain arm (ADDENDUM_3)
+///
+/// An abstain is one of two things, and [`MODEL_ABSTAINED_PREFIX`] is what tells
+/// them apart: the model declined (this), or the system failed
+/// ([`is_failed_read`]). The two are exclusive by construction — the same
+/// prefix decides both — and both are derived from columns already on every
+/// row, so a pre-v2.2.1 decline classifies the same way with no migration.
+///
+/// Why the screen needs it: a decline has text and no parts, so without the
+/// flag it was drawn as an older analysis — green "fine" rail and a "press
+/// again for a fuller one" hint, both false for an answer the model would not
+/// judge.
+pub fn is_declined_read(abstain_reason: Option<&str>, error: Option<&str>) -> bool {
+    abstain_reason.is_some() && error.is_some_and(|e| e.starts_with(MODEL_ABSTAINED_PREFIX))
+}
+
 impl ReadOutcome {
+    /// Whether this outcome is a system failure — see [`is_failed_read`].
+    pub fn failed(&self) -> bool {
+        is_failed_read(self.abstain_reason.as_deref(), self.error.as_deref())
+    }
+
+    /// Whether this outcome is the model's own decline — see [`is_declined_read`].
+    pub fn declined(&self) -> bool {
+        is_declined_read(self.abstain_reason.as_deref(), self.error.as_deref())
+    }
+
     /// A read this build wrote itself, with no model call.
     ///
     /// ## Domain note: why this exists rather than calling the model anyway

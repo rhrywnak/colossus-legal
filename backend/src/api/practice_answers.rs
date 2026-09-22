@@ -36,6 +36,7 @@ use crate::{
     },
     services::{
         practice_answer_version::is_reread,
+        practice_page::answer_saved_label,
         practice_read_outcome::{ReadOutcome, READ_NOT_REQUESTED},
     },
     state::AppState,
@@ -121,65 +122,68 @@ pub async fn post_practice_answer(
         .await
         .map_err(|e| repo_error("current_answer_for", e))?;
     let unchanged = is_reread(
-        standing.as_ref().map(|(_, text)| text.as_str()),
+        standing.as_ref().map(|(_, text, _)| text.as_str()),
         &body.answer_text,
     );
 
     // STEP ONE: her answer, on disk, before anything is asked of anybody.
-    let answer_id = if let (true, Some((existing, _))) = (unchanged, standing.as_ref()) {
-        tracing::info!(
-            question_id = %question.id,
-            answer_id = %existing,
-            "practice: the text is unchanged — re-reading, not versioning"
-        );
-        *existing
-    } else {
-        // ⚑ THE OTHER ARM LOGS TOO, and that is Rule 1 rather than symmetry.
-        // Two operationally distinct states must produce two observables. With
-        // only the re-read logged, an operator would have to infer "a version
-        // was written" from the ABSENCE of a line — which is indistinguishable
-        // from the request never arriving.
-        tracing::info!(
-            question_id = %question.id,
-            had_previous = standing.is_some(),
-            "practice: the text changed — writing a new version"
-        );
-        insert_answer(
-            &state.pipeline_pool,
-            &NewAnswer {
-                session_id: body.session_id,
-                question_id: question.id,
-                answer_text: body.answer_text.clone(),
-                dont_recall: body.dont_recall,
-                // The row opens PROVISIONAL: no boxes ticked, and marked fine. Both
-                // are settled by `post_close_answer` when she leaves the reveal,
-                // which is the first moment either is known.
-                self_check: unticked_self_check(),
-                points_to: points_to_json,
-                // The question AS ASKED, copied onto the answer now. Chuck's sheet
-                // and the review page print this rather than joining the deck's
-                // current text — Chuck edits the deck on Thursday, and a sheet that
-                // silently re-worded itself would put her Tuesday answer under a
-                // question she was never asked.
-                question_text: question.text.clone(),
-                mark: "fine".to_string(),
-                // WHICH marker is the fourth state of an answer row, named:
-                // in-flight means a model is being asked right now, and
-                // not-requested means nobody asked. Sharing one marker would
-                // send an operator hunting a vendor outage that never happened.
-                read_error: Some(
-                    if body.want_read {
-                        READ_IN_FLIGHT
-                    } else {
-                        READ_NOT_REQUESTED
-                    }
-                    .to_string(),
-                ),
-            },
-        )
-        .await
-        .map_err(|e| repo_error("insert_answer", e))?
-    };
+    // `saved_at` is the row's own `answered_at` — the ORIGINAL time on a
+    // re-press, because no version was written.
+    let (answer_id, saved_at) =
+        if let (true, Some((existing, _, at))) = (unchanged, standing.as_ref()) {
+            tracing::info!(
+                question_id = %question.id,
+                answer_id = %existing,
+                "practice: the text is unchanged — re-reading, not versioning"
+            );
+            (*existing, *at)
+        } else {
+            // ⚑ THE OTHER ARM LOGS TOO, and that is Rule 1 rather than symmetry.
+            // Two operationally distinct states must produce two observables. With
+            // only the re-read logged, an operator would have to infer "a version
+            // was written" from the ABSENCE of a line — which is indistinguishable
+            // from the request never arriving.
+            tracing::info!(
+                question_id = %question.id,
+                had_previous = standing.is_some(),
+                "practice: the text changed — writing a new version"
+            );
+            insert_answer(
+                &state.pipeline_pool,
+                &NewAnswer {
+                    session_id: body.session_id,
+                    question_id: question.id,
+                    answer_text: body.answer_text.clone(),
+                    dont_recall: body.dont_recall,
+                    // The row opens PROVISIONAL: no boxes ticked, and marked fine. Both
+                    // are settled by `post_close_answer` when she leaves the reveal,
+                    // which is the first moment either is known.
+                    self_check: unticked_self_check(),
+                    points_to: points_to_json,
+                    // The question AS ASKED, copied onto the answer now. Chuck's sheet
+                    // and the review page print this rather than joining the deck's
+                    // current text — Chuck edits the deck on Thursday, and a sheet that
+                    // silently re-worded itself would put her Tuesday answer under a
+                    // question she was never asked.
+                    question_text: question.text.clone(),
+                    mark: "fine".to_string(),
+                    // WHICH marker is the fourth state of an answer row, named:
+                    // in-flight means a model is being asked right now, and
+                    // not-requested means nobody asked. Sharing one marker would
+                    // send an operator hunting a vendor outage that never happened.
+                    read_error: Some(
+                        if body.want_read {
+                            READ_IN_FLIGHT
+                        } else {
+                            READ_NOT_REQUESTED
+                        }
+                        .to_string(),
+                    ),
+                },
+            )
+            .await
+            .map_err(|e| repo_error("insert_answer", e))?
+        };
 
     // STEPS TWO AND THREE — or NEITHER. `want_read` is Marie's switch, and off
     // means no model is asked at all rather than one asked and ignored.
@@ -201,8 +205,14 @@ pub async fn post_practice_answer(
         (ReadOutcome::not_requested(), Vec::new())
     };
 
+    let settings = state.settings.current();
     Ok(Json(AnswerResponse {
         answer_id,
+        saved_label: Some(answer_saved_label(&settings, saved_at)),
+        // Only the analysis-off arm: with the switch on, the read IS the
+        // confirmation (or the failure line says the answer is saved).
+        saved_line: (!body.want_read)
+            .then(|| settings.practice_wording.row.answer_saved_off_line.clone()),
         // The composed line still ships for anything that wants one sentence;
         // the parts ship beside it for the screen that draws three.
         read_parts: outcome.parts.as_ref().map(|parts| ReadPartsDto {
@@ -212,6 +222,8 @@ pub async fn post_practice_answer(
             keys: parts.keys.clone(),
         }),
         read_sources,
+        read_failed: outcome.failed(),
+        read_declined: outcome.declined(),
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
@@ -292,7 +304,7 @@ pub async fn post_skip_question(
     let (_, question) = fence_answer(&state, body.session_id, body.question_id).await?;
     let settings = state.settings.current();
 
-    let answer_id = insert_answer(
+    let (answer_id, _) = insert_answer(
         &state.pipeline_pool,
         &NewAnswer {
             session_id: body.session_id,
@@ -342,6 +354,13 @@ pub async fn post_skip_question(
         // "a read that said nothing" are different facts.
         read_parts: None,
         read_sources: Vec::new(),
+        // A skip puts nothing in the answer box, so there is no box label to
+        // move and no save to confirm.
+        saved_label: None,
+        saved_line: None,
+        // No read was asked for, so none failed.
+        read_failed: false,
+        read_declined: false,
     }))
 }
 

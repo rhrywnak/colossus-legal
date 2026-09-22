@@ -26,8 +26,28 @@ const NO_ANALYSIS: &str = "(no analysis has been stored for her answer)";
 const DRAFT_NOTE: &str = "NOTE: HER ANSWER ABOVE IS AN UNSAVED DRAFT she is still writing — \
      discuss it as work in progress, not as what she has committed to.";
 const NO_CONVERSATION: &str = "(this is the first message on this question)";
+/// What stands in for the analysis when it FAILED (ADDENDUM_1, Roman): the
+/// model is told there is no analysis and why, never handed Marie's failure
+/// sentence as though it were an analysis. Also used by `chat_question_context`.
+// STRUCTURAL: model-wire vocabulary, like the block above — the model-facing
+// label for a failed analysis; rephrasing it is a coordinated prompt change.
+pub const FAILED_ANALYSIS: &str = "no answer analysis (it failed)";
 /// What stands in for HER ANSWER when nobody has answered and no draft was sent.
 pub const NO_ANSWER: &str = "(she has not answered this question yet)";
+
+/// The analysis line the model is given for her saved answer.
+///
+/// A FAILED analysis is said as such ([`FAILED_ANALYSIS`]) — never Marie's
+/// failure sentence passed along as though it were an analysis (ADDENDUM_1).
+/// `None` (no answer, or no analysis stored) becomes `NO_ANALYSIS` downstream.
+pub fn analysis_for(saved: Option<&StandingAnswer>) -> Option<&str> {
+    let answer = saved?;
+    if answer.read_failed() {
+        Some(FAILED_ANALYSIS)
+    } else {
+        answer.read_text.as_deref()
+    }
+}
 
 /// The whole user message for one discussion call.
 ///

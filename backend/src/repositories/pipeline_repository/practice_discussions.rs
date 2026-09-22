@@ -149,6 +149,30 @@ pub struct StandingAnswer {
     pub points_to: Option<serde_json::Value>,
     /// The latest analysis of this answer, if one was stored.
     pub read_text: Option<String>,
+    /// With `read_abstain_reason`: whether that analysis FAILED (`read_failed`).
+    pub read_error: Option<String>,
+    pub read_abstain_reason: Option<String>,
+}
+
+impl StandingAnswer {
+    /// Whether the stored analysis failed for a system reason — the dock then
+    /// tells the model so, instead of passing Marie's failure sentence along.
+    pub fn read_failed(&self) -> bool {
+        crate::services::practice_read_outcome::is_failed_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
+
+    /// Whether the stored analysis was the model declining to judge the answer.
+    /// The dock still passes that sentence to the model (ADDENDUM_3 ruling); this
+    /// names the state for any caller that must tell it apart.
+    pub fn read_declined(&self) -> bool {
+        crate::services::practice_read_outcome::is_declined_read(
+            self.read_abstain_reason.as_deref(),
+            self.read_error.as_deref(),
+        )
+    }
 }
 
 /// The current answer to a question, or `None` when nobody has answered.
@@ -159,7 +183,8 @@ pub async fn standing_answer(
     question_id: Uuid,
 ) -> Result<Option<StandingAnswer>, PipelineRepoError> {
     sqlx::query_as::<_, StandingAnswer>(
-        "SELECT a.id AS answer_id, a.answer_text, a.points_to, a.read_text \
+        "SELECT a.id AS answer_id, a.answer_text, a.points_to, a.read_text, \
+                a.read_error, a.read_abstain_reason \
          FROM practice_answers a WHERE a.question_id = $1 \
          ORDER BY a.answered_at DESC, a.id DESC LIMIT 1",
     )

@@ -145,7 +145,7 @@ fn the_reply_struct_and_the_field_constants_cannot_drift() {
 fn a_three_part_read_keeps_all_three_parts() {
     let reply = r#"{
         "call": "You let the compound braid stand.",
-        "why": "The question ties conflicts to why nothing was divided. Those are two questions, and P2 answers only the second.",
+        "why": "The question ties conflicts to why nothing was divided. Those are two questions, and your point about their letter answers only the second.",
         "pointers": ["Take the second question only."],
         "keys": ["P2"],
         "abstain": null
@@ -212,7 +212,7 @@ fn an_unexpected_field_is_tolerated() {
 #[test]
 fn every_returned_key_resolves_to_a_key_that_was_sent() {
     let (parsed, _) = parse(
-        r#"{"call": "You left the anchor off.", "why": "R1 says so.", "pointers": [], "keys": ["R1", "P2"], "abstain": null}"#,
+        r#"{"call": "You left the anchor off.", "why": "Your certified letter says so.", "pointers": [], "keys": ["R1", "P2"], "abstain": null}"#,
     )
     .expect("both keys were sent");
     assert_eq!(parts_of(parsed).keys, vec!["R1", "P2"]);
@@ -227,7 +227,7 @@ fn every_returned_key_resolves_to_a_key_that_was_sent() {
 #[test]
 fn a_key_that_was_never_sent_refuses_the_whole_reply() {
     let rejection = parse(
-        r#"{"call": "Name the letter.", "why": "R4 has it.", "pointers": [], "keys": ["R4"], "abstain": null}"#,
+        r#"{"call": "Name the letter.", "why": "The letter has it.", "pointers": [], "keys": ["R4"], "abstain": null}"#,
     )
     .expect_err("R4 was never sent");
 
@@ -459,19 +459,19 @@ fn a_call_without_a_stop_gets_one_before_the_pointer() {
 fn the_abstain_line_carries_the_models_reason_when_there_is_one() {
     assert_eq!(
         compose_abstain_text(
-            "I can't read this one.",
+            "The analysis couldn't judge this answer.",
             Some("That looks like a test entry.")
         ),
-        "I can't read this one. That looks like a test entry."
+        "The analysis couldn't judge this answer. That looks like a test entry."
     );
     assert_eq!(
-        compose_abstain_text("I can't read this one.", None),
-        "I can't read this one."
+        compose_abstain_text("The analysis couldn't judge this answer.", None),
+        "The analysis couldn't judge this answer."
     );
     // A blank reason is not a reason.
     assert_eq!(
-        compose_abstain_text("I can't read this one.", Some("  ")),
-        "I can't read this one."
+        compose_abstain_text("The analysis couldn't judge this answer.", Some("  ")),
+        "The analysis couldn't judge this answer."
     );
 }
 
@@ -518,8 +518,19 @@ fn every_rejection_reads_as_something_an_operator_can_act_on() {
         "naming what WAS sent is how an operator tells an invented key from a payload bug: {unknown}"
     );
 
-    // ANTI-VACUITY: four distinct states, four distinct sentences.
-    let all = [empty, unparseable, nothing_said, unknown];
+    let key_in_prose = ReplyRejection::KeyInProse {
+        part: "why".to_string(),
+        token: "R2".to_string(),
+    }
+    .to_string();
+    assert!(key_in_prose.contains("R2"), "{key_in_prose}");
+    assert!(
+        key_in_prose.contains("why"),
+        "the part is how an operator finds it: {key_in_prose}"
+    );
+
+    // ANTI-VACUITY: five distinct states, five distinct sentences.
+    let all = [empty, unparseable, nothing_said, unknown, key_in_prose];
     for (i, left) in all.iter().enumerate() {
         assert!(!left.is_empty());
         for (j, right) in all.iter().enumerate() {

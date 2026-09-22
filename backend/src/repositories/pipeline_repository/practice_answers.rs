@@ -30,6 +30,7 @@
 //! The 90-versus-600 reconciliation itself is T2's, explicitly. This is the half
 //! that makes her answer safe regardless of which number wins.
 
+use chrono::{DateTime, Utc};
 use sqlx::PgPool;
 use uuid::Uuid;
 
@@ -117,16 +118,24 @@ pub struct AnswerRead {
     pub read_overruns: Option<serde_json::Value>,
 }
 
-/// Open the row for one answered question. Returns its id.
+/// Open the row for one answered question. Returns its id and the time the
+/// database stamped on it.
 ///
 /// The read columns are left NULL and `read_error` carries the in-flight marker
 /// — see [`NewAnswer::read_error`].
-pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, PipelineRepoError> {
-    let row: (Uuid,) = sqlx::query_as(
+///
+/// Domain note: `answered_at` comes back from the INSERT itself (`RETURNING`)
+/// rather than from the server's clock, so the "saved {when}" label names the
+/// exact instant on the row — the same value a reload will read.
+pub async fn insert_answer(
+    pool: &PgPool,
+    answer: &NewAnswer,
+) -> Result<(Uuid, DateTime<Utc>), PipelineRepoError> {
+    let row: (Uuid, DateTime<Utc>) = sqlx::query_as(
         "INSERT INTO practice_answers \
          (session_id, question_id, answer_text, dont_recall, read_error, \
           self_check, points_to, question_text, mark) \
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id, answered_at",
     )
     .bind(answer.session_id)
     .bind(answer.question_id)
@@ -139,7 +148,7 @@ pub async fn insert_answer(pool: &PgPool, answer: &NewAnswer) -> Result<Uuid, Pi
     .bind(&answer.mark)
     .fetch_one(pool)
     .await?;
-    Ok(row.0)
+    Ok(row)
 }
 
 /// Attach one finished read to an answer already on disk.

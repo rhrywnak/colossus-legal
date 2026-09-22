@@ -46,6 +46,17 @@ export const working: CSSProperties = {
   borderLeftColor: "var(--practice-control-border)",
 };
 
+/**
+ * The answer analysis did not come back (ADDENDUM_1). Neutral: the same quiet
+ * pale ground and control-border rail as the working state, because the block
+ * makes no judgement — green said "fine" about an answer nobody analysed.
+ */
+export const neutral: CSSProperties = {
+  ...base,
+  background: "var(--practice-pale)",
+  borderLeftColor: "var(--practice-control-border)",
+};
+
 /** The call — the one line naming what happened. */
 export const call: CSSProperties = { fontWeight: 700, fontSize: 15.5, margin: "0 0 9px" };
 
@@ -119,7 +130,7 @@ export const shimmer: CSSProperties = {
   background: "var(--practice-shimmer)",
 };
 
-/** The spinner beside "Reading your answer". */
+/** The spinner beside "Analyzing your answer" (`read_working_label`). */
 export const spinner: CSSProperties = {
   width: 15,
   height: 15,

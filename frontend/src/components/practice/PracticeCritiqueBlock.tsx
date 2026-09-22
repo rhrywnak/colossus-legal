@@ -67,6 +67,18 @@ const Critique: React.FC<{
     );
   }
 
+  // ADDENDUM_1: the failure line alone, on the neutral rail — no verdict colour
+  // and no "older analysis" hint, because it is neither.
+  // ADDENDUM_3: a model decline is drawn the same way — it is not a verdict
+  // ("fine") and not an older analysis, so neither the green rail nor the hint.
+  if (view.kind === "failed" || view.kind === "declined") {
+    return (
+      <div style={c.neutral} data-critique={view.kind}>
+        <p style={c.call}>{view.text}</p>
+      </div>
+    );
+  }
+
   if (view.kind === "sentence") {
     return (
       <div

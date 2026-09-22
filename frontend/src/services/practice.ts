@@ -298,6 +298,12 @@ export type ReadSource = {
  *     ⚑ `skip_serializing_if = "Option::is_none"` — ABSENT, not null, when there
  *       are no parts. The client must treat missing and null alike.
  *   pub read_sources: Vec<ReadSourceDto>   → read_sources: ReadSource[]
+ *   pub saved_label: Option<String>        → saved_label: string | null
+ *   pub saved_line: Option<String>         → saved_line: string | null
+ *   pub read_failed: bool                  → read_failed: boolean
+ *   pub read_declined: bool                → read_declined: boolean
+ *     (both ALWAYS present on the wire — `null`, never absent — so the parser
+ *     below refuses a response missing either as a contract mismatch)
  *
  * ## Domain note: `read_text` is a LOSSY PROJECTION of `read_parts`
  *
@@ -315,7 +321,7 @@ export type ReadSource = {
  */
 export type AnswerResult = {
   answer_id: string;
-  /** `null` → the screen shows "no system read this time". */
+  /** `null` → the reveal shows `read_unavailable` ("No answer analysis for this answer."). */
   read_text: string | null;
   /** `true` green, `false` red, `null` no read. Three states. */
   read_ok: boolean | null;
@@ -323,6 +329,30 @@ export type AnswerResult = {
   read_parts: ReadParts | null;
   /** What the cited keys refer to. Empty when nothing was cited. */
   read_sources: ReadSource[];
+  /**
+   * The answer box's new label, `Your answer — saved {when}`, composed by the
+   * server for the row this press left standing (the ORIGINAL time on an
+   * unchanged re-press). `null` only on a skip.
+   */
+  saved_label: string | null;
+  /**
+   * `Saved. Answer analysis is off, so no analysis was requested.` — present only
+   * when the press asked for no read. The server decides, because it is what
+   * knows no model was asked (CC_TASK_PRACTICE_FIXES_v2.2.1, Fix 2).
+   */
+  saved_line: string | null;
+  /**
+   * `true` when the answer analysis FAILED for a system reason — `read_text` is
+   * then the server's one failure line, drawn on a neutral rail with no hint
+   * (ADDENDUM_1). Always present on the wire.
+   */
+  read_failed: boolean;
+  /**
+   * `true` when the MODEL declined to judge the answer — `read_text` is then
+   * the abstain line and the model's sentence, drawn on a neutral rail with no
+   * hint (ADDENDUM_3). Always present on the wire; never true with `read_failed`.
+   */
+  read_declined: boolean;
 };
 
 /** One row of Chuck's sheet — every cell already a word. */
@@ -571,6 +601,20 @@ export async function submitPracticeAnswer(input: {
   if (typeof parsed.answer_id !== "string") {
     throw new Error("The answer response carried no answer id.");
   }
+  // `null` is a real value for both (a skip; analysis on), ABSENT is not: the
+  // server always sends them, so a missing one is a backend/frontend mismatch
+  // and must not read as "no label" — that would hide the saved state again.
+  if (
+    parsed.saved_label === undefined ||
+    parsed.saved_line === undefined ||
+    typeof parsed.read_failed !== "boolean" ||
+    typeof parsed.read_declined !== "boolean"
+  ) {
+    throw new Error(
+      "Your answer was recorded, but the response is missing saved_label/saved_line/read_failed/read_declined — " +
+        "backend/frontend contract mismatch. Report it to the site administrator.",
+    );
+  }
   return {
     answer_id: parsed.answer_id,
     read_text: parsed.read_text ?? null,
@@ -583,6 +627,10 @@ export async function submitPracticeAnswer(input: {
     // undefined would render its citation keys with nothing behind them, which
     // is the one shape this list exists to prevent.
     read_sources: parsed.read_sources ?? [],
+    saved_label: parsed.saved_label,
+    saved_line: parsed.saved_line,
+    read_failed: parsed.read_failed,
+    read_declined: parsed.read_declined,
   };
 }
 

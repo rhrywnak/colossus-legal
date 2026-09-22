@@ -238,6 +238,10 @@ pub async fn get_question_answers(
                 &settings,
                 record.answered_at,
             ),
+            saved_label: crate::services::practice_page::answer_saved_label(
+                &settings,
+                record.answered_at,
+            ),
         })
         .collect::<Vec<_>>();
 

@@ -28,7 +28,8 @@ use crate::repositories::pipeline_repository::practice_discussions::{
     insert_turn, list_thread, model_turn_count, standing_answer, NewTurn, TurnRole,
 };
 use crate::services::practice_discuss::{
-    cap_reached, choose_model, compose_discussion_input, discussed_answer, usable_reply,
+    analysis_for, cap_reached, choose_model, compose_discussion_input, discussed_answer,
+    usable_reply,
 };
 use crate::services::practice_discuss_load::{
     load_discussion, require_question, store, DiscussError,
@@ -228,7 +229,7 @@ async fn discussion_input(
         answer.points_to.as_ref(),
     )
     .await?;
-    let analysis = saved.as_ref().and_then(|a| a.read_text.as_deref());
+    let analysis = analysis_for(saved.as_ref());
     Ok(compose_discussion_input(
         &build_user_message(&payload),
         analysis,

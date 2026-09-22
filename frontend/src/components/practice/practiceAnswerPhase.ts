@@ -74,6 +74,39 @@ export function answerChrome(phase: AnswerPhase, analysis: boolean): AnswerChrom
   };
 }
 
+/**
+ * The label over the answer box — or `null`, meaning the plain `answer_label`.
+ *
+ * ## Domain note: the box is pre-filled, so it must say it is ON FILE
+ *
+ * The page opens with her current saved answer already in the box. On v2.2.0
+ * nothing said so, and after four presses of Answer with analysis off her
+ * reading was "nothing happened" (DEV, 2026-09-21). So once an answer exists the
+ * label reads `Your answer — saved {when}`, composed by the server.
+ *
+ * The press's label wins over the loaded one: it is newer, and it is what makes
+ * the label move the instant a press returns without a refetch. A press that
+ * brought no label (a skip) falls back to what loaded; nothing loaded and
+ * nothing pressed is the plain label, unchanged.
+ */
+export function savedLabelFor(
+  current: { saved_label: string } | null,
+  pressed: { saved_label: string | null } | null,
+): string | null {
+  return pressed?.saved_label ?? current?.saved_label ?? null;
+}
+
+/**
+ * The one confirmation line under the buttons, or `null` for none.
+ *
+ * Only the server's `saved_line`, which it sends only when the press asked for
+ * NO read — with analysis on, the read is the confirmation. `null` before any
+ * press, and cleared on the next press (the page resets its result then).
+ */
+export function savedLineFor(pressed: { saved_line: string | null } | null): string | null {
+  return pressed?.saved_line ?? null;
+}
+
 /** How long before the waiting line changes to say her answer is safe anyway. */
 export const LONG_WAIT_MS = 10_000;
 

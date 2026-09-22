@@ -4,7 +4,7 @@
 //!
 //! **Because the behavioural test cannot run here.** That is the whole answer,
 //! and it was MEASURED rather than assumed: bypass the version rule in the
-//! handler (`let answer_id = if false {`) so that every press writes a version,
+//! handler (`let (answer_id, saved_at) = if false {`) so that every press writes a version,
 //! and `services::practice_answer_version`'s six tests still pass. They test the
 //! pure DECISION, which the mutation never touches. Only this file notices.
 //!
@@ -207,9 +207,19 @@ fn the_insert_is_reached_only_when_the_text_changed() {
         .and_then(|tail| tail.split_whitespace().next())
         .expect("the rule's answer is bound to a name");
 
+    // Whitespace-tolerant: `cargo fmt` breaks this binding across two lines
+    // once the tuple makes it long, and a test that broke on formatting would
+    // be testing the formatter.
+    let binding = "let (answer_id, saved_at) =";
     let guard_at = body
-        .find("let answer_id = if")
-        .expect("the answer id is chosen by a branch");
+        .find(binding)
+        .expect("the answer id and its saved time are bound together");
+    assert!(
+        body[guard_at + binding.len()..]
+            .trim_start()
+            .starts_with("if "),
+        "the answer id is chosen by a branch"
+    );
     let guard = &body[guard_at
         ..body[guard_at..]
             .find('{')

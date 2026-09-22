@@ -394,7 +394,7 @@ pub struct AnswerResponse {
     /// The answer row's id, which the drawer's help flag addresses.
     pub answer_id: Uuid,
     /// The one sentence, or `None` — in which case the screen shows the stored
-    /// "no system read this time" line and every other box stands.
+    /// `practice_read_unavailable` line ("No answer analysis for this answer.") and every other box stands.
     pub read_text: Option<String>,
     /// `Some(true)` = fine (green), `Some(false)` = it named a tactic (red),
     /// `None` = there was no read. Three states, never two.
@@ -417,6 +417,31 @@ pub struct AnswerResponse {
     /// is worse than the single sentence it replaced. Citing receipts by key is
     /// the whole of what T1 bought, and the key is only half of it.
     pub read_sources: Vec<ReadSourceDto>,
+    /// The answer box's new label — `Your answer — saved {when}` for the row
+    /// this press left standing — so the label moves the moment the press
+    /// returns, with no refetch.
+    ///
+    /// `None` only on a SKIP, which puts no answer in the box. On an unchanged
+    /// re-press it carries the ORIGINAL time: no version was written, and a
+    /// label claiming a fresh save would be untrue.
+    pub saved_label: Option<String>,
+    /// `Saved. Answer analysis is off, so no analysis was requested.` — present
+    /// ONLY when the press asked for no read.
+    ///
+    /// Domain note: decided HERE because the server is what knows no model was
+    /// asked (CLAUDE.md rule 12). On v2.2.0 an analysis-off press returned
+    /// nothing visible at all, and "nothing happened" was a fair reading of it.
+    pub saved_line: Option<String>,
+    /// `true` when the answer analysis FAILED for a system reason
+    /// (`practice_read_outcome::is_failed_read`) — `read_text` is then the one
+    /// failure line, and the screen draws it on a neutral rail with no hint
+    /// (ADDENDUM_1). `false` for a judgement, a model's decline, or no read.
+    pub read_failed: bool,
+    /// `true` when the MODEL declined to judge the answer
+    /// (`practice_read_outcome::is_declined_read`) — `read_text` is the abstain
+    /// line plus the model's sentence, drawn on a neutral rail with no hint
+    /// (ADDENDUM_3). Never true together with `read_failed`.
+    pub read_declined: bool,
 }
 
 /// One row of Chuck's sheet, every cell already a word.
@@ -520,6 +545,11 @@ pub struct AnswerVersionDto {
     pub text: String,
     /// `Answered on 22 Aug`, already composed — the same line the row shows.
     pub answered_on: String,
+    /// `Your answer — saved Wed 21 Sep · 10:54 pm`, already composed — the
+    /// label over the answer box when this is the CURRENT version
+    /// (`practice_page::answer_saved_label`). Sent on every version so the
+    /// field has one meaning; the page reads it only from `current`.
+    pub saved_label: String,
     /// The notes on THIS attempt, oldest first, struck ones included
     /// (CC_TASK_REVIEW_LOOP_v1 §4).
     pub notes: Vec<super::practice_review::PracticeNoteDto>,

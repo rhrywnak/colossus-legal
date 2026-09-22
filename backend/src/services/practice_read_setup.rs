@@ -18,6 +18,7 @@ use colossus_extract::LlmProvider;
 use crate::domain::llm_params::{LlmParamsSpec, ParamValue, ResolvedLlmParams};
 use crate::domain::practice_params::PracticeReadParams;
 use crate::services::practice_model_call::resolve_model;
+use crate::services::practice_read_corrections::{split_prompt, Corrections};
 use crate::services::practice_read_parse::ReadRules;
 use crate::state::AppState;
 
@@ -79,7 +80,11 @@ fn read_prompt(state: &AppState) -> Result<String, String> {
 
 /// Everything one call needs, once the store and the registry have been read.
 pub(crate) struct ReadSetup {
+    /// The prompt file up to the corrections marker — never the corrections.
     pub(crate) system: String,
+    /// The re-request corrections below the marker; `None` for a file with no
+    /// marker (v4 and earlier), which re-requests plainly.
+    pub(crate) corrections: Option<Corrections>,
     pub(crate) provider: Arc<dyn LlmProvider>,
     pub(crate) params: ResolvedLlmParams,
     pub(crate) rules_max_words_call: usize,
@@ -112,7 +117,9 @@ impl ReadSetup {
 /// single consistent configuration even if the store is edited mid-call.
 pub(crate) async fn prepare(state: &AppState, model_id: &str) -> Result<ReadSetup, String> {
     let settings = state.settings.current();
-    let system = read_prompt(state)?;
+    // The cut is made HERE, once, so no later code can send the corrections as
+    // standing instructions by accident (`practice_read_corrections`).
+    let prompt = split_prompt(&read_prompt(state)?)?;
     let read = &settings.practice_read;
     let (provider, params) = resolve_provider(state, model_id, read).await?;
 
@@ -120,7 +127,8 @@ pub(crate) async fn prepare(state: &AppState, model_id: &str) -> Result<ReadSetu
     // saturating fallback is there so a hypothetical 16-bit target degrades to
     // "no ceiling" rather than panicking on a witness's answer.
     Ok(ReadSetup {
-        system,
+        system: prompt.system,
+        corrections: prompt.corrections,
         provider,
         params,
         rules_max_words_call: usize::try_from(read.max_words_call).unwrap_or(usize::MAX),

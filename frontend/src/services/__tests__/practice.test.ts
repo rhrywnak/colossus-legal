@@ -71,6 +71,10 @@ function okFetch(body: unknown = {}) {
   return mock;
 }
 
+
+/** The migration's value for `practice_row_answer_saved_off_line` (v2.2.1). */
+const OFF_LINE = "Saved. Answer analysis is off, so no analysis was requested.";
+
 describe("fetchPracticeDeck", () => {
   it("GETs the case- and scenario-scoped practice URL", async () => {
     const mock = okFetch(deck());
@@ -173,7 +177,14 @@ describe("the write paths", () => {
     // Both are settled by `closePracticeAnswer`, because both are decided after
     // she has read the reveal this call produces. Sending them here would record
     // a mark she has not chosen yet.
-    const mock = okFetch({ answer_id: ANSWER, read_text: "Fine.", read_ok: true });
+    const mock = okFetch({
+      answer_id: ANSWER,
+      read_text: "Fine.",
+      read_ok: true,
+      saved_label: "Your answer — saved Mon 21 Sep · 10:54 pm",
+      saved_line: null,
+      read_failed: false, read_declined: false,
+    });
 
     const result = await submitPracticeAnswer({
       sessionId: SESSION,
@@ -204,6 +215,9 @@ describe("the write paths", () => {
       // know the difference between a field missing and a field null.
       read_parts: null,
       read_sources: [],
+      saved_label: "Your answer — saved Mon 21 Sep · 10:54 pm",
+      saved_line: null,
+      read_failed: false, read_declined: false,
     });
   });
 
@@ -216,7 +230,7 @@ describe("the write paths", () => {
   // checked at all. A test that only watched for a second request would pass
   // for ever while every answer was still being read.
   it("asks for NO read when the answer-analysis switch is off", async () => {
-    const mock = okFetch({ answer_id: ANSWER });
+    const mock = okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE, read_failed: false, read_declined: false });
 
     await submitPracticeAnswer({
       sessionId: SESSION,
@@ -239,11 +253,69 @@ describe("the write paths", () => {
     expect(mock.mock.calls).toHaveLength(1);
   });
 
+  // v2.2.1, Fix 2: the analysis-off press says it saved, in the SERVER's words.
+  it("carries the server's saved label and analysis-off line through untouched", async () => {
+    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE, read_failed: false, read_declined: false });
+    const result = await submitPracticeAnswer({
+      sessionId: SESSION,
+      questionId: "q1",
+      answerText: "I asked in writing.",
+      dontRecall: false,
+      pointsTo: null,
+      wantRead: false,
+    });
+    expect(result.saved_label).toBe("Your answer — saved x");
+    expect(result.saved_line).toBe(OFF_LINE);
+  });
+
+  it("REFUSES a response missing saved_label/saved_line rather than hiding the saved state", async () => {
+    // Absent is a contract mismatch, not "no label": treating it as null would
+    // put back exactly the v2.2.0 screen that said nothing after a save.
+    okFetch({ answer_id: ANSWER, read_text: null, read_ok: null });
+    await expect(
+      submitPracticeAnswer({
+        sessionId: SESSION,
+        questionId: "q1",
+        answerText: "x",
+        dontRecall: false,
+        pointsTo: null,
+        wantRead: true,
+      }),
+    ).rejects.toThrow(/saved_label\/saved_line\/read_failed\/read_declined/);
+  });
+
+  // Each flag refused ON ITS OWN: the test above drops several fields at once,
+  // so it would pass even if one of these checks were deleted.
+  it.each(["read_failed", "read_declined"])(
+    "REFUSES a response missing only %s",
+    async (field) => {
+      const full: Record<string, unknown> = {
+        answer_id: ANSWER,
+        saved_label: "Your answer — saved x",
+        saved_line: null,
+        read_failed: false,
+        read_declined: false,
+      };
+      delete full[field];
+      okFetch(full);
+      await expect(
+        submitPracticeAnswer({
+          sessionId: SESSION,
+          questionId: "q1",
+          answerText: "x",
+          dontRecall: false,
+          pointsTo: null,
+          wantRead: true,
+        }),
+      ).rejects.toThrow(/contract mismatch/);
+    },
+  );
+
   it("keeps a missing read as null rather than inventing a sentence", async () => {
     // The whole failure posture of the drill: no read is a THIRD state, and the
-    // page shows the stored "no system read this time" line. A client-side
+    // page shows the stored `read_unavailable` line. A client-side
     // default here would put words on a witness-prep screen that no model said.
-    okFetch({ answer_id: ANSWER });
+    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: null, read_failed: false, read_declined: false });
     const result = await submitPracticeAnswer({
       sessionId: SESSION,
       questionId: "q1",

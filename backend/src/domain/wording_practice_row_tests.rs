@@ -48,6 +48,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql",
     // REVIEW_COUNTS_HONEST: the confirmation Done reviewing now asks first.
     "pipeline_migrations/20260920161341_practice_witness_row_and_done_confirm_wording.sql",
+    // PRACTICE_FIXES_v2.2.1: the answer box says it is saved.
+    "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -73,6 +75,12 @@ const TEST_SEED: &[(&str, &str)] = &[
     // The one status a one-page deck row carries. `{when}` is filled by
     // `practice_clock::local_day_month` — no weekday, deliberately.
     (KEY_ANSWERED_ON_TEMPLATE, "Answered on {when}"),
+    // `{when}` here is `practice_clock::local_stamp` — the day AND the time.
+    (KEY_ANSWER_SAVED_TEMPLATE, "Your answer \u{2014} saved {when}"),
+    (
+        KEY_ANSWER_SAVED_OFF_LINE,
+        "Saved. Answer analysis is off, so no analysis was requested.",
+    ),
     // As SEEDED. This file pins what the seeding migration INSERTs; the defect
     // sweep CORRECTED both to "questions" (an unstruck note puts a question in
     // the queue too), and the corrected value is pinned by the correction pass

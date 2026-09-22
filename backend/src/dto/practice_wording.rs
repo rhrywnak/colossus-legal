@@ -203,6 +203,9 @@ pub struct PracticeWordingDto {
     /// The discussion panel's strings (CC_TASK_CHAT_ENGINE_v1), flattened the same way.
     #[serde(flatten)]
     pub chat: super::practice_wording_chat::PracticeChatWordingDto,
+    /// The answer box's saved-state words and the read's failure line (v2.2.1).
+    #[serde(flatten)]
+    pub answer_box: super::practice_wording_answer_box::PracticeAnswerBoxWordingDto,
     pub row_note_add_label: String,
     pub row_note_save_label: String,
     pub row_note_cancel_label: String,

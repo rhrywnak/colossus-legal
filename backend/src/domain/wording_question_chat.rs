@@ -48,6 +48,12 @@ pub struct QuestionChatWording {
     pub expand_label: String,
     /// The collapse button's accessible name.
     pub collapse_label: String,
+    /// The side panel's close (×) button: its accessible name and tooltip.
+    ///
+    /// Domain note: before v2.2.1 the side panel offered only Expand, and the
+    /// only way to shut it was to expand it first and press Back — a panel you
+    /// can open in one click and close in two reads as a panel you cannot close.
+    pub close_label: String,
     /// The Back control on the full-screen strip.
     pub back_label: String,
     /// The Back control's accessible name.
@@ -122,6 +128,9 @@ pub(crate) const KEY_AND: &str = "practice_chat_and";
 pub(crate) const KEY_GROUNDED_CHIP_TEMPLATE: &str = "practice_chat_grounded_chip_template";
 pub(crate) const KEY_EXPAND_LABEL: &str = "practice_chat_expand_label";
 pub(crate) const KEY_COLLAPSE_LABEL: &str = "practice_chat_collapse_label";
+/// Added by CC_TASK_PRACTICE_FIXES_v2.2.1 — seeded by its own migration, not
+/// the chat engine's.
+pub(crate) const KEY_CLOSE_LABEL: &str = "practice_chat_close_label";
 pub(crate) const KEY_BACK_LABEL: &str = "practice_chat_back_label";
 pub(crate) const KEY_BACK_ARIA: &str = "practice_chat_back_aria";
 pub(crate) const KEY_RESIZE_LABEL: &str = "practice_chat_resize_label";
@@ -167,6 +176,7 @@ pub const QUESTION_CHAT_WORDING_KEYS: &[&str] = &[
     KEY_GROUNDED_CHIP_TEMPLATE,
     KEY_EXPAND_LABEL,
     KEY_COLLAPSE_LABEL,
+    KEY_CLOSE_LABEL,
     KEY_BACK_LABEL,
     KEY_BACK_ARIA,
     KEY_RESIZE_LABEL,
@@ -221,6 +231,7 @@ pub fn build_question_chat_wording<E>(
         grounded_chip_template: read(KEY_GROUNDED_CHIP_TEMPLATE)?,
         expand_label: read(KEY_EXPAND_LABEL)?,
         collapse_label: read(KEY_COLLAPSE_LABEL)?,
+        close_label: read(KEY_CLOSE_LABEL)?,
         back_label: read(KEY_BACK_LABEL)?,
         back_aria: read(KEY_BACK_ARIA)?,
         resize_label: read(KEY_RESIZE_LABEL)?,
