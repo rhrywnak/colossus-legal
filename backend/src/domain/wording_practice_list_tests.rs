@@ -50,6 +50,10 @@ const SEED_MIGRATIONS: &[&str] = &[
 // environment, so there is nothing here a deployment could vary. Same judgement
 // as `SEED_MIGRATIONS` above.
 const CORRECTION_MIGRATIONS: &[&str] = &[
+    // NEWEST FIRST: `effective_value` takes the first correction it finds.
+    // v2.2.1 ADDENDUM_2 (2026-09-22, Roman): "read" never reaches a user for
+    // the analysis — corrects the plain hint, the working label, the fallible line.
+    "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql",
     // American spelling (2026-08-25, Roman): three of this block's rows stopped
     // saying "practise".
     "pipeline_migrations/20260825134653_american_spelling_practice_wording.sql",
@@ -72,9 +76,9 @@ const TEST_SEED: &[(&str, &str)] = &[
     ),
     (
         KEY_READ_PLAIN_HINT,
-        "This is an older read. Press Answer again for the fuller one.",
+        "This is an older analysis. Press Answer again for a fuller one.",
     ),
-    (KEY_READ_WORKING_LABEL, "Reading your answer"),
+    (KEY_READ_WORKING_LABEL, "Analyzing your answer"),
     (KEY_READ_USUALLY_QUICK, "Usually a few seconds."),
     (KEY_READ_STILL_WORKING, "Still working — your answer is already saved either way."),
     (KEY_READ_STOP_WAITING, "Stop waiting"),
@@ -98,7 +102,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_PRACTISE_AGAIN_LABEL, "Practice them again"),
     (KEY_PRACTICE_NONE_ANSWERED, "There is nothing to practice yet — practice walks the questions you have already answered."),
     (KEY_DECK_QUESTION_MISSING, "That question is no longer in this deck."),
-    (KEY_READ_FALLIBLE, "This read is generated and can be wrong. If something here looks wrong to you, tell Chuck."),
+    (KEY_READ_FALLIBLE, "This analysis is written by AI and can be wrong. If something looks wrong, tell Chuck."),
     (KEY_ROW_DELETE_LABEL, "Delete"),
     (KEY_ROW_DELETED_NOTICE, "Question deleted."),
     (KEY_ROW_UNDO_LABEL, "Undo"),

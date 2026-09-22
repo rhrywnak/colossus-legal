@@ -459,19 +459,19 @@ fn a_call_without_a_stop_gets_one_before_the_pointer() {
 fn the_abstain_line_carries_the_models_reason_when_there_is_one() {
     assert_eq!(
         compose_abstain_text(
-            "I can't read this one.",
+            "The analysis couldn't judge this answer.",
             Some("That looks like a test entry.")
         ),
-        "I can't read this one. That looks like a test entry."
+        "The analysis couldn't judge this answer. That looks like a test entry."
     );
     assert_eq!(
-        compose_abstain_text("I can't read this one.", None),
-        "I can't read this one."
+        compose_abstain_text("The analysis couldn't judge this answer.", None),
+        "The analysis couldn't judge this answer."
     );
     // A blank reason is not a reason.
     assert_eq!(
-        compose_abstain_text("I can't read this one.", Some("  ")),
-        "I can't read this one."
+        compose_abstain_text("The analysis couldn't judge this answer.", Some("  ")),
+        "The analysis couldn't judge this answer."
     );
 }
 

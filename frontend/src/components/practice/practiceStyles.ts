@@ -280,7 +280,7 @@ export const feedbackNote: CSSProperties = {
   marginTop: 6,
 };
 
-/** `.tag` — the little grey "system read" chip. */
+/** `.tag` — the little grey "AI analysis" chip (`read_tag`). */
 export const tag: CSSProperties = {
   fontSize: 12,
   color: "var(--practice-paper)",

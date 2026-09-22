@@ -8,7 +8,7 @@ use crate::services::practice_read_attempts::{Attempts, AttemptsEnd, TokenCost};
 use crate::services::practice_read_outcome::ReadOutcome;
 use crate::services::practice_read_parse::{ReadReply, ReplyRejection};
 
-const ABSTAIN: &str = "I can't read this one.";
+const ABSTAIN: &str = "The analysis couldn't judge this answer.";
 const FAILED: &str = "Your answer is saved, but the answer analysis didn't come back this time.";
 
 fn run(end: AttemptsEnd, attempts: u8) -> Attempts {
@@ -109,7 +109,7 @@ fn a_model_decline_still_shows_the_abstain_line_and_the_models_sentence() {
     );
     assert_eq!(
         outcome.text.as_deref(),
-        Some("I can't read this one. That looks like a test entry.")
+        Some("The analysis couldn't judge this answer. That looks like a test entry.")
     );
     assert_ne!(outcome.text.as_deref(), Some(FAILED));
     assert!(!outcome.failed(), "a model decline is not a system failure");

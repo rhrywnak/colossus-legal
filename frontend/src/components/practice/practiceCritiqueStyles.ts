@@ -130,7 +130,7 @@ export const shimmer: CSSProperties = {
   background: "var(--practice-shimmer)",
 };
 
-/** The spinner beside "Reading your answer". */
+/** The spinner beside "Analyzing your answer" (`read_working_label`). */
 export const spinner: CSSProperties = {
   width: 15,
   height: 15,

@@ -68,7 +68,7 @@ const Critique: React.FC<{
   }
 
   // ADDENDUM_1: the failure line alone, on the neutral rail — no verdict colour
-  // and no "older read" hint, because it is neither.
+  // and no "older analysis" hint, because it is neither.
   if (view.kind === "failed") {
     return (
       <div style={c.neutral} data-critique="failed">

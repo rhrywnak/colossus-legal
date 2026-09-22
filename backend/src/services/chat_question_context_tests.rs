@@ -125,7 +125,7 @@ fn a_failed_analysis_is_named_as_failed_not_passed_on_as_her_sentence() {
 fn a_model_decline_still_passes_its_sentence_to_the_model() {
     let mut declined = attempt(
         "test",
-        Some("I can't read this one. That looks like a test entry."),
+        Some("The analysis couldn't judge this answer. That looks like a test entry."),
         None,
     );
     declined.read_error = Some("the model abstained: That looks like a test entry.".into());
@@ -135,7 +135,9 @@ fn a_model_decline_still_passes_its_sentence_to_the_model() {
 
     let text = render_attempts(&c);
     assert!(
-        text.contains("Read: I can't read this one. That looks like a test entry."),
+        text.contains(
+            "Read: The analysis couldn't judge this answer. That looks like a test entry."
+        ),
         "{text}"
     );
 }

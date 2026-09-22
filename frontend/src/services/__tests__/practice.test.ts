@@ -286,7 +286,7 @@ describe("the write paths", () => {
 
   it("keeps a missing read as null rather than inventing a sentence", async () => {
     // The whole failure posture of the drill: no read is a THIRD state, and the
-    // page shows the stored "no system read this time" line. A client-side
+    // page shows the stored `read_unavailable` line. A client-side
     // default here would put words on a witness-prep screen that no model said.
     okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: null, read_failed: false });
     const result = await submitPracticeAnswer({

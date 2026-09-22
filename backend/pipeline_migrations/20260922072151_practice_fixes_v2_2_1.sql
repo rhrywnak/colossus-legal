@@ -5,8 +5,8 @@
 --
 -- =============================================================================
 -- CC_TASK_PRACTICE_FIXES_v2.2.1, ruled by CC_TASK_PRACTICE_FIXES_v2.2.1_GO.
--- Four new wording rows, two wording corrections (ADDENDUM_1), and the read
--- prompt's move to v5.
+-- Four new wording rows, seven wording corrections (ADDENDUM_1: two;
+-- ADDENDUM_2: five), and the read prompt's move to v5.
 --
 -- ## ADDENDUM_1 (2026-09-22): Roman's vocabulary ruling of 2026-09-21
 --
@@ -63,7 +63,7 @@ VALUES
      NULL, now(), 'migration')
 ON CONFLICT (key) DO NOTHING;
 
--- ─── 1b · Two wording corrections (ADDENDUM_1) ──────────────────────────────
+-- ─── 1b · Seven wording corrections (ADDENDUM_1 + ADDENDUM_2) ───────────────
 --
 -- Value AND default, so "reset to default" on the Settings page lands on the
 -- ruled wording rather than the retired one. The statement shape is the
@@ -84,6 +84,45 @@ SET value         = 'No answer analysis for this answer.',
     updated_at    = NOW(),
     updated_by    = 'migration'
 WHERE key           = 'practice_read_unavailable';
+
+-- ADDENDUM_2 (2026-09-22): the last five rows that still said "read" to a user
+-- in the sense of the analysis. Rows where "read" means reading a thread or a
+-- document are deliberately left alone.
+
+UPDATE app_settings
+SET value         = 'The analysis couldn''t judge this answer.',
+    default_value = 'The analysis couldn''t judge this answer.',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_abstain_line';
+
+UPDATE app_settings
+SET value         = 'This analysis is written by AI and can be wrong. If something looks wrong, tell Chuck.',
+    default_value = 'This analysis is written by AI and can be wrong. If something looks wrong, tell Chuck.',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_fallible';
+
+UPDATE app_settings
+SET value         = 'This is an older analysis. Press Answer again for a fuller one.',
+    default_value = 'This is an older analysis. Press Answer again for a fuller one.',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_plain_hint';
+
+UPDATE app_settings
+SET value         = 'AI analysis',
+    default_value = 'AI analysis',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_tag';
+
+UPDATE app_settings
+SET value         = 'Analyzing your answer',
+    default_value = 'Analyzing your answer',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_working_label';
 
 -- ─── 2 · The read's prompt moves to v5 (v4 stays on disk) ────────────────────
 --
@@ -128,19 +167,24 @@ BEGIN
             'expected practice_read_prompt_v5.md for both', prompt, prompt_default;
     END IF;
 
-    -- ADDENDUM_1: both corrections landed, value AND default. An UPDATE whose
-    -- WHERE matched nothing is silent in Postgres (rule 25a); this is not.
+    -- ADDENDUM_1 + ADDENDUM_2: all seven corrections landed, value AND default
+    -- equal to the ruled text. An UPDATE whose WHERE matched nothing is silent in
+    -- Postgres (rule 25a); this is not.
     SELECT count(*) INTO corrected
-      FROM app_settings
-     WHERE (key = 'practice_chat_open_hint'
-            AND value = default_value
-            AND value = 'Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer.')
-        OR (key = 'practice_read_unavailable'
-            AND value = default_value
-            AND value = 'No answer analysis for this answer.');
-    IF corrected <> 2 THEN
+      FROM app_settings a
+      JOIN (VALUES
+            ('practice_chat_open_hint', 'Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer.'),
+            ('practice_read_unavailable', 'No answer analysis for this answer.'),
+            ('practice_read_abstain_line', 'The analysis couldn''t judge this answer.'),
+            ('practice_read_fallible', 'This analysis is written by AI and can be wrong. If something looks wrong, tell Chuck.'),
+            ('practice_read_plain_hint', 'This is an older analysis. Press Answer again for a fuller one.'),
+            ('practice_read_tag', 'AI analysis'),
+            ('practice_read_working_label', 'Analyzing your answer')
+           ) AS ruled(key, text) ON ruled.key = a.key
+     WHERE a.value = ruled.text AND a.default_value = ruled.text;
+    IF corrected <> 7 THEN
         RAISE EXCEPTION
-            'practice fixes v2.2.1: expected practice_chat_open_hint and '
-            'practice_read_unavailable corrected (value and default), found % of 2', corrected;
+            'practice fixes v2.2.1: expected 7 wording rows corrected (value and '
+            'default), found %', corrected;
     END IF;
 END $$;

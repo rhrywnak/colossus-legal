@@ -121,7 +121,7 @@ describe("the source list — the one place a bad read can be caught", () => {
   });
 });
 
-// ADDENDUM_1 — a failed analysis is not a verdict and not an older read.
+// ADDENDUM_1 — a failed analysis is not a verdict and not an older analysis.
 describe("a failed answer analysis", () => {
   const line = "Your answer is saved, but the answer analysis didn't come back this time.";
 

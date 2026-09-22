@@ -43,7 +43,8 @@ const V221_SEED_MIGRATION: &str = "pipeline_migrations/20260922072151_practice_f
 /// the migration file, so a fixture and its proof cannot drift apart.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_WHAT_YOU_SAID_KICKER, "What you said"),
-    (KEY_READ_TAG, "system read"),
+    // CORRECTED by v2.2.1 ADDENDUM_2 (was "system read").
+    (KEY_READ_TAG, "AI analysis"),
     (
         KEY_READ_FOOTNOTE,
         "one sentence, against your points, the watch-for and the ALWAYS card. It names the tactic. The boxes below are yours.",
@@ -51,7 +52,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     // CORRECTED by v2.2.1's ADDENDUM_1 (Roman's vocabulary ruling): the v0 seed
     // was "no system read this time"; "read" is never shown to a user now.
     (KEY_READ_UNAVAILABLE, "No answer analysis for this answer."),
-    (KEY_READ_ABSTAIN_LINE, "I can't read this one."),
+    // CORRECTED by v2.2.1 ADDENDUM_2 (was "I can't read this one.").
+    (KEY_READ_ABSTAIN_LINE, "The analysis couldn't judge this answer."),
     (
         KEY_READ_FAILED_LINE,
         "Your answer is saved, but the answer analysis didn't come back this time. Press Answer to try again, or use Discuss this answer to go over it.",

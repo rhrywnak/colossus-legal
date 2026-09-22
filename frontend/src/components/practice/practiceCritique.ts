@@ -19,8 +19,8 @@ export type CritiqueView =
   | { kind: "sentence"; text: string; ok: boolean | null }
   /**
    * The answer analysis FAILED for a system reason (ADDENDUM_1): the server's
-   * one failure line, on a NEUTRAL rail and with no "older read" hint — it is
-   * neither a verdict nor an older read, and a green rail said it was fine.
+   * one failure line, on a NEUTRAL rail and with no "older analysis" hint — it is
+   * neither a verdict nor an older analysis, and a green rail said it was fine.
    */
   | { kind: "failed"; text: string }
   /** The read failed, abstained, or she stopped waiting. Nothing is drawn. */
@@ -56,7 +56,7 @@ export type CritiqueView =
 export function critiqueFor(result: AnswerResult | null): CritiqueView {
   if (result === null) return { kind: "idle" };
   // Before the sentence arm: a failure also has text and no parts, and would
-  // otherwise be drawn as an older read. The server decides it is a failure.
+  // otherwise be drawn as an older analysis. The server decides it is a failure.
   if (result.read_failed && result.read_text !== null) {
     return { kind: "failed", text: result.read_text };
   }
