@@ -18,7 +18,9 @@ use super::super::war_room_status::live_tests::{
     answer_by, cleanup, pipeline_pool, question, scenario, TestResult,
 };
 use super::live_tests::{bench, count, items, ADMIN, REVIEWER, WITNESS};
-use super::{waiting_counts, waiting_total, WaitingQuery, WaitingSide};
+use super::{
+    waiting_counts, waiting_items, waiting_total, WaitingQuery, WaitingScope, WaitingSide,
+};
 
 /// (M) Reading one item clears that item and nothing else.
 ///
@@ -158,6 +160,7 @@ async fn every_deck_asked_about_gets_a_row_and_an_honest_oldest() -> TestResult<
         viewer: REVIEWER,
         reviewers: &reviewers,
         side: WaitingSide::Reviewers,
+        scope: WaitingScope::Unseen,
     };
     let rows = waiting_counts(&pool, &query).await?;
     assert_eq!(rows.len(), 2, "one row per scenario asked for");
@@ -259,4 +262,52 @@ async fn a_blank_reader_is_refused() -> TestResult<()> {
             .await?;
     assert_eq!(rows.0, 0, "nothing was written under a blank reader");
     cleanup(&pool, s, "waiting_blank_reader").await
+}
+
+/// (M) The EVERYTHING tab keeps a read item, and says when it was read.
+///
+/// The two tabs are one predicate with one clause different (`WaitingScope`).
+/// What this proves is that the difference is exactly the read filter: the same
+/// item, present in both lists before it is read and in one of them after —
+/// carrying, in the wider list, the moment it was read.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn everything_keeps_what_unread_drops() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_everything").await?;
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer_by(&pool, s, q, Utc::now() - Duration::hours(1), Some(WITNESS)).await?;
+    let reviewers = bench();
+    let ask = |scope| WaitingQuery {
+        scenario_ids: std::slice::from_ref(&s),
+        viewer: REVIEWER,
+        reviewers: &reviewers,
+        side: WaitingSide::Reviewers,
+        scope,
+    };
+
+    assert_eq!(
+        waiting_total(&pool, &ask(WaitingScope::Unseen)).await?,
+        1,
+        "unread before it is read"
+    );
+    assert_eq!(
+        waiting_total(&pool, &ask(WaitingScope::Everything)).await?,
+        1,
+        "and present in everything"
+    );
+
+    mark_seen(&pool, REVIEWER, &[ItemRef::Answer(a)]).await?;
+    assert_eq!(
+        waiting_total(&pool, &ask(WaitingScope::Unseen)).await?,
+        0,
+        "read, so it has left the unread tab"
+    );
+    let rows = waiting_items(&pool, &ask(WaitingScope::Everything), None).await?;
+    assert_eq!(rows.len(), 1, "and stayed in everything");
+    assert!(
+        rows[0].seen_at.is_some(),
+        "the wider tab says WHEN it was read"
+    );
+    cleanup(&pool, s, "waiting_everything").await
 }

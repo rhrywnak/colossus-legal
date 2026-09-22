@@ -71,6 +71,7 @@ pub mod wording_chronology;
 pub mod wording_chronology_keys;
 /// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2 §2, §3).
 pub mod wording_fact_card;
+pub mod wording_for_you;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;

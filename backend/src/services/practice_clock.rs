@@ -203,6 +203,24 @@ pub fn local_day_month(at: DateTime<Utc>, timezone: &str) -> String {
         .to_string()
 }
 
+/// The calendar day this moment falls on, in the case's timezone.
+///
+/// ## Domain note: WHICH day is a question about the case, not about the reader
+///
+/// "Today" on the For you page means today in the case's timezone, because the
+/// deck, the sitting and every other date on these surfaces are already read
+/// that way. A browser in another timezone deciding for itself would put the
+/// same note under a different heading from the deck it came out of, and the
+/// person reading would have no way to tell which was right.
+///
+/// Returns a `NaiveDate` — a date with no timezone of its own, which is exactly
+/// what a calendar day IS once the zone has been applied. Comparing two of them
+/// answers "same day / the day before" without any further arithmetic about
+/// hours.
+pub fn local_day(at: DateTime<Utc>, timezone: &str) -> chrono::NaiveDate {
+    at.with_timezone(&zone(timezone)).date_naive()
+}
+
 #[cfg(test)]
 #[path = "practice_clock_tests.rs"]
 mod tests;

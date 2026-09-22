@@ -122,6 +122,48 @@ pub async fn mark_seen(
     Ok(done.rows_affected())
 }
 
+/// Record that `user_id` has seen EVERYTHING on one question. Returns how many
+/// rows were new.
+///
+/// ## Domain note: opening a question clears the whole question (ruling Q4)
+///
+/// A question page shows every note on that question at once, along with the
+/// current answer and what has changed about the question. So opening it from
+/// the list clears all of them, not only the row that was clicked — otherwise
+/// one question carrying three notes would take three visits to go quiet, and
+/// the second visit would show a row the reader had already read.
+///
+/// Deliberately wider than the page's own predicate: every answer (not only the
+/// current one), every note (struck or standing) and every deck change on the
+/// question. They are all in view, and a seen row for an item that does not
+/// currently wait costs nothing and prevents it from arriving later as news.
+///
+/// # Errors
+/// [`PipelineRepoError::Database`] for a failed statement — including the CHECK
+/// refusing a blank `user_id`. A question id that names no question is not an
+/// error: it matches nothing and writes nothing, which the returned 0 says.
+pub async fn mark_question_seen(
+    pool: &PgPool,
+    user_id: &str,
+    question_id: Uuid,
+) -> Result<u64, PipelineRepoError> {
+    let done = sqlx::query(
+        "INSERT INTO practice_item_seen (user_id, answer_id, note_id, change_id) \
+         SELECT $1, a.id, NULL::uuid, NULL::uuid FROM practice_answers a \
+          WHERE a.question_id = $2 \
+         UNION ALL SELECT $1, NULL::uuid, n.id, NULL::uuid FROM practice_notes n \
+          WHERE n.question_id = $2 \
+         UNION ALL SELECT $1, NULL::uuid, NULL::uuid, d.id FROM practice_deck_changes d \
+          WHERE d.question_id = $2 \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(question_id)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected())
+}
+
 /// How many items this person has seen. For proofs and for operator questions
 /// ("did the sweep actually write anything?"), never for a screen.
 ///

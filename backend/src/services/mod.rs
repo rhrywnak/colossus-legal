@@ -33,6 +33,8 @@ pub mod embedding_text;
 pub mod evidence_mirror;
 /// A stored fact card composed into the lines a witness reads (FACT_CARD_v2 §2).
 pub mod fact_card_render;
+pub mod for_you;
+pub mod for_you_rows;
 pub mod gate_fixture;
 pub mod gather_fusion;
 pub mod gather_probes;

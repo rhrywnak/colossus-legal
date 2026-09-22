@@ -35,6 +35,7 @@ pub mod evidence;
 pub mod evidence_chain;
 pub mod evidence_links;
 pub mod evidence_summary;
+pub mod for_you;
 pub mod graph;
 pub mod harms;
 pub mod import;
@@ -138,6 +139,7 @@ pub fn router() -> Router<AppState> {
         // statement (the "one write path" reading recorded 2026-08-06).
         .merge(scenario_accusation::routes())
         .merge(rehearsal::routes())
+        .merge(for_you::routes())
         .merge(practice::routes())
         // The question chat (CC_TASK_CHAT_ENGINE_v1).
         .merge(chat_discussion_routes::routes())

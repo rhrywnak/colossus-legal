@@ -53,6 +53,7 @@ import {
   caseHealthPath,
   documentPath,
   documentsPath,
+  forYouPath,
   homePath,
   peoplePath,
   practicePath,
@@ -220,6 +221,31 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     emit: () => practiceQuestionPath("awad v cfs", "id/with/slashes", "qid/with/slashes"),
   },
   {
+    // CC_TASK_FOR_YOU_v1: the SAME page, opened from the list. The query is
+    // what makes the question mark itself read (ruling Q4), so a builder that
+    // dropped it would leave every row on the list uncleared with nothing
+    // failing.
+    name: "practiceQuestionPath (opened from the For you list)",
+    route: "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    emit: () =>
+      practiceQuestionPath(
+        "awad-v-cfs",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000001",
+        "3f2b1c9e-0000-4a1b-8c7d-000000000003",
+        "for-you",
+      ),
+  },
+  {
+    name: "forYouPath",
+    route: "/cases/:slug/for-you",
+    emit: () => forYouPath("awad-v-cfs"),
+  },
+  {
+    name: "forYouPath (slug needs escaping)",
+    route: "/cases/:slug/for-you",
+    emit: () => forYouPath("awad v cfs/2"),
+  },
+  {
     name: "practiceAnswersPath",
     route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
     emit: () =>
@@ -337,6 +363,22 @@ describe("the route-side URL guard", () => {
     // `/…/proof-review` address lands on the matrix's DEFAULT tab, and Roman's
     // bookmark quietly stops going where it used to.
     expect(query).toBe("tab=review");
+  });
+
+  it("carries from=for-you on a question opened from the list", () => {
+    // The read-clear is conditional on this query: without it, opening a
+    // question from the deck would mark somebody's notes as read, and opening
+    // one from the list would not clear the row. Both halves of ruling Q4 hang
+    // off this one string.
+    const emitted = practiceQuestionPath("awad-v-cfs", "s1", "q1", "for-you");
+    const [path, query] = emitted.split("?");
+    expect(routeFor(path)).toBe(
+      "/cases/:slug/trial-prep/practice/:scenarioId/question/:questionId",
+    );
+    expect(query).toBe("from=for-you");
+    // And the plain builder still emits no query at all, so every other way in
+    // leaves the page alone.
+    expect(practiceQuestionPath("awad-v-cfs", "s1", "q1")).not.toContain("?");
   });
 
   it("emits no path under /scenarios/ — the .382 defect, by name", () => {

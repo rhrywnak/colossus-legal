@@ -5,6 +5,7 @@ import { DEFAULT_CASE_SLUG } from "./services/caseHeader";
 import { proofMatrixPath, proofReviewTabPath } from "./utils/routePaths";
 import { AuthProvider } from "./context/AuthContext";
 import { CaseProvider } from "./context/CaseContext";
+import { ForYouProvider } from "./context/ForYouContext";
 import AllegationsPage from "./pages/AllegationsPage";
 import ContradictionsPage from "./pages/ContradictionsPage";
 import AllegationDetailPage from "./pages/AllegationDetailPage";
@@ -32,6 +33,7 @@ import DocumentsPage from "./pages/DocumentsPage";
 import DocumentWorkspaceTabs from "./pages/DocumentWorkspaceTabs";
 import HarmsPage from "./pages/HarmsPage";
 import Hearings from "./pages/Hearings";
+import ForYouPage from "./pages/ForYouPage";
 import Home from "./pages/Home";
 import NotFoundPage from "./pages/NotFoundPage";
 import Admin from "./pages/Admin";
@@ -112,7 +114,19 @@ const App: React.FC = () => {
             — but the order is kept obvious for the next reader. */}
         <Routes>
           <Route path="/timeline/subsets/:id/popout" element={<SubsetPopoutPage />} />
-          <Route path="*" element={<AppShell />} />
+          {/* The For you count is fetched once here and shared by the header on
+              every screen inside the shell. It wraps the SHELL and not the app,
+              because the popout above renders with no chrome at all — a badge
+              fetch for a menu that is not drawn would be a request nobody
+              asked for. */}
+          <Route
+            path="*"
+            element={
+              <ForYouProvider slug={DEFAULT_CASE_SLUG}>
+                <AppShell />
+              </ForYouProvider>
+            }
+          />
         </Routes>
       </CaseProvider>
     </AuthProvider>
@@ -171,6 +185,8 @@ const AppShell: React.FC = () => {
               rehearsal endpoints and the Ready switch stay — the switch is
               still a human declaration about a scenario, and the payload is
               still served; nothing in this app renders it any more. */}
+          {/* CC_TASK_FOR_YOU_v1: one person's list, across every deck. */}
+          <Route path="/cases/:slug/for-you" element={<ForYouPage />} />
           <Route path="/cases/:slug/trial-prep" element={<TrialPrepDashboardPage />} />
           <Route path="/cases/:slug/trial-prep/:scenarioId" element={<ScenarioDetailPage />} />
           {/* PRACTICE v0: Marie's drill for one scenario. A longer path than

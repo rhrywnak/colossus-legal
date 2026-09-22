@@ -89,14 +89,14 @@ fn the_parse_sees_the_repositorys_statements() {
     );
     assert_eq!(
         inserts().len(),
-        9,
+        10,
         "two INSERTs in practice.rs, two in practice_editor.rs, one in \
          practice_notes.rs, the hidden-mark write's, the seed's — the widest \
          column list in the codebase, and the one whose absence from this cover \
          let a `draft_by` \
          no migration created ship in Part A — the review cursor's upsert, \
-         which entered the cover with the defect sweep, and the seen sweep's \
-         (CC_TASK_FOR_YOU_v1 L0)"
+         which entered the cover with the defect sweep, and the seen sweep's two \
+         (CC_TASK_FOR_YOU_v1: the page's sweep and the question's read-clear)"
     );
     assert!(
         updates().len() >= 12,
@@ -229,24 +229,25 @@ fn select_form_inserts() -> usize {
     inserts().iter().filter(|(_, _, v)| v.is_empty()).count()
 }
 
-/// Exactly TWO INSERTs in the covered files are SELECT-form.
+/// Exactly THREE INSERTs in the covered files are SELECT-form.
 ///
 /// `practice_hidden_queue::record_hidden_marks`, which writes one `hidden` row
 /// per queued-but-hidden question from a join rather than from bind parameters;
-/// and `item_seen::mark_seen`, which writes one seen row per id in three bound
+/// `item_seen::mark_seen`, which writes one seen row per id in three bound
 /// arrays and must stay ONE statement, because a sweep interrupted between two
-/// statements would leave a page half-read with nothing saying so.
+/// statements would leave a page half-read with nothing saying so; and
+/// `item_seen::mark_question_seen`, which clears a whole question the same way.
 ///
 /// They are the only statements the arity test skips, and this count is what
 /// stops that skip from becoming a habit.
 #[test]
-fn exactly_two_inserts_are_select_form() {
+fn exactly_three_inserts_are_select_form() {
     assert_eq!(
         select_form_inserts(),
-        2,
-        "expected only record_hidden_marks and mark_seen to be SELECT-form; a new \
-         one must be added here deliberately, because each is a statement the \
-         arity check cannot see"
+        3,
+        "expected only record_hidden_marks, mark_seen and mark_question_seen to be \
+         SELECT-form; a new one must be added here deliberately, because each is a \
+         statement the arity check cannot see"
     );
 }
 

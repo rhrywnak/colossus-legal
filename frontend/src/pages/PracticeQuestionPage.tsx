@@ -54,6 +54,7 @@ import {
   type QuestionAnswers,
 } from "../services/practiceAnswers";
 import { browserStore, readAnalysis } from "../components/practice/answerAnalysis";
+import { useReadClear } from "../components/forYou/useReadClear";
 import { practicePath, practiceQuestionDiscussPath } from "../utils/routePaths";
 import ScenarioTimelineDock from "../components/scenario-timeline/ScenarioTimelineDock";
 import { PracticeCrumb, PracticeLoadFailure, PracticeLoading } from "./practiceChrome";
@@ -95,6 +96,11 @@ const PracticeQuestionPage: React.FC = () => {
     const el = panes.containerRef.current;
     if (el !== null) setShellTop(el.getBoundingClientRect().top + window.scrollY);
   }, [panes.containerRef, discussMode, loaded]);
+
+  // Opening this question FROM the For you list marks everything on it read
+  // (ruling Q4). The hook owns the rule and the write; this page owns only
+  // where its one sentence goes, below.
+  const readClearFailed = useReadClear(questionId, location.search);
 
   // The Answer-analysis switch, as this browser left it on the deck page. Read
   // ONCE on mount: the switch is set on another address, and re-reading storage
@@ -236,6 +242,15 @@ const PracticeQuestionPage: React.FC = () => {
           <ScenarioTimelineDock slug={slug} scenarioId={scenarioId} />
 
           <section style={s.card}>
+            {/* The read-clear the For you list asked for did not land. A line
+                above the question, not a barrier over it: the question is
+                readable either way, and what this says is the consequence —
+                the row is still waiting on her list. */}
+            {readClearFailed && (
+              <p style={{ ...q.savedLine, color: "var(--practice-red)" }} role="alert">
+                {w("row_read_failed")}
+              </p>
+            )}
             <p style={q.question}>{question.text}</p>
             {question.receipt !== null && <p style={q.from}>{question.receipt}</p>}
 

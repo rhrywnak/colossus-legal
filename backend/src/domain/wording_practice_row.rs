@@ -174,6 +174,14 @@ pub struct PracticeRowWording {
     pub note_struck_template: String,
     /// Shown when a note write or strike fails.
     pub note_failed: String,
+    /// Shown when opening this question FROM the For you list could not mark it
+    /// read (CC_TASK_FOR_YOU_v1 L1).
+    ///
+    /// Domain note: the question itself is on screen and readable — only the
+    /// bookkeeping failed. So this is a line, not a barrier: it says the row is
+    /// still on her list, which is the true consequence, rather than implying
+    /// the question failed to load.
+    pub row_read_failed: String,
 }
 
 pub(crate) const KEY_PRACTICE_THIS_LABEL: &str = "practice_row_practice_this_label";
@@ -214,6 +222,7 @@ pub(crate) const KEY_NOTE_CANCEL_LABEL: &str = "practice_row_note_cancel_label";
 pub(crate) const KEY_NOTE_STRIKE_LABEL: &str = "practice_row_note_strike_label";
 pub(crate) const KEY_NOTE_STRUCK_TEMPLATE: &str = "practice_row_note_struck_template";
 pub(crate) const KEY_NOTE_FAILED: &str = "practice_row_note_failed";
+pub(crate) const KEY_ROW_READ_FAILED: &str = "practice_row_read_failed";
 
 pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_ANSWER_ALREADY_RECORDED,
@@ -248,6 +257,7 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_NOTE_STRIKE_LABEL,
     KEY_NOTE_STRUCK_TEMPLATE,
     KEY_NOTE_FAILED,
+    KEY_ROW_READ_FAILED,
 ];
 
 /// Build a [`PracticeRowWording`] from the stored rows, or say which key is
@@ -299,6 +309,7 @@ pub fn build_practice_row_wording<E>(
         note_strike_label: read(KEY_NOTE_STRIKE_LABEL)?,
         note_struck_template: read(KEY_NOTE_STRUCK_TEMPLATE)?,
         note_failed: read(KEY_NOTE_FAILED)?,
+        row_read_failed: read(KEY_ROW_READ_FAILED)?,
     })
 }
 

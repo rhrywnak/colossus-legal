@@ -184,6 +184,7 @@ impl PracticeWordingDto {
             row_note_strike_label: drill.row.note_strike_label.clone(),
             row_note_struck_template: drill.row.note_struck_template.clone(),
             row_note_failed: drill.row.note_failed.clone(),
+            row_read_failed: drill.row.row_read_failed.clone(),
             discuss_button_label: drill.discuss.button_label.clone(),
             discuss_title_template: drill.discuss.title_template.clone(),
             discuss_subtitle_template: drill.discuss.subtitle_template.clone(),

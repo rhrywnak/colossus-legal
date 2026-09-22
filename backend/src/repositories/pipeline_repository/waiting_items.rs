@@ -27,12 +27,30 @@ use uuid::Uuid;
 use super::PipelineRepoError;
 
 /// The deck changes that are worth somebody's attention.
-// STRUCTURAL: this IS which acts on a deck count as work waiting. A rewording or
-// an edit changes what the witness was asked; adding, moving, hiding and
-// unhiding are bookkeeping about the deck's shape, and the question itself still
-// reads as it did. Not a threshold and not a deployment value — changing it
-// changes what "waiting" MEANS, which is a ruling plus a code change.
+// STRUCTURAL: this IS which acts on a deck count as work waiting. Adding,
+// moving, hiding and unhiding are bookkeeping about the deck's SHAPE, and the
+// question still reads as it did. Not a threshold and not a deployment value —
+// changing it changes what "waiting" MEANS, which is a ruling plus a code change.
 const WAITING_CHANGE_KINDS: [&str; 2] = ["reworded", "edited"];
+
+/// ...and the one FIELD whose change the witness is waiting on.
+///
+/// ## Domain note: measured, not assumed (2026-09-22, on a copy of DEV)
+///
+/// The kinds above are not enough on their own. DEV's 146 deck changes are
+/// `reworded`/`text` (25), `edited`/`stronger` (26) and `edited`/`tactic` (25),
+/// plus `added`, `moved` and `hidden`. `stronger` is the model answer Chuck
+/// keeps beside a question and `tactic` is his note on how it will be asked —
+/// both are the REVIEWER's craft, neither is the question the witness reads.
+///
+/// Without this clause the first render of this page put fifty-one rows in
+/// front of her saying "the question changed", quoting values like `4` — the
+/// new `tactic` code — under a sentence claiming her question had been
+/// reworded. The rule is one sentence: a deck change waits when it changed the
+/// question's TEXT.
+// STRUCTURAL: the column value the editor writes when it rewrites a question,
+// not a tunable. See `practice_editor`.
+const WAITING_CHANGE_FIELD: &str = "text";
 
 /// Which list a viewer is being served.
 ///
@@ -88,6 +106,37 @@ impl WaitingSide {
     }
 }
 
+/// Which of the two tabs is being asked for.
+///
+/// ## Domain note: ONE predicate, two readings (the page's two tabs)
+///
+/// "Unread" is what waits; "Everything" is the same list with the read rows
+/// still in it, so a person can go back to a note they have already opened.
+/// They are one query with one clause different, rather than two queries that
+/// could disagree about what belongs on the page at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitingScope {
+    /// Only items this viewer has not seen.
+    Unseen,
+    /// Every item on this side, seen or not.
+    Everything,
+}
+
+impl WaitingScope {
+    /// The clause that narrows the list to the unread half.
+    ///
+    /// The seen record is LEFT JOINed either way, so a row always carries the
+    /// moment this person first read it (or `NULL`). This clause is the only
+    /// difference between the two tabs — an anti-join for one, nothing for the
+    /// other.
+    fn clause(self) -> &'static str {
+        match self {
+            WaitingScope::Unseen => "AND v.seen_at IS NULL ",
+            WaitingScope::Everything => "",
+        }
+    }
+}
+
 /// Who is asking, about which decks, and on whose side.
 ///
 /// ## Rust Learning: a borrowed parameter struct
@@ -108,6 +157,8 @@ pub struct WaitingQuery<'a> {
     pub reviewers: &'a [String],
     /// Which list this viewer is served — decided by `may_review`, not here.
     pub side: WaitingSide,
+    /// Unread only, or everything on this side.
+    pub scope: WaitingScope,
 }
 
 /// One item waiting, with everything a row on the page needs to name it.
@@ -129,6 +180,18 @@ pub struct WaitingItemRow {
     pub at: DateTime<Utc>,
     /// Who wrote it, or `None` for a row from before attribution existed.
     pub author: Option<String>,
+    /// When this viewer first read it, or `None` while it is still unread.
+    /// Always `None` under [`WaitingScope::Unseen`], by construction.
+    pub seen_at: Option<DateTime<Utc>>,
+    /// What the item SAYS: the answer's text, the note's text, or the
+    /// question's new wording. `None` only for a deck change that recorded no
+    /// new value, which the composer renders as a change with no quotation
+    /// rather than as an empty one.
+    pub body: Option<String>,
+    /// For a note left on one ATTEMPT, when that attempt was answered — the
+    /// date the witness's own byline names ("on your answer of Mon 21 Sep").
+    /// `None` for every other kind, and for a note on the question itself.
+    pub subject_at: Option<DateTime<Utc>>,
 }
 
 /// How much one deck holds for this viewer, and since when.
@@ -160,30 +223,33 @@ pub struct WaitingCountRow {
 ///   the current one.
 /// - changes count only in the kinds [`WAITING_CHANGE_KINDS`] names.
 /// - hidden questions never appear on any leg.
-fn waiting_cte(side: WaitingSide) -> String {
+fn waiting_cte(side: WaitingSide, scope: WaitingScope) -> String {
     let audience = side.audience();
+    let unread_only = scope.clause();
     format!(
         "WITH cur AS ( \
             SELECT DISTINCT ON (a.question_id) a.question_id, a.id AS answer_id, \
-                   a.answered_at, s.user_id AS author_id, q.scenario_id \
+                   a.answered_at, a.answer_text, s.user_id AS author_id, q.scenario_id \
             FROM practice_answers a \
             JOIN practice_sessions s ON s.id = a.session_id \
             JOIN practice_questions q ON q.id = a.question_id \
             WHERE q.scenario_id = ANY($1) AND q.hidden_at IS NULL \
             ORDER BY a.question_id, a.answered_at DESC, a.id DESC), \
          seen AS ( \
-            SELECT 'answer'::text AS kind, answer_id AS item_id FROM practice_item_seen \
+            SELECT 'answer'::text AS kind, answer_id AS item_id, seen_at FROM practice_item_seen \
              WHERE user_id = $2 AND answer_id IS NOT NULL \
-            UNION ALL SELECT 'note', note_id FROM practice_item_seen \
+            UNION ALL SELECT 'note', note_id, seen_at FROM practice_item_seen \
              WHERE user_id = $2 AND note_id IS NOT NULL \
-            UNION ALL SELECT 'change', change_id FROM practice_item_seen \
+            UNION ALL SELECT 'change', change_id, seen_at FROM practice_item_seen \
              WHERE user_id = $2 AND change_id IS NOT NULL), \
          items AS ( \
             SELECT 'answer'::text AS kind, cur.answer_id AS item_id, cur.scenario_id, \
-                   cur.question_id, cur.answered_at AS at, cur.author_id AS author \
+                   cur.question_id, cur.answered_at AS at, cur.author_id AS author, \
+                   cur.answer_text AS body, NULL::timestamptz AS subject_at \
               FROM cur \
             UNION ALL \
-            SELECT 'note', n.id, n.scenario_id, n.question_id, n.created_at, n.author_id \
+            SELECT 'note', n.id, n.scenario_id, n.question_id, n.created_at, n.author_id, \
+                   n.text, CASE WHEN n.answer_id IS NOT NULL THEN cur.answered_at END \
               FROM practice_notes n \
               LEFT JOIN practice_questions q ON q.id = n.question_id \
               LEFT JOIN cur ON cur.question_id = n.question_id \
@@ -191,17 +257,18 @@ fn waiting_cte(side: WaitingSide) -> String {
                AND (n.question_id IS NULL OR q.hidden_at IS NULL) \
                AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id) \
             UNION ALL \
-            SELECT 'change', d.id, d.scenario_id, d.question_id, d.changed_at, d.changed_by_id \
+            SELECT 'change', d.id, d.scenario_id, d.question_id, d.changed_at, d.changed_by_id, \
+                   d.after_value, NULL::timestamptz \
               FROM practice_deck_changes d \
               JOIN practice_questions q ON q.id = d.question_id \
              WHERE d.scenario_id = ANY($1) AND q.hidden_at IS NULL \
-               AND d.change_kind = ANY($4)), \
+               AND d.change_kind = ANY($4) AND d.field = '{WAITING_CHANGE_FIELD}'), \
          waiting AS ( \
-            SELECT i.* FROM items i \
+            SELECT i.*, v.seen_at FROM items i \
+             LEFT JOIN seen v ON v.kind = i.kind AND v.item_id = i.item_id \
              WHERE ({audience}) \
                AND i.author IS DISTINCT FROM $2 \
-               AND NOT EXISTS (SELECT 1 FROM seen v \
-                                WHERE v.kind = i.kind AND v.item_id = i.item_id)) "
+               {unread_only}) "
     )
 }
 
@@ -225,15 +292,20 @@ fn change_kinds() -> Vec<String> {
 /// author, and `NULL <> 'docmarie'` is NULL — which would drop exactly the rows
 /// that most need to be counted.
 ///
-/// `limit` is the caller's, from configuration — this module has no opinion
-/// about how long a page is.
+/// ## Rust Learning: `Option<i64>` as a LIMIT
+///
+/// `LIMIT NULL` is Postgres's spelling of `LIMIT ALL`, so `None` binds to a
+/// statement with no cap at all and `Some(n)` caps it — one statement, no
+/// branch, and no invented number standing in for "everything". This page is
+/// one person's inbox across the whole case; silently truncating it would hide
+/// work, which is the one thing it exists not to do.
 ///
 /// # Errors
 /// [`PipelineRepoError::Database`] for a failed statement.
 pub async fn waiting_items(
     pool: &PgPool,
     query: &WaitingQuery<'_>,
-    limit: i64,
+    limit: Option<i64>,
 ) -> Result<Vec<WaitingItemRow>, PipelineRepoError> {
     // The tie-break on `item_id` makes the order total: two items written in the
     // same millisecond would otherwise come back in whatever order the plan
@@ -242,13 +314,13 @@ pub async fn waiting_items(
     sqlx::query_as::<_, WaitingItemRow>(&format!(
         "{}SELECT w.kind, w.item_id, w.scenario_id, sc.code_ordinal, \
                  sc.name AS scenario_name, w.question_id, q.text AS question_text, \
-                 w.at, w.author \
+                 w.at, w.author, w.seen_at, w.body, w.subject_at \
             FROM waiting w \
             JOIN scenarios sc ON sc.scenario_id = w.scenario_id \
             LEFT JOIN practice_questions q ON q.id = w.question_id \
            ORDER BY w.at DESC, w.item_id \
            LIMIT $5",
-        waiting_cte(query.side)
+        waiting_cte(query.side, query.scope)
     ))
     // The bind map, spelled out because the CTE above is composed by
     // `waiting_cte` and this call site's own literal therefore shows only some
@@ -285,7 +357,7 @@ pub async fn waiting_counts(
             FROM unnest($1::uuid[]) AS ids(scenario_id) \
             LEFT JOIN waiting w ON w.scenario_id = ids.scenario_id \
            GROUP BY ids.scenario_id",
-        waiting_cte(query.side)
+        waiting_cte(query.side, query.scope)
     ))
     // The bind map, spelled out because the CTE above is composed by
     // `waiting_cte` and this call site's own literal therefore shows only some
@@ -318,7 +390,7 @@ pub async fn waiting_total(
 ) -> Result<i64, PipelineRepoError> {
     let row: (i64,) = sqlx::query_as(&format!(
         "{}SELECT count(*) FROM waiting",
-        waiting_cte(query.side)
+        waiting_cte(query.side, query.scope)
     ))
     // The bind map, spelled out because the CTE above is composed by
     // `waiting_cte` and this call site's own literal therefore shows only some
@@ -339,6 +411,10 @@ pub async fn waiting_total(
 #[cfg(test)]
 #[path = "waiting_items_live_tests.rs"]
 mod live_tests;
+
+#[cfg(test)]
+#[path = "waiting_items_item_live_tests.rs"]
+mod item_live_tests;
 
 #[cfg(test)]
 #[path = "waiting_items_seen_live_tests.rs"]

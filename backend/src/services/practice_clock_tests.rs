@@ -8,7 +8,7 @@
 
 use chrono::{TimeZone, Utc};
 
-use super::{local_clock, local_date, local_day_month, local_stamp};
+use super::{local_clock, local_date, local_day, local_day_month, local_stamp};
 
 const CASE_TZ: &str = "America/Detroit";
 
@@ -157,4 +157,44 @@ fn a_single_digit_day_has_no_leading_zero() {
         .expect("a real instant");
 
     assert_eq!(local_day_month(at, CASE_TZ), "2 Sep");
+}
+
+/// The calendar DAY is the case's, not UTC's — which is why the For you page
+/// groups its rows on the server.
+///
+/// 2026-09-22 02:00 UTC is still the evening of the 21st in Michigan. A browser
+/// reading the same instant in UTC would file that row under "today" while the
+/// deck it came out of called it yesterday, and the person reading would have no
+/// way to tell which was right.
+#[test]
+fn the_local_day_is_the_cases_day_and_not_utcs() {
+    let late = Utc
+        .with_ymd_and_hms(2026, 9, 22, 2, 0, 0)
+        .single()
+        .expect("a real instant");
+    assert_eq!(
+        local_day(late, CASE_TZ),
+        chrono::NaiveDate::from_ymd_opt(2026, 9, 21).expect("a real day")
+    );
+    // And an instant safely inside the local day is that day.
+    assert_eq!(
+        local_day(summer_evening(), CASE_TZ),
+        chrono::NaiveDate::from_ymd_opt(2026, 8, 19).expect("a real day")
+    );
+}
+
+/// An unrecognised zone degrades to UTC here too — the same rule as every
+/// formatter above, asserted for the one reader that returns a DATE rather than
+/// a string.
+#[test]
+fn an_unknown_zone_gives_the_utc_day() {
+    let late = Utc
+        .with_ymd_and_hms(2026, 9, 22, 2, 0, 0)
+        .single()
+        .expect("a real instant");
+    assert_eq!(
+        local_day(late, "Mars/Olympus_Mons"),
+        chrono::NaiveDate::from_ymd_opt(2026, 9, 22).expect("a real day"),
+        "in UTC that instant is already the 22nd"
+    );
 }

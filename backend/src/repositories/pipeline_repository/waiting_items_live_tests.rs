@@ -20,9 +20,9 @@ use uuid::Uuid;
 
 use super::super::item_seen::{mark_seen, ItemRef};
 use super::super::war_room_status::live_tests::{
-    answer_by, cleanup, hide, pipeline_pool, question, scenario, TestResult,
+    answer_by, cleanup, pipeline_pool, question, scenario, TestResult,
 };
-use super::{waiting_items, waiting_total, WaitingQuery, WaitingSide};
+use super::{waiting_items, waiting_total, WaitingQuery, WaitingScope, WaitingSide};
 
 /// The LISTED reviewer. A test literal standing in for the settings row.
 pub(super) const REVIEWER: &str = "cpenzien";
@@ -52,8 +52,12 @@ pub(super) async fn items(
         viewer,
         reviewers: &reviewers,
         side,
+        // Every audience test below asks the UNREAD tab: what waits is the
+        // question these rules answer. `Everything` has its own proof, in the
+        // seen file beside this one.
+        scope: WaitingScope::Unseen,
     };
-    let rows = waiting_items(pool, &query, PLENTY).await?;
+    let rows = waiting_items(pool, &query, Some(PLENTY)).await?;
     // The total is asked on every call, so every assertion about a list below is
     // also an assertion that the badge agrees with it. One predicate, two
     // readings: if they could disagree, this is where it would show.
@@ -77,7 +81,7 @@ pub(super) async fn count(
 }
 
 /// A note by `author_id` (or by nobody, before attribution existed), stamped `at`.
-async fn note(
+pub(super) async fn note(
     pool: &PgPool,
     scenario_id: Uuid,
     question_id: Uuid,
@@ -97,41 +101,6 @@ async fn note(
     .fetch_one(pool)
     .await?;
     Ok(row.0)
-}
-
-/// One deck change of `kind`, made by `changed_by_id`, at `at`.
-///
-/// The sibling helper in `war_room_status::live_tests` writes only the display
-/// name; every rule under test here is about the LOGIN, so this one writes both.
-async fn change_by(
-    pool: &PgPool,
-    scenario_id: Uuid,
-    question_id: Uuid,
-    kind: &str,
-    changed_by_id: &str,
-    at: DateTime<Utc>,
-) -> TestResult<Uuid> {
-    let row: (Uuid,) = sqlx::query_as(
-        "INSERT INTO practice_deck_changes \
-         (scenario_id, question_id, change_kind, changed_by, changed_by_id, changed_at) \
-         VALUES ($1, $2, $3, $4, $4, $5) RETURNING id",
-    )
-    .bind(scenario_id)
-    .bind(question_id)
-    .bind(kind)
-    .bind(changed_by_id)
-    .bind(at)
-    .fetch_one(pool)
-    .await?;
-    Ok(row.0)
-}
-
-async fn strike(pool: &PgPool, note_id: Uuid) -> TestResult<()> {
-    sqlx::query("UPDATE practice_notes SET struck_at = now(), struck_by = 'chuck' WHERE id = $1")
-        .bind(note_id)
-        .execute(pool)
-        .await?;
-    Ok(())
 }
 
 /// (M) An answer waits for the reviewers, never for the person who wrote it, and
@@ -221,26 +190,6 @@ async fn an_unlisted_admins_note_waits_for_the_listed_reviewers() -> TestResult<
     cleanup(&pool, s, "waiting_note_admin").await
 }
 
-/// A struck note waits for nobody: striking IS the withdrawal.
-#[tokio::test]
-#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
-async fn a_struck_note_waits_for_nobody() -> TestResult<()> {
-    let pool = pipeline_pool().await?;
-    let s = scenario(&pool, "waiting_note_struck").await?;
-    let q = question(&pool, s, "chuck", 1).await?;
-    let n = note(&pool, s, q, Some(REVIEWER), Utc::now()).await?;
-    assert_eq!(count(&pool, s, WITNESS, WaitingSide::Witness).await?, 1);
-
-    strike(&pool, n).await?;
-    assert_eq!(
-        count(&pool, s, WITNESS, WaitingSide::Witness).await?,
-        0,
-        "withdrawn"
-    );
-    assert_eq!(count(&pool, s, REVIEWER, WaitingSide::Reviewers).await?, 0);
-    cleanup(&pool, s, "waiting_note_struck").await
-}
-
 /// (M) A note from before attribution existed waits for the reviewers until a
 /// seen row says otherwise — which is exactly what the L0 back-fill writes.
 ///
@@ -270,74 +219,4 @@ async fn an_author_less_note_waits_until_it_is_marked_seen() -> TestResult<()> {
         "what the back-fill does, done by hand"
     );
     cleanup(&pool, s, "waiting_note_authorless").await
-}
-
-/// (M) A change waits for the witness, in the two kinds that change what she was
-/// asked — and never for whoever made it (ruled 2026-09-22, Q3).
-#[tokio::test]
-#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
-async fn a_change_waits_for_the_witness_and_never_for_its_author() -> TestResult<()> {
-    let pool = pipeline_pool().await?;
-    let s = scenario(&pool, "waiting_change").await?;
-    let q = question(&pool, s, "chuck", 1).await?;
-    let t0 = Utc::now() - Duration::hours(2);
-    let reworded = change_by(&pool, s, q, "reworded", REVIEWER, t0).await?;
-
-    assert_eq!(
-        items(&pool, s, WITNESS, WaitingSide::Witness).await?,
-        vec![("change".to_string(), reworded)],
-        "a rewording is a question she has not read in that form"
-    );
-    assert_eq!(
-        count(&pool, s, REVIEWER, WaitingSide::Reviewers).await?,
-        0,
-        "a change is not on the reviewers' side"
-    );
-
-    // Her OWN edit never waits for her. Before this rule the war room's amber
-    // count read "Marie changed this — waiting for Marie".
-    change_by(&pool, s, q, "edited", WITNESS, t0 + Duration::minutes(1)).await?;
-    assert_eq!(
-        count(&pool, s, WITNESS, WaitingSide::Witness).await?,
-        1,
-        "her own edit adds nothing to her list"
-    );
-
-    // And the bookkeeping kinds are not items at all.
-    change_by(&pool, s, q, "moved", REVIEWER, t0 + Duration::minutes(2)).await?;
-    assert_eq!(
-        count(&pool, s, WITNESS, WaitingSide::Witness).await?,
-        1,
-        "moving a question does not change what it asks"
-    );
-    cleanup(&pool, s, "waiting_change").await
-}
-
-/// (M) A hidden question is not an item, and neither is a SUPERSEDED answer.
-///
-/// Re-answering replaces what is waiting rather than adding to it — the deck
-/// would otherwise accumulate one waiting item per attempt, and a witness who
-/// revised an answer three times would look like three questions of work.
-#[tokio::test]
-#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
-async fn hidden_questions_and_superseded_answers_are_not_items() -> TestResult<()> {
-    let pool = pipeline_pool().await?;
-    let s = scenario(&pool, "waiting_superseded").await?;
-    let q = question(&pool, s, "chuck", 1).await?;
-    answer_by(&pool, s, q, Utc::now() - Duration::hours(2), Some(WITNESS)).await?;
-    let current = answer_by(&pool, s, q, Utc::now(), Some(WITNESS)).await?;
-
-    assert_eq!(
-        items(&pool, s, REVIEWER, WaitingSide::Reviewers).await?,
-        vec![("answer".to_string(), current)],
-        "the current answer, once"
-    );
-
-    hide(&pool, q).await?;
-    assert_eq!(
-        count(&pool, s, REVIEWER, WaitingSide::Reviewers).await?,
-        0,
-        "a hidden question waits for nobody"
-    );
-    cleanup(&pool, s, "waiting_superseded").await
 }

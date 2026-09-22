@@ -20,6 +20,7 @@ use crate::domain::wording_authoring::{build_authoring_wording, AuthoringWording
 use crate::domain::wording_card_grammar::{build_card_grammar_wording, CardGrammarWording};
 use crate::domain::wording_chronology::{build_chronology_wording, ChronologyWording};
 use crate::domain::wording_fact_card::{build_fact_card_wording, FactCardWording};
+use crate::domain::wording_for_you::{build_for_you_wording, ForYouWording};
 use crate::domain::wording_matrix::{build_matrix_wording, MatrixWording};
 use crate::domain::wording_model_params::{build_model_params_wording, ModelParamsWording};
 use crate::domain::wording_practice::{build_practice_wording, PracticeWording};
@@ -74,6 +75,8 @@ pub(crate) struct AllWording {
     pub(crate) practice: PracticeWording,
     /// The words the reveal and Chuck's sheet speak (task PRACTICE v0).
     pub(crate) practice_report: PracticeReportWording,
+    /// The words the "For you" page speaks (CC_TASK_FOR_YOU_v1 L1).
+    pub(crate) for_you: ForYouWording,
 }
 
 /// Every stored-string block, read by one rule.
@@ -111,12 +114,14 @@ pub(crate) fn build_all_wording(
     let war_room = build_war_room_wording(|key| text_of(require(rows, key)?))?;
     let practice = build_practice_wording(|key| text_of(require(rows, key)?))?;
     let practice_report = build_practice_report_wording(|key| text_of(require(rows, key)?))?;
+    let for_you = build_for_you_wording(|key| text_of(require(rows, key)?))?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
 
     Ok(AllWording {
         curation,
+        for_you,
         accusation,
         rehearsal,
         chrome,

@@ -219,8 +219,15 @@ export function practiceQuestionPath(
   slug: string,
   scenarioId: string,
   questionId: string,
+  from?: "for-you",
 ): string {
-  return `${practicePath(slug, scenarioId)}/question/${encodeURIComponent(questionId)}`;
+  const path = `${practicePath(slug, scenarioId)}/question/${encodeURIComponent(questionId)}`;
+  // `from=for-you` is how the page knows it was OPENED FROM THE LIST, which is
+  // what ruling Q4 makes the read-clear conditional on: arriving at a question
+  // from the deck, from a bookmark or from a discussion link must not silently
+  // mark somebody's notes as read. A query rather than a segment, for the reason
+  // `practiceQuestionDiscussPath` gives — it is the same page either way.
+  return from === undefined ? path : `${path}?from=${from}`;
 }
 
 /**
@@ -323,6 +330,22 @@ export function practiceSessionPath(
 // constants. It is deliberate: the guard enumerates BUILDERS and calls each one,
 // so a path that is a bare exported string would need a second mechanism to be
 // checked. One shape, one guard.
+
+/**
+ * "For you" — one person's list, across every deck in the case.
+ *
+ * Declared in `App.tsx` as `/cases/:slug/for-you`.
+ *
+ * ## Why it is CASE-scoped and has no side in the address
+ *
+ * The list is the case's, and WHOSE list it is comes from the sign-in — there is
+ * no viewer in the URL, because a URL that named one would be an invitation to
+ * read somebody else's inbox by editing it. The server decides the side from
+ * `may_review` and the witness row; this address is the same for everyone.
+ */
+export function forYouPath(slug: string): string {
+  return `/cases/${encodeURIComponent(slug)}/for-you`;
+}
 
 /** The dashboard. Declared in `App.tsx` as `/`. */
 export function homePath(): string {

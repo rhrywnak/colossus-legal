@@ -80,6 +80,23 @@ fn without_comments(source: &str) -> String {
         .join("\n")
 }
 
+/// Files under a scanned directory whose words are NOT the practice vocabulary.
+///
+/// ## Why a skip list rather than one union of every mirror
+///
+/// `src/pages` holds one page that is not a practice surface: "For you", whose
+/// twenty-five strings are their own block and their own mirror
+/// (CC_TASK_FOR_YOU_v1). Unioning its fields into the set this scanner checks
+/// against would make a PRACTICE page asking for `group_today` pass — a guard
+/// that checks a part of the truth and reports on the whole, which is the exact
+/// failure the header above describes arriving from the other direction.
+///
+/// So that page is skipped here and scanned by `for_you_wording_reach_tests`,
+/// which checks it against its own mirror. A file added to this list without a
+/// scanner of its own is a surface nothing guards — do not lengthen it lightly.
+// STRUCTURAL: repo-internal source file names, exactly as SURFACE_DIRS above.
+const NOT_A_PRACTICE_SURFACE: &[&str] = &["ForYouPage.tsx"];
+
 /// Every `.tsx`/`.ts` file under the practice surfaces, tests excluded.
 fn surface_files() -> Vec<PathBuf> {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -92,7 +109,7 @@ fn surface_files() -> Vec<PathBuf> {
             let path = entry.path();
             let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             let is_source = name.ends_with(".tsx") || name.ends_with(".ts");
-            if is_source && !name.contains(".test.") {
+            if is_source && !name.contains(".test.") && !NOT_A_PRACTICE_SURFACE.contains(&name) {
                 out.push(path);
             }
         }

@@ -122,6 +122,7 @@ impl Settings {
             war_room_wording: WarRoomWording::for_test(),
             practice_wording: PracticeWording::for_test(),
             practice_report_wording: PracticeReportWording::for_test(),
+            for_you_wording: crate::domain::wording_for_you::ForYouWording::for_test(),
             practice_read: PracticeReadParams::for_test(),
             question_chat: crate::domain::chat_params::QuestionChatParams::for_test(),
             evidence_tier_map: EvidenceTierMap::for_test(),
