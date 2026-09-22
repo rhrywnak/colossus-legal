@@ -161,6 +161,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // the same reason as their siblings — one flat table.
         .chain(crate::domain::wording_practice_editor::PracticeEditorWording::for_test_values())
         .chain(crate::domain::wording_practice_report::PracticeReportWording::for_test_values())
+        // CC_TASK_ENV_BANNER_v1: the test-system bar's four rows. The boot
+        // loader requires them, so a fixture without them would let a snapshot
+        // build that the real store could not.
+        .chain(crate::domain::wording_env_banner::EnvBannerWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
         // REVIEW_PAGE (2026-09-19): the Review answers page's nine. Nested on
@@ -1081,8 +1085,9 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_LIST_WORDING_KEYS.len()
             + PRACTICE_REVIEW_WORDING_KEYS.len()
             + CHRONOLOGY_WORDING_KEYS.len()
-            + FACT_CARD_WORDING_KEYS.len(),
-        "the seed and the twenty-three required lists must describe the same store"
+            + FACT_CARD_WORDING_KEYS.len()
+            + crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len(),
+        "the seed and the twenty-four required lists must describe the same store"
     );
 }
 

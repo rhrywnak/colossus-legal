@@ -204,8 +204,12 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// and `…/earlier` — and two `POST`s, `…/threads/:username/messages` (the
 /// streamed send) and `…/threads/:username/read`. `…/earlier` has no write verb
 /// by design: the old dock's thread is read-only (ADDENDUM_1).
+///
+/// 324 since ENV_BANNER_v1, which added ONE route — `GET /env-banner`, the test
+/// system bar's four sentences — and therefore TWO lines: axum registers a
+/// `HEAD` beside every `GET`.
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 322;
+const EXPECTED_ROUTE_LINES: usize = 324;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

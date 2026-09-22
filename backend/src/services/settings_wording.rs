@@ -74,6 +74,8 @@ pub(crate) struct AllWording {
     pub(crate) practice: PracticeWording,
     /// The words the reveal and Chuck's sheet speak (task PRACTICE v0).
     pub(crate) practice_report: PracticeReportWording,
+    /// The words the test-system bar speaks (CC_TASK_ENV_BANNER_v1).
+    pub(crate) env_banner: crate::domain::wording_env_banner::EnvBannerWording,
 }
 
 /// Every stored-string block, read by one rule.
@@ -111,6 +113,9 @@ pub(crate) fn build_all_wording(
     let war_room = build_war_room_wording(|key| text_of(require(rows, key)?))?;
     let practice = build_practice_wording(|key| text_of(require(rows, key)?))?;
     let practice_report = build_practice_report_wording(|key| text_of(require(rows, key)?))?;
+    let env_banner = crate::domain::wording_env_banner::build_env_banner_wording(|key| {
+        text_of(require(rows, key)?)
+    })?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -131,5 +136,6 @@ pub(crate) fn build_all_wording(
         war_room,
         practice,
         practice_report,
+        env_banner,
     })
 }

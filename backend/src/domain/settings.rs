@@ -346,6 +346,10 @@ pub struct Settings {
     /// for why the seam falls between what she answers into and what answers her
     /// back.
     pub practice_report_wording: PracticeReportWording,
+    /// The test-system bar's words (CC_TASK_ENV_BANNER_v1). Served to every
+    /// page by `api::env_banner`; the browser decides WHETHER to show them from
+    /// its own runtime config, never from this snapshot.
+    pub env_banner_wording: crate::domain::wording_env_banner::EnvBannerWording,
     /// What the one-sentence read is told, by which model, and what it may say
     /// back. Nested for the reason the wording blocks are — see
     /// `domain::practice_params`.

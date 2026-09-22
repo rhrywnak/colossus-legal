@@ -62,6 +62,14 @@
 
      Anything that fills a whole screen uses THIS token. Only the app shell and
      the two screens that paint their own full-height canvas do that. */
+  /* CC_TASK_ENV_BANNER_v1 — the test-system bar. Values from the ratified
+     mockup (ENV_BANNER_MOCKUP_v1_2026-09-22). Contrast, computed: ink on
+     ground 8.65:1 (AA and AAA); link on ground 6.48:1 (AA), which is why the
+     link is underlined as well as coloured. */
+  --warn-bg: #8a2b06;
+  --warn-ink: #ffffff;
+  --warn-link: #ffd9a8;
+
   --bg-canvas: #f4f5f7;
 
   /* --bg-page: a pale tint for chrome — table zebra stripes, code blocks, nav
