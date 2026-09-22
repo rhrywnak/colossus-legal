@@ -75,7 +75,11 @@ export const switcherButton: CSSProperties = {
   flexShrink: 0,
 };
 export const switcherButtonOpen: CSSProperties = { ...switcherButton, border: "1px solid var(--chat-accent-dark)" };
-export const visibility: CSSProperties = { flexGrow: 1, display: "flex", flexDirection: "column", gap: 2 };
+// v2.2.2: the side header is a COLUMN — a top row that never wraps text, then the
+// visibility line on its own full-width line. It used to share the row with the
+// switcher, chip and two buttons, and a long line was squeezed to ~70px (PROD, S-11).
+export const headerSide: CSSProperties = { ...header, flexDirection: "column", alignItems: "stretch", gap: 6 };
+export const headerRow: CSSProperties = { display: "flex", alignItems: "center", gap: 12 };
 export const visibilityText: CSSProperties = { fontSize: 12, color: "var(--chat-muted)" };
 export const chip: CSSProperties = {
   padding: "4px 10px",
@@ -86,6 +90,13 @@ export const chip: CSSProperties = {
   border: "1px solid var(--chat-grounded-border)",
   borderRadius: 999,
   whiteSpace: "nowrap",
+  // v2.2.2: the one control that may give way. At the narrowest panel the row's
+  // fixed widths exceed the room, and without this the expand and close buttons
+  // were pushed past the panel's edge. The chip ellipsizes; its title keeps the
+  // whole text.
+  minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
 };
 export const iconButton: CSSProperties = {
   width: 32,

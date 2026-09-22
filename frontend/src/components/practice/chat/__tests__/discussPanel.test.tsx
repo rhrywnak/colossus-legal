@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { SseParser, type ChatMessage, type ChatThreads, type ThreadRow } from "../../../../services/questionChat";
-import { Header } from "../DiscussChrome";
+import { Header, headerLine } from "../DiscussChrome";
 import DiscussMessages from "../DiscussMessages";
 import DiscussSwitcher from "../DiscussSwitcher";
 import {
@@ -287,5 +287,57 @@ describe("the side panel's close button", () => {
 
   it("is absent in full screen, which keeps Back and Collapse on its strip", () => {
     expect(header(true)).not.toContain("Close discussion");
+  });
+});
+
+// v2.2.2 — the header's second line, per selection (PROD S-11 defect).
+describe("the side header's line under the controls", () => {
+  const earlier = { kind: "earlier" as const };
+  const OWN = "Chuck and Roman can read this thread · resumed from Sep 19";
+  const EARLIER = WORDS.chat_earlier_readonly_line;
+  const OTHER = WORDS.chat_readonly_line;
+  const draw = (selection: Parameters<typeof headerLine>[2], full = false) =>
+    renderToStaticMarkup(
+      <Header
+        w={w}
+        threads={threads()}
+        selection={selection}
+        full={full}
+        onSelect={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+  it("shows who can read it on the viewer's own thread", () => {
+    expect(headerLine(w, threads(), mine)).toBe(OWN);
+    expect(draw(mine)).toContain(OWN);
+  });
+
+  it("shows nothing on another person's thread — the footer says it", () => {
+    expect(headerLine(w, threads(), chucks)).toBeNull();
+    expect(draw(chucks)).not.toContain(OTHER);
+  });
+
+  it("shows nothing on the earlier discussion — the footer says it", () => {
+    expect(headerLine(w, threads(), earlier)).toBeNull();
+    expect(draw(earlier)).not.toContain(EARLIER);
+  });
+
+  it("keeps the line OUT of the controls row, so it can never be squeezed", () => {
+    const html = draw(mine);
+    // The row ends with the close button; the line comes after the row closes.
+    expect(html.indexOf('aria-label="Close discussion"')).toBeLessThan(html.indexOf(OWN));
+    expect(html).toMatch(/<\/button><\/div><div[^>]*>Chuck and Roman can read this thread/);
+  });
+
+  it("leaves full screen as it was: one row, no line", () => {
+    for (const selection of [mine, chucks, earlier]) {
+      const html = draw(selection, true);
+      expect(html).not.toContain(OWN);
+      expect(html).not.toContain(EARLIER);
+      expect(html).not.toContain(OTHER);
+      expect(html).not.toContain("Close discussion");
+    }
   });
 });
