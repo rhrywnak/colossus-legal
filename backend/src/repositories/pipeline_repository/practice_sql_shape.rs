@@ -75,6 +75,14 @@ const COVERED: &[&str] = &[
     // `practice_sessions` and `practice_review_cursor` columns since it was
     // written, and now names `practice_notes` columns too.
     "src/repositories/pipeline_repository/review_cursor.rs",
+    // The For You reads and the seen write (CC_TASK_FOR_YOU_v1 L0). In the cover
+    // on the day they were written, for the reason every neighbour above gives:
+    // between them they name columns on five practice tables, and the one new
+    // table's INSERT is the widest column list either file carries. A column
+    // renamed in a later migration and not here is a page that goes blank on the
+    // first real request.
+    "src/repositories/pipeline_repository/item_seen.rs",
+    "src/repositories/pipeline_repository/waiting_items.rs",
 ];
 
 /// The shipped source of every covered repository file, concatenated.
@@ -471,6 +479,10 @@ pub(super) fn declared() -> BTreeMap<String, Vec<String>> {
         // simply never scanned, so its columns were never checked against the
         // migration that creates them.
         "practice_review_cursor",
+        // The seen record (CC_TASK_FOR_YOU_v1 L0), declared with the migration
+        // that creates it — the watermark above is the cautionary tale for what
+        // happens when a table ships without being declared here.
+        "practice_item_seen",
     ]
     .iter()
     .map(|t| ((*t).to_string(), migration_columns(t)))

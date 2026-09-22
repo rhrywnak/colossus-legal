@@ -1,0 +1,262 @@
+//! Live-database proofs of the SEEN record and the sweep (CC_TASK_FOR_YOU_v1 L0).
+//!
+//! The sibling of `waiting_items_live_tests`, split from it under Rule 17. That
+//! file proves WHICH items wait for whom; this one proves what happens when
+//! somebody reads them — that one seen row clears one item, that the sweep
+//! marks only what it was handed, and that a second press changes nothing.
+//!
+//! `#[ignore]`d and run the same way, against a SCRATCH copy of the pipeline
+//! schema, never against `colossus_legal_v2`.
+//!
+//! Each `(M)` test is mutation-proved in the report.
+
+use chrono::{DateTime, Duration, Utc};
+use uuid::Uuid;
+
+use super::super::item_seen::{mark_seen, seen_count, ItemRef};
+use super::super::war_room_status::live_tests::{
+    answer_by, cleanup, pipeline_pool, question, scenario, TestResult,
+};
+use super::live_tests::{bench, count, items, ADMIN, REVIEWER, WITNESS};
+use super::{waiting_counts, waiting_total, WaitingQuery, WaitingSide};
+
+/// (M) Reading one item clears that item and nothing else.
+///
+/// The whole point of the finer grain: a watermark could only clear a whole
+/// deck, so the one question Chuck wrote on could not be distinguished from the
+/// 184 he did not.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn reading_one_item_clears_only_that_item() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_clear_one").await?;
+    let t0 = Utc::now() - Duration::hours(3);
+    let q1 = question(&pool, s, "chuck", 1).await?;
+    let a1 = answer_by(&pool, s, q1, t0, Some(WITNESS)).await?;
+    let q2 = question(&pool, s, "chuck", 2).await?;
+    let a2 = answer_by(&pool, s, q2, t0 + Duration::minutes(5), Some(WITNESS)).await?;
+    assert_eq!(count(&pool, s, REVIEWER, WaitingSide::Reviewers).await?, 2);
+
+    assert_eq!(mark_seen(&pool, REVIEWER, &[ItemRef::Answer(a2)]).await?, 1);
+    assert_eq!(
+        items(&pool, s, REVIEWER, WaitingSide::Reviewers).await?,
+        vec![("answer".to_string(), a1)],
+        "the OTHER answer is still waiting"
+    );
+    assert_eq!(
+        count(&pool, s, ADMIN, WaitingSide::Reviewers).await?,
+        2,
+        "and it is cleared for that reader only"
+    );
+    cleanup(&pool, s, "waiting_clear_one").await
+}
+
+/// (M) The sweep marks exactly what it was given — never what arrived after.
+///
+/// Ruling 1: "Done reviewing marks exactly the items that page showed." The page
+/// sends the ids it rendered; an answer written between the render and the press
+/// is not among them and must still be waiting afterwards. A watermark press
+/// (`looked_at = now()`) would have swallowed it unread, which is the race this
+/// design exists to close.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn the_sweep_never_marks_an_item_it_was_not_given() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_sweep").await?;
+    let t0 = Utc::now() - Duration::hours(4);
+    let q1 = question(&pool, s, "chuck", 1).await?;
+    answer_by(&pool, s, q1, t0, Some(WITNESS)).await?;
+    let q2 = question(&pool, s, "chuck", 2).await?;
+    answer_by(&pool, s, q2, t0 + Duration::minutes(1), Some(WITNESS)).await?;
+
+    // What the page rendered.
+    let shown: Vec<ItemRef> = items(&pool, s, REVIEWER, WaitingSide::Reviewers)
+        .await?
+        .into_iter()
+        .map(|(_, id)| ItemRef::Answer(id))
+        .collect();
+    assert_eq!(shown.len(), 2);
+
+    // What arrived while he was reading it.
+    let q3 = question(&pool, s, "chuck", 3).await?;
+    let late = answer_by(&pool, s, q3, Utc::now(), Some(WITNESS)).await?;
+
+    assert_eq!(mark_seen(&pool, REVIEWER, &shown).await?, 2);
+    assert_eq!(
+        items(&pool, s, REVIEWER, WaitingSide::Reviewers).await?,
+        vec![("answer".to_string(), late)],
+        "the answer written after the page loaded is still waiting"
+    );
+    cleanup(&pool, s, "waiting_sweep").await
+}
+
+/// (M) A second press keeps the FIRST moment, and writes no second row.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn a_second_press_keeps_the_first_moment() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_idempotent").await?;
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer_by(&pool, s, q, Utc::now() - Duration::hours(1), Some(WITNESS)).await?;
+    // A DELTA, not an absolute: this scratch database carries the back-fill's
+    // rows too, and a test that asserted a total would be asserting the fixture
+    // rather than the behaviour.
+    let before = seen_count(&pool, REVIEWER).await?;
+
+    assert_eq!(mark_seen(&pool, REVIEWER, &[ItemRef::Answer(a)]).await?, 1);
+    let first: (DateTime<Utc>,) =
+        sqlx::query_as("SELECT seen_at FROM practice_item_seen WHERE answer_id = $1")
+            .bind(a)
+            .fetch_one(&pool)
+            .await?;
+
+    assert_eq!(
+        mark_seen(&pool, REVIEWER, &[ItemRef::Answer(a)]).await?,
+        0,
+        "the second press writes nothing, and says so"
+    );
+    let again: (DateTime<Utc>,) =
+        sqlx::query_as("SELECT seen_at FROM practice_item_seen WHERE answer_id = $1")
+            .bind(a)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(first.0, again.0, "the first reading is the one kept");
+    assert_eq!(
+        seen_count(&pool, REVIEWER).await? - before,
+        1,
+        "one row, not two"
+    );
+    cleanup(&pool, s, "waiting_idempotent").await
+}
+
+/// An empty sweep writes nothing and is not an error.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn an_empty_sweep_is_a_zero_and_not_a_failure() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    assert_eq!(mark_seen(&pool, REVIEWER, &[]).await?, 0);
+    Ok(())
+}
+
+/// (M) A count comes back for every deck ASKED ABOUT, including the empty one,
+/// and the oldest date is the oldest WAITING item's.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn every_deck_asked_about_gets_a_row_and_an_honest_oldest() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let busy = scenario(&pool, "waiting_counts_busy").await?;
+    let quiet = scenario(&pool, "waiting_counts_quiet").await?;
+    let oldest = Utc::now() - Duration::days(2);
+    let q1 = question(&pool, busy, "chuck", 1).await?;
+    let a1 = answer_by(&pool, busy, q1, oldest, Some(WITNESS)).await?;
+    let q2 = question(&pool, busy, "chuck", 2).await?;
+    answer_by(&pool, busy, q2, Utc::now(), Some(WITNESS)).await?;
+
+    let reviewers = bench();
+    let query = WaitingQuery {
+        scenario_ids: &[busy, quiet],
+        viewer: REVIEWER,
+        reviewers: &reviewers,
+        side: WaitingSide::Reviewers,
+    };
+    let rows = waiting_counts(&pool, &query).await?;
+    assert_eq!(rows.len(), 2, "one row per scenario asked for");
+    let busy_row = rows
+        .iter()
+        .find(|r| r.scenario_id == busy)
+        .ok_or("a row for the busy deck")?;
+    let quiet_row = rows
+        .iter()
+        .find(|r| r.scenario_id == quiet)
+        .ok_or("a row for the quiet deck")?;
+    assert_eq!(busy_row.waiting, 2);
+    assert_eq!(quiet_row.waiting, 0);
+    assert_eq!(quiet_row.oldest, None, "no date when nothing waits");
+    let stamped = busy_row.oldest.ok_or("an oldest while items wait")?;
+    assert!(
+        (stamped - oldest).num_milliseconds().abs() < 1,
+        "oldest = {stamped}"
+    );
+    assert_eq!(waiting_total(&pool, &query).await?, 2, "the badge's number");
+
+    // Reading the older one moves the date forward to the one still waiting.
+    mark_seen(&pool, REVIEWER, &[ItemRef::Answer(a1)]).await?;
+    let after = waiting_counts(&pool, &query).await?;
+    let busy_after = after
+        .iter()
+        .find(|r| r.scenario_id == busy)
+        .ok_or("a row for the busy deck")?;
+    assert_eq!(busy_after.waiting, 1);
+    assert!(
+        busy_after.oldest.ok_or("a date")? > stamped,
+        "the oldest date follows the set, never a stored value"
+    );
+    cleanup(&pool, busy, "waiting_counts_busy").await?;
+    cleanup(&pool, quiet, "waiting_counts_quiet").await
+}
+
+/// An id that names no item is REFUSED, not quietly recorded as read.
+///
+/// ## Domain note: why this is worth a database round trip
+///
+/// The sweep is the one write in this design, and its ids come from a page. An
+/// id that matches no answer, note or change is either a stale page or a caller
+/// inventing one — and the wrong answer to both is to write a row saying
+/// somebody read a thing that does not exist. Nothing would ever match it
+/// again, and nothing would ever say so. The three foreign keys are what make
+/// that impossible, and this is the proof they are really there: `mark_seen`
+/// returns `Err`, and no row is written.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn an_id_that_names_no_item_is_refused() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let before = seen_count(&pool, REVIEWER).await?;
+    let invented = Uuid::new_v4();
+
+    for item in [
+        ItemRef::Answer(invented),
+        ItemRef::Note(invented),
+        ItemRef::Change(invented),
+    ] {
+        let outcome = mark_seen(&pool, REVIEWER, &[item]).await;
+        assert!(
+            outcome.is_err(),
+            "an id naming no item was accepted: {item:?} -> {outcome:?}"
+        );
+    }
+    assert_eq!(
+        seen_count(&pool, REVIEWER).await?,
+        before,
+        "a refused sweep writes nothing"
+    );
+    Ok(())
+}
+
+/// A blank reader is REFUSED by the CHECK, not stored as a person called "".
+///
+/// `user_id` is the signed-in login. A blank one means the caller lost track of
+/// who is asking — and a row under `''` would be read-state belonging to
+/// nobody, invisible to every real reader and impossible to clear.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn a_blank_reader_is_refused() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_blank_reader").await?;
+    let q = question(&pool, s, "chuck", 1).await?;
+    let a = answer_by(&pool, s, q, Utc::now() - Duration::hours(1), Some(WITNESS)).await?;
+
+    for blank in ["", "   "] {
+        let outcome = mark_seen(&pool, blank, &[ItemRef::Answer(a)]).await;
+        assert!(
+            outcome.is_err(),
+            "a blank reader was accepted: {blank:?} -> {outcome:?}"
+        );
+    }
+    let rows: (i64,) =
+        sqlx::query_as("SELECT count(*) FROM practice_item_seen WHERE answer_id = $1")
+            .bind(a)
+            .fetch_one(&pool)
+            .await?;
+    assert_eq!(rows.0, 0, "nothing was written under a blank reader");
+    cleanup(&pool, s, "waiting_blank_reader").await
+}

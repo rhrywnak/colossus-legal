@@ -78,6 +78,7 @@ pub mod extraction_items;
 pub mod extraction_items_pass1;
 pub mod extraction_relationships;
 pub mod extraction_runs;
+pub mod item_seen;
 pub mod models;
 pub mod practice;
 pub mod practice_answers;
@@ -111,6 +112,7 @@ pub mod scenario_status_transitions;
 pub mod scenario_store;
 pub mod steps;
 pub mod users;
+pub mod waiting_items;
 pub mod war_room_status;
 
 pub use app_settings::*;
