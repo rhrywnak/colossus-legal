@@ -417,6 +417,21 @@ pub struct AnswerResponse {
     /// is worse than the single sentence it replaced. Citing receipts by key is
     /// the whole of what T1 bought, and the key is only half of it.
     pub read_sources: Vec<ReadSourceDto>,
+    /// The answer box's new label — `Your answer — saved {when}` for the row
+    /// this press left standing — so the label moves the moment the press
+    /// returns, with no refetch.
+    ///
+    /// `None` only on a SKIP, which puts no answer in the box. On an unchanged
+    /// re-press it carries the ORIGINAL time: no version was written, and a
+    /// label claiming a fresh save would be untrue.
+    pub saved_label: Option<String>,
+    /// `Saved. Answer analysis is off, so no read was requested.` — present
+    /// ONLY when the press asked for no read.
+    ///
+    /// Domain note: decided HERE because the server is what knows no model was
+    /// asked (CLAUDE.md rule 12). On v2.2.0 an analysis-off press returned
+    /// nothing visible at all, and "nothing happened" was a fair reading of it.
+    pub saved_line: Option<String>,
 }
 
 /// One row of Chuck's sheet, every cell already a word.
@@ -520,6 +535,11 @@ pub struct AnswerVersionDto {
     pub text: String,
     /// `Answered on 22 Aug`, already composed — the same line the row shows.
     pub answered_on: String,
+    /// `Your answer — saved Wed 21 Sep · 10:54 pm`, already composed — the
+    /// label over the answer box when this is the CURRENT version
+    /// (`practice_page::answer_saved_label`). Sent on every version so the
+    /// field has one meaning; the page reads it only from `current`.
+    pub saved_label: String,
     /// The notes on THIS attempt, oldest first, struck ones included
     /// (CC_TASK_REVIEW_LOOP_v1 §4).
     pub notes: Vec<super::practice_review::PracticeNoteDto>,

@@ -502,7 +502,8 @@ pub async fn answer_versions(
     .map_err(PipelineRepoError::from)
 }
 
-/// The answer that stands for one question, if there is one — id and words.
+/// The answer that stands for one question, if there is one — id, words, and
+/// when it was saved (the answer box's "saved {when}" label, on a re-press).
 ///
 /// Lighter than [`answer_versions`] and used on the write path: the answer
 /// handler needs to know whether what she just typed is byte-identical to what
@@ -511,9 +512,9 @@ pub async fn answer_versions(
 pub async fn current_answer_for(
     pool: &PgPool,
     question_id: Uuid,
-) -> Result<Option<(Uuid, String)>, PipelineRepoError> {
-    let row: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT a.id, a.answer_text FROM practice_answers a \
+) -> Result<Option<(Uuid, String, chrono::DateTime<chrono::Utc>)>, PipelineRepoError> {
+    let row: Option<(Uuid, String, chrono::DateTime<chrono::Utc>)> = sqlx::query_as(
+        "SELECT a.id, a.answer_text, a.answered_at FROM practice_answers a \
          WHERE a.question_id = $1 \
          ORDER BY a.answered_at DESC, a.id DESC LIMIT 1",
     )

@@ -171,6 +171,32 @@ pub fn answered_on_line(settings: &Settings, at: DateTime<Utc>) -> String {
     )
 }
 
+/// `Your answer — saved Wed 21 Sep · 10:54 pm` — the label over the answer box.
+///
+/// ## Why the DAY AND THE TIME, when the deck row says only the day
+///
+/// The deck row answers "have I done this one?", where the day is enough. This
+/// label answers "is what is in this box on file?" — asked by someone who may
+/// have pressed Answer a minute ago, and who needs to see that the time is THAT
+/// minute (CC_TASK_PRACTICE_FIXES_v2.2.1, Q2 ruled day and time).
+///
+/// Composed in the CASE's timezone like every other date on this surface
+/// (`practice_read.case_timezone`), so the browser holds no date format and a
+/// wrong-zone rendering has one place to be wrong in. UNBRACED key, as
+/// `answered_on_line` explains.
+pub fn answer_saved_label(settings: &Settings, at: DateTime<Utc>) -> String {
+    render(
+        &settings.practice_wording.row.answer_saved_template,
+        &[(
+            "when",
+            &crate::services::practice_clock::local_stamp(
+                at,
+                &settings.practice_read.case_timezone,
+            ),
+        )],
+    )
+}
+
 /// `Answered 14 Sep · Marie` — the line under one answer on the review page.
 ///
 /// ## Why this is not `answered_on_line` with a name appended
@@ -501,3 +527,7 @@ mod cards_tests;
 #[cfg(test)]
 #[path = "practice_picker_tests.rs"]
 mod picker_tests;
+
+#[cfg(test)]
+#[path = "practice_page_saved_label_tests.rs"]
+mod saved_label_tests;

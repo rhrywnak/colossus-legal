@@ -116,6 +116,17 @@ export const buttonWorking: CSSProperties = {
   cursor: "default",
 };
 
+/**
+ * `Saved. Answer analysis is off, so no read was requested.` — the one quiet
+ * line under the buttons after an analysis-off press (v2.2.1, Fix 2).
+ */
+export const savedLine: CSSProperties = {
+  fontSize: 13,
+  color: "var(--practice-muted)",
+  lineHeight: 1.5,
+  margin: "10px 0 0",
+};
+
 export const back: CSSProperties = {
   color: "var(--practice-blue)",
   textDecoration: "none",

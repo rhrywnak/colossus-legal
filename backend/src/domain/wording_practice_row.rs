@@ -101,6 +101,20 @@ pub struct PracticeRowWording {
     /// yet" and the wrong one to show the person least able to diagnose it.
     pub answered_on_template: String,
 
+    // ── The answer box says it is saved (CC_TASK_PRACTICE_FIXES_v2.2.1) ──
+    /// `Your answer — saved {when}` — the label over the answer box once an
+    /// answer is saved. Filled SERVER-side (`practice_page::answer_saved_label`)
+    /// with the day AND time in the case's timezone.
+    ///
+    /// Domain note: the box is pre-filled with her current answer, and on
+    /// v2.2.0 nothing said so — she pressed Answer four times and read "nothing
+    /// happened" (DEV, 2026-09-21). The label is what makes a pre-filled box
+    /// read as "this is already on file" rather than as a draft.
+    pub answer_saved_template: String,
+    /// The one line under the buttons after a press with Answer analysis OFF.
+    /// With analysis on the read itself is the confirmation, so this never shows.
+    pub answer_saved_off_line: String,
+
     // ── The review loop (CC_TASK_REVIEW_LOOP_v1) ─────────────────────────
     //
     // Domain note: two audiences, one question. Chuck writes a note on the
@@ -181,6 +195,8 @@ pub(crate) const KEY_ANSWER_EMPTY_HINT: &str = "practice_answer_empty_hint";
 
 pub(crate) const KEY_ANSWER_ALREADY_RECORDED: &str = "practice_answer_already_recorded";
 pub(crate) const KEY_ANSWERED_ON_TEMPLATE: &str = "practice_row_answered_on_template";
+pub(crate) const KEY_ANSWER_SAVED_TEMPLATE: &str = "practice_row_answer_saved_template";
+pub(crate) const KEY_ANSWER_SAVED_OFF_LINE: &str = "practice_row_answer_saved_off_line";
 
 pub(crate) const KEY_DECK_REVIEW_AWAITING_TEMPLATE: &str = "practice_deck_review_awaiting_template";
 pub(crate) const KEY_DECK_REVIEW_AWAITING_ONE: &str = "practice_deck_review_awaiting_one";
@@ -203,6 +219,8 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_ANSWER_ALREADY_RECORDED,
     KEY_ANSWER_EMPTY_HINT,
     KEY_ANSWERED_ON_TEMPLATE,
+    KEY_ANSWER_SAVED_TEMPLATE,
+    KEY_ANSWER_SAVED_OFF_LINE,
     KEY_PRACTICE_THIS_LABEL,
     KEY_ANSWERED_TODAY_TEMPLATE,
     KEY_SKIPPED_TODAY,
@@ -251,6 +269,8 @@ pub fn build_practice_row_wording<E>(
     Ok(PracticeRowWording {
         answer_already_recorded: read(KEY_ANSWER_ALREADY_RECORDED)?,
         answered_on_template: read(KEY_ANSWERED_ON_TEMPLATE)?,
+        answer_saved_template: read(KEY_ANSWER_SAVED_TEMPLATE)?,
+        answer_saved_off_line: read(KEY_ANSWER_SAVED_OFF_LINE)?,
         answer_empty_hint: read(KEY_ANSWER_EMPTY_HINT)?,
         practice_this_label: read(KEY_PRACTICE_THIS_LABEL)?,
         answered_today_template: read(KEY_ANSWERED_TODAY_TEMPLATE)?,

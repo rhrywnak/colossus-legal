@@ -138,7 +138,7 @@ pub async fn notes_of(
     let current = current_answer_for(&state.pipeline_pool, question_id)
         .await
         .map_err(failure)?
-        .map(|(id, _)| id);
+        .map(|(id, _, _)| id);
     let notes = notes_for_question(&state.pipeline_pool, question_id)
         .await
         .map_err(failure)?;

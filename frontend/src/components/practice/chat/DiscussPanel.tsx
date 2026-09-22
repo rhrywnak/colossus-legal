@@ -164,6 +164,7 @@ const DiscussPanel: React.FC<Props> = (props) => {
           full={full}
           onSelect={setSelection}
           onExpand={props.onExpand}
+          onClose={props.onBack}
         />
         <DiscussMessages
           w={w}

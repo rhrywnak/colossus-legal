@@ -20,7 +20,13 @@
 
 import { describe, expect, it } from "vitest";
 
-import { answerChrome, waitingLineKey, LONG_WAIT_MS } from "../practiceAnswerPhase";
+import {
+  answerChrome,
+  savedLabelFor,
+  savedLineFor,
+  waitingLineKey,
+  LONG_WAIT_MS,
+} from "../practiceAnswerPhase";
 
 /**
  * The Answer-analysis switch, as these two worlds are named below.
@@ -132,5 +138,39 @@ describe("while the answer is saving and nothing is being read", () => {
 
   it("is the idle state either way once the write is done", () => {
     expect(answerChrome("idle", OFF)).toEqual(answerChrome("idle", ON));
+  });
+});
+
+// v2.2.1, Fix 2 — "Did my answer save?"
+describe("the answer box says it is saved", () => {
+  const loaded = { saved_label: "Your answer — saved Sun 20 Sep · 9:02 am" };
+  const pressed = (label: string | null, line: string | null) => ({
+    saved_label: label,
+    saved_line: line,
+  });
+
+  it("keeps the plain label when nothing is saved and nothing was pressed", () => {
+    expect(savedLabelFor(null, null)).toBeNull();
+  });
+
+  it("says the loaded answer is on file — which is what survives a reload", () => {
+    expect(savedLabelFor(loaded, null)).toBe("Your answer — saved Sun 20 Sep · 9:02 am");
+  });
+
+  it("moves to the press's label the moment the press returns", () => {
+    expect(
+      savedLabelFor(loaded, pressed("Your answer — saved Mon 21 Sep · 10:54 pm", null)),
+    ).toBe("Your answer — saved Mon 21 Sep · 10:54 pm");
+  });
+
+  it("falls back to the loaded label when a press brought none", () => {
+    expect(savedLabelFor(loaded, pressed(null, null))).toBe(loaded.saved_label);
+  });
+
+  it("shows the confirmation line only when the server sent one (analysis off)", () => {
+    const off = "Saved. Answer analysis is off, so no read was requested.";
+    expect(savedLineFor(null)).toBeNull();
+    expect(savedLineFor(pressed("x", null))).toBeNull();
+    expect(savedLineFor(pressed("x", off))).toBe(off);
   });
 });

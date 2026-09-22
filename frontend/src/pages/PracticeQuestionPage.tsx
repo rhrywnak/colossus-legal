@@ -32,7 +32,12 @@ import * as chat from "../components/practice/chat/discussPanelStyles";
 import { useResizablePanes } from "../hooks/useResizablePanes";
 import Critique from "../components/practice/PracticeCritiqueBlock";
 import { critiqueFor } from "../components/practice/practiceCritique";
-import { answerChrome, LONG_WAIT_MS } from "../components/practice/practiceAnswerPhase";
+import {
+  answerChrome,
+  LONG_WAIT_MS,
+  savedLabelFor,
+  savedLineFor,
+} from "../components/practice/practiceAnswerPhase";
 import * as c from "../components/practice/practiceCritiqueStyles";
 import * as q from "../components/practice/practiceQuestionStyles";
 import * as s from "../components/practice/practiceStyles";
@@ -208,6 +213,10 @@ const PracticeQuestionPage: React.FC = () => {
   // component, so a claim living only in this file is a claim nothing checks.
   const chrome = answerChrome(working ? "working" : "idle", analysisOn);
   const view = critiqueFor(result);
+  // Fix 2 (v2.2.1): the box says it is on file, and an analysis-off press says
+  // it saved. Both strings are composed by the server; see the two helpers.
+  const boxLabel = savedLabelFor(answers.current, result) ?? w("answer_label");
+  const savedLine = savedLineFor(result);
 
   const sideOpen = discussMode === "side";
   return (
@@ -230,12 +239,12 @@ const PracticeQuestionPage: React.FC = () => {
             <p style={q.question}>{question.text}</p>
             {question.receipt !== null && <p style={q.from}>{question.receipt}</p>}
 
-            <p style={q.label}>{w("answer_label")}</p>
+            <p style={q.label}>{boxLabel}</p>
             <textarea
               style={chrome.boxLocked ? { ...q.box, ...q.boxLocked } : q.box}
               value={draft}
               readOnly={chrome.boxLocked}
-              aria-label={w("answer_label")}
+              aria-label={boxLabel}
               onChange={(event) => setDraft(event.target.value)}
             />
 
@@ -303,6 +312,11 @@ const PracticeQuestionPage: React.FC = () => {
                 {w("back_label")}
               </a>
             </div>
+            {savedLine !== null && (
+              <p style={q.savedLine} role="status">
+                {savedLine}
+              </p>
+            )}
             <p style={chat.openHint}>{w("chat_open_hint")}</p>
 
             {/* PRESENT AND EMPTY from the press, not from the resolution. */}

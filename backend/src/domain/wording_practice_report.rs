@@ -46,6 +46,21 @@ pub struct PracticeReportWording {
     /// SPEAKING, saying it will not judge an answer on what it was given. When the
     /// model is the one declining, its own plain-English reason follows this line.
     pub read_abstain_line: String,
+    /// The ONE line the witness reads when the read fails for a SYSTEM reason.
+    ///
+    /// Domain note (Roman, 2026-09-21): no technical reason ever reaches her.
+    /// A read that could not be set up, a model that could not be reached, an
+    /// input that did not load, a reply that was unusable twice — all read this
+    /// same sentence, which tells her the two things she needs: her answer is
+    /// saved, and what she can do next. The specific cause goes to
+    /// `read_error` / `read_abstain_reason` and the logs, for an operator.
+    ///
+    /// NOT the model's own decline. When the MODEL abstains ("That looks like
+    /// a test entry"), it is speaking to her about her answer, and she reads
+    /// [`Self::read_abstain_line`] followed by its sentence, as before.
+    ///
+    /// Server-only: composed into `read_text`, never sent as a wording key.
+    pub read_failed_line: String,
     /// The stored read for the one-click "I don't recall." control.
     ///
     /// Domain note: no model is called for it. The button sends a sentence this
@@ -170,6 +185,7 @@ pub(crate) const KEY_READ_TAG: &str = "practice_read_tag";
 pub(crate) const KEY_READ_FOOTNOTE: &str = "practice_read_footnote";
 pub(crate) const KEY_READ_UNAVAILABLE: &str = "practice_read_unavailable";
 pub(crate) const KEY_READ_ABSTAIN_LINE: &str = "practice_read_abstain_line";
+pub(crate) const KEY_READ_FAILED_LINE: &str = "practice_read_failed_line";
 pub(crate) const KEY_READ_DONT_RECALL_LINE: &str = "practice_read_dont_recall_line";
 pub(crate) const KEY_POINTS_KICKER: &str = "practice_points_kicker";
 pub(crate) const KEY_RECEIPT_PREFIX: &str = "practice_receipt_prefix";
@@ -224,6 +240,7 @@ pub const PRACTICE_REPORT_WORDING_KEYS: &[&str] = &[
     KEY_READ_FOOTNOTE,
     KEY_READ_UNAVAILABLE,
     KEY_READ_ABSTAIN_LINE,
+    KEY_READ_FAILED_LINE,
     KEY_READ_DONT_RECALL_LINE,
     KEY_POINTS_KICKER,
     KEY_RECEIPT_PREFIX,
@@ -294,6 +311,7 @@ pub fn build_practice_report_wording<E>(
         read_footnote: read(KEY_READ_FOOTNOTE)?,
         read_unavailable: read(KEY_READ_UNAVAILABLE)?,
         read_abstain_line: read(KEY_READ_ABSTAIN_LINE)?,
+        read_failed_line: read(KEY_READ_FAILED_LINE)?,
         read_dont_recall_line: read(KEY_READ_DONT_RECALL_LINE)?,
         points_kicker: read(KEY_POINTS_KICKER)?,
         receipt_prefix: read(KEY_RECEIPT_PREFIX)?,

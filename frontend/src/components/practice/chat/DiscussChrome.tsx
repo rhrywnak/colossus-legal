@@ -1,7 +1,9 @@
 // DiscussChrome.tsx — the panel's header, the full-screen strip, and the composer.
 //
 // Presentational. Board 1's header carries the switcher, the visibility line,
-// the grounded chip and the expand button; board 2's header carries only the
+// the grounded chip, the expand button and — since v2.2.1 — a close (×) button
+// after it (CC_TASK_PRACTICE_FIXES_v2.2.1, Fix 1: before it, the side panel
+// could be shut only by expanding it and pressing Back); board 2's header carries only the
 // switcher and the chip, because the full-screen strip above it holds Back and
 // collapse, and the open switcher's footer states the visibility rule.
 
@@ -30,6 +32,14 @@ const CollapseIcon = () => (
   </svg>
 );
 
+/** The ×: two strokes, drawn in the same 15px ink as the expand icon beside it. */
+const CloseIcon = () => (
+  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2" aria-hidden="true">
+    <path d="M18 6L6 18" />
+    <path d="M6 6l12 12" />
+  </svg>
+);
+
 const BackIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" style={{ color: "var(--chat-quote-ink)" }} strokeWidth="2.5" aria-hidden="true">
     <path d="M19 12H5" />
@@ -44,7 +54,9 @@ export const Header: React.FC<{
   full: boolean;
   onSelect: (s: Selection) => void;
   onExpand: () => void;
-}> = ({ w, threads, selection, full, onSelect, onExpand }) => (
+  /** Shuts the panel and drops `?discuss` — side mode only. */
+  onClose: () => void;
+}> = ({ w, threads, selection, full, onSelect, onExpand, onClose }) => (
   <div style={full ? st.headerFull : st.header}>
     <DiscussSwitcher w={w} threads={threads} selection={selection} onSelect={onSelect} />
     {full ? (
@@ -64,6 +76,18 @@ export const Header: React.FC<{
         onClick={onExpand}
       >
         <ExpandIcon />
+      </button>
+    )}
+    {/* Side mode only: full screen already has Back and Collapse on its strip. */}
+    {!full && (
+      <button
+        type="button"
+        aria-label={w("chat_close_label")}
+        title={w("chat_close_label")}
+        style={st.iconButton}
+        onClick={onClose}
+      >
+        <CloseIcon />
       </button>
     )}
   </div>

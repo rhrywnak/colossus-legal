@@ -7,9 +7,14 @@ use super::*;
 use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
-/// The one migration that seeds this block.
+/// The migration that seeds this block.
 const SEED_MIGRATION: &str =
     "pipeline_migrations/20260921140958_chat_discussions_and_grounded_flag.sql";
+
+/// The v2.2.1 fixes migration, which seeds the side panel's close label. A second
+/// file rather than an edit to the first: where a row was seeded is history, and
+/// only its VALUE is what this test pins.
+const V221_SEED_MIGRATION: &str = "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql";
 
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -26,6 +31,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_GROUNDED_CHIP_TEMPLATE, "{model} · grounded"),
     (KEY_EXPAND_LABEL, "Expand discussion to full screen"),
     (KEY_COLLAPSE_LABEL, "Collapse to side panel"),
+    (KEY_CLOSE_LABEL, "Close discussion"),
     (KEY_BACK_LABEL, "Back"),
     (KEY_BACK_ARIA, "Back to question"),
     (KEY_RESIZE_LABEL, "Drag to resize"),
@@ -84,9 +90,14 @@ fn every_key_is_in_the_fixture_once_and_seeded_by_the_migration() {
     assert_eq!(TEST_SEED.len(), QUESTION_CHAT_WORDING_KEYS.len());
     let migration =
         std::fs::read_to_string(SEED_MIGRATION).expect("the seed migration is readable");
+    let v221 = std::fs::read_to_string(V221_SEED_MIGRATION)
+        .expect("the v2.2.1 fixes migration is readable");
     for key in QUESTION_CHAT_WORDING_KEYS {
         let seeded = seeded_value_in(&migration, key)
-            .unwrap_or_else(|| panic!("{key} is not seeded by {SEED_MIGRATION}"));
+            .or_else(|| seeded_value_in(&v221, key))
+            .unwrap_or_else(|| {
+                panic!("{key} is not seeded by {SEED_MIGRATION} or {V221_SEED_MIGRATION}")
+            });
         let fixture = TEST_SEED.iter().find(|(k, _)| k == key).map(|(_, v)| *v);
         assert_eq!(
             fixture,

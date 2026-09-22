@@ -6,6 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { SseParser, type ChatMessage, type ChatThreads, type ThreadRow } from "../../../../services/questionChat";
+import { Header } from "../DiscussChrome";
 import DiscussMessages from "../DiscussMessages";
 import DiscussSwitcher from "../DiscussSwitcher";
 import {
@@ -55,6 +56,9 @@ const WORDS: Record<string, string> = {
   chat_refused: "The model declined to answer that. Your message is saved above — try putting it another way.",
   chat_truncated: "The reply ran past its length limit and is not shown. Your message is saved above — send again to retry.",
   chat_cap_reached_template: "This thread has reached its limit of {max} replies.",
+  chat_expand_label: "Expand discussion to full screen",
+  // v2.2.1's migration (20260922072151_practice_fixes_v2_2_1.sql).
+  chat_close_label: "Close discussion",
 };
 const w = (key: string) => {
   const v = WORDS[key];
@@ -253,5 +257,35 @@ describe("the Earlier team discussion", () => {
       <DiscussMessages w={w} messages={[old]} pending={null} full={true} maxTurns={200} />,
     );
     expect(plain).not.toContain("Wed 17 Sep");
+  });
+});
+
+// v2.2.1, Fix 1 — the side panel can be shut from the side panel.
+describe("the side panel's close button", () => {
+  const header = (full: boolean) =>
+    renderToStaticMarkup(
+      <Header
+        w={w}
+        threads={threads()}
+        selection={mine}
+        full={full}
+        onSelect={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    );
+
+  it("is in the side header, after the expand button, named by its wording row", () => {
+    const side = header(false);
+    expect(side).toContain('aria-label="Close discussion"');
+    expect(side).toContain('title="Close discussion"');
+    // After expand: the order the task specifies.
+    expect(side.indexOf('aria-label="Expand discussion to full screen"')).toBeLessThan(
+      side.indexOf('aria-label="Close discussion"'),
+    );
+  });
+
+  it("is absent in full screen, which keeps Back and Collapse on its strip", () => {
+    expect(header(true)).not.toContain("Close discussion");
   });
 });

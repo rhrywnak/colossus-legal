@@ -7,6 +7,8 @@
 
 import type { CSSProperties } from "react";
 
+import { button as practiceButton } from "../practiceStyles";
+
 // Board 1 — the side panel.
 export const shell: CSSProperties = { display: "flex", alignItems: "stretch", background: "var(--chat-anchor-bg)" };
 
@@ -298,14 +300,18 @@ export const menuFooter: CSSProperties = {
 };
 
 // The left pane's two additions (board 1): the dark Discuss button and its hint.
+//
+// ⚑ It SPREADS the practice `button` base (v2.2.1, Fix 4 — Roman, 2026-09-21).
+// It sits beside Answer, and with its own 15px / 12px padding / no border it came
+// out a different height and lettering from the button next to it. Now font,
+// size, padding, border width and radius come from the one base Answer also
+// spreads, and only the dark fill, its border colour and the text colour differ
+// — the same four things `buttonPrimary` itself overrides.
 export const openButton: CSSProperties = {
-  padding: "12px 18px",
-  fontSize: 15,
+  ...practiceButton,
   fontWeight: 600,
   background: "var(--chat-accent-dark)",
+  borderColor: "var(--chat-accent-dark)",
   color: "var(--chat-surface)",
-  border: "none",
-  borderRadius: 8,
-  cursor: "pointer",
 };
 export const openHint: CSSProperties = { fontSize: 13, color: "var(--chat-muted)", lineHeight: 1.5, marginTop: 10 };

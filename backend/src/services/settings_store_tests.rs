@@ -218,8 +218,9 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
                 // given her receipts, which is a change to what the model is TOLD
                 // and to what it may say back — so a new file and a pointer moved.
                 // v1 and v2 both stay on disk; pointing this row back at v2 is the
-                // whole of the T1 rollback.
-                "practice_read_prompt_v4.md".to_string(),
+                // whole of the T1 rollback. v5 as of 2026-09-22 (v2.2.1): no key in
+                // the prose, and the re-request corrections.
+                "practice_read_prompt_v5.md".to_string(),
             ),
             ("practice_read_model", "claude-opus-5".to_string()),
             // The case's own timezone — what "today" means on a deck row. Case
@@ -960,8 +961,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
-        42,
-        "CHAT_ENGINE: the discussion panel — the Discuss button and its hint, the \
+        43,
+        "CHAT_ENGINE (+ v2.2.1's side-panel close label): the discussion panel — the Discuss button and its hint, the \
          switcher and its rows, the header's visibility line and chip, expand and \
          collapse, the strip, the composer, the Earlier team discussion, and the \
          waiting and failure lines"
@@ -975,7 +976,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        30,
+        32,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
@@ -987,7 +988,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          other four rather than with the page that occasioned it. Plus \
          REVIEW_COUNTS_HONEST's four (2026-09-20): the confirmation Done \
          reviewing now asks before it writes — the question in both numbers, \
-         and its Yes and its Cancel"
+         and its Yes and its Cancel. Plus v2.2.1's two (2026-09-22): the answer \
+         box's saved label and the analysis-off confirmation line"
     );
     assert_eq!(
         PRACTICE_EDITOR_WORDING_KEYS.len(),
@@ -1034,11 +1036,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_REPORT_WORDING_KEYS.len(),
-        50,
+        51,
         "PRACTICE v0, the report: mockup v2's reveal and Chuck's sheet — the two \
          surfaces that answer her back, plus T1's two read lines (2026-08-20): \
          the read declining in its own voice, and the stored line the \
-         don't-recall button earns without a model call"
+         don't-recall button earns without a model call. Plus v2.2.1's one \
+         failure line, the only thing a system-failed read shows her"
     );
     assert_eq!(
         FACT_CARD_WORDING_KEYS.len(),
@@ -1863,6 +1866,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         "pipeline_migrations/20260919141424_card_include_picker_default_stance.sql",
         // REVIEW_COUNTS_HONEST: the witness the "new or changed" count belongs to.
         "pipeline_migrations/20260920161341_practice_witness_row_and_done_confirm_wording.sql",
+        // PRACTICE_FIXES_v2.2.1: the read prompt's move to v5 — a CORRECTION the
+        // correction pass sees.
+        "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql",
     ]
     .iter()
     .map(|relative| {

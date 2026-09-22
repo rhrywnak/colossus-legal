@@ -169,6 +169,16 @@ pub enum ReplyRejection {
 
     #[error("the reply cited {key}, which was not among the keys it was sent ({sent})")]
     UnknownKey { key: String, sent: String },
+
+    /// A citation key appeared in the prose Marie reads (v2.2.1, Fix 3).
+    ///
+    /// Domain note: keys are the model's bookkeeping, not her vocabulary. On
+    /// v2.2.0 she read "they argued it (S1), and R2 says the property fight
+    /// drove the fees (P2)" — three labels that mean nothing on her screen. The
+    /// v5 prompt forbids it, and this is the check that does not trust the
+    /// prompt: a model that ignores the rule is sent back once, then abstains.
+    #[error("the reply named the internal key {token} in {part}, where Marie reads it")]
+    KeyInProse { part: String, token: String },
 }
 
 /// The ceilings a reply is judged against, read from the store by the caller.
@@ -253,13 +263,16 @@ pub fn parse_reply(
         return Err(ReplyRejection::NothingSaid);
     }
 
-    let keys = validate_keys(&reply.keys, citable)?;
     let pointers: Vec<String> = reply
         .pointers
         .iter()
         .map(|p| p.trim().to_string())
         .filter(|p| !p.is_empty())
         .collect();
+    // Before the key check: a reply that is wrong in BOTH ways is sent back for
+    // the one Marie would have SEEN, and its correction names that one.
+    reject_keys_in_prose(call, reply.why.trim(), &pointers)?;
+    let keys = validate_keys(&reply.keys, citable)?;
 
     let ok = call.starts_with(rules.fine_token);
     let overruns = measure(call, reply.why.trim(), &pointers, rules, ok);
@@ -274,6 +287,98 @@ pub fn parse_reply(
         }),
         overruns,
     ))
+}
+
+/// The letters a citation key starts with — the read's key FAMILIES.
+///
+/// ## Domain note: the three families, and who emits them
+///
+/// `P{n}` (her points) and `R{n}` (the receipts behind them) are minted in
+/// `practice_read_gather`; `S1` and `S2` (the sworn pair) in
+/// `ReadPayload::citable_sources`. A fourth family added there without a
+/// letter here would slip past this guard — which is why
+/// `every_citable_key_matches_the_prose_guard` builds a real citable set and
+/// asserts every key in it is caught.
+// STRUCTURAL: the key vocabulary this build's own payload code mints; it changes
+// only when those emitters change, never per deployment.
+pub const KEY_FAMILIES: &[char] = &['P', 'R', 'S'];
+
+/// The first citation key in `text` — a letter from `families`, then digits —
+/// if there is one.
+///
+/// ## Why the families are a parameter
+///
+/// The scanning is generic (a word-boundary-aware "letter, then digits"); which
+/// letters count as keys is this surface's domain knowledge, so the caller
+/// passes it — [`KEY_FAMILIES`] here — and the scanner holds none of it.
+///
+/// ## Why a scanner and not the `regex` crate
+///
+/// With [`KEY_FAMILIES`] this is `\b[PRS]\d+\b`, the pattern the task names — a letter at a word
+/// start, one or more digits, and a word end — so `S1mple`, `PR2x` and
+/// `Section 12` are prose and `R2` is a key. `regex` is only a DEV-dependency of
+/// this crate; adding it to production for one fixed pattern would buy a
+/// compile-at-first-use step with an `expect` in it. Twenty lines have no panic
+/// path at all, and `the_scanner_agrees_with_the_regex_it_implements` checks
+/// them against the real `regex` crate in the test build.
+///
+/// ## Rust Learning: `char_indices` and slicing a `&str` safely
+///
+/// A `&str` may only be sliced on a character boundary. `char_indices` yields
+/// each char WITH its byte offset, so `&text[start..end]` below always cuts on a
+/// boundary: `start` is where a `P`/`R`/`S` begins, and `end` is where the
+/// character after the last digit begins (or the end of the string).
+pub fn find_key_token<'t>(text: &'t str, families: &[char]) -> Option<&'t str> {
+    // Word characters, as `\b` reads them: letters, digits and `_`, in any
+    // script — so "éR2" is one word and not a key.
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
+    for (i, &(start, c)) in chars.iter().enumerate() {
+        if !families.contains(&c) {
+            continue;
+        }
+        if i > 0 && is_word(chars[i - 1].1) {
+            continue;
+        }
+        let digits = chars[i + 1..]
+            .iter()
+            .take_while(|(_, d)| d.is_ascii_digit())
+            .count();
+        if digits == 0 {
+            continue;
+        }
+        let after = i + 1 + digits;
+        if chars.get(after).is_some_and(|&(_, next)| is_word(next)) {
+            continue;
+        }
+        let end = chars.get(after).map_or(text.len(), |&(at, _)| at);
+        return Some(&text[start..end]);
+    }
+    None
+}
+
+/// Refuse a reply that names a key in any part Marie reads.
+///
+/// Checks `call`, then `why`, then each pointer in order, and names the FIRST
+/// offending part and token — the correction sent back quotes both.
+fn reject_keys_in_prose(call: &str, why: &str, pointers: &[String]) -> Result<(), ReplyRejection> {
+    let parts = [(FIELD_CALL.to_string(), call), (FIELD_WHY.to_string(), why)]
+        .into_iter()
+        .chain(
+            pointers
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (format!("pointer {}", i + 1), p.as_str())),
+        );
+    for (part, text) in parts {
+        if let Some(token) = find_key_token(text, KEY_FAMILIES) {
+            return Err(ReplyRejection::KeyInProse {
+                part,
+                token: token.to_string(),
+            });
+        }
+    }
+    Ok(())
 }
 
 /// Every key the model returned, proven to be a key it was sent.
@@ -410,3 +515,7 @@ pub fn compose_abstain_text(stored_line: &str, model_reason: Option<&str>) -> St
 #[cfg(test)]
 #[path = "practice_read_parse_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "practice_read_parse_key_tests.rs"]
+mod key_tests;

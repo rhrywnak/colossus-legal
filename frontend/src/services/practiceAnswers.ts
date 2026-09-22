@@ -104,12 +104,18 @@ export async function fetchPracticeAnswers(
  *   pub answer_id: Uuid      → answer_id: string
  *   pub text: String         → text: string        (never null — the column is NOT NULL)
  *   pub answered_on: String  → answered_on: string (composed server-side, never empty)
+ *   pub saved_label: String  → saved_label: string (composed server-side, never empty)
  *   pub notes: Vec<PracticeNoteDto> → notes: PracticeNote[] (on THIS attempt)
  */
 export type AnswerVersion = {
   answer_id: string;
   text: string;
   answered_on: string;
+  /**
+   * `Your answer — saved Mon 21 Sep · 10:54 pm` — the answer box's label when
+   * this is the current version, day AND time in the case's zone (v2.2.1).
+   */
+  saved_label: string;
   notes: PracticeNote[];
 };
 
@@ -155,10 +161,13 @@ export async function fetchQuestionAnswers(questionId: string): Promise<Question
   if (
     parsed.current === undefined ||
     !Array.isArray(parsed.earlier) ||
-    !Array.isArray(parsed.question_notes)
+    !Array.isArray(parsed.question_notes) ||
+    // The label that says the box is on file. A current answer without it
+    // would render the pre-filled box as an unsaved draft — the v2.2.0 defect.
+    (parsed.current !== null && typeof parsed.current.saved_label !== "string")
   ) {
     throw new Error(
-      "The answers response is missing current/earlier/question_notes — " +
+      "The answers response is missing current/earlier/question_notes/saved_label — " +
         "backend/frontend contract mismatch. Report it to the site administrator.",
     );
   }

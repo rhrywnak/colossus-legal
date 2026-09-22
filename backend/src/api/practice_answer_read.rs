@@ -170,10 +170,12 @@ async fn read_for(
                 question = %question.id, %scenario_id, reason = %failure,
                 "practice read: abstaining — an input the read is judged against did not load"
             );
-            // An abstain cites nothing, so it footnotes nothing.
+            // An abstain cites nothing, so it footnotes nothing. And it is a
+            // SYSTEM failure, so Marie reads the one failure line (v2.2.1) —
+            // the input that did not load is named in `read_error` only.
             (
                 ReadOutcome::from_payload_failure(
-                    &settings.practice_report_wording.read_abstain_line,
+                    &settings.practice_report_wording.read_failed_line,
                     &failure,
                 ),
                 Vec::new(),

@@ -18,6 +18,8 @@ const result = (over: Partial<AnswerResult> = {}): AnswerResult => ({
   read_ok: null,
   read_parts: null,
   read_sources: [],
+  saved_label: null,
+  saved_line: null,
   ...over,
 });
 
