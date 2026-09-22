@@ -117,7 +117,7 @@ export const buttonWorking: CSSProperties = {
 };
 
 /**
- * `Saved. Answer analysis is off, so no read was requested.` — the one quiet
+ * `Saved. Answer analysis is off, so no analysis was requested.` — the one quiet
  * line under the buttons after an analysis-off press (v2.2.1, Fix 2).
  */
 export const savedLine: CSSProperties = {

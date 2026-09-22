@@ -9,7 +9,7 @@ use crate::services::practice_read_outcome::ReadOutcome;
 use crate::services::practice_read_parse::{ReadReply, ReplyRejection};
 
 const ABSTAIN: &str = "I can't read this one.";
-const FAILED: &str = "Your answer is saved. The quick read didn't come through this time.";
+const FAILED: &str = "Your answer is saved, but the answer analysis didn't come back this time.";
 
 fn run(end: AttemptsEnd, attempts: u8) -> Attempts {
     let mut spent = TokenCost::default();
@@ -50,6 +50,10 @@ fn a_reply_rejected_twice_shows_the_failure_line_and_keeps_the_cause_for_operato
         2,
     );
     assert_eq!(outcome.text.as_deref(), Some(FAILED));
+    assert!(
+        outcome.failed(),
+        "the flag the screen and the chat context read"
+    );
     assert!(outcome.text.as_deref().is_some_and(|t| !t.contains("R2")));
     assert!(outcome
         .error
@@ -85,7 +89,9 @@ fn a_call_that_failed_and_a_loop_with_no_attempt_show_the_same_failure_line() {
         .as_deref()
         .is_some_and(|e| e.contains("timeout")));
 
+    assert!(failed.failed());
     let none = finished(AttemptsEnd::NoAttempt, 0);
+    assert!(none.failed());
     assert_eq!(none.text.as_deref(), Some(FAILED));
     assert_eq!(none.attempts, None, "no call was made, so no attempt count");
 }
@@ -106,6 +112,7 @@ fn a_model_decline_still_shows_the_abstain_line_and_the_models_sentence() {
         Some("I can't read this one. That looks like a test entry.")
     );
     assert_ne!(outcome.text.as_deref(), Some(FAILED));
+    assert!(!outcome.failed(), "a model decline is not a system failure");
 }
 
 /// A read that failed still says what it spent.
@@ -160,4 +167,28 @@ fn every_rejection_has_its_own_operator_reason_and_key_in_prose_is_named() {
     for other in [unknown, empty, unparseable] {
         assert_ne!(key_in_prose, other);
     }
+}
+
+/// The failure flag's rule, over every kind of stored row (ADDENDUM_1).
+#[test]
+fn only_a_system_failure_counts_as_a_failed_read() {
+    use crate::services::practice_read_outcome::{is_failed_read, MODEL_ABSTAINED_PREFIX};
+    // A system failure — including a pre-v2.2.1 one with the old line.
+    assert!(is_failed_read(
+        Some("the model could not be reached"),
+        Some("the call failed: 529")
+    ));
+    assert!(is_failed_read(Some("an input failed to load"), None));
+    // The model's own decline.
+    let declined = format!("{MODEL_ABSTAINED_PREFIX}That looks like a test entry.");
+    assert!(!is_failed_read(
+        Some("That looks like a test entry."),
+        Some(&declined)
+    ));
+    // A judgement, a stored don't-recall, analysis off, a read in flight.
+    assert!(!is_failed_read(None, None));
+    assert!(!is_failed_read(
+        None,
+        Some("no read: the answer analysis switch was off, so no model was asked")
+    ));
 }

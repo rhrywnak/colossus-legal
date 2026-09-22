@@ -15,7 +15,7 @@
 //
 // ## When the read failed
 //
-// The rail is neutral, the sentence is the stored "no system read this time", and
+// The rail is neutral, the sentence is the stored `read_unavailable` row, and
 // every other block on this screen stands unchanged. A model being down costs the
 // session one sentence, not the session.
 

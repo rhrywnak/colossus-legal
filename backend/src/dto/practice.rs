@@ -394,7 +394,7 @@ pub struct AnswerResponse {
     /// The answer row's id, which the drawer's help flag addresses.
     pub answer_id: Uuid,
     /// The one sentence, or `None` — in which case the screen shows the stored
-    /// "no system read this time" line and every other box stands.
+    /// `practice_read_unavailable` line ("No answer analysis for this answer.") and every other box stands.
     pub read_text: Option<String>,
     /// `Some(true)` = fine (green), `Some(false)` = it named a tactic (red),
     /// `None` = there was no read. Three states, never two.
@@ -425,13 +425,18 @@ pub struct AnswerResponse {
     /// re-press it carries the ORIGINAL time: no version was written, and a
     /// label claiming a fresh save would be untrue.
     pub saved_label: Option<String>,
-    /// `Saved. Answer analysis is off, so no read was requested.` — present
+    /// `Saved. Answer analysis is off, so no analysis was requested.` — present
     /// ONLY when the press asked for no read.
     ///
     /// Domain note: decided HERE because the server is what knows no model was
     /// asked (CLAUDE.md rule 12). On v2.2.0 an analysis-off press returned
     /// nothing visible at all, and "nothing happened" was a fair reading of it.
     pub saved_line: Option<String>,
+    /// `true` when the answer analysis FAILED for a system reason
+    /// (`practice_read_outcome::is_failed_read`) — `read_text` is then the one
+    /// failure line, and the screen draws it on a neutral rail with no hint
+    /// (ADDENDUM_1). `false` for a judgement, a model's decline, or no read.
+    pub read_failed: bool,
 }
 
 /// One row of Chuck's sheet, every cell already a word.

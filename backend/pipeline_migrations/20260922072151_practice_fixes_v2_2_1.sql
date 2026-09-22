@@ -5,7 +5,16 @@
 --
 -- =============================================================================
 -- CC_TASK_PRACTICE_FIXES_v2.2.1, ruled by CC_TASK_PRACTICE_FIXES_v2.2.1_GO.
--- Four new wording rows and the read prompt's move to v5.
+-- Four new wording rows, two wording corrections (ADDENDUM_1), and the read
+-- prompt's move to v5.
+--
+-- ## ADDENDUM_1 (2026-09-22): Roman's vocabulary ruling of 2026-09-21
+--
+-- On screen the feature is "answer analysis" — the switch's own name. "read",
+-- "the quick read" and "system read" never appear to a user. So the two new
+-- sentences below say "answer analysis", and two EXISTING rows are corrected
+-- in section 1b. Amended in place: this migration had never been applied to
+-- DEV or PROD when the addendum arrived.
 -- =============================================================================
 --
 -- ## ⚑ THE PROMPT FILE MUST BE ON BOTH MOUNTS BEFORE THIS DEPLOYS
@@ -45,14 +54,36 @@ VALUES
      'The label over the answer box once an answer is saved. {when} is the day and time of the CURRENT saved answer in the case''s own timezone (e.g. "Wed 21 Sep · 10:54 pm"). With no saved answer the label is practice_answer_label unchanged. Domain note: pressing Answer on unchanged text writes no version, so the time stays the original one.',
      NULL, now(), 'migration'),
 
-    ('practice_row_answer_saved_off_line', 'Saved. Answer analysis is off, so no read was requested.', 'text', 'Saved. Answer analysis is off, so no read was requested.', NULL, NULL,
-     'The one line under the question page''s buttons after Answer is pressed with Answer analysis switched OFF. Decided by the server, which is what knows no model was asked. With analysis on, the read itself is the confirmation and this line never shows.',
+    ('practice_row_answer_saved_off_line', 'Saved. Answer analysis is off, so no analysis was requested.', 'text', 'Saved. Answer analysis is off, so no analysis was requested.', NULL, NULL,
+     'The one line under the question page''s buttons after Answer is pressed with Answer analysis switched OFF. Decided by the server, which is what knows no model was asked. With analysis on, the analysis itself is the confirmation and this line never shows.',
      NULL, now(), 'migration'),
 
-    ('practice_read_failed_line', 'Your answer is saved. The quick read didn''t come through this time — press Answer to try again, or use Discuss this answer to talk it through.', 'text', 'Your answer is saved. The quick read didn''t come through this time — press Answer to try again, or use Discuss this answer to talk it through.', NULL, NULL,
+    ('practice_read_failed_line', 'Your answer is saved, but the answer analysis didn''t come back this time. Press Answer to try again, or use Discuss this answer to go over it.', 'text', 'Your answer is saved, but the answer analysis didn''t come back this time. Press Answer to try again, or use Discuss this answer to go over it.', NULL, NULL,
      'The ONE line the witness reads whenever the read fails for a system reason: the read could not be set up, the model could not be reached, an input did not load, or the reply was unusable twice (unparseable, empty, citing an unknown key, or naming internal keys in its prose). Domain note: no technical reason ever reaches her (Roman, 2026-09-21); the specific cause stays in read_error / read_abstain_reason and the logs. A MODEL decline is different and is not this line: it shows practice_read_abstain_line followed by the model''s own sentence about her answer.',
      NULL, now(), 'migration')
 ON CONFLICT (key) DO NOTHING;
+
+-- ─── 1b · Two wording corrections (ADDENDUM_1) ──────────────────────────────
+--
+-- Value AND default, so "reset to default" on the Settings page lands on the
+-- ruled wording rather than the retired one. The statement shape is the
+-- load-bearing one `domain::wording::tests::corrected_value_in` reads.
+--
+-- practice_read_unavailable now stands in whenever an answer has no analysis at
+-- all — since v2.2.0 that is mostly an analysis-off answer, not a failure.
+UPDATE app_settings
+SET value         = 'Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer.',
+    default_value = 'Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer.',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_chat_open_hint';
+
+UPDATE app_settings
+SET value         = 'No answer analysis for this answer.',
+    default_value = 'No answer analysis for this answer.',
+    updated_at    = NOW(),
+    updated_by    = 'migration'
+WHERE key           = 'practice_read_unavailable';
 
 -- ─── 2 · The read's prompt moves to v5 (v4 stays on disk) ────────────────────
 --
@@ -73,6 +104,7 @@ DECLARE
     present        INTEGER;
     prompt         TEXT;
     prompt_default TEXT;
+    corrected      INTEGER;
 BEGIN
     SELECT count(*) INTO present
       FROM app_settings
@@ -94,5 +126,21 @@ BEGIN
         RAISE EXCEPTION
             'practice fixes v2.2.1: practice_read_prompt_file is % (default %), '
             'expected practice_read_prompt_v5.md for both', prompt, prompt_default;
+    END IF;
+
+    -- ADDENDUM_1: both corrections landed, value AND default. An UPDATE whose
+    -- WHERE matched nothing is silent in Postgres (rule 25a); this is not.
+    SELECT count(*) INTO corrected
+      FROM app_settings
+     WHERE (key = 'practice_chat_open_hint'
+            AND value = default_value
+            AND value = 'Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer.')
+        OR (key = 'practice_read_unavailable'
+            AND value = default_value
+            AND value = 'No answer analysis for this answer.');
+    IF corrected <> 2 THEN
+        RAISE EXCEPTION
+            'practice fixes v2.2.1: expected practice_chat_open_hint and '
+            'practice_read_unavailable corrected (value and default), found % of 2', corrected;
     END IF;
 END $$;

@@ -73,7 +73,7 @@ function okFetch(body: unknown = {}) {
 
 
 /** The migration's value for `practice_row_answer_saved_off_line` (v2.2.1). */
-const OFF_LINE = "Saved. Answer analysis is off, so no read was requested.";
+const OFF_LINE = "Saved. Answer analysis is off, so no analysis was requested.";
 
 describe("fetchPracticeDeck", () => {
   it("GETs the case- and scenario-scoped practice URL", async () => {
@@ -183,6 +183,7 @@ describe("the write paths", () => {
       read_ok: true,
       saved_label: "Your answer — saved Mon 21 Sep · 10:54 pm",
       saved_line: null,
+      read_failed: false,
     });
 
     const result = await submitPracticeAnswer({
@@ -216,6 +217,7 @@ describe("the write paths", () => {
       read_sources: [],
       saved_label: "Your answer — saved Mon 21 Sep · 10:54 pm",
       saved_line: null,
+      read_failed: false,
     });
   });
 
@@ -228,7 +230,7 @@ describe("the write paths", () => {
   // checked at all. A test that only watched for a second request would pass
   // for ever while every answer was still being read.
   it("asks for NO read when the answer-analysis switch is off", async () => {
-    const mock = okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE });
+    const mock = okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE, read_failed: false });
 
     await submitPracticeAnswer({
       sessionId: SESSION,
@@ -253,7 +255,7 @@ describe("the write paths", () => {
 
   // v2.2.1, Fix 2: the analysis-off press says it saved, in the SERVER's words.
   it("carries the server's saved label and analysis-off line through untouched", async () => {
-    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE });
+    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: OFF_LINE, read_failed: false });
     const result = await submitPracticeAnswer({
       sessionId: SESSION,
       questionId: "q1",
@@ -279,14 +281,14 @@ describe("the write paths", () => {
         pointsTo: null,
         wantRead: true,
       }),
-    ).rejects.toThrow(/saved_label\/saved_line/);
+    ).rejects.toThrow(/saved_label\/saved_line\/read_failed/);
   });
 
   it("keeps a missing read as null rather than inventing a sentence", async () => {
     // The whole failure posture of the drill: no read is a THIRD state, and the
     // page shows the stored "no system read this time" line. A client-side
     // default here would put words on a witness-prep screen that no model said.
-    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: null });
+    okFetch({ answer_id: ANSWER, saved_label: "Your answer — saved x", saved_line: null, read_failed: false });
     const result = await submitPracticeAnswer({
       sessionId: SESSION,
       questionId: "q1",

@@ -11,6 +11,7 @@ use crate::repositories::pipeline_repository::practice_discussions::DiscussionTu
 use crate::repositories::pipeline_repository::practice_notes::{AttemptRecord, NoteRecord};
 use crate::services::chat_question_text::translate_keys;
 use crate::services::practice_clock::local_stamp;
+use crate::services::practice_discuss::FAILED_ANALYSIS;
 
 /// One other person's thread, as the model reads it.
 #[derive(Debug, Clone, PartialEq)]
@@ -142,6 +143,9 @@ pub(crate) fn render_attempts(c: &QuestionContext) -> String {
         .iter()
         .map(|a| {
             let read = match (&a.read_text, a.read_ok) {
+                // ADDENDUM_1: a failed analysis is said as such, never passed on
+                // as Marie's failure sentence.
+                _ if a.read_failed() => format!("Read: {FAILED_ANALYSIS}"),
                 (Some(t), Some(true)) => format!("Read (marked fine): {t}"),
                 (Some(t), _) => format!("Read: {t}"),
                 (None, _) => "Read: none stored".to_string(),

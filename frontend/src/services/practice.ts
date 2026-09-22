@@ -300,6 +300,7 @@ export type ReadSource = {
  *   pub read_sources: Vec<ReadSourceDto>   → read_sources: ReadSource[]
  *   pub saved_label: Option<String>        → saved_label: string | null
  *   pub saved_line: Option<String>         → saved_line: string | null
+ *   pub read_failed: bool                  → read_failed: boolean
  *     (both ALWAYS present on the wire — `null`, never absent — so the parser
  *     below refuses a response missing either as a contract mismatch)
  *
@@ -319,7 +320,7 @@ export type ReadSource = {
  */
 export type AnswerResult = {
   answer_id: string;
-  /** `null` → the screen shows "no system read this time". */
+  /** `null` → the reveal shows `read_unavailable` ("No answer analysis for this answer."). */
   read_text: string | null;
   /** `true` green, `false` red, `null` no read. Three states. */
   read_ok: boolean | null;
@@ -334,11 +335,17 @@ export type AnswerResult = {
    */
   saved_label: string | null;
   /**
-   * `Saved. Answer analysis is off, so no read was requested.` — present only
+   * `Saved. Answer analysis is off, so no analysis was requested.` — present only
    * when the press asked for no read. The server decides, because it is what
    * knows no model was asked (CC_TASK_PRACTICE_FIXES_v2.2.1, Fix 2).
    */
   saved_line: string | null;
+  /**
+   * `true` when the answer analysis FAILED for a system reason — `read_text` is
+   * then the server's one failure line, drawn on a neutral rail with no hint
+   * (ADDENDUM_1). Always present on the wire.
+   */
+  read_failed: boolean;
 };
 
 /** One row of Chuck's sheet — every cell already a word. */
@@ -590,9 +597,13 @@ export async function submitPracticeAnswer(input: {
   // `null` is a real value for both (a skip; analysis on), ABSENT is not: the
   // server always sends them, so a missing one is a backend/frontend mismatch
   // and must not read as "no label" — that would hide the saved state again.
-  if (parsed.saved_label === undefined || parsed.saved_line === undefined) {
+  if (
+    parsed.saved_label === undefined ||
+    parsed.saved_line === undefined ||
+    typeof parsed.read_failed !== "boolean"
+  ) {
     throw new Error(
-      "Your answer was recorded, but the response is missing saved_label/saved_line — " +
+      "Your answer was recorded, but the response is missing saved_label/saved_line/read_failed — " +
         "backend/frontend contract mismatch. Report it to the site administrator.",
     );
   }
@@ -610,6 +621,7 @@ export async function submitPracticeAnswer(input: {
     read_sources: parsed.read_sources ?? [],
     saved_label: parsed.saved_label,
     saved_line: parsed.saved_line,
+    read_failed: parsed.read_failed,
   };
 }
 

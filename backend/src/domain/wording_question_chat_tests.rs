@@ -4,7 +4,7 @@
 // backend REFUSE TO START, so every key is pinned to the migration.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds this block.
@@ -19,7 +19,8 @@ const V221_SEED_MIGRATION: &str = "pipeline_migrations/20260922072151_practice_f
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
     (KEY_OPEN_LABEL, "Discuss this answer"),
-    (KEY_OPEN_HINT, "The read is the quick verdict. The discussion is where the strategy lives — ask why, argue back, or work out a better shape."),
+    // CORRECTED by v2.2.1's ADDENDUM_1 (Roman's vocabulary ruling).
+    (KEY_OPEN_HINT, "Answer analysis gives a quick verdict. Discuss this answer is where you can ask why, argue back, or work out a better answer."),
     (KEY_YOUR_THREAD, "Your thread"),
     (KEY_THREAD_OF_TEMPLATE, "{name}'s thread"),
     (KEY_SWITCH_LABEL, "Switch thread"),
@@ -93,7 +94,10 @@ fn every_key_is_in_the_fixture_once_and_seeded_by_the_migration() {
     let v221 = std::fs::read_to_string(V221_SEED_MIGRATION)
         .expect("the v2.2.1 fixes migration is readable");
     for key in QUESTION_CHAT_WORDING_KEYS {
-        let seeded = seeded_value_in(&migration, key)
+        // A v2.2.1 CORRECTION wins over the chat engine's seed (ADDENDUM_1
+        // corrects `practice_chat_open_hint`); then either seed.
+        let seeded = corrected_value_in(&v221, key)
+            .or_else(|| seeded_value_in(&migration, key))
             .or_else(|| seeded_value_in(&v221, key))
             .unwrap_or_else(|| {
                 panic!("{key} is not seeded by {SEED_MIGRATION} or {V221_SEED_MIGRATION}")

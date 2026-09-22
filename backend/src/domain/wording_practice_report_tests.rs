@@ -48,11 +48,13 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_READ_FOOTNOTE,
         "one sentence, against your points, the watch-for and the ALWAYS card. It names the tactic. The boxes below are yours.",
     ),
-    (KEY_READ_UNAVAILABLE, "no system read this time"),
+    // CORRECTED by v2.2.1's ADDENDUM_1 (Roman's vocabulary ruling): the v0 seed
+    // was "no system read this time"; "read" is never shown to a user now.
+    (KEY_READ_UNAVAILABLE, "No answer analysis for this answer."),
     (KEY_READ_ABSTAIN_LINE, "I can't read this one."),
     (
         KEY_READ_FAILED_LINE,
-        "Your answer is saved. The quick read didn't come through this time \u{2014} press Answer to try again, or use Discuss this answer to talk it through.",
+        "Your answer is saved, but the answer analysis didn't come back this time. Press Answer to try again, or use Discuss this answer to go over it.",
     ),
     (
         KEY_READ_DONT_RECALL_LINE,
@@ -159,7 +161,9 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .expect("the v2.2.1 fixes migration is on disk");
 
     for key in PRACTICE_REPORT_WORDING_KEYS {
-        let seeded = corrected_value_in(&corrections, key)
+        // The newest correction wins: v2.2.1 corrects `practice_read_unavailable`.
+        let seeded = corrected_value_in(&v221, key)
+            .or_else(|| corrected_value_in(&corrections, key))
             .or_else(|| seeded_value_in(&sql, key))
             .or_else(|| seeded_value_in(&t1, key))
             .or_else(|| seeded_value_in(&v221, key))

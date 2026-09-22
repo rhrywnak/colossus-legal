@@ -168,7 +168,7 @@ describe("the answer box says it is saved", () => {
   });
 
   it("shows the confirmation line only when the server sent one (analysis off)", () => {
-    const off = "Saved. Answer analysis is off, so no read was requested.";
+    const off = "Saved. Answer analysis is off, so no analysis was requested.";
     expect(savedLineFor(null)).toBeNull();
     expect(savedLineFor(pressed("x", null))).toBeNull();
     expect(savedLineFor(pressed("x", off))).toBe(off);

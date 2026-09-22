@@ -79,7 +79,7 @@ pub struct PracticeAttemptDto {
     /// Her words, exactly as she typed them.
     pub answer: String,
     /// The one sentence, or `None` — the screen then shows the stored
-    /// "no system read this time" line, as the reveal does.
+    /// `practice_read_unavailable` line, as the reveal does.
     pub read_text: Option<String>,
     /// `true` green, `false` red, `None` neutral. Three states, as everywhere.
     pub read_ok: Option<bool>,

@@ -17,6 +17,12 @@ export type CritiqueView =
   | { kind: "parts"; result: AnswerResult }
   /** An older answer, or one whose parts never arrived: one composed sentence. */
   | { kind: "sentence"; text: string; ok: boolean | null }
+  /**
+   * The answer analysis FAILED for a system reason (ADDENDUM_1): the server's
+   * one failure line, on a NEUTRAL rail and with no "older read" hint — it is
+   * neither a verdict nor an older read, and a green rail said it was fine.
+   */
+  | { kind: "failed"; text: string }
   /** The read failed, abstained, or she stopped waiting. Nothing is drawn. */
   | { kind: "none" };
 
@@ -49,6 +55,11 @@ export type CritiqueView =
  */
 export function critiqueFor(result: AnswerResult | null): CritiqueView {
   if (result === null) return { kind: "idle" };
+  // Before the sentence arm: a failure also has text and no parts, and would
+  // otherwise be drawn as an older read. The server decides it is a failure.
+  if (result.read_failed && result.read_text !== null) {
+    return { kind: "failed", text: result.read_text };
+  }
   if (result.read_parts !== null) return { kind: "parts", result };
   if (result.read_text !== null) {
     return { kind: "sentence", text: result.read_text, ok: result.read_ok };

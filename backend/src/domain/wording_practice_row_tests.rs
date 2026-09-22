@@ -79,7 +79,7 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_ANSWER_SAVED_TEMPLATE, "Your answer \u{2014} saved {when}"),
     (
         KEY_ANSWER_SAVED_OFF_LINE,
-        "Saved. Answer analysis is off, so no read was requested.",
+        "Saved. Answer analysis is off, so no analysis was requested.",
     ),
     // As SEEDED. This file pins what the seeding migration INSERTs; the defect
     // sweep CORRECTED both to "questions" (an unstruck note puts a question in

@@ -222,6 +222,7 @@ pub async fn post_practice_answer(
             keys: parts.keys.clone(),
         }),
         read_sources,
+        read_failed: outcome.failed(),
         read_text: outcome.text,
         read_ok: outcome.ok,
     }))
@@ -356,6 +357,8 @@ pub async fn post_skip_question(
         // move and no save to confirm.
         saved_label: None,
         saved_line: None,
+        // No read was asked for, so none failed.
+        read_failed: false,
     }))
 }
 

@@ -165,7 +165,32 @@ fn saved(text: &str) -> StandingAnswer {
         answer_text: text.to_string(),
         points_to: Some(serde_json::json!(["R1"])),
         read_text: None,
+        read_error: None,
+        read_abstain_reason: None,
     }
+}
+
+/// ADDENDUM_1: the dock tells the model a failed analysis FAILED, rather than
+/// handing it Marie's failure sentence; a real analysis passes through.
+#[test]
+fn the_dock_names_a_failed_analysis_and_passes_a_real_one() {
+    let mut failed = saved("words");
+    failed.read_text =
+        Some("Your answer is saved, but the answer analysis didn't come back.".into());
+    failed.read_error = Some("the call failed: timeout".into());
+    failed.read_abstain_reason = Some("the model could not be reached".into());
+    assert_eq!(analysis_for(Some(&failed)), Some(FAILED_ANALYSIS));
+
+    let mut judged = saved("words");
+    judged.read_text = Some("Fine. Short, and yours.".into());
+    assert_eq!(analysis_for(Some(&judged)), Some("Fine. Short, and yours."));
+
+    assert_eq!(
+        analysis_for(Some(&saved("words"))),
+        None,
+        "no analysis stored"
+    );
+    assert_eq!(analysis_for(None), None, "no answer");
 }
 
 /// (M) A draft, when sent, is what the model discusses — flagged, with no picks.

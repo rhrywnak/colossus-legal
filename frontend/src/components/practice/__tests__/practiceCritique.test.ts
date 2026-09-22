@@ -20,6 +20,7 @@ const result = (over: Partial<AnswerResult> = {}): AnswerResult => ({
   read_sources: [],
   saved_label: null,
   saved_line: null,
+  read_failed: false,
   ...over,
 });
 
@@ -117,5 +118,21 @@ describe("the source list — the one place a bad read can be caught", () => {
 
   it("cites nothing when there are no parts", () => {
     expect(citedSources(result({ read_text: "older" }))).toEqual([]);
+  });
+});
+
+// ADDENDUM_1 — a failed analysis is not a verdict and not an older read.
+describe("a failed answer analysis", () => {
+  const line = "Your answer is saved, but the answer analysis didn't come back this time.";
+
+  it("is its own state, not the older-read sentence", () => {
+    expect(critiqueFor(result({ read_text: line, read_failed: true }))).toEqual({
+      kind: "failed",
+      text: line,
+    });
+  });
+
+  it("leaves an unflagged sentence as the older-read arm", () => {
+    expect(critiqueFor(result({ read_text: "Fine.", read_ok: true })).kind).toBe("sentence");
   });
 });

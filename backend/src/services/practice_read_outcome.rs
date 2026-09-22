@@ -89,7 +89,37 @@ pub const STORED_READ_VERSION: &str = "stored:dont-recall";
 pub const READ_NOT_REQUESTED: &str =
     "no read: the answer analysis switch was off, so no model was asked";
 
+/// How `read_error` opens when the MODEL declined — composed by
+/// `practice_read::accept`, and read back by [`is_failed_read`].
+///
+/// STRUCTURAL: a diagnostic prefix in a log column that this build writes and
+/// this build parses; one constant so the writer and the reader cannot drift.
+// STRUCTURAL: the writer/reader contract for model-decline rows in read_error.
+pub const MODEL_ABSTAINED_PREFIX: &str = "the model abstained: ";
+
+/// Whether a stored read is a SYSTEM failure — the answer analysis did not come
+/// back — as opposed to a judgement, a model's decline, or no read at all.
+///
+/// ## Domain note: why this is derived and not a column (ADDENDUM_1)
+///
+/// Every abstain carries `read_abstain_reason`; the MODEL's own decline is the
+/// one whose `read_error` opens with [`MODEL_ABSTAINED_PREFIX`]. Deriving the
+/// flag from those two columns needs no migration and classifies every row
+/// already on disk the same way: a pre-v2.2.1 failure ("I can't read this one."
+/// with a system cause) is a failure too, and renders as one.
+///
+/// Used by the answer response, the one-page critique's neutral rail, and the
+/// two chat context packages — one rule, one function.
+pub fn is_failed_read(abstain_reason: Option<&str>, error: Option<&str>) -> bool {
+    abstain_reason.is_some() && !error.is_some_and(|e| e.starts_with(MODEL_ABSTAINED_PREFIX))
+}
+
 impl ReadOutcome {
+    /// Whether this outcome is a system failure — see [`is_failed_read`].
+    pub fn failed(&self) -> bool {
+        is_failed_read(self.abstain_reason.as_deref(), self.error.as_deref())
+    }
+
     /// A read this build wrote itself, with no model call.
     ///
     /// ## Domain note: why this exists rather than calling the model anyway

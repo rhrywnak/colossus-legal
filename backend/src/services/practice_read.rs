@@ -37,7 +37,7 @@ use crate::services::practice_model_call::{call_model, elapsed_ms};
 use crate::services::practice_read_attempts::{
     run_attempts, AttemptRules, Attempts, AttemptsEnd, TokenCost, MAX_ATTEMPTS,
 };
-use crate::services::practice_read_outcome::ReadOutcome;
+use crate::services::practice_read_outcome::{ReadOutcome, MODEL_ABSTAINED_PREFIX};
 use crate::services::practice_read_parse::{
     compose_abstain_text, compose_read_text, Overrun, ReadReply, ReplyRejection,
 };
@@ -243,7 +243,7 @@ fn accept(
             ReadOutcome {
                 text: Some(compose_abstain_text(abstain_line, Some(&reason))),
                 abstain_reason: Some(reason.clone()),
-                error: Some(format!("the model abstained: {reason}")),
+                error: Some(format!("{MODEL_ABSTAINED_PREFIX}{reason}")),
                 version: Some(version.to_string()),
                 attempts: Some(attempts),
                 input_tokens,
