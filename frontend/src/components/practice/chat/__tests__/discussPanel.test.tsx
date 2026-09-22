@@ -341,3 +341,40 @@ describe("the side header's line under the controls", () => {
     }
   });
 });
+
+// v2.2.2 GO — on a narrow panel the switcher's LABEL gives way, never the buttons.
+describe("the switcher on a narrow panel", () => {
+  const html = renderToStaticMarkup(
+    <DiscussSwitcher w={w} threads={threads()} selection={{ kind: "earlier" }} onSelect={() => {}} />,
+  );
+
+  it("puts the label in its own ellipsizing element", () => {
+    expect(html).toMatch(
+      /<span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0">Earlier team discussion<\/span>/,
+    );
+  });
+
+  it("lets the button shrink, and keeps the full label readable in its title", () => {
+    expect(html).toMatch(/aria-label="Switch thread"[^>]*title="Earlier team discussion"/);
+    // The anchor shrinks, AND the button is capped to it — uncapped, the button
+    // kept its content width and painted over the expand button (seen live).
+    expect(html).toMatch(/<div style="position:relative;min-width:0;flex-shrink:1">/);
+    expect(html).toMatch(/<button[^>]*style="[^"]*min-width:0;max-width:100%;flex-shrink:1/);
+  });
+
+  it("makes the model chip give way before the thread's name", () => {
+    const header = renderToStaticMarkup(
+      <Header
+        w={w}
+        threads={threads()}
+        selection={{ kind: "earlier" }}
+        full={false}
+        onSelect={() => {}}
+        onExpand={() => {}}
+        onClose={() => {}}
+      />,
+    );
+    expect(header).toMatch(/min-width:0;flex-shrink:3;overflow:hidden;text-overflow:ellipsis/);
+    expect(header).toMatch(/title="Opus 5 · grounded"/);
+  });
+});
