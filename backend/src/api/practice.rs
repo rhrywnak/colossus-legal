@@ -200,6 +200,7 @@ pub async fn get_practice_deck(
         &state,
         scenario_id,
         &user_id,
+        user.is_admin(),
         &settings.practice_read.case_timezone,
     )
     .await?;

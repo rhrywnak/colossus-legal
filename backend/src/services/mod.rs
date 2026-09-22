@@ -100,6 +100,7 @@ pub mod rehearsal_phase;
 pub mod rehearsal_render;
 pub mod rehearsal_rows;
 pub mod rehearsal_timeline;
+pub mod review_permission;
 pub mod scan_conservation;
 pub mod scan_run_delta;
 pub mod scan_run_enrich;

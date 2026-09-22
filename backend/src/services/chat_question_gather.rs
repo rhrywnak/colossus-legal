@@ -48,8 +48,16 @@ pub struct Gathered {
     pub documents: Vec<PackagedDocument>,
 }
 
-/// The display name for a login: the witness's name, a reviewer's bench name, or
+/// The display name for a login: the witness's name, a shown reviewer's name, or
 /// — for anyone else — the login itself, which is at least never wrong.
+///
+/// ## Domain note: this follows DISPLAY, not permission (ruled 2026-09-22)
+///
+/// `practice_reviewer_usernames` stopped deciding who may review in
+/// CC_TASK_REVIEW_PERMISSION_v1, and this reader deliberately did not follow it.
+/// Permission would put a bare login on screen for an administrator nobody gave
+/// a display name — and would open a thread for everyone in the admin group.
+/// Neither is what a name is for.
 pub fn display_name(settings: &Settings, username: &str) -> String {
     let read = &settings.practice_read;
     if username == read.witness_username {
@@ -62,7 +70,11 @@ pub fn display_name(settings: &Settings, username: &str) -> String {
         .unwrap_or_else(|| username.to_string())
 }
 
-/// The case's participants in switcher order: the witness, then the bench.
+/// The case's participants in switcher order: the witness, then the SHOWN
+/// reviewers.
+///
+/// Display, for the reason `display_name` above gives: these are the people
+/// whose threads the switcher lists, not everyone who may press a button.
 pub fn participants(settings: &Settings) -> Vec<String> {
     let read = &settings.practice_read;
     let mut out = vec![read.witness_username.clone()];

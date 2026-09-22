@@ -93,7 +93,10 @@ fn the_confirmation_counts_the_entries_and_promises_no_rebuild() {
     assert!(two.contains("2 reviewers"), "{two}");
     // The label carries its own quotes; wrapping it added a second pair.
     assert!(!two.contains("““"), "no nested quotes: {two}");
-    assert!(two.starts_with("Who may press"), "{two}");
+    // The label as the group declares it. It stopped saying "who may press" in
+    // CC_TASK_REVIEW_PERMISSION_v1: the list is who the war room NAMES, and an
+    // administrator may review whether or not it names them.
+    assert!(two.starts_with("Reviewers shown on the war room"), "{two}");
     assert!(two.contains("no rebuild, no redeploy"), "{two}");
 
     // Singular is not "1 reviewers". The bench ships with one entry, so this is
