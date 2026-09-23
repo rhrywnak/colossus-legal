@@ -187,12 +187,22 @@ export type OpenSession = {
  * username (CLAUDE.md rule 12).
  */
 export type DeckReview = {
-  /** Answers awaiting the reviewers on this deck — the same for every viewer. */
+  /**
+   * What THIS reader has not yet reviewed on this deck.
+   *
+   * Per person since CC_TASK_FOR_YOU_v1 L2, and `0` for anybody who may not
+   * review (ruled 2026-09-23) — the server does not even run the query for
+   * them, because the number counts a duty that is not theirs.
+   */
   awaiting: number;
-  /** True only for a listed reviewer: the Done reviewing button renders on this. */
+  /**
+   * Whether this reader may review: a listed reviewer or an administrator,
+   * decided on the server (`may_review`).
+   *
+   * It carries TWO decisions, and the second is why the bar is not drawn
+   * without it: the Done reviewing button, and the bar itself.
+   */
   can_mark_reviewed: boolean;
-  /** `{reviewer}` in the bar's sentence — the whole bench, joined server-side. */
-  reviewer_display_name: string;
   /**
    * The day the oldest waiting item arrived, ALREADY FORMATTED — absent when
    * nothing is waiting (CC_TASK_REVIEW_PAGE_v1).

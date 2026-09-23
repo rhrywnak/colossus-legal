@@ -1,18 +1,26 @@
 // =============================================================================
-// PracticeReviewBar.tsx — "{n} answers awaiting {reviewer}'s review" · [Done reviewing]
+// PracticeReviewBar.tsx — "{n} questions awaiting your review" · [Done reviewing]
 // =============================================================================
 //
 // CC_TASK_REVIEW_LOOP_v1 §2, placed by CC_GO_REVIEW_LOOP_v2 on the DECK page under
 // `PracticeTitleRow`; made global by CC_TASK_SIMPLE_COUNTS_v1.
 //
-// ## Domain note: one queue, owned by the reviewer
+// ## Domain note: the bar is the READER's, and nobody else's (ruled 2026-09-23)
 //
-// The number is the REVIEWER's backlog on this deck — answers newer than the
-// reviewer's last Done reviewing — and every viewer sees the same number. Only the
-// reviewer is offered the button (`review.can_mark_reviewed`, decided on the
-// server — the page never compares a username). The reviewer's press moves the
-// queue for everyone; the page then re-reads, so the zero it shows is the
-// server's and not a local guess.
+// The number is what THIS reader has not read on this deck — per person since
+// CC_TASK_FOR_YOU_v1 L2 — and the sentence addresses them. A viewer who may not
+// review sees NO BAR AT ALL: the server sends them a zero and `can_mark_reviewed`
+// false, and this component draws nothing on either.
+//
+// It was one number under one name until the ruling. Measured on a copy of DEV,
+// one deck, one moment: Chuck 2, Roman 1, Marie 1 — three numbers under "N
+// questions awaiting Chuck · Roman's review". Worse for the witness, who is not
+// a reviewer at all: she was reading a count of answers she had written.
+//
+// The press is still the server's decision (`review.can_mark_reviewed` — the
+// page never compares a username), and it moves only the presser's own marks;
+// the page then re-reads, so the number it shows afterwards is the server's and
+// not a local guess.
 //
 // ## The button asks first (CC_TASK_REVIEW_COUNTS_HONEST_v1, ruled 2026-09-20)
 //
@@ -87,9 +95,9 @@ export function reviewBarLine(review: DeckReview, wording: PracticeWording): str
     wordingOf(wording, "deck_review_awaiting_one"),
     wordingOf(wording, "deck_review_awaiting_template"),
   );
-  const line = template
-    .replace("{count}", String(review.awaiting))
-    .replace("{reviewer}", review.reviewer_display_name);
+  // `{count}` is the only placeholder left: `{reviewer}` was removed from both
+  // templates by migration 20260923071048, because the number is the reader's.
+  const line = template.replace("{count}", String(review.awaiting));
   if (review.oldest === undefined || review.oldest === null) return line;
   const oldest = wordingOf(wording, "deck_review_oldest_template").replace(
     "{date}",
@@ -141,6 +149,12 @@ const PracticeReviewBar: React.FC<Props> = ({
     return () => document.removeEventListener("keydown", onKey);
   }, [open, busy, awaiting]);
 
+  // Two reasons to draw nothing, and they are different facts. A deck with
+  // nothing waiting is a control with nothing to do; a reader who may not
+  // review is being shown somebody else's duty. Both are checked here rather
+  // than left to the server's zero alone, so that a future non-zero cannot put
+  // a bar on the witness's screen.
+  if (!review.can_mark_reviewed) return null;
   if (review.awaiting === 0) return null;
 
   /** Dispatch one action; write only if the machine says to. */
@@ -176,9 +190,11 @@ const PracticeReviewBar: React.FC<Props> = ({
   return (
     <div style={r.reviewBar} data-review-bar>
       <span style={r.reviewCount}>{reviewBarLine(review, wording)}</span>
-      {/* Only the reviewer is offered the button — the server decided (rule 12).
-          Everyone else sees the same count and nothing to press.
-          It OPENS the question; it does not write. See `deckReviewConfirmModel`. */}
+      {/* The button OPENS the question; it does not write. See
+          `deckReviewConfirmModel`. The guard stays although the bar above
+          already returns null without permission: this is the control that
+          WRITES, and a control that writes does not lean on a guard fifty
+          lines away. */}
       {review.can_mark_reviewed && (
         <button
           type="button"

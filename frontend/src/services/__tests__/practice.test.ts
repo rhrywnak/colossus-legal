@@ -59,7 +59,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
       { card: 1, name: "false premise" },
       { card: 2, name: "compound" },
     ],
-    review: { awaiting: 0, can_mark_reviewed: false, reviewer_display_name: "Chuck" },
+    review: { awaiting: 0, can_mark_reviewed: false },
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -126,7 +126,7 @@ describe("fetchPracticeDeck", () => {
     const { review: _dropped, ...withoutReview } = deck();
     okFetch(withoutReview);
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
-    okFetch({ ...deck(), review: { awaiting: 1, reviewer_display_name: "Chuck" } });
+    okFetch({ ...deck(), review: { awaiting: 1 } });
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 });

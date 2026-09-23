@@ -371,3 +371,45 @@ fn the_review_bar_counts_questions_rather_than_answers() {
         );
     }
 }
+
+/// The review bar speaks to the READER, and names the bench nowhere.
+///
+/// ## Why this needs a test of its own, beside the one above
+///
+/// Same argument, one ruling later. `every_declared_key_is_seeded_with_the_value_this_build_expects`
+/// pins what the SEEDING migration inserts — the bench-voiced sentence — and
+/// the defect sweep's test pins the first correction. Neither would notice the
+/// second correction being dropped, and what would then ship is the defect the
+/// 2026-09-23 ruling exists to remove: three people reading one sentence about
+/// three different numbers, under somebody else's name.
+///
+/// The `{reviewer}` half is the part worth asserting separately. A correction
+/// that landed on the plural alone would leave the singular naming Chuck — a
+/// screen that says one thing at two and another at one.
+#[test]
+fn the_review_bar_addresses_the_reader_and_not_the_bench() {
+    let sql = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("pipeline_migrations/20260923071048_deck_review_bar_speaks_to_the_viewer.sql"),
+    )
+    .expect("the deck-bar correction migration is on disk");
+
+    for (key, expected) in [
+        (
+            KEY_DECK_REVIEW_AWAITING_TEMPLATE,
+            "{count} questions awaiting your review",
+        ),
+        (
+            KEY_DECK_REVIEW_AWAITING_ONE,
+            "{count} question awaiting your review",
+        ),
+    ] {
+        let corrected = crate::domain::wording::tests::corrected_value_in(&sql, key)
+            .unwrap_or_else(|| panic!("{key} is not corrected by the 2026-09-23 migration"));
+        assert_eq!(corrected, expected, "{key}");
+        assert!(
+            !corrected.contains("{reviewer}"),
+            "{key} still names the bench on a count that is the reader's own: {corrected}"
+        );
+    }
+}

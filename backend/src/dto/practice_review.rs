@@ -287,18 +287,25 @@ pub struct NoteTextRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckReviewDto {
-    /// Answers awaiting the reviewers on this deck — the same for every viewer.
+    /// What THIS reader has not yet reviewed on this deck.
+    ///
+    /// Per person since CC_TASK_FOR_YOU_v1 L2 — read-state is per person, so
+    /// there is no shared number left to serve — and always `0` for a reader
+    /// who may not review: the query does not run for them at all (ruled
+    /// 2026-09-23). It was "the same for every viewer" until L2, and that
+    /// sentence outlived the fact by a day.
     /// The bar is not drawn at `0`.
     pub awaiting: u32,
-    /// True only when the signed-in user is ON the reviewer bench.
-    pub can_mark_reviewed: bool,
-    /// The reviewers' names as the bar prints them (`{reviewer}`), joined by the
-    /// stored joiner when there is more than one (CC_TASK_REVIEW_PAGE_v1).
+    /// Whether this reader may review — a listed reviewer OR an administrator,
+    /// decided by `services::review_permission::may_review`.
     ///
-    /// The field keeps its singular name because it is what `{reviewer}` prints,
-    /// and that is one line whether it names one person or three. Renaming it
-    /// would be a wire change for a fact the wire does not carry.
-    pub reviewer_display_name: String,
+    /// ## It carries TWO decisions, and the second arrived on 2026-09-23
+    ///
+    /// Whether the Done reviewing button renders, and whether the BAR is drawn
+    /// at all. `false` means the server ran no query and served no count, and
+    /// the browser draws nothing — a reader who may not review is not shown a
+    /// number about a duty that is not theirs.
+    pub can_mark_reviewed: bool,
     /// The day the OLDEST waiting item arrived, already formatted — or `None`
     /// when the read returned no date (CC_TASK_REVIEW_PAGE_v1, ruling STOP-A).
     ///

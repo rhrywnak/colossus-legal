@@ -49,14 +49,16 @@ describe("Marie's new-or-changed pill", () => {
 });
 
 describe("the deck review bar", () => {
+  // `{reviewer}` left these templates on 2026-09-23: the count is the reader's
+  // own, so the sentence addresses the reader. `{count}` is all that is filled.
   const wording = {
-    deck_review_awaiting_one: "{count} item awaiting {reviewer}",
-    deck_review_awaiting_template: "{count} items awaiting {reviewer}",
+    deck_review_awaiting_one: "{count} item awaiting your review",
+    deck_review_awaiting_template: "{count} items awaiting your review",
   };
-  const review = (awaiting: number) => ({ awaiting, can_mark_reviewed: false, reviewer_display_name: "Chuck" });
+  const review = (awaiting: number) => ({ awaiting, can_mark_reviewed: true });
 
-  it("picks the singular row at 1 and the plural row at 2, naming the reviewer", () => {
-    expect(reviewBarLine(review(1), wording)).toBe("1 item awaiting Chuck");
-    expect(reviewBarLine(review(2), wording)).toBe("2 items awaiting Chuck");
+  it("picks the singular row at 1 and the plural row at 2", () => {
+    expect(reviewBarLine(review(1), wording)).toBe("1 item awaiting your review");
+    expect(reviewBarLine(review(2), wording)).toBe("2 items awaiting your review");
   });
 });

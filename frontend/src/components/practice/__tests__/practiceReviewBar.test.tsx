@@ -25,8 +25,10 @@ import { deckReviewConfirmSentence } from "../deckReviewConfirmModel";
 import type { DeckReview } from "../../../services/practice";
 
 const wording = {
-  deck_review_awaiting_one: "{count} answer awaiting {reviewer}'s review",
-  deck_review_awaiting_template: "{count} answers awaiting {reviewer}'s review",
+  // The sentences as migration 20260923071048 leaves them: the reader's own
+  // number, addressed to the reader (ruled 2026-09-23).
+  deck_review_awaiting_one: "{count} question awaiting your review",
+  deck_review_awaiting_template: "{count} questions awaiting your review",
   deck_review_done_label: "Done reviewing",
   deck_review_failed: "Could not mark this deck reviewed — nothing was changed.",
   // CC_TASK_REVIEW_PAGE_v1: the bar's fifth string.
@@ -55,20 +57,30 @@ function bar(review: DeckReview): string {
 
 describe("PracticeReviewBar", () => {
   it("offers Done reviewing to the reviewer (cpenzien's payload)", () => {
-    const html = bar({ awaiting: 3, can_mark_reviewed: true, reviewer_display_name: "Chuck" });
-    expect(html).toContain("3 answers awaiting Chuck&#x27;s review");
+    const html = bar({ awaiting: 3, can_mark_reviewed: true });
+    expect(html).toContain("3 questions awaiting your review");
     expect(html).toContain(">Done reviewing</button>");
   });
 
-  it("shows everyone else the same count and NO button (M)", () => {
-    const html = bar({ awaiting: 3, can_mark_reviewed: false, reviewer_display_name: "Chuck" });
-    expect(html).toContain("3 answers awaiting Chuck&#x27;s review");
-    expect(html).not.toContain("Done reviewing");
-    expect(html).not.toContain("<button");
+  it("(M) draws NOTHING for somebody who may not review", () => {
+    // Ruled 2026-09-23. It used to draw the same count with no button — which
+    // showed the witness a number about answers she had written, under a
+    // sentence naming Chuck. Dropping the guard reds this test and nothing
+    // else, which is why the assertion is the whole markup being empty rather
+    // than the button being absent.
+    expect(bar({ awaiting: 3, can_mark_reviewed: false })).toBe("");
+  });
+
+  it("names nobody in the sentence it does draw", () => {
+    // The bench left the templates with the ruling; a build that put a name
+    // back would be telling one reader about another reader's queue.
+    const html = bar({ awaiting: 3, can_mark_reviewed: true });
+    expect(html).not.toContain("Chuck");
+    expect(html).not.toContain("{reviewer}");
   });
 
   it("draws nothing when nothing waits", () => {
-    expect(bar({ awaiting: 0, can_mark_reviewed: true, reviewer_display_name: "Chuck" })).toBe("");
+    expect(bar({ awaiting: 0, can_mark_reviewed: true })).toBe("");
   });
 });
 
@@ -77,11 +89,10 @@ describe("PracticeReviewBar", () => {
 describe("the oldest-waiting clause", () => {
   it("is appended when the server sent a date", () => {
     const line = reviewBarLine(
-      { awaiting: 42, can_mark_reviewed: false, reviewer_display_name: "Chuck", oldest: "20 Aug" },
+      { awaiting: 42, can_mark_reviewed: false, oldest: "20 Aug" },
       wording,
     );
     expect(line).toContain("42");
-    expect(line).toContain("Chuck");
     expect(line).toContain("oldest waiting since 20 Aug");
   });
 
@@ -89,7 +100,7 @@ describe("the oldest-waiting clause", () => {
     // Filling `{date}` with an empty string would print a sentence that trails
     // off — which reads as a rendering fault rather than as an absent fact.
     const line = reviewBarLine(
-      { awaiting: 3, can_mark_reviewed: false, reviewer_display_name: "Chuck" },
+      { awaiting: 3, can_mark_reviewed: false },
       wording,
     );
     expect(line).not.toContain("oldest");
@@ -99,26 +110,22 @@ describe("the oldest-waiting clause", () => {
   it("prints the date the server composed and formats nothing", () => {
     // The browser holds no date format. Whatever the server sent is what shows.
     const line = reviewBarLine(
-      { awaiting: 1, can_mark_reviewed: true, reviewer_display_name: "Chuck", oldest: "2 Mar" },
+      { awaiting: 1, can_mark_reviewed: true, oldest: "2 Mar" },
       wording,
     );
     expect(line).toContain("2 Mar");
   });
 
-  it("names the whole bench when {reviewer} carries two names", () => {
-    // The joining is done server-side; the bar fills one placeholder with
-    // whatever it was handed, which is what keeps the deck bar and the War
-    // Room pill saying the same thing.
+  it("fills the count and nothing else", () => {
+    // `{reviewer}` was the other placeholder until 2026-09-23, and the bench is
+    // no longer on this sentence at all. What remains must still be filled: a
+    // template arriving with a raw `{count}` is the failure this asserts.
     const line = reviewBarLine(
-      {
-        awaiting: 5,
-        can_mark_reviewed: true,
-        reviewer_display_name: "Chuck · Roman",
-        oldest: "20 Aug",
-      },
+      { awaiting: 5, can_mark_reviewed: true, oldest: "20 Aug" },
       wording,
     );
-    expect(line).toContain("Chuck · Roman");
+    expect(line).toContain("5 questions awaiting your review");
+    expect(line).not.toContain("{");
   });
 });
 
@@ -129,7 +136,7 @@ describe("Done reviewing asks before it writes", () => {
     // The first frame is the whole claim here: the defect was a bar that wrote
     // without ever drawing a question, so "no question yet" and "a button that
     // is not a write" are the two halves of what shipped wrong.
-    const html = bar({ awaiting: 12, can_mark_reviewed: true, reviewer_display_name: "Chuck" });
+    const html = bar({ awaiting: 12, can_mark_reviewed: true });
     expect(html).toContain(">Done reviewing</button>");
     expect(html).not.toContain("data-review-confirm");
     expect(html).not.toContain("as reviewed?");
@@ -138,7 +145,9 @@ describe("Done reviewing asks before it writes", () => {
   });
 
   it("never offers the question to somebody who may not mark the deck", () => {
-    const html = bar({ awaiting: 12, can_mark_reviewed: false, reviewer_display_name: "Chuck" });
+    // Now vacuously true of the markup — they get no bar at all — and kept for
+    // what it still says: the question is not reachable without permission.
+    const html = bar({ awaiting: 12, can_mark_reviewed: false });
     expect(html).not.toContain("<button");
     expect(html).not.toContain("as reviewed?");
   });
