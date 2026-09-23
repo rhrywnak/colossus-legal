@@ -307,13 +307,59 @@ pub struct DeckReviewDto {
     pub oldest: Option<String>,
 }
 
+/// One item a sweep was handed: what kind it is, and which row.
+///
+/// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a data-carrying enum
+///
+/// Serialized as `{"kind": "answer", "id": "…"}` — an internally tagged enum
+/// would be tidier still, but this shape matches what the For You page already
+/// receives for a row (`ForYouRowDto.kind` + `item_id`), so the browser sends
+/// back exactly the pair it was given rather than translating between two
+/// spellings of one idea.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "id")]
+pub enum SweptItem {
+    Answer(Uuid),
+    Note(Uuid),
+    Change(Uuid),
+}
+
+/// "Done reviewing": the items the page SHOWED, and when it was served.
+///
+/// ## Domain note: the ids, not a moment (ruled 2026-09-22)
+///
+/// "Done reviewing marks exactly the items that page showed — never an item
+/// that arrived after the page loaded." A watermark cannot promise that:
+/// `now()` covers everything, including the note that arrived while the page
+/// was being read. So the press sends what it rendered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSweepRequest {
+    /// Every item the page had on screen. May be empty — a page showing
+    /// nothing sweeps nothing, which is a number and not an error.
+    pub items: Vec<SweptItem>,
+    /// The `served_at` of the payload this page was drawn from.
+    ///
+    /// ## Why a moment is here AS WELL as the ids
+    ///
+    /// For the one item the page cannot name: a note about a WHOLE SCENARIO
+    /// (`question_id IS NULL`) has no question to open and appears on no row,
+    /// so nothing else in the product can ever clear it. The deck sweep does
+    /// (ruled 2026-09-22), bounded by this moment so the promise above still
+    /// holds — and it is the SERVER's own clock, handed out with the payload
+    /// and handed back here, so no browser's clock enters into it.
+    pub served_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// What "Done reviewing" recorded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewCursorResponse {
     pub scenario_id: Uuid,
-    /// The database's own clock at the moment the mark moved.
-    pub looked_at: chrono::DateTime<chrono::Utc>,
+    /// How many seen rows this press actually WROTE. Zero when everything on
+    /// the page had already been read — a legitimate state, reported as a
+    /// number rather than swallowed.
+    pub marked: u32,
 }
 
 /// Place one question at an arbitrary position in its side (nav cleanup Part 2).

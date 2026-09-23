@@ -36,11 +36,10 @@ use uuid::Uuid;
 use crate::{
     auth::AuthUser,
     dto::practice_review::DeckReviewDto,
-    dto::practice_review::ReviewCursorResponse,
+    dto::practice_review::{ReviewCursorResponse, ReviewSweepRequest, SweptItem},
     error::AppError,
-    repositories::pipeline_repository::review_cursor::{
-        awaiting_review, mark_reviewed, AwaitingReviewRow,
-    },
+    repositories::pipeline_repository::item_seen::{mark_scenario_notes_seen, mark_seen, ItemRef},
+    repositories::pipeline_repository::review_cursor::{awaiting_review, AwaitingReviewRow},
     services::{
         practice_notes::attribution,
         review_permission::may_review,
@@ -52,15 +51,23 @@ use crate::{
 use super::practice::repo_error;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
-/// Move the signed-in user's review mark on this deck to now.
+/// Record that this reviewer has READ the items the page showed.
 ///
 /// ## Domain note: the press must be permitted, because it is now READ
 ///
-/// The cursor is keyed by `username` — the id `attribution` stamps on every
-/// practice write — and the queue takes the LATEST mark on the scenario from
-/// ANY row (R1). So one permitted press clears the queue for everyone, and a
-/// press this route should not have accepted would clear it for everyone too.
-/// Hence the 403: the button being hidden is a courtesy, this is the fence.
+/// The seen rows are keyed by `username` — the id `attribution` stamps on every
+/// practice write — and they decide what the war room's pill, the deck's bar
+/// and the For You page show THIS person. The 403 stays for the reason it
+/// arrived: a client calling an address it was not offered must not be able to
+/// write read-state at all.
+///
+/// ## What changed under it (CC_TASK_FOR_YOU_v1 L2)
+///
+/// It used to move one timestamp for the whole deck, shared across the bench.
+/// It now writes one row per item, for the presser alone. Two consequences,
+/// both intended: an item that arrived while the page was being read is NOT
+/// swept (it is not in `items`), and another reviewer's queue is untouched —
+/// their inbox is their own.
 ///
 /// # Errors
 /// 400 for an unparseable scenario id; **403 when the caller may not review**;
@@ -69,6 +76,7 @@ pub async fn put_review_cursor(
     user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
+    Json(body): Json<ReviewSweepRequest>,
 ) -> Result<Json<ReviewCursorResponse>, AppError> {
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
@@ -95,20 +103,57 @@ pub async fn put_review_cursor(
         });
     }
 
-    let looked_at = mark_reviewed(&state.pipeline_pool, &user_id, scenario_id)
+    let items: Vec<ItemRef> = body.items.iter().map(swept).collect();
+    let shown = mark_seen(&state.pipeline_pool, &user_id, &items)
         .await
         .map_err(|e| {
             repo_error(
-                "mark_reviewed",
+                "mark_seen",
                 format!("{slug} scenario {scenario_id} user {user_id}: {e}"),
             )
         })?;
+    // The one item no row can name — see `ReviewSweepRequest::served_at`.
+    let scenario_notes =
+        mark_scenario_notes_seen(&state.pipeline_pool, &user_id, scenario_id, body.served_at)
+            .await
+            .map_err(|e| {
+                repo_error(
+                    "mark_scenario_notes_seen",
+                    format!("{slug} scenario {scenario_id} user {user_id}: {e}"),
+                )
+            })?;
 
-    tracing::info!(%slug, %scenario_id, user = %user_id, %looked_at, "practice: deck marked reviewed");
+    let marked = u32::try_from(shown + scenario_notes).map_err(|_| {
+        repo_error(
+            "mark_seen",
+            format!("{slug} scenario {scenario_id} user {user_id}: the written count does not fit a u32"),
+        )
+    })?;
+    tracing::info!(
+        %slug, %scenario_id, user = %user_id,
+        shown_items = items.len(), written = marked,
+        "practice: a deck's shown items were marked read"
+    );
     Ok(Json(ReviewCursorResponse {
         scenario_id,
-        looked_at,
+        marked,
     }))
+}
+
+/// One wire item as the repository's own reference.
+///
+/// ## Rust Learning: two enums for one idea, and why they are not shared
+///
+/// `SweptItem` is the WIRE shape (it derives serde); `ItemRef` is the
+/// repository's (it does not). The same split every DTO in this build makes:
+/// a change to how a value is carried cannot silently change how it is stored,
+/// and the compiler makes this three-line function the only place the two meet.
+fn swept(item: &SweptItem) -> ItemRef {
+    match item {
+        SweptItem::Answer(id) => ItemRef::Answer(*id),
+        SweptItem::Note(id) => ItemRef::Note(*id),
+        SweptItem::Change(id) => ItemRef::Change(*id),
+    }
 }
 
 /// The deck's review bar: the reviewer's backlog on this scenario, and whether
@@ -125,12 +170,14 @@ pub(super) async fn deck_review(
 ) -> Result<DeckReviewDto, AppError> {
     let settings = state.settings.current();
     let reviewers = review_queue_reviewer(&settings);
-    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], reviewers)
+    // The bar's number is THIS reader's, like every other reading of the queue
+    // since L2 — see `review_cursor`'s header for why it stopped being global.
+    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], user_id, reviewers)
         .await
         .map_err(|e| {
             repo_error(
                 "awaiting_review",
-                format!("scenario {scenario_id} reviewers {reviewers:?}: {e}"),
+                format!("scenario {scenario_id} viewer {user_id} reviewers {reviewers:?}: {e}"),
             )
         })?;
     let row = rows.iter().find(|r| r.scenario_id == scenario_id);
@@ -311,7 +358,9 @@ mod tests {
         let refused = body
             .find("AppError::Forbidden")
             .expect("an impermissible press is a 403");
-        let wrote = body.find("mark_reviewed(").expect("the press is written");
+        // `mark_seen` since L2 — the press writes per-item rows now, and this
+        // test is about ORDER, so it follows the name of whatever writes.
+        let wrote = body.find("mark_seen(").expect("the press is written");
         assert!(asked < wrote, "permission is asked before the write");
         assert!(refused < wrote, "and the refusal returns before the write");
         assert!(

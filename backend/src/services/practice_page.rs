@@ -266,6 +266,9 @@ fn question_dto(
     let notes = row_notes(settings, notes, record.id, standing.map(|a| a.answer_id));
     PracticeQuestionDto {
         notes,
+        // The row's own answer id, so a page that renders this row can name it
+        // when the reviewer presses Done — `ReviewSweepRequest`.
+        answer_id: standing.map(|a| a.answer_id),
         tactic: tactic_tag(settings, &record),
         // The NUMBER, untouched — what the editor's dropdown selects and sends
         // back. `tactic_tag` above is the same fact composed for a READER, braid
@@ -471,6 +474,10 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
     PracticeDeckPayload {
         review,
         deck_as_of,
+        // The SERVER's clock, handed out so the sweep can hand it back — see
+        // the field's own doc. Taken here, at assembly, rather than at the
+        // route: this is the moment the contents below were true.
+        served_at: chrono::Utc::now(),
         scenario_id,
         code,
         title,

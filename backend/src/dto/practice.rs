@@ -90,6 +90,14 @@ pub struct PracticeQuestionDto {
     /// answer, oldest first, struck ones included (struck through, with their
     /// date). Empty on the answers page's own question read (CC_TASK_REVIEW_LOOP_v1).
     pub notes: Vec<super::practice_review::PracticeNoteDto>,
+    /// The id of this question's CURRENT answer, or `None` when nobody has
+    /// answered it.
+    ///
+    /// Carried so a page that renders the row can name what it showed when the
+    /// reviewer presses Done — see `ReviewSweepRequest`. It is an id and not a
+    /// count: the sweep marks exactly these rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answer_id: Option<uuid::Uuid>,
     /// `Answered on 22 Aug`, ALREADY COMPOSED — or `None` when nobody has
     /// answered this question.
     ///
@@ -148,6 +156,16 @@ pub struct PracticeDeckPayload {
     /// `None` on a deck with no questions, which is a legitimate state: the print
     /// control is disabled there and nothing renders this.
     pub deck_as_of: Option<chrono::DateTime<chrono::Utc>>,
+    /// When the SERVER produced this payload.
+    ///
+    /// ## Domain note: one clock, handed out and handed back
+    ///
+    /// "Done reviewing" sends back the items the page showed — and this, so the
+    /// sweep can also clear the one item no row can name: a note about the whole
+    /// scenario. Bounding that by the moment the page was SERVED keeps the
+    /// ruling's promise (nothing that arrived after the page loaded is swept)
+    /// without trusting a browser's clock, which may be minutes out.
+    pub served_at: chrono::DateTime<chrono::Utc>,
     /// The receipts the "I'd point to…" picker offers, de-duplicated and in
     /// deck order: her points' receipts first, then the exhibits her questions
     /// stand on. Composed here so the browser assembles no list of its own.

@@ -34,6 +34,7 @@ import React from "react";
 
 import { wordingOf, type DeckReview, type PracticeWording } from "../../services/practice";
 import { markDeckReviewed } from "../../services/practiceReviewLoop";
+import type { SweptItem } from "./deckSweep";
 import { pickByCount } from "../../utils/countWording";
 import {
   deckReviewConfirmSentence,
@@ -56,6 +57,11 @@ interface Props {
   /** The deck payload's `review` block, decided on the server. */
   review: DeckReview;
   wording: PracticeWording;
+  /** Exactly what the page rendered — see `deckSweep::shownItems` and the
+   *  ruling it implements. The press marks these and nothing else. */
+  shown: SweptItem[];
+  /** The `served_at` of the payload this page was drawn from. */
+  servedAt: string;
   /** Re-read the deck after the mark moved. */
   onReviewed: () => void;
 }
@@ -98,6 +104,8 @@ const PracticeReviewBar: React.FC<Props> = ({
   code,
   review,
   wording,
+  shown,
+  servedAt,
   onReviewed,
 }) => {
   const [busy, setBusy] = React.useState(false);
@@ -146,7 +154,7 @@ const PracticeReviewBar: React.FC<Props> = ({
     if (!step.send) return;
     setBusy(true);
     setFailed(false);
-    markDeckReviewed(slug, scenarioId)
+    markDeckReviewed(slug, scenarioId, shown, servedAt)
       .then(() => onReviewed())
       .catch((cause: unknown) => {
         // Standing Rule 1: the mark did not move, so the count stays and the

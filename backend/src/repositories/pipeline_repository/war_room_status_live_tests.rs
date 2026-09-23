@@ -167,6 +167,9 @@ pub(crate) async fn change(
 /// and the proof that her own note stops badging her would quietly become a
 /// proof that a stranger's note does.
 pub(crate) const WITNESS: &str = "marie";
+/// The listed reviewer these fixtures write as. A test literal standing in for
+/// `practice_reviewer_usernames`.
+pub(crate) const REVIEWER_LOGIN: &str = "cpenzien";
 
 /// Her count, against the standing witness.
 ///
@@ -182,7 +185,11 @@ pub(crate) async fn changed(pool: &PgPool, id: Uuid) -> TestResult<i64> {
 /// own note stops being filtered and the count goes back up, which is what
 /// shows the filter is reading the row rather than a hard-coded name.
 pub(crate) async fn changed_for(pool: &PgPool, id: Uuid, witness: &str) -> TestResult<i64> {
-    let rows = changed_counts(pool, &[id], witness).await?;
+    // The bench the exclusion legs read (ruling R2). One listed reviewer is
+    // every store's shape on the day this shipped, and it is what decides which
+    // notes are a REVIEWER's and therefore hers to read.
+    let bench = [REVIEWER_LOGIN.to_string()];
+    let rows = changed_counts(pool, &[id], witness, &bench).await?;
     assert_eq!(rows.len(), 1, "one row per scenario asked for");
     Ok(rows[0].changed)
 }
@@ -201,7 +208,7 @@ async fn aggregate_returns_one_row_per_scenario_including_empty() -> TestResult<
     let ids = [bare, full];
 
     let deck = deck_counts(&pool, &ids).await?;
-    let changed_rows = changed_counts(&pool, &ids, WITNESS).await?;
+    let changed_rows = changed_counts(&pool, &ids, WITNESS, &[REVIEWER_LOGIN.to_string()]).await?;
     assert_eq!((deck.len(), changed_rows.len()), (2, 2));
 
     let d = deck

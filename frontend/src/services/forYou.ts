@@ -101,10 +101,16 @@ async function orThrow<T>(response: Response, what: string): Promise<T> {
  * as "nothing waiting" — a confident, false screen. Both are contract
  * mismatches and both say so here, once.
  */
-export async function fetchForYou(slug: string): Promise<ForYouPage> {
+export async function fetchForYou(slug: string, deck?: string): Promise<ForYouPage> {
   const what = "The For you list could not be loaded";
+  // `?deck=` narrows the list to one scenario — where the war room's owed
+  // counts point (CC_TASK_FOR_YOU_v1 L2). Absent means the whole case.
+  // STRUCTURAL: the same parameter name `routePaths::forYouPath` composes and
+  // the backend's `ForYouQuery::deck` reads. See that builder for why a
+  // disagreement here fails silently rather than loudly.
+  const filter = deck === undefined ? "" : `?deck=${encodeURIComponent(deck)}`;
   const response = await authFetch(
-    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/for-you`,
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/for-you${filter}`,
     { timeoutMs: PRACTICE_TIMEOUT_MS },
   );
   const body = await orThrow<Partial<ForYouPage>>(response, what);

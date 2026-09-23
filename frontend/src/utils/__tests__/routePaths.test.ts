@@ -245,6 +245,7 @@ const BUILDERS: Array<{ name: string; route: string; emit: () => string }> = [
     route: "/cases/:slug/for-you",
     emit: () => forYouPath("awad v cfs/2"),
   },
+
   {
     name: "practiceAnswersPath",
     route: "/cases/:slug/trial-prep/practice/:scenarioId/print-answers",
@@ -379,6 +380,23 @@ describe("the route-side URL guard", () => {
     // And the plain builder still emits no query at all, so every other way in
     // leaves the page alone.
     expect(practiceQuestionPath("awad-v-cfs", "s1", "q1")).not.toContain("?");
+  });
+
+  // ⚑ NOT in BUILDERS above, and the reason is worth writing down: that list
+  // hands the WHOLE emitted string to `routeFor`, and a query after a LITERAL
+  // final segment (`/for-you?deck=…`) matches no pattern. The two discuss-path
+  // entries get away with it because their query lands after a `:questionId`,
+  // which compiles to `[^/]+` and swallows it. So a query-carrying builder is
+  // checked the way `proofReviewTabPath` is — split the query off, assert the
+  // path against the route, then assert the query on its own.
+  it("carries deck= when the war room's count sends a reader to one deck", () => {
+    const emitted = forYouPath("awad-v-cfs", "s/1");
+    const [path, query] = emitted.split("?");
+    expect(routeFor(path)).toBe("/cases/:slug/for-you");
+    expect(query).toBe("deck=s%2F1");
+    // And the unfiltered builder still emits no query at all, so the menu
+    // entry and a filtered link are plainly different addresses.
+    expect(forYouPath("awad-v-cfs")).not.toContain("?");
   });
 
   it("emits no path under /scenarios/ — the .382 defect, by name", () => {

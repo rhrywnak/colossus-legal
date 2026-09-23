@@ -9,6 +9,8 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { SweptItem } from "../../components/practice/deckSweep";
+
 import {
   addAnswerNote,
   addQuestionNote,
@@ -47,24 +49,46 @@ beforeEach(() => {
   vi.unstubAllGlobals();
 });
 
+/** What a page showed, in the shape the sweep takes. */
+const SHOWN: SweptItem[] = [
+  { kind: "answer", id: "a-1" },
+  { kind: "note", id: "n-1" },
+];
+const SERVED_AT = "2026-09-22T21:31:00Z";
+
 describe("Done reviewing", () => {
-  it("PUTs the scenario's review-cursor address and returns the recorded time", async () => {
-    const mock = ok({ scenario_id: "sc-1", looked_at: "2026-09-17T16:00:00Z" });
-    await expect(markDeckReviewed("awad", "sc-1")).resolves.toBe("2026-09-17T16:00:00Z");
+  it("PUTs the review-cursor address carrying EXACTLY the items the page showed", async () => {
+    // The ruling, on the wire: the press sends ids, so an item that arrived
+    // after the page loaded cannot be in the body and cannot be swept.
+    const mock = ok({ scenario_id: "sc-1", marked: 2 });
+    await expect(markDeckReviewed("awad", "sc-1", SHOWN, SERVED_AT)).resolves.toBe(2);
     expect(String(mock.mock.calls[0][0])).toContain("/api/cases/awad/scenarios/sc-1/practice/review-cursor");
     expect(mock.mock.calls[0][1]).toMatchObject({ method: "PUT" });
+    expect(JSON.parse(mock.mock.calls[0][1].body)).toEqual({
+      items: SHOWN,
+      served_at: SERVED_AT,
+    });
     // A timeout signal rides every call (authFetch's AbortController).
     expect(mock.mock.calls[0][1].signal).toBeDefined();
   });
 
-  it("throws on a refusal, naming the status — the bar keeps its count", async () => {
-    failing(500);
-    await expect(markDeckReviewed("awad", "sc-1")).rejects.toThrow(/not marked reviewed.*500/);
+  it("resolves on ZERO marked — everything shown had already been read", async () => {
+    ok({ scenario_id: "sc-1", marked: 0 });
+    await expect(markDeckReviewed("awad", "sc-1", SHOWN, SERVED_AT)).resolves.toBe(0);
   });
 
-  it("throws on a response with no time", async () => {
+  it("throws on a refusal, naming the status — the bar keeps its count", async () => {
+    failing(500);
+    await expect(markDeckReviewed("awad", "sc-1", SHOWN, SERVED_AT)).rejects.toThrow(
+      /not marked reviewed.*500/,
+    );
+  });
+
+  it("throws on a response with no count", async () => {
     ok({});
-    await expect(markDeckReviewed("awad", "sc-1")).rejects.toThrow(/contract mismatch/);
+    await expect(markDeckReviewed("awad", "sc-1", SHOWN, SERVED_AT)).rejects.toThrow(
+      /contract mismatch/,
+    );
   });
 });
 

@@ -46,6 +46,8 @@ function bar(review: DeckReview): string {
       code="S-13"
       review={review}
       wording={wording}
+      shown={[]}
+      servedAt="2026-09-22T21:31:00Z"
       onReviewed={() => {}}
     />,
   );

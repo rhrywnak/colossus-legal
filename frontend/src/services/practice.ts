@@ -107,6 +107,9 @@ export type PracticeQuestion = {
   /** Notes on the question or its CURRENT answer, oldest first, struck included
    *  (CC_TASK_REVIEW_LOOP_v1). Checked by eye against `PracticeQuestionDto.notes`. */
   notes: PracticeNote[];
+  /** The CURRENT answer's id, absent when nobody has answered. What "Done
+   *  reviewing" names when it sweeps this row (CC_TASK_FOR_YOU_v1 L2). */
+  answer_id?: string;
 };
 
 /** One note, as every panel renders it. */
@@ -203,6 +206,10 @@ export type PracticeDeck = {
    * must be able to tell how stale the sheet in his hand is.
    */
   deck_as_of: string | null;
+  /** When the SERVER produced this payload. Handed straight back by "Done
+   *  reviewing" so the sweep can clear the deck's scenario-wide notes without
+   *  trusting a browser's clock (CC_TASK_FOR_YOU_v1 L2). */
+  served_at: string;
   /** What the "I'd point to…" picker offers, composed and de-duplicated. */
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */

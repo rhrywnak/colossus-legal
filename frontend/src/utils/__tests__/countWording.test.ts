@@ -12,6 +12,8 @@ import { cardBadges } from "../../components/warRoomCardView";
 import { reviewBarLine } from "../../components/practice/PracticeReviewBar";
 import { s1, warRoomWording } from "../../components/__tests__/warRoomFixtures";
 
+const SLUG = "awad_v_catholic_family_service";
+
 describe("pickByCount", () => {
   it("takes the singular at exactly 1 and the plural at 0 and 2", () => {
     expect(pickByCount(1, "one", "many")).toBe("one");
@@ -22,9 +24,9 @@ describe("pickByCount", () => {
 
 describe("the review pill", () => {
   it("reads '1 answer' at 1 and '2 answers' at 2", () => {
-    const one = cardBadges(s1({ awaiting_review: 1 }), warRoomWording);
+    const one = cardBadges(s1({ awaiting_review: 1 }), warRoomWording, SLUG);
     expect(one[0].text).toBe("1 answer awaiting Chuck's review");
-    const two = cardBadges(s1({ awaiting_review: 2 }), warRoomWording);
+    const two = cardBadges(s1({ awaiting_review: 2 }), warRoomWording, SLUG);
     expect(two[0].text).toBe("2 answers awaiting Chuck's review");
   });
 });
@@ -40,7 +42,7 @@ describe("Marie's new-or-changed pill", () => {
 
   it("picks the singular row at 1 and the plural row at 2", () => {
     const at = (n: number) =>
-      cardBadges(s1({ awaiting_review: 0, marie_changed: n }), wording)[0].text;
+      cardBadges(s1({ awaiting_review: 0, marie_changed: n }), wording, SLUG)[0].text;
     expect(at(1)).toBe("1 item new or changed for Marie");
     expect(at(2)).toBe("2 items new or changed for Marie");
   });

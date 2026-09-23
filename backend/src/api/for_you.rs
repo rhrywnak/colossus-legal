@@ -25,10 +25,11 @@
 //! Every table read here lives in `colossus_legal_v2`: `&state.pipeline_pool`.
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     routing::{get, post},
     Json, Router,
 };
+use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::{
@@ -94,12 +95,39 @@ pub fn routes() -> Router<AppState> {
         )
 }
 
-/// Every scenario of this case, as ids.
-async fn case_scenarios(state: &AppState, slug: &str) -> Result<Vec<Uuid>, AppError> {
+/// Narrow the page to ONE deck (CC_TASK_FOR_YOU_v1 L2).
+///
+/// ## Domain note: where this arrives from
+///
+/// The war room's counts link here. "2 notes for Marie" on a card used to be a
+/// dead number; it now opens this page filtered to that deck, so the count and
+/// the rows behind it are one click apart and cannot be read as disagreeing.
+///
+/// A deck that does not belong to this case simply matches nothing and the page
+/// is empty — the case's own scenario list is what the filter runs over, so a
+/// guessed id cannot reach another case's items.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ForYouQuery {
+    /// A scenario id. Absent means the whole case, which is the page's own address.
+    #[serde(default)]
+    pub deck: Option<Uuid>,
+}
+
+/// Every scenario of this case, as ids — or just the one the query names.
+async fn case_scenarios(
+    state: &AppState,
+    slug: &str,
+    deck: Option<Uuid>,
+) -> Result<Vec<Uuid>, AppError> {
     let records = list_scenarios_for_case(&state.pipeline_pool, slug)
         .await
         .map_err(|e| store_error("list_scenarios_for_case", format!("{slug}: {e}")))?;
-    Ok(records.iter().map(|r| r.scenario_id).collect())
+    Ok(records
+        .iter()
+        .map(|r| r.scenario_id)
+        .filter(|id| deck.is_none_or(|only| only == *id))
+        .collect())
 }
 
 /// The page: the unread list, the everything list, and the words for both.
@@ -118,6 +146,7 @@ pub async fn get_for_you(
     user: AuthUser,
     State(state): State<AppState>,
     Path(slug): Path<String>,
+    Query(query): Query<ForYouQuery>,
 ) -> Result<Json<ForYouPayload>, AppError> {
     let settings = state.settings.current();
     let (user_id, _) = attribution(&user);
@@ -129,7 +158,7 @@ pub async fn get_for_you(
 
     let (unread, everything) = match query_side(side) {
         Some(query_side) => {
-            let ids = case_scenarios(&state, &slug).await?;
+            let ids = case_scenarios(&state, &slug, query.deck).await?;
             read_both(&state, &slug, &ids, &user_id, reviewers, query_side).await?
         }
         None => (Vec::new(), Vec::new()),
@@ -151,7 +180,7 @@ pub async fn get_for_you(
         _ => wording.witness_name.clone(),
     };
     tracing::info!(
-        %slug, user = %user_id, side = ?side,
+        %slug, user = %user_id, side = ?side, deck = ?query.deck,
         unread = unread.len(), everything = everything.len(),
         "for you: served the page"
     );
@@ -231,7 +260,7 @@ pub async fn get_for_you_summary(
             unread_count: 0,
         }));
     };
-    let ids = case_scenarios(&state, &slug).await?;
+    let ids = case_scenarios(&state, &slug, None).await?;
     let total = waiting_total(
         &state.pipeline_pool,
         &WaitingQuery {

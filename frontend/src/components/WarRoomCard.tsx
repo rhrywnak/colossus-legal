@@ -87,11 +87,26 @@ const PrepBody: React.FC<{ view: WarRoomCardView }> = ({ view }) => (
         </div>
       </>
     )}
-    {view.badges.map((badge) => (
-      <span key={badge.kind} style={warRoomBadgeStyle(badge.kind)} data-badge={badge.kind}>
-        {badge.text}
-      </span>
-    ))}
+    {view.badges.map((badge) =>
+      // An OWED count opens the list behind it; a state pill has nothing to
+      // open. A real anchor rather than an onClick span, so the keyboard and
+      // "open in new tab" work without this file knowing about either.
+      "href" in badge ? (
+        <Link
+          key={badge.kind}
+          to={badge.href}
+          style={warRoomBadgeStyle(badge.kind)}
+          data-badge={badge.kind}
+          data-badge-links
+        >
+          {badge.text}
+        </Link>
+      ) : (
+        <span key={badge.kind} style={warRoomBadgeStyle(badge.kind)} data-badge={badge.kind}>
+          {badge.text}
+        </span>
+      ),
+    )}
   </>
 );
 
@@ -104,7 +119,7 @@ const WarRoomCard: React.FC<{
   /** Opens the page's delete confirmation for THIS scenario. */
   onRequestDelete: (scenario: ScenarioSummary) => void;
 }> = ({ scenario, slug, wording, hasTimeline, onRequestDelete }) => {
-  const view = warRoomCardView(scenario, wording, hasTimeline);
+  const view = warRoomCardView(scenario, wording, hasTimeline, slug);
 
   return (
     <article style={warRoomCardStyle} data-pane-count={3} data-war-room-card>
