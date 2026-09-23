@@ -27,7 +27,17 @@ export type ForYouDay = "today" | "yesterday" | "earlier";
 
 /** One row. Checked BY EYE against `ForYouRowDto`. */
 export type ForYouRow = {
+  /**
+   * `answer`, `note`, `change` — or `deck` for a row that stands for a whole
+   * deck (CC_TASK_FOR_YOU_v1 L3), which opens its review page instead of a
+   * question.
+   */
   kind: string;
+  /**
+   * The item this row stands for. On a DECK row it is the newest of the items
+   * behind it — what put that deck where it is in the list — so every row has
+   * a stable identity whether or not it is grouped.
+   */
   item_id: string;
   scenario_id: string;
   /** Absent for a note about a whole scenario, which opens the deck instead. */

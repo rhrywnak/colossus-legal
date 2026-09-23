@@ -188,6 +188,16 @@ pub struct WaitingItemRow {
     /// new value, which the composer renders as a change with no quotation
     /// rather than as an empty one.
     pub body: Option<String>,
+    /// The note this one REPLIES to, as its text (CC_TASK_FOR_YOU_v1 L3).
+    /// `None` for every other kind, and for a note that answers nothing.
+    ///
+    /// ## Domain note: the parent's WORDS, not its id
+    ///
+    /// A row has one line for a body, and "Yes, that's right" on its own says
+    /// nothing. The composer needs what was asked to render what was answered,
+    /// and the alternative — carrying an id and reading the parent back per row
+    /// — would be one query per reply on a page built to cost two.
+    pub reply_to: Option<String>,
     /// For a note left on one ATTEMPT, when that attempt was answered — the
     /// date the witness's own byline names ("on your answer of Mon 21 Sep").
     /// `None` for every other kind, and for a note on the question itself.
@@ -245,20 +255,23 @@ fn waiting_cte(side: WaitingSide, scope: WaitingScope) -> String {
          items AS ( \
             SELECT 'answer'::text AS kind, cur.answer_id AS item_id, cur.scenario_id, \
                    cur.question_id, cur.answered_at AS at, cur.author_id AS author, \
-                   cur.answer_text AS body, NULL::timestamptz AS subject_at \
+                   cur.answer_text AS body, NULL::timestamptz AS subject_at, \
+                   NULL::text AS reply_to \
               FROM cur \
             UNION ALL \
             SELECT 'note', n.id, n.scenario_id, n.question_id, n.created_at, n.author_id, \
-                   n.text, CASE WHEN n.answer_id IS NOT NULL THEN cur.answered_at END \
+                   n.text, CASE WHEN n.answer_id IS NOT NULL THEN cur.answered_at END, \
+                   parent.text \
               FROM practice_notes n \
               LEFT JOIN practice_questions q ON q.id = n.question_id \
               LEFT JOIN cur ON cur.question_id = n.question_id \
+              LEFT JOIN practice_notes parent ON parent.id = n.answers_note_id \
              WHERE n.scenario_id = ANY($1) AND n.struck_at IS NULL \
                AND (n.question_id IS NULL OR q.hidden_at IS NULL) \
                AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id) \
             UNION ALL \
             SELECT 'change', d.id, d.scenario_id, d.question_id, d.changed_at, d.changed_by_id, \
-                   d.after_value, NULL::timestamptz \
+                   d.after_value, NULL::timestamptz, NULL::text \
               FROM practice_deck_changes d \
               JOIN practice_questions q ON q.id = d.question_id \
              WHERE d.scenario_id = ANY($1) AND q.hidden_at IS NULL \
@@ -314,7 +327,7 @@ pub async fn waiting_items(
     sqlx::query_as::<_, WaitingItemRow>(&format!(
         "{}SELECT w.kind, w.item_id, w.scenario_id, sc.code_ordinal, \
                  sc.name AS scenario_name, w.question_id, q.text AS question_text, \
-                 w.at, w.author, w.seen_at, w.body, w.subject_at \
+                 w.at, w.author, w.seen_at, w.body, w.subject_at, w.reply_to \
             FROM waiting w \
             JOIN scenarios sc ON sc.scenario_id = w.scenario_id \
             LEFT JOIN practice_questions q ON q.id = w.question_id \
@@ -419,3 +432,7 @@ mod item_live_tests;
 #[cfg(test)]
 #[path = "waiting_items_seen_live_tests.rs"]
 mod seen_live_tests;
+
+#[cfg(test)]
+#[path = "waiting_items_reply_live_tests.rs"]
+mod reply_live_tests;

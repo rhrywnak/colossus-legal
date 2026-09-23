@@ -15,6 +15,7 @@ import {
   addAnswerNote,
   addQuestionNote,
   markDeckReviewed,
+  replyToNote,
   strikeNote,
 } from "../practiceReviewLoop";
 
@@ -114,6 +115,26 @@ describe("notes", () => {
     await expect(strikeNote("n-1")).resolves.toEqual(struck);
     expect(String(mock.mock.calls[0][0])).toContain("/api/practice/notes/n-1/strike");
     expect(mock.mock.calls[0][1]).toMatchObject({ method: "PUT" });
+  });
+
+  it("POSTs a reply to the note it answers, carrying only the words", async () => {
+    // The question, the attempt and the scenario are read from the parent by
+    // the server (L3), so a reply that named them here would be a second,
+    // weaker source of truth for where a note lives.
+    const reply = { ...NOTE, id: "n-2", answers_note_id: "n-1" };
+    const mock = ok(reply);
+    await expect(replyToNote("n/1", "yes, that is right")).resolves.toEqual(reply);
+    const [url, init] = mock.mock.calls[0];
+    expect(String(url)).toContain("/api/practice/notes/n%2F1/reply");
+    expect(init).toMatchObject({ method: "POST" });
+    expect(JSON.parse(init.body)).toEqual({ text: "yes, that is right" });
+  });
+
+  it("throws on a refused reply, naming the status", async () => {
+    // 400 is what the route returns for a struck parent — the reply was not
+    // written, and the panel must say so rather than clearing its box.
+    failing(400);
+    await expect(replyToNote("n-1", "too late")).rejects.toThrow(/reply was not saved.*400/);
   });
 
   it("throws on a refused note write", async () => {

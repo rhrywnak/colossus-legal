@@ -107,6 +107,24 @@ export async function addQuestionNote(questionId: string, text: string): Promise
   return asNote(await orThrow<Partial<PracticeNote>>(response, what), what);
 }
 
+/**
+ * Answer one note, in a note of your own (CC_TASK_FOR_YOU_v1 L3).
+ *
+ * A reply IS a note: same table, same strike, same waiting list. What makes it
+ * a reply is the note it names, which the SERVER reads from the path — the
+ * scenario, the question and the attempt all come from the row being answered,
+ * so this call carries only the words.
+ */
+export async function replyToNote(noteId: string, text: string): Promise<PracticeNote> {
+  const what = "The reply was not saved";
+  const response = await send(
+    "POST",
+    `/api/practice/notes/${encodeURIComponent(noteId)}/reply`,
+    { text },
+  );
+  return asNote(await orThrow<Partial<PracticeNote>>(response, what), what);
+}
+
 /** Strike a note through. It stays visible, with the day it was struck. */
 export async function strikeNote(noteId: string): Promise<PracticeNote> {
   const what = "The note was not struck";

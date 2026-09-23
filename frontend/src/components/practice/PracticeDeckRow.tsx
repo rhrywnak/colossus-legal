@@ -50,6 +50,7 @@ import * as d from "./practiceDeckStyles";
 import * as e from "./practiceEditorStyles";
 import PracticeNoteList from "./PracticeNoteList";
 import PracticeRowEdit from "./PracticeRowEdit";
+import * as r from "./practiceReviewLoopStyles";
 import * as s from "./practiceStyles";
 
 /**
@@ -224,6 +225,18 @@ const PracticeDeckRow: React.FC<Props> = ({
             fact and the wrong one to show. */}
         {question.answered_on !== null && (
           <div style={e.status}>{question.answered_on}</div>
+        )}
+
+        {/* The board-4 mark: what is unread on this question FOR THIS READER,
+            composed by the server (CC_TASK_FOR_YOU_v1 L3). Absent — not blank —
+            when nothing waits, and gone the moment she opens the question,
+            because opening it is what marks it read. */}
+        {question.waiting !== undefined && (
+          <div>
+            <span style={r.waitingMark} data-practice-waiting>
+              {question.waiting}
+            </span>
+          </div>
         )}
 
         {/* Notes on this question or its current answer (REVIEW_LOOP_v1 §4). */}

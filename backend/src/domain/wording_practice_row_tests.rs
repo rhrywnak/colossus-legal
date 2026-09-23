@@ -53,6 +53,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     // FOR_YOU L1: the one line the question page shows when the read-clear the
     // list asked for did not land.
     "pipeline_migrations/20260922165053_for_you_page_wording.sql",
+    // FOR_YOU L3: the reply control and the board-4 mark on a deck row.
+    "pipeline_migrations/20260922231242_for_you_l3_deck_threshold_replies_and_board_4_marks.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -118,6 +120,11 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NOTE_STRIKE_LABEL, "Strike"),
     (KEY_NOTE_STRUCK_TEMPLATE, "struck {when}"),
     (KEY_NOTE_FAILED, "The note could not be saved \u{2014} nothing was written."),
+    (KEY_NOTE_REPLY_LABEL, "Reply"),
+    (KEY_WAITING_NOTE_TEMPLATE, "{who} left a note"),
+    (KEY_WAITING_ANSWER_TEMPLATE, "{who} answered"),
+    (KEY_WAITING_CHANGE, "the question changed"),
+    (KEY_WAITING_MORE_TEMPLATE, "+{count} more"),
     (
         KEY_ROW_READ_FAILED,
         "This question could not be marked as read \u{2014} it is still on your For you list.",

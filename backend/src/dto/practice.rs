@@ -98,6 +98,17 @@ pub struct PracticeQuestionDto {
     /// count: the sweep marks exactly these rows.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub answer_id: Option<uuid::Uuid>,
+    /// `Chuck left a note` — what is waiting on this question FOR THE PERSON
+    /// READING, already composed (CC_TASK_FOR_YOU_v1 L3, mockup board 4), or
+    /// `None` when nothing on it is unread by them.
+    ///
+    /// ## Domain note: two readers of one deck see two different rows
+    ///
+    /// Read-state is per person (L2), so this field is too. It is absent rather
+    /// than blank when nothing waits: an empty mark beside a question reads as
+    /// a tag that failed to load.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub waiting: Option<String>,
     /// `Answered on 22 Aug`, ALREADY COMPOSED — or `None` when nobody has
     /// answered this question.
     ///

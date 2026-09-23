@@ -53,6 +53,12 @@ pub struct PracticeReviewWordingDto {
     /// `practice_deck_review_oldest_template`, declared in the ROW block — see
     /// this module's header for why its wire field sits here.
     pub deck_review_oldest_template: String,
+    /// The reply control under a note (CC_TASK_FOR_YOU_v1 L3). Stored key
+    /// `practice_row_note_reply_label`, declared in the ROW block beside the
+    /// four other note controls — its wire field sits here for the arithmetic
+    /// reason this module's header gives: `practice_wording.rs` is AT Rule 17's
+    /// limit, and one more field there would carry it over.
+    pub row_note_reply_label: String,
 }
 
 impl PracticeReviewWordingDto {
@@ -76,6 +82,7 @@ impl PracticeReviewWordingDto {
             review_empty_deck: drill.review.empty_deck.clone(),
             review_name_joiner: drill.review.name_joiner.clone(),
             deck_review_oldest_template: drill.row.deck_review_oldest_template.clone(),
+            row_note_reply_label: drill.row.note_reply_label.clone(),
         }
     }
 }

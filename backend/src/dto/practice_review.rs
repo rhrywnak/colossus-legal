@@ -38,6 +38,14 @@ pub struct PracticeNoteDto {
     /// also what tells the screen to strike the text through: one field, so a
     /// note cannot render struck without saying when.
     pub struck: Option<String>,
+    /// The note this one answers (CC_TASK_FOR_YOU_v1 L3), or `None`.
+    ///
+    /// Carried as an ID and not as a composed line, uniquely on this DTO: the
+    /// panel draws the pair as a PAIR — his line, her reply indented under it —
+    /// which is a layout decision and not a sentence. The words of both halves
+    /// are already on the wire in their own rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answers_note_id: Option<Uuid>,
 }
 
 /// What changed since her last sitting, composed.

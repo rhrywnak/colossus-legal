@@ -145,9 +145,16 @@ pub(crate) async fn change(
     at: DateTime<Utc>,
 ) -> TestResult<()> {
     sqlx::query(
+        // `field` is written because the EDITOR writes it: a rewording is
+        // `reworded`/`text` (`practice_editor::record_change`), and since
+        // CC_TASK_FOR_YOU_v1 L1 only a change to the question's TEXT waits for
+        // anybody — `stronger` and `tactic` are the reviewer's craft. Left NULL,
+        // as it was until 2026-09-23, every change these fixtures wrote counted
+        // for nobody and four tests here were asserting against a row the
+        // production writer never produces.
         "INSERT INTO practice_deck_changes \
-         (scenario_id, question_id, change_kind, changed_by, changed_at) \
-         VALUES ($1, $2, $3, 'chuck', $4)",
+         (scenario_id, question_id, change_kind, field, changed_by, changed_at) \
+         VALUES ($1, $2, $3, 'text', 'chuck', $4)",
     )
     .bind(scenario_id)
     .bind(question_id)

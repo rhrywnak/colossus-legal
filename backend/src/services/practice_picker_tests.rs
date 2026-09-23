@@ -53,6 +53,7 @@ fn picker(deck: Vec<PracticeQuestionRecord>, receipts: &[PracticePointReceipt]) 
             open: None,
             attach_options: vec![],
             notes: &[],
+            waiting: &[],
             review: Default::default(),
         },
     )
@@ -180,6 +181,7 @@ fn a_row_carries_its_answered_on_line_or_nothing_at_all() {
             open: None,
             attach_options: vec![],
             notes: &[],
+            waiting: &[],
             review: Default::default(),
         },
     );

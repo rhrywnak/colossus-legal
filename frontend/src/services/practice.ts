@@ -110,6 +110,14 @@ export type PracticeQuestion = {
   /** The CURRENT answer's id, absent when nobody has answered. What "Done
    *  reviewing" names when it sweeps this row (CC_TASK_FOR_YOU_v1 L2). */
   answer_id?: string;
+  /**
+   * `Chuck left a note` — what is waiting on this question FOR THE PERSON
+   * READING, already composed (CC_TASK_FOR_YOU_v1 L3, mockup board 4).
+   *
+   * Absent when nothing on it is unread by them. Two people reading the same
+   * deck see two different sets of marks, because read-state is per person.
+   */
+  waiting?: string;
 };
 
 /** One note, as every panel renders it. */
@@ -123,6 +131,13 @@ export type PracticeNote = {
   when: string;
   /** `struck Tue 19 Aug`, or `null` while it stands. Its presence strikes it. */
   struck: string | null;
+  /**
+   * The note this one answers, or absent (CC_TASK_FOR_YOU_v1 L3).
+   *
+   * The one id on this type that is not a handle for a write: it is what pairs
+   * a reply with the line it answers, so the panel can draw the two together.
+   */
+  answers_note_id?: string;
 };
 
 /** What changed since her last sitting, composed. */

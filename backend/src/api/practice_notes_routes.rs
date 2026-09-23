@@ -5,6 +5,7 @@
 //!
 //! - `POST /practice/answers/:answer_id/notes`     → a note on one attempt
 //! - `POST /practice/questions/:question_id/notes` → a note on the question
+//! - `POST /practice/notes/:note_id/reply`         → answer a note (L3)
 //! - `PUT  /practice/notes/:note_id/strike`        → withdraw a note
 //!
 //! Scenario-level notes wait (task §4).
@@ -36,7 +37,7 @@ use crate::{
     dto::practice_review::{NoteTextRequest, PracticeNoteDto},
     error::AppError,
     repositories::pipeline_repository::practice_notes::{
-        answer_home, insert_note, note_by_id, strike_note, NewNote, NoteRecord,
+        answer_home, insert_note, note_by_id, note_scenario, strike_note, NewNote, NoteRecord,
     },
     services::{practice_note_view::note_dto, practice_notes::attribution},
     state::AppState,
@@ -68,7 +69,7 @@ pub async fn post_answer_note(
         question_id,
         answer_id: Some(answer_id),
     };
-    write_note(&state, &user, target, text).await
+    write_note(&state, &user, target, text, None).await
 }
 
 /// Write a note on a question, rather than on one attempt at it.
@@ -88,7 +89,7 @@ pub async fn post_question_note(
         question_id,
         answer_id: None,
     };
-    write_note(&state, &user, target, text).await
+    write_note(&state, &user, target, text, None).await
 }
 
 /// Strike a note through. Idempotent: a second strike keeps the first moment.
@@ -117,6 +118,76 @@ pub async fn put_strike_note(
     Ok(Json(note_dto(&state.settings.current(), &stored)))
 }
 
+/// Answer one note, in a note of your own (CC_TASK_FOR_YOU_v1 L3).
+///
+/// ## Domain note: a reply IS a note
+///
+/// One table, one kind of thing. The reply lands on the same question and the
+/// same attempt as the note it answers, it waits for the other side like any
+/// other item, and it clears by being read. What makes it a reply is one
+/// column, `answers_note_id`, which the exchange is drawn from.
+///
+/// ## Why the WHERE is read from the parent
+///
+/// The same rule the other two note routes follow: the scenario, the question
+/// and the attempt are taken from the row being answered, never from a body
+/// that could disagree with the path. A caller cannot file a reply onto some
+/// other question by asking for it.
+///
+/// ## Why a reply to a reply attaches to the ROOT
+///
+/// The mockup's exchange is two lines deep — a note, and answers under it —
+/// and the panel draws exactly that. Left to nest, a third message would be
+/// drawn under a reply and the fourth under that, until the panel is a thread
+/// nobody designed. Flattening to the root keeps every answer under the line
+/// that started it, which is what a person means by "this conversation".
+///
+/// # Errors
+/// 400 for a blank reply, or for a reply to a note that was withdrawn; 404 when
+/// no note carries that id; 500 (logged) for a failed read or write.
+pub async fn post_note_reply(
+    user: AuthUser,
+    State(state): State<AppState>,
+    Path(note_id): Path<Uuid>,
+    Json(body): Json<NoteTextRequest>,
+) -> Result<Json<PracticeNoteDto>, AppError> {
+    let text = note_text(&body.text)?;
+    let parent = note_by_id(&state.pipeline_pool, note_id)
+        .await
+        .map_err(|e| repo_error("note_by_id", format!("note {note_id}: {e}")))?
+        .ok_or_else(|| AppError::NotFound {
+            message: format!("practice note {note_id} not found"),
+        })?;
+    let reply = reply_target(&parent)?;
+    // The scenario comes from its own read: `NoteRecord` does not carry one
+    // (no panel prints it), and inferring it from the question would be a
+    // second source of truth for where a note lives.
+    let scenario_id = note_scenario(&state.pipeline_pool, note_id)
+        .await
+        .map_err(|e| repo_error("note_scenario", format!("note {note_id}: {e}")))?
+        .ok_or_else(|| {
+            // NOT the same fact as the 404 above, and it must not read as one.
+            // The note was READ one statement ago, so it existed; `scenario_id`
+            // is `NOT NULL`, so the only way here is that the row was deleted
+            // between the two statements. That is a race, and an operator
+            // reading "not found" would go looking for a bad client id instead.
+            tracing::warn!(
+                %note_id,
+                "practice: a note vanished between its read and its scenario lookup — \
+                 the reply was not written"
+            );
+            AppError::NotFound {
+                message: format!("practice note {note_id} was withdrawn while you were replying"),
+            }
+        })?;
+    let target = NoteTarget {
+        scenario_id,
+        question_id: reply.question_id,
+        answer_id: parent.answer_id,
+    };
+    write_note(&state, &user, target, text, Some(reply.root)).await
+}
+
 /// Where a note lands, read from the target row — never from the request body.
 #[derive(Debug, Clone, Copy)]
 struct NoteTarget {
@@ -131,6 +202,7 @@ async fn write_note(
     user: &AuthUser,
     target: NoteTarget,
     text: &str,
+    answers_note_id: Option<Uuid>,
 ) -> Result<Json<PracticeNoteDto>, AppError> {
     let (author_id, author) = attribution(user);
     let note_id = insert_note(
@@ -142,6 +214,7 @@ async fn write_note(
             author: &author,
             author_id: &author_id,
             text,
+            answers_note_id,
         },
     )
     .await
@@ -160,6 +233,10 @@ async fn write_note(
         scenario_id = %target.scenario_id,
         question_id = %target.question_id,
         on_answer = target.answer_id.is_some(),
+        // `?` rather than `%`: it is an `Option`, and `None` is the fact that
+        // this was a note of its own rather than a reply — which is the one
+        // thing this line could otherwise not tell an operator.
+        replying_to = ?answers_note_id,
         by = %author_id,
         "practice: a note was written"
     );
@@ -177,6 +254,51 @@ async fn read_back(state: &AppState, note_id: Uuid) -> Result<NoteRecord, AppErr
                 message: "the note was written but could not be read back".to_string(),
             }
         })
+}
+
+/// Where a reply attaches, once the note it answers has been read back.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct ReplyTarget {
+    /// The head of the exchange — the note a reply is filed under, which is the
+    /// parent itself unless the parent was already a reply.
+    pub(super) root: Uuid,
+    /// The question both halves belong to.
+    pub(super) question_id: Uuid,
+}
+
+/// The two decisions a reply makes about its parent, without a database.
+///
+/// Pure so that both REFUSALS can be tested — an error path nothing exercises
+/// is an error path nobody has read (Standing Rule 1).
+///
+/// # Errors
+/// 400 when the parent was withdrawn, or when it is a note about the whole
+/// scenario rather than about a question.
+pub(super) fn reply_target(parent: &NoteRecord) -> Result<ReplyTarget, AppError> {
+    if parent.struck_at.is_some() {
+        // A struck note has been withdrawn. Answering it would put a live reply
+        // under a line nobody stands behind any more — and the reply would wait
+        // for somebody, on a page, about a note that says it was taken back.
+        return Err(AppError::BadRequest {
+            message: "that note was withdrawn — there is nothing to reply to".to_string(),
+            details: serde_json::json!({ "field": "note_id" }),
+        });
+    }
+    // Scenario-level notes are not routed anywhere yet (this module's header),
+    // so no screen can offer Reply on one. Refused rather than filed with a
+    // NULL question, which the table's CHECK would reject as a 500 and which no
+    // panel could draw.
+    let Some(question_id) = parent.question_id else {
+        return Err(AppError::BadRequest {
+            message: "a note about the whole scenario cannot be replied to".to_string(),
+            details: serde_json::json!({ "field": "note_id" }),
+        });
+    };
+    Ok(ReplyTarget {
+        // The ROOT of the exchange — see `post_note_reply`.
+        root: parent.answers_note_id.unwrap_or(parent.id),
+        question_id,
+    })
 }
 
 /// The note's text, trimmed — or a 400 when nothing is left.
@@ -215,5 +337,64 @@ mod tests {
     #[test]
     fn note_text_is_trimmed() {
         assert_eq!(note_text("  hold the $750  ").ok(), Some("hold the $750"));
+    }
+
+    /// One stored note, as `note_by_id` hands it back.
+    fn parent(struck: bool, question: Option<Uuid>, answers: Option<Uuid>) -> NoteRecord {
+        NoteRecord {
+            id: Uuid::from_u128(1),
+            question_id: question,
+            answer_id: None,
+            author: "Chuck".to_string(),
+            text: "whose account was it in?".to_string(),
+            created_at: chrono::Utc::now(),
+            struck_at: struck.then(chrono::Utc::now),
+            struck_by: struck.then(|| "chuck".to_string()),
+            answers_note_id: answers,
+        }
+    }
+
+    /// A reply to a plain note is filed under that note, on its question.
+    #[test]
+    fn a_reply_is_filed_under_the_note_it_answers() {
+        let target = reply_target(&parent(false, Some(Uuid::from_u128(9)), None))
+            .expect("a standing note can be answered");
+        assert_eq!(target.root, Uuid::from_u128(1));
+        assert_eq!(target.question_id, Uuid::from_u128(9));
+    }
+
+    /// (M) A reply to a REPLY is filed under the ROOT, not under the reply.
+    ///
+    /// Left to nest, a third message would be drawn under a reply and the
+    /// fourth under that, until the panel is a thread nobody designed. The
+    /// exchange is two lines deep, and this is what keeps it that way.
+    #[test]
+    fn a_reply_to_a_reply_is_filed_under_the_root() {
+        let root = Uuid::from_u128(42);
+        let target = reply_target(&parent(false, Some(Uuid::from_u128(9)), Some(root)))
+            .expect("a standing reply can be answered");
+        assert_eq!(target.root, root);
+    }
+
+    /// A withdrawn note cannot be answered — a 400, not a live reply under a
+    /// line nobody stands behind any more.
+    #[test]
+    fn a_struck_note_cannot_be_replied_to() {
+        let Err(AppError::BadRequest { message, details }) =
+            reply_target(&parent(true, Some(Uuid::from_u128(9)), None))
+        else {
+            panic!("a reply to a struck note is a 400");
+        };
+        assert!(message.contains("withdrawn"), "message: {message}");
+        assert_eq!(details["field"], "note_id");
+    }
+
+    /// A note about the whole scenario has no question to file a reply on.
+    #[test]
+    fn a_scenario_note_cannot_be_replied_to() {
+        assert!(matches!(
+            reply_target(&parent(false, None, None)),
+            Err(AppError::BadRequest { .. })
+        ));
     }
 }

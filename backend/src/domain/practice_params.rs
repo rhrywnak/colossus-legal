@@ -191,6 +191,17 @@ pub struct PracticeReadParams {
     /// them, including hers.
     pub witness_username: String,
 
+    /// How many UNREAD items a deck must hold before the "For you" page shows
+    /// it as ONE row instead of one row per item — see
+    /// [`KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD`].
+    ///
+    /// ## Domain note: a threshold about ATTENTION, not about size
+    ///
+    /// Seventeen rows from one deck is not seventeen things to decide; it is
+    /// one deck to sit down with. Below the threshold the items are worth
+    /// naming individually, because each one is a separate errand.
+    pub for_you_deck_threshold: u32,
+
     // ── Discuss with AI (CC_TASK_QUESTION_CHAT_v1) ────────────────────────────
     /// The model the dock starts on — [`KEY_PRACTICE_DISCUSS_DEFAULT_MODEL`].
     pub discuss_default_model: String,
@@ -323,6 +334,14 @@ pub const KEY_PRACTICE_DISCUSS_PROMPT_FILE: &str = "practice_discuss_prompt_file
 /// The output cap of one discussion reply.
 pub const KEY_PRACTICE_DISCUSS_MAX_TOKENS: &str = "practice_discuss_max_tokens";
 
+/// The deck-grouping threshold — see [`PracticeReadParams::for_you_deck_threshold`].
+///
+/// A stored row and not a constant, because where the line falls is a judgement
+/// about one person's day: Roman moves it, restarts, and reads the page again.
+/// Its `min_value` is 1 — at 0 every deck holding anything would collapse into a
+/// single row and the page could never name an individual item at all.
+pub const KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD: &str = "practice_for_you_deck_threshold";
+
 pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_CASE_TIMEZONE,
     KEY_PRACTICE_REVIEWER_USERNAMES,
@@ -332,6 +351,7 @@ pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_DISCUSS_MAX_TURNS,
     KEY_PRACTICE_DISCUSS_PROMPT_FILE,
     KEY_PRACTICE_DISCUSS_MAX_TOKENS,
+    KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD,
     KEY_PRACTICE_READ_EFFORT,
     KEY_PRACTICE_DISCUSS_EFFORT,
     KEY_PRACTICE_READ_PROMPT_FILE,
@@ -386,6 +406,9 @@ impl PracticeReadParams {
             discuss_max_turns: 40,
             discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),
             discuss_max_tokens: 4096,
+            // The value the migration seeds. Five is the ruled default; a
+            // test that needs the other side of the line sets its own.
+            for_you_deck_threshold: 5,
             effort: Some(Effort::Low),
             discuss_effort: Some(Effort::Low),
         }

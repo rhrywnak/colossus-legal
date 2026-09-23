@@ -39,6 +39,7 @@ pub fn note_dto(settings: &Settings, note: &NoteRecord) -> PracticeNoteDto {
         author: note.author.clone(),
         text: note.text.clone(),
         when: local_day_month(note.created_at, zone),
+        answers_note_id: note.answers_note_id,
         struck: note.struck_at.map(|at| {
             render(
                 &settings.practice_wording.row.note_struck_template,

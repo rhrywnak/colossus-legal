@@ -34,6 +34,16 @@ pub struct NoteRecord {
     /// `None` while the note stands.
     pub struck_at: Option<chrono::DateTime<chrono::Utc>>,
     pub struck_by: Option<String>,
+    /// The note this one ANSWERS (CC_TASK_FOR_YOU_v1 L3), or `None` for a note
+    /// that stands on its own. The column was created by L0's migration and
+    /// shipped unused until this layer gave it a writer.
+    ///
+    /// ## Domain note: one table, one kind of thing
+    ///
+    /// A reply is a note. It waits for the other side, clears by being read and
+    /// can be struck, exactly like any other — the only difference is that a
+    /// screen with room draws it under the line it answers.
+    pub answers_note_id: Option<Uuid>,
 }
 
 /// One note on its way to the table.
@@ -54,14 +64,17 @@ pub struct NewNote<'a> {
     /// The signed-in username behind it.
     pub author_id: &'a str,
     pub text: &'a str,
+    /// The note being answered, for a reply. `None` for a note of its own.
+    /// The route reads it from the PARENT row, never from a request body.
+    pub answers_note_id: Option<Uuid>,
 }
 
 /// Write one note. Returns its id.
 pub async fn insert_note(pool: &PgPool, note: &NewNote<'_>) -> Result<Uuid, PipelineRepoError> {
     let row: (Uuid,) = sqlx::query_as(
         "INSERT INTO practice_notes \
-         (scenario_id, question_id, answer_id, author, author_id, text) \
-         VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
+         (scenario_id, question_id, answer_id, author, author_id, text, answers_note_id) \
+         VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id",
     )
     .bind(note.scenario_id)
     .bind(note.question_id)
@@ -69,6 +82,7 @@ pub async fn insert_note(pool: &PgPool, note: &NewNote<'_>) -> Result<Uuid, Pipe
     .bind(note.author)
     .bind(note.author_id)
     .bind(note.text)
+    .bind(note.answers_note_id)
     .fetch_one(pool)
     .await?;
     Ok(row.0)
@@ -88,7 +102,8 @@ pub async fn list_notes(
     scenario_id: Uuid,
 ) -> Result<Vec<NoteRecord>, PipelineRepoError> {
     sqlx::query_as::<_, NoteRecord>(
-        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by \
+        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by, \
+         answers_note_id \
          FROM practice_notes WHERE scenario_id = $1 ORDER BY created_at, id",
     )
     .bind(scenario_id)
@@ -151,7 +166,8 @@ pub async fn notes_for_question(
     question_id: Uuid,
 ) -> Result<Vec<NoteRecord>, PipelineRepoError> {
     sqlx::query_as::<_, NoteRecord>(
-        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by \
+        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by, \
+         answers_note_id \
          FROM practice_notes WHERE question_id = $1 ORDER BY created_at, id",
     )
     .bind(question_id)
@@ -166,7 +182,8 @@ pub async fn note_by_id(
     note_id: Uuid,
 ) -> Result<Option<NoteRecord>, PipelineRepoError> {
     sqlx::query_as::<_, NoteRecord>(
-        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by \
+        "SELECT id, question_id, answer_id, author, text, created_at, struck_at, struck_by, \
+         answers_note_id \
          FROM practice_notes WHERE id = $1",
     )
     .bind(note_id)

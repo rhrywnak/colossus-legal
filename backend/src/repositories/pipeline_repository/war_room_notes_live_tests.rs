@@ -13,10 +13,26 @@ use uuid::Uuid;
 
 use super::live_tests::{
     answer, change, changed, changed_for, cleanup, pipeline_pool, question, scenario, TestResult,
-    WITNESS,
+    REVIEWER_LOGIN, WITNESS,
 };
 
-/// A note written by Chuck at `at`, on the question or on one answer.
+/// A note written by the LISTED REVIEWER at `at`, on the question or on one
+/// answer.
+///
+/// ## ⚑ Why the author is `REVIEWER_LOGIN` and not the literal "chuck"
+///
+/// It was "chuck" until 2026-09-23, and every test in this file turned red the
+/// first time the whole `--ignored` target was run. The reason is a rule these
+/// fixtures pre-date: since CC_TASK_FOR_YOU_v1 L2 the witness's count is the
+/// `waiting_items` predicate, where a note waits for HER only when a LISTED
+/// reviewer wrote it — a note by anybody else waits for the reviewers instead
+/// (ruling R2, because SQL cannot read Authentik groups). "chuck" is not on
+/// this file's bench (`REVIEWER_LOGIN` is `cpenzien`), so every note here was
+/// being read as a stranger's and counted for the wrong side.
+///
+/// The fixtures were wrong, not the rule: each caller below means "the reviewer
+/// left her a note". Written through the same const the bench is built from, so
+/// the two cannot drift apart again.
 async fn note(
     pool: &PgPool,
     scenario_id: Uuid,
@@ -24,7 +40,15 @@ async fn note(
     answer_id: Option<Uuid>,
     at: DateTime<Utc>,
 ) -> TestResult<Uuid> {
-    note_by(pool, scenario_id, question_id, answer_id, at, "chuck").await
+    note_by(
+        pool,
+        scenario_id,
+        question_id,
+        answer_id,
+        at,
+        REVIEWER_LOGIN,
+    )
+    .await
 }
 
 /// The same note, written by a NAMED login.

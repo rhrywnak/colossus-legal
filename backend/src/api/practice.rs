@@ -116,6 +116,12 @@ fn review_loop_routes() -> Router<AppState> {
             "/practice/questions/:question_id/notes",
             post(super::practice_notes_routes::post_question_note),
         )
+        // A reply IS a note (CC_TASK_FOR_YOU_v1 L3) — the same write, with the
+        // note being answered read from the path and never from the body.
+        .route(
+            "/practice/notes/:note_id/reply",
+            post(super::practice_notes_routes::post_note_reply),
+        )
         // PUT: striking twice keeps the first striking — idempotent.
         .route(
             "/practice/notes/:note_id/strike",
@@ -224,6 +230,7 @@ pub async fn get_practice_deck(
             open: read.open.as_ref(),
             attach_options: attach,
             notes: &read.notes,
+            waiting: &read.waiting,
             review: read.review,
         },
     );

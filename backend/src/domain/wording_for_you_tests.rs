@@ -16,7 +16,11 @@ use crate::domain::wording::tests::seeded_value_in;
 use std::collections::HashMap;
 
 /// Every migration that seeds a row of this block, oldest first.
-const SEED_MIGRATIONS: &[&str] = &["pipeline_migrations/20260922165053_for_you_page_wording.sql"];
+const SEED_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260922165053_for_you_page_wording.sql",
+    // L3: the deck row, and a reply as one row of the list.
+    "pipeline_migrations/20260922231242_for_you_l3_deck_threshold_replies_and_board_4_marks.sql",
+];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -34,6 +38,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_DECK_LINE_NO_QUESTION_TEMPLATE, "{code} · {deck}"),
     (KEY_BODY_ANSWER_TEMPLATE, "Answered: “{text}”"),
     (KEY_BODY_CHANGE_TEMPLATE, "Now reads: “{text}”"),
+    (KEY_DECK_BODY_TEMPLATE, "{count} answers waiting"),
+    (KEY_DECK_BODY_ONE, "{count} answer waiting"),
+    (KEY_DECK_BYLINE_TEMPLATE, "oldest {when}"),
+    (KEY_BODY_REPLY_TEMPLATE, "Reply to “{parent}”: “{text}”"),
     (KEY_BYLINE_TEMPLATE, "{who} · {what}"),
     (KEY_BYLINE_NOTE_ON_ANSWER_WITNESS, "on your answer of {when}"),
     (KEY_BYLINE_NOTE_ON_ANSWER_REVIEWER, "note on her answer"),
@@ -160,6 +168,10 @@ fn every_template_carries_its_placeholders() {
         (KEY_DECK_LINE_NO_QUESTION_TEMPLATE, &["{code}", "{deck}"]),
         (KEY_BODY_ANSWER_TEMPLATE, &["{text}"]),
         (KEY_BODY_CHANGE_TEMPLATE, &["{text}"]),
+        (KEY_DECK_BODY_TEMPLATE, &["{count}"]),
+        (KEY_DECK_BODY_ONE, &["{count}"]),
+        (KEY_DECK_BYLINE_TEMPLATE, &["{when}"]),
+        (KEY_BODY_REPLY_TEMPLATE, &["{parent}", "{text}"]),
         (KEY_BYLINE_TEMPLATE, &["{who}", "{what}"]),
         (KEY_BYLINE_NOTE_ON_ANSWER_WITNESS, &["{when}"]),
         (KEY_BYLINE_READ_SUFFIX_TEMPLATE, &["{when}"]),

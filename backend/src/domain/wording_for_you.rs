@@ -83,6 +83,27 @@ pub struct ForYouWording {
     pub body_answer_template: String,
     /// `Now reads: “{text}”` — the body of a row about a reworded question.
     pub body_change_template: String,
+
+    // ── The DECK row (L3) ────────────────────────────────────────────────
+    /// A deck holding at least `practice_for_you_deck_threshold` unread items
+    /// is ONE row, and this is what it says: `{count}` is how many wait on it.
+    /// Its first line is [`Self::deck_line_no_question_template`] — the deck
+    /// without a question, because a deck row stands for several.
+    pub deck_body_template: String,
+    /// Its singular. Unreachable while the threshold is above 1, and reachable
+    /// the moment Roman sets the threshold to 1 in Settings — which is exactly
+    /// when "1 answers waiting" would be on screen.
+    pub deck_body_one: String,
+    /// The deck row's byline: `{when}` is the OLDEST item waiting on it, which
+    /// is the fact that says how long the deck has been sitting there.
+    pub deck_byline_template: String,
+
+    // ── A reply (L3) ─────────────────────────────────────────────────────
+    /// A note written in answer to another note, as a ROW reads it: `{parent}`
+    /// is what was written first, `{text}` the reply. One line, both halves —
+    /// the exchange is drawn in two lines on the question page, where there is
+    /// room for it, and quoted in one here, where there is not.
+    pub body_reply_template: String,
     /// `{who} · {what}` — the small line under a row. `{what}` is one of the
     /// five clauses below, which is what makes each row say what KIND of thing
     /// it is (ruling Q1).
@@ -138,6 +159,10 @@ pub(crate) const KEY_DECK_LINE_NO_QUESTION_TEMPLATE: &str =
     "for_you_deck_line_no_question_template";
 pub(crate) const KEY_BODY_ANSWER_TEMPLATE: &str = "for_you_body_answer_template";
 pub(crate) const KEY_BODY_CHANGE_TEMPLATE: &str = "for_you_body_change_template";
+pub(crate) const KEY_DECK_BODY_TEMPLATE: &str = "for_you_deck_body_template";
+pub(crate) const KEY_DECK_BODY_ONE: &str = "for_you_deck_body_one";
+pub(crate) const KEY_DECK_BYLINE_TEMPLATE: &str = "for_you_deck_byline_template";
+pub(crate) const KEY_BODY_REPLY_TEMPLATE: &str = "for_you_body_reply_template";
 pub(crate) const KEY_BYLINE_TEMPLATE: &str = "for_you_byline_template";
 pub(crate) const KEY_BYLINE_NOTE_ON_ANSWER_WITNESS: &str = "for_you_byline_note_on_answer_witness";
 pub(crate) const KEY_BYLINE_NOTE_ON_ANSWER_REVIEWER: &str =
@@ -168,6 +193,10 @@ pub const FOR_YOU_WORDING_KEYS: &[&str] = &[
     KEY_DECK_LINE_NO_QUESTION_TEMPLATE,
     KEY_BODY_ANSWER_TEMPLATE,
     KEY_BODY_CHANGE_TEMPLATE,
+    KEY_DECK_BODY_TEMPLATE,
+    KEY_DECK_BODY_ONE,
+    KEY_DECK_BYLINE_TEMPLATE,
+    KEY_BODY_REPLY_TEMPLATE,
     KEY_BYLINE_TEMPLATE,
     KEY_BYLINE_NOTE_ON_ANSWER_WITNESS,
     KEY_BYLINE_NOTE_ON_ANSWER_REVIEWER,
@@ -211,6 +240,10 @@ pub fn build_for_you_wording<E>(
         deck_line_no_question_template: read(KEY_DECK_LINE_NO_QUESTION_TEMPLATE)?,
         body_answer_template: read(KEY_BODY_ANSWER_TEMPLATE)?,
         body_change_template: read(KEY_BODY_CHANGE_TEMPLATE)?,
+        deck_body_template: read(KEY_DECK_BODY_TEMPLATE)?,
+        deck_body_one: read(KEY_DECK_BODY_ONE)?,
+        deck_byline_template: read(KEY_DECK_BYLINE_TEMPLATE)?,
+        body_reply_template: read(KEY_BODY_REPLY_TEMPLATE)?,
         byline_template: read(KEY_BYLINE_TEMPLATE)?,
         byline_note_on_answer_witness: read(KEY_BYLINE_NOTE_ON_ANSWER_WITNESS)?,
         byline_note_on_answer_reviewer: read(KEY_BYLINE_NOTE_ON_ANSWER_REVIEWER)?,

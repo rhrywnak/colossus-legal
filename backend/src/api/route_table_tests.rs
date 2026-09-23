@@ -217,7 +217,10 @@ fn leading_number(rest: &str) -> Option<u64> {
 // 324 on its own). Both landed, so the number is 329, and it is MEASURED here
 // rather than added up: the two branches each predicted their own arithmetic
 // and only running the walk settles it.
-const EXPECTED_ROUTE_LINES: usize = 329;
+//
+// CC_TASK_FOR_YOU_v1 L3 adds ONE line for one route: `POST
+// /practice/notes/:note_id/reply`. A `POST` brings no `HEAD` pair, so 329 → 330.
+const EXPECTED_ROUTE_LINES: usize = 330;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

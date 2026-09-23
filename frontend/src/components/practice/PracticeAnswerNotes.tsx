@@ -22,7 +22,12 @@ import React from "react";
 
 import { wordingOf, type PracticeNote, type PracticeWording } from "../../services/practice";
 import { fetchQuestionAnswers, type QuestionAnswers } from "../../services/practiceAnswers";
-import { addAnswerNote, addQuestionNote, strikeNote } from "../../services/practiceReviewLoop";
+import {
+  addAnswerNote,
+  addQuestionNote,
+  replyToNote,
+  strikeNote,
+} from "../../services/practiceReviewLoop";
 import PracticeNoteList from "./PracticeNoteList";
 import * as r from "./practiceReviewLoopStyles";
 import * as s from "./practiceStyles";
@@ -37,6 +42,10 @@ interface Props {
 
 const PracticeAnswerNotes: React.FC<Props> = ({ questionId, answers, wording, onChanged }) => {
   const [open, setOpen] = React.useState(false);
+  // Which note the box is answering, or `null` for a note of its own. ONE box
+  // serves both: a reply is a note, and two boxes would be two places for the
+  // same words to be typed and lost (CC_TASK_FOR_YOU_v1 L3).
+  const [replyTo, setReplyTo] = React.useState<PracticeNote | null>(null);
   const [text, setText] = React.useState("");
   const [busy, setBusy] = React.useState(false);
   const [failed, setFailed] = React.useState(false);
@@ -62,15 +71,36 @@ const PracticeAnswerNotes: React.FC<Props> = ({ questionId, answers, wording, on
       .finally(() => setBusy(false));
   };
 
+  /** Start a reply to one note: the same box, addressed. */
+  const beginReply = (note: PracticeNote) => {
+    setReplyTo(note);
+    setText("");
+    setOpen(true);
+    setFailed(false);
+  };
+
+  /** Close the box, whichever kind it was, without writing. */
+  const close = () => {
+    setOpen(false);
+    setReplyTo(null);
+  };
+
   const onSave = () =>
     run(
-      () =>
-        answers.current !== null
+      () => {
+        // A reply names the note it answers and NOTHING else: the question, the
+        // attempt and the scenario are read from that note by the server, so a
+        // reply cannot land somewhere its parent is not.
+        if (replyTo !== null) {
+          return replyToNote(replyTo.id, text);
+        }
+        return answers.current !== null
           ? addAnswerNote(answers.current.answer_id, text)
-          : addQuestionNote(questionId, text),
+          : addQuestionNote(questionId, text);
+      },
       () => {
         setText("");
-        setOpen(false);
+        close();
       },
     );
 
@@ -81,13 +111,21 @@ const PracticeAnswerNotes: React.FC<Props> = ({ questionId, answers, wording, on
         wording={wording}
         busy={busy}
         onStrike={(note) => run(() => strikeNote(note.id), () => undefined)}
+        onReply={beginReply}
       />
       {open ? (
         <>
+          {/* The box says WHO it is answering when it is a reply — otherwise
+              the two kinds of write look identical and the wrong one ships. */}
+          {replyTo !== null && (
+            <div style={r.noteMeta} data-reply-to>
+              {w("row_note_reply_label")} · {replyTo.author} · {replyTo.when}
+            </div>
+          )}
           <textarea
             style={r.noteBox}
             value={text}
-            aria-label={w("row_note_add_label")}
+            aria-label={replyTo === null ? w("row_note_add_label") : w("row_note_reply_label")}
             onChange={(event) => setText(event.target.value)}
           />
           <div style={r.noteButtons}>
@@ -99,13 +137,21 @@ const PracticeAnswerNotes: React.FC<Props> = ({ questionId, answers, wording, on
             >
               {w("row_note_save_label")}
             </button>
-            <button type="button" style={s.button} disabled={busy} onClick={() => setOpen(false)}>
+            <button type="button" style={s.button} disabled={busy} onClick={close}>
               {w("row_note_cancel_label")}
             </button>
           </div>
         </>
       ) : (
-        <button type="button" style={s.buttonQuiet} data-practice-link onClick={() => setOpen(true)}>
+        <button
+          type="button"
+          style={s.buttonQuiet}
+          data-practice-link
+          onClick={() => {
+            setReplyTo(null);
+            setOpen(true);
+          }}
+        >
           {w("row_note_add_label")}
         </button>
       )}

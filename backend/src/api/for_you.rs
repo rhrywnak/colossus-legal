@@ -189,6 +189,7 @@ pub async fn get_for_you(
         &other_side,
         &unread,
         &everything,
+        settings.practice_read.for_you_deck_threshold,
     )))
 }
 

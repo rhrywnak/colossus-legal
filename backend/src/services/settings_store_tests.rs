@@ -493,6 +493,16 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             Some(64.0),
             Some(32000.0),
         ),
+        // FOR_YOU L3: how many unread items collapse a deck into one row. The
+        // bounds are the migration's — 1 because 0 would group every deck that
+        // holds anything, leaving the page unable to name a single item.
+        row(
+            "practice_for_you_deck_threshold",
+            "5",
+            ValueKind::Count,
+            Some(1.0),
+            Some(100.0),
+        ),
         // PRACTICE v0: the read's two word caps. They REFUSE a longer reply
         // rather than shortening it, so the floors are above one useful sentence
         // and the ceilings are well below a paragraph.
@@ -806,7 +816,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // took it once — with no conflict to mark. Two rows were added and the
         // sum gained one. The arithmetic is the only thing that catches that,
         // which is why this assertion is a number and not a `>=`.
-        52,
+        //
+        // FOR_YOU L3 added one: `practice_for_you_deck_threshold`, how many
+        // unread items collapse a deck into a single row on the For you page.
+        // A PRACTICE parameter (21 → 22), so `REQUIRED_KEYS` is unchanged.
+        53,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -987,7 +1001,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        33,
+        38,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
@@ -1056,12 +1070,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         crate::domain::wording_for_you::FOR_YOU_WORDING_KEYS.len(),
-        25,
+        29,
         "FOR_YOU L1: the title, the two subtitles, the sentence for somebody who \
          is neither side, the two tabs, the three \
          day headings, the two deck lines, the two body templates, the byline \
          and its six clauses, the three empty-state lines, and the two names no \
-         other settings row carries"
+         other settings row carries. Plus L3's four: the three a grouped DECK \
+         row speaks (its body in both numbers, and how long the deck has waited) \
+         and the one line a reply reads as, which carries both halves of the \
+         exchange because a list row has room for only one"
     );
     assert_eq!(
         FACT_CARD_WORDING_KEYS.len(),
@@ -1892,6 +1909,9 @@ fn the_fixtures_carry_the_values_the_migration_actually_seeds() {
         // PRACTICE_FIXES_v2.2.1: the read prompt's move to v5 — a CORRECTION the
         // correction pass sees.
         "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql",
+        // FOR_YOU L3: the deck-grouping threshold, the one parameter this
+        // page's three layers add.
+        "pipeline_migrations/20260922231242_for_you_l3_deck_threshold_replies_and_board_4_marks.sql",
     ]
     .iter()
     .map(|relative| {

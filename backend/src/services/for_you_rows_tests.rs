@@ -66,6 +66,7 @@ fn row(kind: &str, author: Option<&str>, when: DateTime<Utc>) -> WaitingItemRow 
         seen_at: None,
         body: Some("her words".to_string()),
         subject_at: None,
+        reply_to: None,
     }
 }
 
@@ -248,4 +249,42 @@ fn todays_rows_show_the_clock_and_older_rows_show_the_day() {
     assert_eq!(today.when, "11:30 am", "the clock alone");
     let older = v.compose(&row("note", Some("cpenzien"), at(2026, 9, 19, 15)));
     assert_eq!(older.when, "Sat 19 Sep · 11:30 am");
+}
+
+/// (M) A REPLY carries what it answers — both halves, in one line (L3).
+///
+/// "Yes, that's right." on its own is a row that tells the reader nothing and
+/// costs them a click to understand. The question page draws the exchange in
+/// two lines because it has the room; a list row has one, so it quotes the pair.
+#[test]
+fn a_reply_row_quotes_the_note_it_answers() {
+    let w = ForYouWording::for_test();
+    let (l, n) = (logins(), names());
+    let v = voice(&w, &l, &n, ForYouSide::Reviewers);
+
+    let mut item = row("note", Some("docmarie"), at(2026, 9, 22, 9));
+    item.body = Some("Yes, that is right.".to_string());
+    item.reply_to = Some("Whose account was it in?".to_string());
+
+    let composed = v.compose(&item);
+    assert_eq!(
+        composed.body,
+        "Reply to “Whose account was it in?”: “Yes, that is right.”"
+    );
+}
+
+/// A plain note is NOT wrapped in the reply sentence.
+///
+/// The discriminator is the presence of a parent, not the kind — every reply is
+/// a note, so a `kind` test would wrap every note ever written.
+#[test]
+fn a_note_that_answers_nothing_reads_as_itself() {
+    let w = ForYouWording::for_test();
+    let (l, n) = (logins(), names());
+    let v = voice(&w, &l, &n, ForYouSide::Reviewers);
+
+    let mut item = row("note", Some("docmarie"), at(2026, 9, 22, 9));
+    item.body = Some("Yes, that is right.".to_string());
+
+    assert_eq!(v.compose(&item).body, "Yes, that is right.");
 }
