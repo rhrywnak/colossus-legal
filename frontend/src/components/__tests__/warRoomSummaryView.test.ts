@@ -23,7 +23,7 @@ const METRICS = { scenarios: 11, ready: 11, drafted_or_review: 0 };
 describe("the top row", () => {
   it("carries the three metrics and the answered figure with its percentage", () => {
     const view = warRoomSummaryView(
-      { metrics: METRICS, scenarios: [sc("S-1", { answered: ans(42, 42) }), sc("S-2", { answered: ans(66, 143) })] },
+      { may_review: true, metrics: METRICS, scenarios: [sc("S-1", { answered: ans(42, 42) }), sc("S-2", { answered: ans(66, 143) })] },
       warRoomWording,
     );
     expect(view.metrics).toEqual([
@@ -37,7 +37,7 @@ describe("the top row", () => {
   });
 
   it("is 0% with no questions — never NaN", () => {
-    const view = warRoomSummaryView({ metrics: METRICS, scenarios: [] }, warRoomWording);
+    const view = warRoomSummaryView({ may_review: true, metrics: METRICS, scenarios: [] }, warRoomWording);
     expect(view.answeredRest).toBe("of 0 · 0%");
     expect(view.fraction).toBe(0);
   });
@@ -89,8 +89,29 @@ describe("Marie's cell — unanswered questions", () => {
   });
 });
 
-describe("the reviewer's cell — answers requiring review", () => {
-  it("names the oldest waiting day and the largest pile, in warning ink, chip from the settings row", () => {
+describe("whose tiles are drawn at all", () => {
+  it("drops the review cell for a reader who may not review", () => {
+    // ⚑ The ruling of 2026-09-22. The count under that tile is the READER's
+    // own backlog; a reader with no review duty has none, and a tile labelled
+    // in the second person would claim otherwise. Two cells, not three with a
+    // zero.
+    const hers = warRoomSummaryView(
+      { may_review: false, metrics: METRICS, scenarios: [sc("S-1", { awaiting_review: 5 })] },
+      warRoomWording,
+    );
+    expect(hers.cells.map((c) => c.owner)).toEqual(["marie", "roman"]);
+
+    // And the same page, to somebody who may.
+    const his = warRoomSummaryView(
+      { may_review: true, metrics: METRICS, scenarios: [sc("S-1", { awaiting_review: 5 })] },
+      warRoomWording,
+    );
+    expect(his.cells.map((c) => c.owner)).toEqual(["marie", "reviewer", "roman"]);
+  });
+});
+
+describe("the reader's cell — answers awaiting their review", () => {
+  it("names the oldest waiting day and the largest pile, in warning ink, chip from the stored row", () => {
     const cell = reviewCell(
       [
         sc("S-1", { awaiting_review: 42, oldest_awaiting_review: "2026-09-15T15:00:00Z" }),
@@ -102,7 +123,9 @@ describe("the reviewer's cell — answers requiring review", () => {
     expect(cell.count).toBe(46);
     expect(cell.context).toBe(`oldest waiting since ${formatCardDay("2026-08-19T15:00:00Z")} · S-1 has 42`);
     expect(cell.warning).toBe(true);
-    expect(cell.chip).toBe("Chuck");
+    // YOU, not the bench: this cell is only ever drawn for the person whose
+    // backlog it counts (ruled 2026-09-22).
+    expect(cell.chip).toBe("YOU");
   });
 
   it("says nothing waiting at zero, in ink", () => {
@@ -139,6 +162,7 @@ describe("every line is filled", () => {
   it("leaves no brace in any rendered string", () => {
     const view = warRoomSummaryView(
       {
+        may_review: true,
         metrics: METRICS,
         scenarios: [
           sc("S-1", { answered: ans(1, 3), awaiting_review: 1, oldest_awaiting_review: "2026-09-15T15:00:00Z", candidates_to_rule: 2 }),

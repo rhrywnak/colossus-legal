@@ -118,6 +118,8 @@ export function warRoomCardView(
   hasTimeline: boolean,
   /** The case, for the owed pills' links. */
   slug: string,
+  /** May the reader review? Decides whether the review pill is drawn at all. */
+  mayReview: boolean,
 ): WarRoomCardView {
   const p = scenario.progress;
   const theme = scenario.theme_statement?.trim() ? scenario.theme_statement.trim() : null;
@@ -153,7 +155,7 @@ export function warRoomCardView(
     prepHeading: wording.card_prep_heading,
     answered: answeredLine(scenario, wording),
     deckNone: wording.card_deck_none,
-    badges: cardBadges(scenario, wording, slug),
+    badges: cardBadges(scenario, wording, slug, mayReview),
     actions: {
       practice: wording.card_practice_action,
       timeline: hasTimeline ? wording.card_timeline_action : null,
@@ -176,6 +178,8 @@ export function cardBadges(
   scenario: ScenarioSummary,
   wording: WarRoomWording,
   slug: string,
+  /** May the reader review? The review pill is drawn only when they may. */
+  mayReview: boolean,
 ): CardBadge[] {
   const p = scenario.progress;
   if (p.answered.total === 0) return [{ kind: "not_started", text: wording.card_not_started }];
@@ -184,13 +188,18 @@ export function cardBadges(
   // deck only. Composed through the builder, so the route-side guard covers it.
   const href = forYouPath(slug, scenario.id);
   const owed: CardBadge[] = [];
-  if (p.awaiting_review > 0) {
+  // ## Domain note: drawn only for somebody who may review (ruled 2026-09-22)
+  //
+  // Since L2 the number is the READER's own backlog, and a reader with no
+  // review duty has none. Suppressed rather than zeroed: a "0 answers awaiting
+  // your review" still claims the duty is theirs. `mayReview` is the server's
+  // answer (`may_review`) — the page compares no username (rule 12).
+  if (mayReview && p.awaiting_review > 0) {
     owed.push({
       kind: "review",
       href,
       text: fill(pickByCount(p.awaiting_review, wording.card_review_one, wording.card_review_template), {
         count: p.awaiting_review,
-        reviewer: wording.reviewer_display_name,
       }),
     });
   }

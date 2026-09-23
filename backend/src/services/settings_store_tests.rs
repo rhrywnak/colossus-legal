@@ -941,9 +941,12 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         WAR_ROOM_SUMMARY_WORDING_KEYS.len(),
-        20,
-        "SIMPLE_COUNTS: the summary card — top row two, three cell labels, two \
-         owner chips, seven context templates, three joiners and three zero-state \
+        21,
+        "SIMPLE_COUNTS: the summary card — top row two, three cell labels, THREE \
+         owner chips (the review tile's own arrived with FOR_YOU L2's ruling, \
+         because that tile is drawn only for the person it counts and the bench's \
+         name was the wrong thing on it), seven context templates, three joiners \
+         and three zero-state \
          lines"
     );
     assert_eq!(

@@ -24,6 +24,7 @@ function markup(scenario: ScenarioSummary): string {
         slug="awad_v_catholic_family_service"
         wording={warRoomWording}
         hasTimeline={false}
+        mayReview
         onRequestDelete={() => {}}
       />
     </MemoryRouter>,
@@ -86,7 +87,7 @@ describe("WarRoomCard markup", () => {
 
   it("renders the review queue's amber pill, and Not started on an unanswered deck", () => {
     expect(markup(s1())).toContain('data-badge="review"');
-    expect(markup(s1())).toContain("42 answers awaiting Chuck&#x27;s review");
+    expect(markup(s1())).toContain("42 answers awaiting your review");
     const idle = markup(s11());
     expect(idle).toContain('data-badge="not_started"');
     expect(idle).not.toContain("Up to date");

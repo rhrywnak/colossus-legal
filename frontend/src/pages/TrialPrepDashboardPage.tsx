@@ -275,6 +275,7 @@ const TrialPrepDashboardPage: React.FC = () => {
               slug={slug}
               wording={dashboard.war_room_wording}
               hasTimeline={carrying.has(s.code)}
+              mayReview={dashboard.may_review}
               onRequestDelete={setPendingDelete}
             />
           ))}

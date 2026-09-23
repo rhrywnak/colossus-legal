@@ -5,7 +5,7 @@
 // (Rule 21, the disk/code consistency pattern).
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migrations that seed this block, concatenated.
@@ -13,6 +13,10 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260917104454_simple_counts_reviewer_and_summary_wording.sql",
     // QUESTION_CHAT: Marie's "new or changed" clause.
     "pipeline_migrations/20260917120219_question_chat_threads_prompts_and_wording.sql",
+    // FOR_YOU L2's ruling: the review tile speaks to the reader, and gains an
+    // owner chip of its own. One INSERT and one CORRECTION in the same file,
+    // which is why the reader below takes the LATER of the two.
+    "pipeline_migrations/20260922223758_review_tile_speaks_to_the_viewer.sql",
 ];
 
 /// The seeded values, for TESTS ONLY.
@@ -20,7 +24,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_ANSWERED_LABEL, "Questions answered"),
     (KEY_ANSWERED_REST_TEMPLATE, "of {total} · {pct}%"),
     (KEY_UNANSWERED_LABEL, "Unanswered questions"),
-    (KEY_REVIEW_LABEL, "Answers requiring review"),
+    (KEY_REVIEW_LABEL, "Answers awaiting your review"),
+    (KEY_REVIEW_CHIP, "YOU"),
     (KEY_CANDIDATES_LABEL, "Candidates to rule"),
     (KEY_OWNER_MARIE, "Marie"),
     (KEY_OWNER_ROMAN, "Roman"),
@@ -127,7 +132,12 @@ fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
         .join("\n");
     let fixture = WarRoomSummaryWording::for_test_values();
     for key in WAR_ROOM_SUMMARY_WORDING_KEYS {
-        let seeded = seeded_value_in(&sql, key)
+        // The value this build actually READS: what one migration seeded, and
+        // then what a later one corrected it to. Reading only the INSERT would
+        // pin the fixture to a sentence the store stopped holding — which is
+        // exactly what happened to the review tile's label on 2026-09-22.
+        let seeded = corrected_value_in(&sql, key)
+            .or_else(|| seeded_value_in(&sql, key))
             .unwrap_or_else(|| panic!("{key} is declared but no migration seeds it"));
         assert_eq!(
             fixture.get(*key),

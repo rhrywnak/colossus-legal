@@ -196,6 +196,10 @@ impl ScenarioDashboardAssembler {
             scenarios: cards,
             create_wording,
             war_room_wording,
+            // Filled by the route, which is where the signed-in person is —
+            // this assembler reads the graph and the store and knows nothing
+            // about who is asking.
+            may_review: false,
         })
     }
 

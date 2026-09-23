@@ -29,8 +29,13 @@ const SEED_MIGRATIONS: &[&str] = &[
 
 /// The migrations that CORRECT a row of this block in place. Read with
 /// `corrected_value_in` first, so a corrected key is pinned to its NEW value.
-const CORRECTION_MIGRATIONS: &[&str] =
-    &["pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql"];
+const CORRECTION_MIGRATIONS: &[&str] = &[
+    "pipeline_migrations/20260917080207_review_loop_cursor_and_wording.sql",
+    // FOR_YOU L2's ruling: the review pill speaks to the reader, because the
+    // count became the reader's own and naming the bench on it told two
+    // reviewers the same sentence about two different facts.
+    "pipeline_migrations/20260922223758_review_tile_speaks_to_the_viewer.sql",
+];
 
 /// The seeded values, for TESTS ONLY.
 const TEST_SEED: &[(&str, &str)] = &[
@@ -56,8 +61,8 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_CARD_ANSWERED_WORD, "answered"),
     (KEY_CARD_PREP_META_TEMPLATE, "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}"),
     (KEY_CARD_CHANGED_TEMPLATE, "{count} new or changed for Marie"),
-    (KEY_CARD_REVIEW_TEMPLATE, "{count} answers awaiting {reviewer}'s review"),
-    (KEY_CARD_REVIEW_ONE, "{count} answer awaiting {reviewer}'s review"),
+    (KEY_CARD_REVIEW_TEMPLATE, "{count} answers awaiting your review"),
+    (KEY_CARD_REVIEW_ONE, "{count} answer awaiting your review"),
     (KEY_CARD_CHANGED_ONE, "{count} new or changed for Marie"),
     (KEY_CARD_NOT_STARTED, "Not started"),
     (KEY_CARD_UP_TO_DATE, "Up to date"),

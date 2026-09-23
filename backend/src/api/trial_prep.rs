@@ -128,6 +128,13 @@ pub async fn get_trial_prep_dashboard(
         .as_ref()
         .map(|u| crate::services::practice_notes::attribution(u).0)
         .unwrap_or_default();
+    // Whether the review tile and pills are drawn at all (ruled 2026-09-22).
+    // The ONE place that answers it, asked once, here — never on a screen.
+    dashboard.may_review = crate::services::review_permission::may_review(
+        &viewer,
+        user.as_ref().is_some_and(|u| u.is_admin()),
+        crate::services::war_room_progress::review_queue_reviewer(&settings),
+    );
     attach_progress(&state, &mut dashboard, &viewer).await?;
 
     // Ruling Q1, condition 2: the whole handler is timed, so the cost of the
@@ -326,6 +333,7 @@ mod tests {
                 drafted_or_review: 0,
             },
             alerts: Vec::new(),
+            may_review: true,
             scenarios: ids.iter().map(|id| card(id)).collect(),
             create_wording: ScenarioCreateWordingDto {
                 target_label: word(),

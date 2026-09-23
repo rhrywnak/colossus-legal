@@ -85,6 +85,17 @@ export interface TrialPrepDashboard {
    * `WarRoomWordingDto` field for field.
    */
   war_room_wording: WarRoomWording;
+  /**
+   * May the person reading this page review? Decided on the server by
+   * `may_review` — a listed reviewer OR an administrator.
+   *
+   * The review tile and the review pills are drawn only when it is true
+   * (ruled 2026-09-22). Since L2 the number under them is the READER's own
+   * backlog, so a reader with no review duty has none — and a count about
+   * somebody else's work under a second-person label is two wrong things at
+   * once. Rule 12: the page compares no username, it renders this answer.
+   */
+  may_review: boolean;
 }
 
 /**
@@ -130,6 +141,9 @@ export interface WarRoomWording {
   summary_answered_rest_template: string;
   summary_unanswered_label: string;
   summary_review_label: string;
+  /** The review tile's owner chip — `YOU`, because the tile is only ever drawn
+   *  for the person whose backlog it counts. */
+  summary_review_chip: string;
   summary_candidates_label: string;
   owner_marie: string;
   owner_roman: string;

@@ -71,7 +71,7 @@ export interface WarRoomSummaryView {
  * @param wording   the page's stored words (and the reviewer's display name)
  */
 export function warRoomSummaryView(
-  dashboard: Pick<TrialPrepDashboard, "metrics" | "scenarios">,
+  dashboard: Pick<TrialPrepDashboard, "metrics" | "scenarios" | "may_review">,
   wording: WarRoomWording,
 ): WarRoomSummaryView {
   const scenarios = dashboard.scenarios;
@@ -92,7 +92,15 @@ export function warRoomSummaryView(
     answered,
     answeredRest: fill(wording.summary_answered_rest_template, { total: visible, pct }),
     fraction: visible === 0 ? 0 : Math.min(1, answered / visible),
-    cells: [unansweredCell(scenarios, wording), reviewCell(scenarios, wording), candidatesCell(scenarios, wording)],
+    // The review cell is DROPPED for a reader who may not review (ruled
+    // 2026-09-22): the count under it is that reader's own backlog, and a
+    // person with no review duty has none. Not zeroed — absent, because a "0"
+    // beside a label in the second person still claims the duty is theirs.
+    cells: [
+      unansweredCell(scenarios, wording),
+      ...(dashboard.may_review ? [reviewCell(scenarios, wording)] : []),
+      candidatesCell(scenarios, wording),
+    ],
   };
 }
 
@@ -138,7 +146,17 @@ export function unansweredCell(scenarios: ScenarioSummary[], wording: WarRoomWor
   };
 }
 
-/** The reviewer's cell: answers awaiting review, since when, and the biggest pile. */
+/**
+ * The READER's cell: what is awaiting their review, since when, and the biggest
+ * pile.
+ *
+ * ## Domain note: it stopped being "the reviewer's" (CC_TASK_FOR_YOU_v1 L2)
+ *
+ * The count is per person now — read-state is per person, so there is no shared
+ * mark left for a shared number to be derived from. The chip says YOU and the
+ * label speaks in the second person for that reason, and the caller draws this
+ * cell only for somebody who may review.
+ */
 export function reviewCell(scenarios: ScenarioSummary[], wording: WarRoomWording): SummaryCell {
   const count = scenarios.reduce((total, s) => total + s.progress.awaiting_review, 0);
   let context = wording.summary_review_zero;
@@ -161,7 +179,7 @@ export function reviewCell(scenarios: ScenarioSummary[], wording: WarRoomWording
   return {
     owner: "reviewer",
     label: wording.summary_review_label,
-    chip: wording.reviewer_display_name,
+    chip: wording.summary_review_chip,
     count,
     warning: count > 0,
     context,

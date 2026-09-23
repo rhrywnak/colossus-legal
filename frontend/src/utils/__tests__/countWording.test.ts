@@ -24,10 +24,10 @@ describe("pickByCount", () => {
 
 describe("the review pill", () => {
   it("reads '1 answer' at 1 and '2 answers' at 2", () => {
-    const one = cardBadges(s1({ awaiting_review: 1 }), warRoomWording, SLUG);
-    expect(one[0].text).toBe("1 answer awaiting Chuck's review");
-    const two = cardBadges(s1({ awaiting_review: 2 }), warRoomWording, SLUG);
-    expect(two[0].text).toBe("2 answers awaiting Chuck's review");
+    const one = cardBadges(s1({ awaiting_review: 1 }), warRoomWording, SLUG, true);
+    expect(one[0].text).toBe("1 answer awaiting your review");
+    const two = cardBadges(s1({ awaiting_review: 2 }), warRoomWording, SLUG, true);
+    expect(two[0].text).toBe("2 answers awaiting your review");
   });
 });
 
@@ -42,7 +42,7 @@ describe("Marie's new-or-changed pill", () => {
 
   it("picks the singular row at 1 and the plural row at 2", () => {
     const at = (n: number) =>
-      cardBadges(s1({ awaiting_review: 0, marie_changed: n }), wording, SLUG)[0].text;
+      cardBadges(s1({ awaiting_review: 0, marie_changed: n }), wording, SLUG, true)[0].text;
     expect(at(1)).toBe("1 item new or changed for Marie");
     expect(at(2)).toBe("2 items new or changed for Marie");
   });
