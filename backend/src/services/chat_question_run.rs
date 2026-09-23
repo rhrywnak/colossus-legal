@@ -24,10 +24,11 @@ use crate::repositories::pipeline_repository::chat_discussions::{
 use crate::repositories::pipeline_repository::models::{get_model_by_id, LlmModelRecord};
 use crate::repositories::pipeline_repository::PipelineRepoError;
 use crate::services::chat_model_check::unusable_reason;
+use crate::services::chat_prefix_size::{package_size, PackageSize, PrefixParts};
 use crate::services::chat_question_context::{render_attempts, render_context};
 use crate::services::chat_question_error::{store, ChatRunError};
 use crate::services::chat_question_gather::{display_name, gather};
-use crate::services::chat_question_text::{estimate_tokens, PackagedDocument};
+use crate::services::chat_question_text::PackagedDocument;
 use crate::services::chat_question_tools::tools;
 use crate::state::AppState;
 
@@ -67,12 +68,44 @@ pub async fn prepare_turn(
     let prompt = read_template(state, "the question chat's prompt", &chat.prompt_file).await?;
     let narrative = read_template(state, "the case narrative", &chat.narrative_file).await?;
     let context = render_context(&gathered.context);
-    check_size(
-        &[&prompt, &narrative, &context],
-        &gathered.documents,
-        model_row.as_ref(),
-        chat,
-    )?;
+    let system = vec![prompt.clone(), narrative.clone()];
+    // The probe closure runs only when the prefix has not been counted yet; see
+    // `package_size`. Everything it needs is cloned INSIDE it, so a cache hit —
+    // which is every turn after the first — copies no document text at all.
+    // The two lines that know what a document is; `chat_prefix_size` does not.
+    let prefix = PrefixParts {
+        system: &system,
+        documents: gathered
+            .documents
+            .iter()
+            .map(|d| {
+                (
+                    d.block.title.as_str(),
+                    d.block.context.as_deref(),
+                    d.block.text.as_str(),
+                )
+            })
+            .collect(),
+    };
+    let size = package_size(
+        backend.as_ref(),
+        &state.chat_prefix_size,
+        &prefix,
+        &context,
+        usize::try_from(chat.chars_per_token).unwrap_or(1),
+        || {
+            build_request(
+                chat,
+                prompt.clone(),
+                narrative.clone(),
+                context.clone(),
+                &gathered.documents,
+                Vec::new(),
+            )
+        },
+    )
+    .await;
+    check_size(size, model_row.as_ref(), chat)?;
 
     let user_seq = store_user_message(state, question_id, discussion.id, text).await?;
     let history = replay_history(state, question_id, discussion.id).await?;
@@ -89,7 +122,7 @@ pub async fn prepare_turn(
         tools: tools(Arc::clone(&documents), answers),
         documents,
         max_rounds: chat.max_tool_rounds,
-        run_config: run_config(chat),
+        run_config: run_config(chat, size),
     })
 }
 
@@ -116,8 +149,12 @@ async fn open_thread_under_cap(
 
 /// What this turn ran under, stored on its last assistant row — settings change,
 /// and a turn read back later must say which values applied to IT.
-pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
+pub fn run_config(chat: &QuestionChatParams, size: PackageSize) -> serde_json::Value {
     json!({
+        // What the size guard saw, and whether the provider counted it or this
+        // build estimated it — the counterpart of `cache_ttl` below.
+        "package_tokens": size.tokens(),
+        "package_tokens_provenance": size.provenance(),
         "model": chat.model,
         "max_tokens": chat.max_tokens,
         "effort": chat.effort.map(|e| e.as_wire()),
@@ -133,7 +170,8 @@ pub fn run_config(chat: &QuestionChatParams) -> serde_json::Value {
         "asker_direct": chat.asker_direct,
         "asker_redirect": chat.asker_redirect,
         "ai_display_name": chat.ai_display_name,
-        // The size guard's divisor: a refusal is diagnosable from the row alone.
+        // The size guard's divisor, which now sizes only the per-question tail:
+        // a refusal is diagnosable from the row alone.
         "chars_per_token": chat.chars_per_token,
         // The reply cap this turn was admitted under.
         "max_turns": chat.max_turns,
@@ -187,15 +225,18 @@ async fn refuse_early(
 
 /// Refuse, by name and number, a package the model's context cannot hold with
 /// the configured headroom left for the conversation and the reply.
+///
+/// `size` is [`package_size`]'s answer — the provider's own count of the fixed
+/// prefix plus an estimate of the per-question tail, or, when the provider could
+/// not be asked, arithmetic that has already been warned about. Before v2.2.2
+/// this function did the arithmetic itself at 3 characters per token and
+/// under-counted a citation-enabled corpus by 1.6× (CC_TASK_CHAT_COST_FIX_v1 §3).
 fn check_size(
-    texts: &[&str],
-    documents: &[PackagedDocument],
+    size: PackageSize,
     model: Option<&LlmModelRecord>,
     chat: &QuestionChatParams,
 ) -> Result<(), ChatRunError> {
-    let mut parts: Vec<&str> = texts.to_vec();
-    parts.extend(documents.iter().map(|d| d.block.text.as_str()));
-    let estimate = estimate_tokens(&parts, usize::try_from(chat.chars_per_token).unwrap_or(1));
+    let estimate = usize::try_from(size.tokens()).unwrap_or(usize::MAX);
     // A row with no recorded context size is treated as holding nothing: an
     // unknown limit refuses rather than guessing large.
     // best-effort: a context size that is absent, negative, or too large for this
@@ -210,6 +251,7 @@ fn check_size(
             estimate,
             limit,
             model: chat.model.clone(),
+            provenance: size.provenance(),
         });
     }
     Ok(())
@@ -294,7 +336,12 @@ mod tests {
     /// The snapshot names every value that shapes a turn, as the store holds it.
     #[test]
     fn the_run_config_records_what_the_turn_ran_under() {
-        let c = run_config(&QuestionChatParams::for_test());
+        let c = run_config(
+            &QuestionChatParams::for_test(),
+            PackageSize::Measured(370_001),
+        );
+        assert_eq!(c["package_tokens"], 370_001);
+        assert_eq!(c["package_tokens_provenance"], "measured");
         assert_eq!(c["model"], "claude-opus-5");
         assert_eq!(c["max_tokens"], 16000);
         assert_eq!(c["effort"], "high");

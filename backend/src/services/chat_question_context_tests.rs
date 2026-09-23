@@ -30,6 +30,8 @@ fn context() -> QuestionContext {
         kind: "cross".into(),
         asker: "the defense".into(),
         tactic_name: Some("Bait the delay".into()),
+        primary_title: Some("CFS INTERROGATORY RESPONSE 08 08 16".into()),
+        primary_date: chrono::NaiveDate::from_ymd_opt(2016, 8, 8),
         attack: Some("She sat on it.".into()),
         watch_for: None,
         points: vec![(
@@ -140,5 +142,73 @@ fn a_model_decline_still_passes_its_sentence_to_the_model() {
             "Read: The analysis couldn't judge this answer. That looks like a test entry."
         ),
         "{text}"
+    );
+}
+
+#[test]
+fn the_context_block_names_the_primary_document() {
+    let rendered = render_context(&context());
+    assert!(
+        rendered.contains("## THE DOCUMENT THIS QUESTION RESTS ON"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains(
+            "This question rests mainly on CFS INTERROGATORY RESPONSE 08 08 16, \
+             August 8, 2016."
+        ),
+        "{rendered}"
+    );
+}
+
+/// Standing Rule 1: a question whose source the graph could not resolve must not
+/// read like a question that simply has no source, and must never be silent.
+#[test]
+fn an_unresolved_primary_says_so() {
+    let mut c = context();
+    c.primary_title = None;
+    c.primary_date = None;
+    let rendered = render_context(&c);
+    assert!(
+        rendered.contains("## THE DOCUMENT THIS QUESTION RESTS ON"),
+        "{rendered}"
+    );
+    assert!(
+        rendered.contains("is not recorded") && rendered.contains("do not guess"),
+        "{rendered}"
+    );
+    assert!(!rendered.contains("rests mainly on"), "{rendered}");
+}
+
+#[test]
+fn a_dated_and_an_undated_primary_read_differently() {
+    let mut undated = context();
+    undated.primary_date = None;
+    let undated = render_context(&undated);
+    assert!(
+        undated.contains(
+            "This question rests mainly on CFS INTERROGATORY RESPONSE 08 08 16, \
+             date not recorded."
+        ),
+        "{undated}"
+    );
+    assert_ne!(undated, render_context(&context()));
+}
+
+/// The per-question block is the UNCACHED half, so what it names may vary freely.
+/// This asserts the line actually tracks the question — the point of moving it
+/// here from the document blocks.
+#[test]
+fn a_different_primary_changes_only_this_block() {
+    let mut other = context();
+    other.primary_title = Some("JUDGE TIGHE OPINION AND ORDER 041212".into());
+    other.primary_date = chrono::NaiveDate::from_ymd_opt(2012, 4, 12);
+    let rendered = render_context(&other);
+    assert!(
+        rendered.contains(
+            "This question rests mainly on JUDGE TIGHE OPINION AND ORDER 041212, \
+             April 12, 2012."
+        ),
+        "{rendered}"
     );
 }

@@ -1,10 +1,17 @@
 //! The question chat's context package, rendered — pure functions, no I/O.
 //!
 //! [`crate::services::chat_question_gather`] collects the rows; this module turns
-//! them into what the model reads: the document blocks (every stored document,
-//! the question's own source first) and one text block describing the question,
-//! her answers and their reads, the team's notes, the other threads on this
-//! question, and the earlier shared discussion.
+//! them into what the model reads: the document blocks (every stored document, in
+//! the corpus's own fixed order) and one text block describing the question, her
+//! answers and their reads, the team's notes, the other threads on this question,
+//! and the earlier shared discussion.
+//!
+//! ## The cache line runs between those two halves
+//!
+//! The document blocks are the CACHED prefix and must be byte-identical for every
+//! question, thread and user — see [`package_documents`]. The text block is the
+//! per-question half and is rebuilt every turn, which is free. Anything that
+//! varies by question belongs on the second side of that line.
 //!
 //! ## Domain note: no internal key reaches the model
 //!
@@ -29,6 +36,14 @@ const DOCUMENT_DATE_FORMAT: &str = "%B %-d, %Y";
 ///
 /// STRUCTURAL: a separator inside the text, not wording.
 const PAGE_JOIN: &str = "\n\n";
+
+/// How an undated document is spelled to the model.
+///
+/// STRUCTURAL: prose for the MODEL, not the screen — the same class as
+/// `chat_question_context`'s `NONE_RECORDED`. It is `pub(crate)` so the
+/// per-question block spells an undated primary document exactly as its own
+/// document block does; two spellings of "no date" would be two facts.
+pub(crate) const UNDATED: &str = "Date not recorded";
 
 /// A document block and the page each character range came from.
 #[derive(Debug, Clone, PartialEq)]
@@ -57,20 +72,42 @@ pub fn document_date_label(date: Option<NaiveDate>) -> Option<String> {
     date.map(|d| d.format(DOCUMENT_DATE_FORMAT).to_string())
 }
 
-/// Every stored document as a citation-enabled block, `primary` first.
+/// Every stored document as a citation-enabled block, in the corpus's own order.
 ///
-/// `context` (read by the model, never citable) carries the date, the page count,
-/// the id the `get_document` tool takes, and — for the question's own source —
-/// that it is the document this question was built from.
-pub fn package_documents(
-    corpus: &[CorpusDocument],
-    primary: Option<&str>,
-) -> Vec<PackagedDocument> {
-    let mut ordered: Vec<&CorpusDocument> = corpus.iter().collect();
-    // Stable sort: the primary document moves to the front, the rest keep order.
-    ordered.sort_by_key(|d| Some(d.id.as_str()) != primary);
-    ordered
-        .into_iter()
+/// `context` (read by the model, never citable) carries the date, the page count
+/// and the id the `get_document` tool takes. It says NOTHING about the question
+/// being asked — see the `// Why:` below.
+///
+/// # Why: this function takes no `primary` argument, and must not grow one
+///
+/// It used to. The question's own source document was sorted to the front and had
+/// " This question was built from this document." appended to its `context`. Both
+/// were per-question, and both sat INSIDE the prompt-cache prefix: the Messages
+/// request puts a `cache_control` breakpoint on the last document block, so every
+/// byte of every document block is part of the cached prefix.
+///
+/// A different question meant a different document in slot one, which meant a
+/// different prefix, which meant the provider could not reuse the cache and
+/// re-wrote all ~370k tokens. CC_TASK_CHAT_COST_AUDIT_v1 measured the bill: 10 of
+/// 11 threads paid a full re-write, $37.05 of $60.23 — 62% of all chat spend — and
+/// the misses read exactly 5,260 tokens, the system blocks and nothing else.
+///
+/// So the prefix is now a pure function of the corpus, identical for every
+/// question, every thread and every user. The question's primary document is named
+/// instead in the per-question text block
+/// ([`crate::services::chat_question_context::render_context`]), which the request
+/// places AFTER the last document breakpoint — outside the cached prefix, where
+/// naming it costs nothing.
+///
+/// The argument is removed rather than defaulted to `None` deliberately: a
+/// parameter that must always be `None` is a trap for the next caller, and the
+/// cache's correctness should be the compiler's business, not a convention.
+/// `the_corpus_order_never_depends_on_the_question` is the regression test.
+pub fn package_documents(corpus: &[CorpusDocument]) -> Vec<PackagedDocument> {
+    // The order is `load_corpus`'s own `ORDER BY d.id, t.page_number` — already
+    // deterministic, and now nothing reorders it.
+    corpus
+        .iter()
         .map(|d| {
             let mut text = String::new();
             let mut page_starts = Vec::with_capacity(d.pages.len());
@@ -82,11 +119,8 @@ pub fn package_documents(
                 text.push_str(page_text);
             }
             let date = document_date_label(d.document_date)
-                .map_or_else(|| "Date not recorded".to_string(), |s| format!("Dated {s}"));
-            let mut context = format!("{date}. {} pages. Document id: {}.", d.pages.len(), d.id);
-            if Some(d.id.as_str()) == primary {
-                context.push_str(" This question was built from this document.");
-            }
+                .map_or_else(|| UNDATED.to_string(), |s| format!("Dated {s}"));
+            let context = format!("{date}. {} pages. Document id: {}.", d.pages.len(), d.id);
             PackagedDocument {
                 id: d.id.clone(),
                 title: d.title.clone(),

@@ -146,3 +146,43 @@ fn ttl_parses_only_the_two_wire_spellings() {
         Err(RequestError::BadTtl("2h".into()))
     );
 }
+
+#[test]
+fn the_count_body_is_the_send_body_minus_what_the_endpoint_rejects() {
+    let mut r = req();
+    r.compaction_trigger_tokens = Some(700_000);
+    let sent = build_body(&r).unwrap();
+    let counted = build_count_body(&r).unwrap();
+
+    // The four generation keys are present on the real body and gone from the count.
+    for key in [
+        "stream",
+        "max_tokens",
+        "output_config",
+        "context_management",
+    ] {
+        assert!(sent.get(key).is_some(), "`{key}` belongs on the sent body");
+        assert!(
+            counted.get(key).is_none(),
+            "count_tokens rejects `{key}`, so it must be stripped"
+        );
+    }
+    // Everything that decides the SIZE is byte-identical — which is the only
+    // reason the count describes what will be sent.
+    for key in ["model", "system", "messages", "thinking"] {
+        assert_eq!(sent.get(key), counted.get(key), "`{key}` must not differ");
+    }
+}
+
+#[test]
+fn the_count_body_refuses_the_same_requests_build_body_refuses() {
+    let mut r = req();
+    r.history = vec![Message {
+        role: Role::Assistant,
+        content: vec![json!({"type":"text","text":"x"})],
+    }];
+    assert_eq!(
+        build_count_body(&r),
+        Err(RequestError::NotUserLast("an assistant message"))
+    );
+}
