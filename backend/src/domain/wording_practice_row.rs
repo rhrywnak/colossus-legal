@@ -174,6 +174,26 @@ pub struct PracticeRowWording {
     pub note_struck_template: String,
     /// Shown when a note write or strike fails.
     pub note_failed: String,
+
+    // ── Replies, and the board-4 mark (CC_TASK_FOR_YOU_v1 L3) ────────────
+    /// Opens the reply box under one note. A reply IS a note — one table, one
+    /// kind of thing — and this control is what makes the exchange visible as
+    /// an exchange rather than as two unrelated notes a day apart.
+    pub note_reply_label: String,
+    /// The mark on a deck's question row when a NOTE on it is unread by the
+    /// person reading the list: `{who}` is whoever wrote the newest of them.
+    /// FOR_YOU_MOCKUP_v1 board 4 — "Chuck left a note".
+    pub waiting_note_template: String,
+    /// The same mark for an unread ANSWER, which is what a reviewer reading the
+    /// list sees: `{who}` answered.
+    pub waiting_answer_template: String,
+    /// The same mark for an unread REWORDING. No `{who}`: what matters to the
+    /// witness is that the question she is about to answer is not the one she
+    /// answered last time.
+    pub waiting_change: String,
+    /// Appended when the row holds more than one unread item — the mark names
+    /// the newest, and this says how many others are under it.
+    pub waiting_more_template: String,
     /// Shown when opening this question FROM the For you list could not mark it
     /// read (CC_TASK_FOR_YOU_v1 L1).
     ///
@@ -222,6 +242,11 @@ pub(crate) const KEY_NOTE_CANCEL_LABEL: &str = "practice_row_note_cancel_label";
 pub(crate) const KEY_NOTE_STRIKE_LABEL: &str = "practice_row_note_strike_label";
 pub(crate) const KEY_NOTE_STRUCK_TEMPLATE: &str = "practice_row_note_struck_template";
 pub(crate) const KEY_NOTE_FAILED: &str = "practice_row_note_failed";
+pub(crate) const KEY_NOTE_REPLY_LABEL: &str = "practice_row_note_reply_label";
+pub(crate) const KEY_WAITING_NOTE_TEMPLATE: &str = "practice_row_waiting_note_template";
+pub(crate) const KEY_WAITING_ANSWER_TEMPLATE: &str = "practice_row_waiting_answer_template";
+pub(crate) const KEY_WAITING_CHANGE: &str = "practice_row_waiting_change";
+pub(crate) const KEY_WAITING_MORE_TEMPLATE: &str = "practice_row_waiting_more_template";
 pub(crate) const KEY_ROW_READ_FAILED: &str = "practice_row_read_failed";
 
 pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
@@ -257,6 +282,11 @@ pub const PRACTICE_ROW_WORDING_KEYS: &[&str] = &[
     KEY_NOTE_STRIKE_LABEL,
     KEY_NOTE_STRUCK_TEMPLATE,
     KEY_NOTE_FAILED,
+    KEY_NOTE_REPLY_LABEL,
+    KEY_WAITING_NOTE_TEMPLATE,
+    KEY_WAITING_ANSWER_TEMPLATE,
+    KEY_WAITING_CHANGE,
+    KEY_WAITING_MORE_TEMPLATE,
     KEY_ROW_READ_FAILED,
 ];
 
@@ -309,6 +339,11 @@ pub fn build_practice_row_wording<E>(
         note_strike_label: read(KEY_NOTE_STRIKE_LABEL)?,
         note_struck_template: read(KEY_NOTE_STRUCK_TEMPLATE)?,
         note_failed: read(KEY_NOTE_FAILED)?,
+        note_reply_label: read(KEY_NOTE_REPLY_LABEL)?,
+        waiting_note_template: read(KEY_WAITING_NOTE_TEMPLATE)?,
+        waiting_answer_template: read(KEY_WAITING_ANSWER_TEMPLATE)?,
+        waiting_change: read(KEY_WAITING_CHANGE)?,
+        waiting_more_template: read(KEY_WAITING_MORE_TEMPLATE)?,
         row_read_failed: read(KEY_ROW_READ_FAILED)?,
     })
 }

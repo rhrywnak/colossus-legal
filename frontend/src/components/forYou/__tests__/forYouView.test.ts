@@ -103,6 +103,23 @@ describe("where a row opens", () => {
     expect(rowHref(scenarioNote, SLUG)).not.toContain("from=");
   });
 
+  it("opens the deck's REVIEW page for a grouped deck row", () => {
+    // A deck row stands for several answers on several questions (L3). The
+    // review page is the one built to read them together and clear them
+    // together — and it carries no `from=for-you`, because there is no single
+    // question to mark read.
+    const deck = { ...row("today", "a"), kind: "deck", question_id: undefined };
+    expect(rowHref(deck, SLUG)).toBe(`/cases/${SLUG}/trial-prep/practice/s1/review`);
+    expect(rowHref(deck, SLUG)).not.toContain("from=");
+  });
+
+  it("does not send an ITEM row to the review page", () => {
+    // The branch is on `kind`, and only `deck` takes it: a note that happens to
+    // carry no question still opens the deck's own page, as it did before L3.
+    const scenarioNote = { ...row("today", "a"), question_id: undefined };
+    expect(rowHref(scenarioNote, SLUG)).not.toContain("/review");
+  });
+
   it("escapes every segment it is given", () => {
     // A slug or an id carrying a `/` would otherwise become an extra path
     // segment and land on a different route — the .382 defect's whole shape.

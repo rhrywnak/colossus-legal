@@ -30,7 +30,7 @@
 // a key built from a variable.
 
 import React from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useSearchParams } from "react-router-dom";
 
 import ForYouRow from "../components/forYou/ForYouRow";
 import { groupByDay } from "../components/forYou/forYouView";
@@ -49,6 +49,14 @@ type Tab = "unread" | "everything";
 
 const ForYouPage: React.FC = () => {
   const { slug = DEFAULT_CASE_SLUG } = useParams();
+  // ONE deck, when the war room's count sent the reader here. The rows carry
+  // their own deck line either way, so a filtered list still says what it is
+  // showing, and the menu entry is the unfiltered address one click away.
+  const [search] = useSearchParams();
+  // STRUCTURAL: the READ side of the same `deck` parameter `routePaths` and
+  // `services/forYou` write. Three sites, one string, and a disagreement shows
+  // as an unfiltered page rather than as an error.
+  const deck = search.get("deck") ?? undefined;
   const [page, setPage] = React.useState<Page | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [tab, setTab] = React.useState<Tab>("unread");
@@ -56,7 +64,7 @@ const ForYouPage: React.FC = () => {
 
   React.useEffect(() => {
     let live = true;
-    fetchForYou(slug)
+    fetchForYou(slug, deck)
       .then((next) => {
         if (!live) return;
         setPage(next);
@@ -77,7 +85,7 @@ const ForYouPage: React.FC = () => {
     return () => {
       live = false;
     };
-  }, [slug, refresh]);
+  }, [slug, deck, refresh]);
 
   if (page === null) {
     return (

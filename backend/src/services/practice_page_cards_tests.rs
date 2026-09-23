@@ -38,6 +38,7 @@ fn every_offered_card_resolves_back_to_its_own_name() {
             open: None,
             attach_options: vec![],
             notes: &[],
+            waiting: &[],
             review: Default::default(),
         },
     );

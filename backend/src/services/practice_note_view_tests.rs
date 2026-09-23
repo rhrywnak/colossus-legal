@@ -31,6 +31,7 @@ fn note(n: u128, question: Option<u128>, answer: Option<u128>) -> NoteRecord {
         created_at: at(17, 16),
         struck_at: None,
         struck_by: None,
+        answers_note_id: None,
     }
 }
 

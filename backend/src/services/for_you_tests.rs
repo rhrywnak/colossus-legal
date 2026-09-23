@@ -83,6 +83,10 @@ fn each_page_side_asks_the_query_for_its_own_half() {
     assert_eq!(query_side(ForYouSide::Witness), Some(WaitingSide::Witness));
 }
 
+/// A threshold no fixture below reaches, so these L1 page tests keep asking
+/// what they were written to ask. Grouping has its own tests, which set it.
+const NO_GROUPING: u32 = 99;
+
 fn item(when_day: u32) -> WaitingItemRow {
     WaitingItemRow {
         kind: "note".to_string(),
@@ -100,6 +104,7 @@ fn item(when_day: u32) -> WaitingItemRow {
         seen_at: None,
         body: Some("look again".to_string()),
         subject_at: None,
+        reply_to: None,
     }
 }
 
@@ -136,6 +141,7 @@ fn the_subtitle_names_whoever_the_reader_is_waiting_on() {
         "Chuck",
         &rows,
         &rows,
+        NO_GROUPING,
     );
     assert_eq!(
         hers.subtitle,
@@ -151,6 +157,7 @@ fn the_subtitle_names_whoever_the_reader_is_waiting_on() {
         "Marie",
         &rows,
         &rows,
+        NO_GROUPING,
     );
     assert_eq!(
         his.subtitle,
@@ -163,7 +170,13 @@ fn the_subtitle_names_whoever_the_reader_is_waiting_on() {
 fn a_page_for_neither_side_carries_the_sentence_that_explains_it() {
     let w = ForYouWording::for_test();
     let (l, n) = (bench(), vec!["Chuck".to_string()]);
-    let page = assemble_page(&voice(&w, &l, &n, ForYouSide::None), "Marie", &[], &[]);
+    let page = assemble_page(
+        &voice(&w, &l, &n, ForYouSide::None),
+        "Marie",
+        &[],
+        &[],
+        NO_GROUPING,
+    );
     assert_eq!(page.subtitle, w.not_your_list);
     assert_eq!(page.unread_count, 0);
     assert!(page.unread.is_empty() && page.everything.is_empty());
@@ -182,6 +195,7 @@ fn the_tab_labels_carry_their_own_counts() {
         "Chuck",
         &unread,
         &everything,
+        NO_GROUPING,
     );
     assert_eq!(page.tab_unread_label, "Unread · 1");
     assert_eq!(page.tab_everything_label, "Everything · 3");
@@ -202,10 +216,10 @@ fn the_empty_state_names_the_last_item_only_when_there_is_one() {
     let (l, n) = (bench(), vec!["Chuck".to_string()]);
     let v = voice(&w, &l, &n, ForYouSide::Witness);
 
-    let never = assemble_page(&v, "Chuck", &[], &[]);
+    let never = assemble_page(&v, "Chuck", &[], &[], NO_GROUPING);
     assert_eq!(never.empty_last, None);
 
-    let had = assemble_page(&v, "Chuck", &[], &[item(20)]);
+    let had = assemble_page(&v, "Chuck", &[], &[item(20)], NO_GROUPING);
     assert_eq!(
         had.empty_last.as_deref(),
         Some("Last one: Sun 20 Sep · 11:30 am.")

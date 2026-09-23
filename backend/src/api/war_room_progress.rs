@@ -41,9 +41,19 @@ use super::scenario_gather::resolve_gather_subject;
 
 /// Every scenario's [`ScenarioProgress`], keyed by id.
 ///
-/// The review queue is counted against the `practice_reviewer_usernames`
-/// settings row — never the signed-in user — so every viewer is served the same
-/// numbers (CC_TASK_SIMPLE_COUNTS_v1; a bench since CC_TASK_REVIEW_PAGE_v1).
+/// ## Domain note: the review pill is now the VIEWER's (CC_TASK_FOR_YOU_v1 L2)
+///
+/// It was one number for everybody while it was derived from a shared
+/// watermark. It is derived from per-item read-state now, so it is what waits
+/// for the person asking — see `review_cursor`'s header for why that is the
+/// point rather than a side effect. `reviewers` is still the stored list and
+/// still decides whose WORK does not wait (ruling R2); the witness's own count
+/// is still addressed to HER whoever is looking (ruled 2026-09-17).
+///
+/// An unidentified caller reads as a person who has seen nothing, so every item
+/// waits. That is the honest answer to "what is waiting for nobody in
+/// particular", and it is unreachable in a deployment: the route sits behind
+/// ForwardAuth.
 ///
 /// ## Rust Learning: `tokio::try_join!`
 ///
@@ -58,6 +68,7 @@ use super::scenario_gather::resolve_gather_subject;
 pub(crate) async fn read_progress(
     state: &AppState,
     scenario_ids: &[Uuid],
+    viewer: &str,
 ) -> Result<HashMap<Uuid, ScenarioProgress>, AppError> {
     let started = Instant::now();
     let pool = &state.pipeline_pool;
@@ -72,11 +83,11 @@ pub(crate) async fn read_progress(
         family("deck counts", deck_counts(pool, scenario_ids)),
         family(
             "changed counts",
-            changed_counts(pool, scenario_ids, witness)
+            changed_counts(pool, scenario_ids, witness, reviewers)
         ),
         family(
             "awaiting review",
-            awaiting_review(pool, scenario_ids, reviewers)
+            awaiting_review(pool, scenario_ids, viewer, reviewers)
         ),
     )?;
 
@@ -99,7 +110,12 @@ pub(crate) async fn read_progress(
 
     tracing::info!(
         scenarios = scenario_ids.len(),
-        // The whole bench, so a log line can answer "whose queue was this?"
+        // WHOSE queue the review pill counted. The answer to that question
+        // became person-specific in CC_TASK_FOR_YOU_v1 L2 — the count is what
+        // waits for the VIEWER — and a log line reporting a number nobody can
+        // attribute is a number an operator cannot check.
+        viewer,
+        // The whole bench, so a log line can answer "whose work did not count?"
         // after the fact — `?` is `Debug`, which is what a slice has.
         reviewers = ?reviewers,
         // The witness too, so a log line can answer "whose changed count was

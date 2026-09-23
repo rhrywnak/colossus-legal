@@ -32,6 +32,13 @@ pub struct WarRoomSummaryWording {
     pub unanswered_label: String,
     /// The reviewer's cell label.
     pub review_label: String,
+    /// The review tile's owner chip, where the other two print MARIE and ROMAN.
+    ///
+    /// Domain note: it says YOU because the tile is only ever drawn for the
+    /// person whose backlog it counts (ruled 2026-09-22). Its predecessor was
+    /// not a stored row at all — the chip took the reviewer bench's display
+    /// names, which named somebody else on a number that is the reader's own.
+    pub review_chip: String,
     /// Roman's cell label.
     pub candidates_label: String,
     /// The owner chip on Marie's cell. (The reviewer's chip prints the display-name settings row.)
@@ -69,10 +76,16 @@ pub struct WarRoomSummaryWording {
 
 // KEYS: the stable identifiers. Renaming one is a migration, and until it runs
 // the boot loader refuses to start.
+// STRUCTURAL: these are the names of rows in `app_settings`, not values read
+// from them. A key is wire vocabulary shared with the database — the VALUES are
+// what Standing Rule 2 governs, and every one of them is a stored row read at
+// boot. (The marker arrives with `KEY_REVIEW_CHIP`, which is the first key this
+// block has gained since the rule was written down in `wording_fact_card`.)
 pub(crate) const KEY_ANSWERED_LABEL: &str = "war_room_summary_answered_label";
 pub(crate) const KEY_ANSWERED_REST_TEMPLATE: &str = "war_room_summary_answered_rest_template";
 pub(crate) const KEY_UNANSWERED_LABEL: &str = "war_room_summary_unanswered_label";
 pub(crate) const KEY_REVIEW_LABEL: &str = "war_room_summary_review_label";
+pub(crate) const KEY_REVIEW_CHIP: &str = "war_room_summary_review_chip";
 pub(crate) const KEY_CANDIDATES_LABEL: &str = "war_room_summary_candidates_label";
 pub(crate) const KEY_OWNER_MARIE: &str = "war_room_owner_marie";
 pub(crate) const KEY_OWNER_ROMAN: &str = "war_room_owner_roman";
@@ -100,6 +113,7 @@ pub const WAR_ROOM_SUMMARY_WORDING_KEYS: &[&str] = &[
     KEY_ANSWERED_REST_TEMPLATE,
     KEY_UNANSWERED_LABEL,
     KEY_REVIEW_LABEL,
+    KEY_REVIEW_CHIP,
     KEY_CANDIDATES_LABEL,
     KEY_OWNER_MARIE,
     KEY_OWNER_ROMAN,
@@ -136,6 +150,7 @@ pub fn build_war_room_summary_wording<E>(
         answered_rest_template: read(KEY_ANSWERED_REST_TEMPLATE)?,
         unanswered_label: read(KEY_UNANSWERED_LABEL)?,
         review_label: read(KEY_REVIEW_LABEL)?,
+        review_chip: read(KEY_REVIEW_CHIP)?,
         candidates_label: read(KEY_CANDIDATES_LABEL)?,
         owner_marie: read(KEY_OWNER_MARIE)?,
         owner_roman: read(KEY_OWNER_ROMAN)?,

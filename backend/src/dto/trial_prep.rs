@@ -152,6 +152,20 @@ pub struct TrialPrepDashboard {
     /// Ruled by R2 on 2026-08-10 and never migrated; measured still-literal on
     /// 2026-08-13. They ride here for the same reason `create_wording` does.
     pub war_room_wording: WarRoomWordingDto,
+    /// May the person reading this page review?
+    ///
+    /// ## Domain note: what it decides, and why the SERVER decides it
+    ///
+    /// The review tile on the strip and the review pill on a card are drawn
+    /// only when this is true (ruled 2026-09-22). Since L2 the number under
+    /// them is the READER's own backlog, and a reader with no review duty has
+    /// no such backlog — a count about somebody else's work, under a label in
+    /// the second person, is two wrong things at once.
+    ///
+    /// Decided by `services::review_permission::may_review` — a listed reviewer
+    /// OR an administrator — which is the ONE place that answers this question
+    /// in the build. The page never compares a username (rule 12).
+    pub may_review: bool,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -296,10 +310,10 @@ mod tests {
             "card_answered_word": "answered",
             "card_prep_meta_template": "Chuck {chuck_answered}/{chuck_total} · defense {defense_answered}/{defense_total} · deck {count} q · {date}",
             "card_changed_template": "{count} new or changed for Marie",
-            "card_review_template": "{count} answers awaiting {reviewer}'s review", "card_review_one": "{count} answer awaiting {reviewer}'s review", "card_changed_one": "{count} new or changed for Marie",
+            "card_review_template": "{count} answers awaiting your review", "card_review_one": "{count} answer awaiting your review", "card_changed_one": "{count} new or changed for Marie",
             "card_not_started": "Not started", "card_up_to_date": "Up to date",
             "card_practice_action": "Practice →", "card_timeline_action": "Timeline", "card_delete_action": "Delete",
-            "summary_answered_label": "Questions answered", "summary_answered_rest_template": "of {total} · {pct}%", "summary_unanswered_label": "Unanswered questions", "summary_review_label": "Answers requiring review", "summary_candidates_label": "Candidates to rule", "owner_marie": "Marie", "owner_roman": "Roman",
+            "summary_answered_label": "Questions answered", "summary_answered_rest_template": "of {total} · {pct}%", "summary_unanswered_label": "Unanswered questions", "summary_review_label": "Answers awaiting your review", "summary_review_chip": "YOU", "summary_candidates_label": "Candidates to rule", "owner_marie": "Marie", "owner_roman": "Roman",
             "summary_unanswered_context_template": "across {n} scenarios · {codes} untouched", "summary_unanswered_context_one": "across {n} scenario · {codes} untouched", "summary_unanswered_context_none_untouched": "across {n} scenarios", "summary_unanswered_context_none_untouched_one": "across {n} scenario",
             "summary_review_context_template": "oldest waiting since {date} · {code} has {n}", "summary_candidates_pile_template": "{codes} {n}", "summary_list_joiner": "·", "summary_tie_joiner": "&", "summary_code_joiner": ",",
             "summary_unanswered_zero": "every question answered", "summary_review_zero": "nothing waiting", "summary_candidates_zero": "nothing to rule", "summary_unanswered_changed_clause": "{n} new or changed", "reviewer_display_name": "Chuck"
@@ -316,6 +330,7 @@ mod tests {
                     "drafted_or_review": 3,
                 },
                 "alerts": [{ "message": "an alert" }],
+                "may_review": true,
                 "scenarios": [
                     {
                         "code": "S-1",
@@ -401,6 +416,11 @@ mod tests {
     /// describes.
     fn sample_dashboard() -> TrialPrepDashboard {
         TrialPrepDashboard {
+            // True in the fixture so the contract below pins the field's
+            // presence AND its serialized name — a `false` would serialize
+            // identically either way if the field were ever dropped to a
+            // default.
+            may_review: true,
             metrics: TrialPrepMetrics {
                 scenarios: 5,
                 ready: 1,

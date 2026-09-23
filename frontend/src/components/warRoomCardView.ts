@@ -18,6 +18,7 @@
 
 import { fill } from "../services/caseTimeline";
 import { pickByCount } from "../utils/countWording";
+import { forYouPath } from "../utils/routePaths";
 import type { ScenarioSummary, WarRoomWording } from "../pages/trialPrepData";
 
 /** One label/value row in a pane. */
@@ -45,9 +46,24 @@ export interface AnsweredLine {
  * `up_to_date` is green. `review` is the reviewer's queue on this scenario — the
  * same for every viewer (CC_TASK_SIMPLE_COUNTS_v1).
  */
+/**
+ * One pill on a card.
+ *
+ * ## `href` — the count stops being a dead end (CC_TASK_FOR_YOU_v1 L2)
+ *
+ * The two OWED pills are counts of things waiting for a person, and until this
+ * layer they were numbers with nowhere to go: a reader saw "2 notes for Marie"
+ * and had to find the deck, open it, and read every question to find the two.
+ * They now open that person's list, filtered to this deck — the same predicate
+ * that produced the number, so the count and the rows cannot disagree.
+ *
+ * The two STATE pills ("Not started", "Up to date") carry no href: there is
+ * nothing waiting to go and look at, and a link to an empty list is a promise
+ * the page cannot keep.
+ */
 export type CardBadge =
-  | { kind: "review"; text: string }
-  | { kind: "marie"; text: string }
+  | { kind: "review"; text: string; href: string }
+  | { kind: "marie"; text: string; href: string }
   | { kind: "not_started"; text: string }
   | { kind: "up_to_date"; text: string };
 
@@ -100,6 +116,10 @@ export function warRoomCardView(
   scenario: ScenarioSummary,
   wording: WarRoomWording,
   hasTimeline: boolean,
+  /** The case, for the owed pills' links. */
+  slug: string,
+  /** May the reader review? Decides whether the review pill is drawn at all. */
+  mayReview: boolean,
 ): WarRoomCardView {
   const p = scenario.progress;
   const theme = scenario.theme_statement?.trim() ? scenario.theme_statement.trim() : null;
@@ -135,7 +155,7 @@ export function warRoomCardView(
     prepHeading: wording.card_prep_heading,
     answered: answeredLine(scenario, wording),
     deckNone: wording.card_deck_none,
-    badges: cardBadges(scenario, wording),
+    badges: cardBadges(scenario, wording, slug, mayReview),
     actions: {
       practice: wording.card_practice_action,
       timeline: hasTimeline ? wording.card_timeline_action : null,
@@ -154,23 +174,39 @@ export function warRoomCardView(
  * can be above zero (both are counts OF answers), so gray is the whole story.
  * Green needs BOTH: started, and nothing pending for either badge.
  */
-export function cardBadges(scenario: ScenarioSummary, wording: WarRoomWording): CardBadge[] {
+export function cardBadges(
+  scenario: ScenarioSummary,
+  wording: WarRoomWording,
+  slug: string,
+  /** May the reader review? The review pill is drawn only when they may. */
+  mayReview: boolean,
+): CardBadge[] {
   const p = scenario.progress;
   if (p.answered.total === 0) return [{ kind: "not_started", text: wording.card_not_started }];
 
+  // Where an owed count goes when it is clicked: the reader's own list, this
+  // deck only. Composed through the builder, so the route-side guard covers it.
+  const href = forYouPath(slug, scenario.id);
   const owed: CardBadge[] = [];
-  if (p.awaiting_review > 0) {
+  // ## Domain note: drawn only for somebody who may review (ruled 2026-09-22)
+  //
+  // Since L2 the number is the READER's own backlog, and a reader with no
+  // review duty has none. Suppressed rather than zeroed: a "0 answers awaiting
+  // your review" still claims the duty is theirs. `mayReview` is the server's
+  // answer (`may_review`) — the page compares no username (rule 12).
+  if (mayReview && p.awaiting_review > 0) {
     owed.push({
       kind: "review",
+      href,
       text: fill(pickByCount(p.awaiting_review, wording.card_review_one, wording.card_review_template), {
         count: p.awaiting_review,
-        reviewer: wording.reviewer_display_name,
       }),
     });
   }
   if (p.marie_changed > 0) {
     owed.push({
       kind: "marie",
+      href,
       text: fill(
         pickByCount(p.marie_changed, wording.card_changed_one, wording.card_changed_template),
         { count: p.marie_changed },

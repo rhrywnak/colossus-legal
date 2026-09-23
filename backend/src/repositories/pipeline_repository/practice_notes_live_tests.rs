@@ -43,6 +43,7 @@ async fn notes_read_back_by_id_and_by_question() -> TestResult<()> {
         author: "Chuck",
         author_id: "chuck",
         text,
+        answers_note_id: None,
     };
     let first = insert_note(&pool, &note(q, None, "on the question")).await?;
     let second = insert_note(&pool, &note(q, Some(a), "on the answer")).await?;

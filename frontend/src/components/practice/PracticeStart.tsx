@@ -26,6 +26,7 @@ import { sideSections } from "../../pages/practiceQueue";
 import * as s from "./practiceStyles";
 import PracticeDeckList from "./PracticeDeckList";
 import PracticeReviewBar from "./PracticeReviewBar";
+import { shownItems } from "./deckSweep";
 import type { DeckReview } from "../../services/practice";
 import PracticeTitleRow from "./PracticeTitleRow";
 
@@ -48,6 +49,9 @@ interface Props {
   wording: PracticeWording;
   /** This scenario's questions. `view.all` includes what the editor may see. */
   view: DeckView;
+  /** The `served_at` of the deck payload this page was drawn from — handed to
+   *  the review bar's press. See `deckSweep`. */
+  servedAt: string;
   /** The deck editor's state and its writes (task B1). */
   editor: PracticeEditor;
   /** What a new question may attach to. */
@@ -120,6 +124,7 @@ const PracticeStart: React.FC<Props> = ({
   reviewHref,
   wording,
   view,
+  servedAt,
   editor,
   attachOptions,
   tacticCards,
@@ -207,6 +212,10 @@ const PracticeStart: React.FC<Props> = ({
         code={code}
         review={review}
         wording={wording}
+        // What THIS page showed: the rows above, with their answers and their
+        // notes. The press marks these and nothing that has arrived since.
+        shown={shownItems(view.all)}
+        servedAt={servedAt}
         onReviewed={onReviewed}
       />
 

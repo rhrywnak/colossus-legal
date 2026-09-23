@@ -57,6 +57,7 @@ fn note(author: &str, day: u32, answer: Option<Uuid>, struck: bool) -> NoteRecor
         created_at: at(day),
         struck_at: struck.then(|| at(day + 1)),
         struck_by: struck.then(|| "chuck".to_string()),
+        answers_note_id: None,
     }
 }
 

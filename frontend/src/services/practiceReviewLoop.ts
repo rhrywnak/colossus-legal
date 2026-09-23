@@ -17,6 +17,7 @@ import { API_BASE_URL } from "./api";
 import { authFetch } from "./auth";
 import { readErrorMessage } from "./fetchUtils";
 import { PRACTICE_TIMEOUT_MS, type PracticeNote } from "./practice";
+import type { SweptItem } from "../components/practice/deckSweep";
 
 /** Throw a sentence naming the failed act, or return the decoded body. */
 async function orThrow<T>(response: Response, what: string): Promise<T> {
@@ -50,22 +51,40 @@ function asNote(body: Partial<PracticeNote>, what: string): PracticeNote {
 }
 
 /**
- * "Done reviewing": move the signed-in user's read cursor on this deck to now.
+ * "Done reviewing": record that this reviewer has READ the items the page showed.
  *
- * Returns the moment the server recorded. The caller re-reads the deck, so the
- * count the bar shows is always the server's, never a local zero.
+ * ## Domain note: the ids, not a moment (CC_TASK_FOR_YOU_v1 L2)
+ *
+ * It used to move one timestamp for the whole deck. It now sends exactly what
+ * was on screen, because "never an item that arrived after the page loaded" is
+ * a promise only a list of ids can keep — `now()` covers the note that arrived
+ * while the deck was being read.
+ *
+ * `servedAt` rides along for the one item no row can name: a note about the
+ * whole scenario. It is the SERVER's own stamp from the payload this page was
+ * drawn from, handed straight back, so no browser clock decides anything.
+ *
+ * Returns how many rows the press actually WROTE — zero when everything shown
+ * had already been read, which is idempotence working rather than a failure.
+ * The caller re-reads the deck, so the count the bar shows is the server's.
  */
-export async function markDeckReviewed(slug: string, scenarioId: string): Promise<string> {
+export async function markDeckReviewed(
+  slug: string,
+  scenarioId: string,
+  items: SweptItem[],
+  servedAt: string,
+): Promise<number> {
   const response = await send(
     "PUT",
     `/api/cases/${encodeURIComponent(slug)}/scenarios/${encodeURIComponent(scenarioId)}` +
       "/practice/review-cursor",
+    { items, served_at: servedAt },
   );
-  const body = await orThrow<{ looked_at?: string }>(response, "The deck was not marked reviewed");
-  if (typeof body.looked_at !== "string") {
-    throw new Error("The review mark response carried no time — backend/frontend contract mismatch.");
+  const body = await orThrow<{ marked?: number }>(response, "The deck was not marked reviewed");
+  if (typeof body.marked !== "number") {
+    throw new Error("The review response carried no count — backend/frontend contract mismatch.");
   }
-  return body.looked_at;
+  return body.marked;
 }
 
 /** Write a note on one attempt at a question. */
@@ -83,6 +102,24 @@ export async function addQuestionNote(questionId: string, text: string): Promise
   const response = await send(
     "POST",
     `/api/practice/questions/${encodeURIComponent(questionId)}/notes`,
+    { text },
+  );
+  return asNote(await orThrow<Partial<PracticeNote>>(response, what), what);
+}
+
+/**
+ * Answer one note, in a note of your own (CC_TASK_FOR_YOU_v1 L3).
+ *
+ * A reply IS a note: same table, same strike, same waiting list. What makes it
+ * a reply is the note it names, which the SERVER reads from the path — the
+ * scenario, the question and the attempt all come from the row being answered,
+ * so this call carries only the words.
+ */
+export async function replyToNote(noteId: string, text: string): Promise<PracticeNote> {
+  const what = "The reply was not saved";
+  const response = await send(
+    "POST",
+    `/api/practice/notes/${encodeURIComponent(noteId)}/reply`,
     { text },
   );
   return asNote(await orThrow<Partial<PracticeNote>>(response, what), what);

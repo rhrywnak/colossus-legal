@@ -22,8 +22,13 @@
 //! with no explanation would read as "you are up to date", which is a different
 //! fact and the wrong one to tell somebody.
 
+use std::collections::HashMap;
+
+use chrono::{DateTime, Utc};
+use uuid::Uuid;
+
 use crate::domain::wording_templates::render;
-use crate::dto::for_you::{ForYouPayload, ForYouSide};
+use crate::dto::for_you::{ForYouPayload, ForYouRowDto, ForYouSide};
 use crate::dto::for_you_wording::ForYouWordingDto;
 use crate::repositories::pipeline_repository::waiting_items::{WaitingItemRow, WaitingSide};
 use crate::services::for_you_rows::RowVoice;
@@ -69,6 +74,7 @@ pub fn assemble_page(
     other_side: &str,
     unread: &[WaitingItemRow],
     everything: &[WaitingItemRow],
+    deck_threshold: u32,
 ) -> ForYouPayload {
     let w = voice.wording;
     let unread_count = unread.len() as u32;
@@ -91,7 +97,7 @@ pub fn assemble_page(
             &[("count", &everything.len().to_string())],
         ),
         unread_count,
-        unread: unread.iter().map(|r| voice.compose(r)).collect(),
+        unread: group_unread(voice, unread, deck_threshold),
         everything: everything.iter().map(|r| voice.compose(r)).collect(),
         empty_hint: render(&w.empty_hint_template, &[("who", other_side)]),
         // The newest item on this side, read or not — `everything` is ordered
@@ -107,6 +113,92 @@ pub fn assemble_page(
     }
 }
 
+/// The unread list, with a busy deck collapsed into ONE row (ruling 2).
+///
+/// ## Domain note: what the threshold counts, and whose list it touches
+///
+/// UNREAD items, and a REVIEWER's list only. The witness answers one question
+/// at a time, so her list is always per item — collapsing four notes into "S-3
+/// · 4 answers waiting" would hide the one sentence she needs to read before
+/// she can answer anything. The Everything tab is never grouped either: it is
+/// the archive, and its whole use is finding one item again.
+///
+/// ## What the ORDER guarantees
+///
+/// `rows` arrives newest first. A deck row takes the place of its newest item,
+/// so the list keeps one order whether or not a deck is grouped, and a deck
+/// that has just received something stays at the top where the reader left it.
+///
+/// ## Rust Learning: two passes, not one
+///
+/// The first pass counts and finds each deck's oldest moment; the second emits.
+/// One pass cannot do it — whether the FIRST row of a deck becomes a deck row
+/// depends on how many more of that deck come later — and the alternative
+/// (emitting, then rewriting) is the shape that eventually emits both.
+pub fn group_unread(
+    voice: &RowVoice<'_>,
+    rows: &[WaitingItemRow],
+    deck_threshold: u32,
+) -> Vec<ForYouRowDto> {
+    if voice.side != ForYouSide::Reviewers {
+        return rows.iter().map(|r| voice.compose(r)).collect();
+    }
+    let decks = deck_tallies(rows);
+    let mut out = Vec::with_capacity(rows.len());
+    let mut grouped: Vec<Uuid> = Vec::new();
+    for row in rows {
+        let Some(tally) = decks.get(&row.scenario_id) else {
+            // Unreachable: every row was counted above. Rendered as an item
+            // rather than dropped, because a row missing from the page is the
+            // one failure this page exists to prevent.
+            out.push(voice.compose(row));
+            continue;
+        };
+        if u32::try_from(tally.count).unwrap_or(u32::MAX) < deck_threshold.max(1) {
+            out.push(voice.compose(row));
+            continue;
+        }
+        if grouped.contains(&row.scenario_id) {
+            continue;
+        }
+        grouped.push(row.scenario_id);
+        out.push(voice.deck_row(row, tally.count, tally.oldest));
+    }
+    out
+}
+
+/// How much each deck holds, and since when.
+struct DeckTally {
+    count: usize,
+    oldest: DateTime<Utc>,
+}
+
+/// Count the rows per deck and find each deck's oldest moment, in one pass.
+fn deck_tallies(rows: &[WaitingItemRow]) -> HashMap<Uuid, DeckTally> {
+    let mut decks: HashMap<Uuid, DeckTally> = HashMap::new();
+    for row in rows {
+        decks
+            .entry(row.scenario_id)
+            .and_modify(|tally| {
+                tally.count += 1;
+                // `min` rather than "the last one seen": the query orders by
+                // `at DESC`, but a tie on the moment is broken by item id, and
+                // a page must not print a different oldest date because two
+                // notes landed in the same millisecond.
+                tally.oldest = tally.oldest.min(row.at);
+            })
+            .or_insert(DeckTally {
+                count: 1,
+                oldest: row.at,
+            });
+    }
+    decks
+}
+
 #[cfg(test)]
 #[path = "for_you_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "for_you_group_tests.rs"]
+mod group_tests;

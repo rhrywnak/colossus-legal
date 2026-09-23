@@ -39,6 +39,7 @@ import { useParams } from "react-router-dom";
 
 import PracticeReviewBar from "../components/practice/PracticeReviewBar";
 import PracticeReviewCard from "../components/practice/PracticeReviewCard";
+import { shownItems } from "../components/practice/deckSweep";
 import { noteTarget, planReview, type ReviewRow } from "../components/practice/practiceReviewPlan";
 import * as p from "../components/practice/practiceReviewPageStyles";
 import { addAnswerNote, addQuestionNote, strikeNote } from "../services/practiceReviewLoop";
@@ -165,6 +166,12 @@ const PracticeReviewPage: React.FC = () => {
       code={deck.code}
       review={deck.review}
       wording={deck.wording}
+      // Exactly the rows below, with the answer and the notes each one is
+      // showing. `planReview` is what put them on screen, and `shownItems`
+      // reads the same payload — the press cannot sweep a row this page did
+      // not draw.
+      shown={shownItems(deck.questions)}
+      servedAt={deck.served_at}
       onReviewed={reload}
     />
   );

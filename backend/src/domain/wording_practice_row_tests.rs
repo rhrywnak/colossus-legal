@@ -53,6 +53,8 @@ const SEED_MIGRATIONS: &[&str] = &[
     // FOR_YOU L1: the one line the question page shows when the read-clear the
     // list asked for did not land.
     "pipeline_migrations/20260922165053_for_you_page_wording.sql",
+    // FOR_YOU L3: the reply control and the board-4 mark on a deck row.
+    "pipeline_migrations/20260922231242_for_you_l3_deck_threshold_replies_and_board_4_marks.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -118,6 +120,11 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NOTE_STRIKE_LABEL, "Strike"),
     (KEY_NOTE_STRUCK_TEMPLATE, "struck {when}"),
     (KEY_NOTE_FAILED, "The note could not be saved \u{2014} nothing was written."),
+    (KEY_NOTE_REPLY_LABEL, "Reply"),
+    (KEY_WAITING_NOTE_TEMPLATE, "{who} left a note"),
+    (KEY_WAITING_ANSWER_TEMPLATE, "{who} answered"),
+    (KEY_WAITING_CHANGE, "the question changed"),
+    (KEY_WAITING_MORE_TEMPLATE, "+{count} more"),
     (
         KEY_ROW_READ_FAILED,
         "This question could not be marked as read \u{2014} it is still on your For you list.",
@@ -361,6 +368,48 @@ fn the_review_bar_counts_questions_rather_than_answers() {
         assert!(
             !corrected.contains("answer"),
             "{key} still names answers over a count that includes notes: {corrected}"
+        );
+    }
+}
+
+/// The review bar speaks to the READER, and names the bench nowhere.
+///
+/// ## Why this needs a test of its own, beside the one above
+///
+/// Same argument, one ruling later. `every_declared_key_is_seeded_with_the_value_this_build_expects`
+/// pins what the SEEDING migration inserts — the bench-voiced sentence — and
+/// the defect sweep's test pins the first correction. Neither would notice the
+/// second correction being dropped, and what would then ship is the defect the
+/// 2026-09-23 ruling exists to remove: three people reading one sentence about
+/// three different numbers, under somebody else's name.
+///
+/// The `{reviewer}` half is the part worth asserting separately. A correction
+/// that landed on the plural alone would leave the singular naming Chuck — a
+/// screen that says one thing at two and another at one.
+#[test]
+fn the_review_bar_addresses_the_reader_and_not_the_bench() {
+    let sql = std::fs::read_to_string(
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("pipeline_migrations/20260923071048_deck_review_bar_speaks_to_the_viewer.sql"),
+    )
+    .expect("the deck-bar correction migration is on disk");
+
+    for (key, expected) in [
+        (
+            KEY_DECK_REVIEW_AWAITING_TEMPLATE,
+            "{count} questions awaiting your review",
+        ),
+        (
+            KEY_DECK_REVIEW_AWAITING_ONE,
+            "{count} question awaiting your review",
+        ),
+    ] {
+        let corrected = crate::domain::wording::tests::corrected_value_in(&sql, key)
+            .unwrap_or_else(|| panic!("{key} is not corrected by the 2026-09-23 migration"));
+        assert_eq!(corrected, expected, "{key}");
+        assert!(
+            !corrected.contains("{reviewer}"),
+            "{key} still names the bench on a count that is the reader's own: {corrected}"
         );
     }
 }

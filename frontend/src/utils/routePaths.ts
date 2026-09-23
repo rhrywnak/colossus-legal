@@ -343,8 +343,20 @@ export function practiceSessionPath(
  * read somebody else's inbox by editing it. The server decides the side from
  * `may_review` and the witness row; this address is the same for everyone.
  */
-export function forYouPath(slug: string): string {
-  return `/cases/${encodeURIComponent(slug)}/for-you`;
+export function forYouPath(slug: string, deck?: string): string {
+  const path = `/cases/${encodeURIComponent(slug)}/for-you`;
+  // `?deck=` narrows the list to ONE scenario — where the war room's owed
+  // counts point (CC_TASK_FOR_YOU_v1 L2). A QUERY and not a segment for the
+  // reason `practiceQuestionDiscussPath` gives: it is the same page showing
+  // less, not a different page, so reloading a filtered list keeps the filter
+  // and clearing it is one control rather than a navigation.
+  // STRUCTURAL: `deck` is the query parameter name the backend reads, through
+  // `ForYouQuery::deck`'s serde field name. It is wire vocabulary, not a
+  // deployment value — and the failure mode of a disagreement is silent: the
+  // backend would see no filter, answer with the whole case, and no error would
+  // be raised on either side. `services/forYou.ts` writes it and `ForYouPage`
+  // reads it back; all three must spell it the same.
+  return deck === undefined ? path : `${path}?deck=${encodeURIComponent(deck)}`;
 }
 
 /** The dashboard. Declared in `App.tsx` as `/`. */

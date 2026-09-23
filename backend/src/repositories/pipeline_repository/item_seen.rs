@@ -164,6 +164,47 @@ pub async fn mark_question_seen(
     Ok(done.rows_affected())
 }
 
+/// Record that `user_id` has seen every note about the SCENARIO ITSELF that
+/// existed when their page was served. Returns how many rows were new.
+///
+/// ## Domain note: the one item no row can name (ruled 2026-09-22)
+///
+/// A note with `question_id IS NULL` is about the whole deck. It appears on no
+/// question row, so opening a question never clears it, and the For You row for
+/// it opens the deck rather than a question — which means nothing else in the
+/// product can ever mark it read. The deck sweep does.
+///
+/// ## Why a MOMENT here, when the sweep is ids everywhere else
+///
+/// Because the page cannot name what it was never shown. `served_at` is the
+/// SERVER's own clock, stamped on the payload the page was drawn from and
+/// handed straight back, so the promise the ids keep is kept here too: a note
+/// written after that moment is not swept, and no browser's clock is involved
+/// in deciding it.
+///
+/// # Errors
+/// [`PipelineRepoError::Database`] for a failed statement — including the CHECK
+/// refusing a blank `user_id`.
+pub async fn mark_scenario_notes_seen(
+    pool: &PgPool,
+    user_id: &str,
+    scenario_id: Uuid,
+    served_at: chrono::DateTime<chrono::Utc>,
+) -> Result<u64, PipelineRepoError> {
+    let done = sqlx::query(
+        "INSERT INTO practice_item_seen (user_id, note_id) \
+         SELECT $1, n.id FROM practice_notes n \
+          WHERE n.scenario_id = $2 AND n.question_id IS NULL AND n.created_at <= $3 \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(user_id)
+    .bind(scenario_id)
+    .bind(served_at)
+    .execute(pool)
+    .await?;
+    Ok(done.rows_affected())
+}
+
 /// How many items this person has seen. For proofs and for operator questions
 /// ("did the sweep actually write anything?"), never for a screen.
 ///

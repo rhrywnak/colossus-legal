@@ -13,11 +13,11 @@
 use chrono::{DateTime, Duration, Utc};
 use uuid::Uuid;
 
-use super::super::item_seen::{mark_seen, seen_count, ItemRef};
+use super::super::item_seen::{mark_scenario_notes_seen, mark_seen, seen_count, ItemRef};
 use super::super::war_room_status::live_tests::{
     answer_by, cleanup, pipeline_pool, question, scenario, TestResult,
 };
-use super::live_tests::{bench, count, items, ADMIN, REVIEWER, WITNESS};
+use super::live_tests::{bench, count, items, note, ADMIN, REVIEWER, WITNESS};
 use super::{
     waiting_counts, waiting_items, waiting_total, WaitingQuery, WaitingScope, WaitingSide,
 };
@@ -310,4 +310,91 @@ async fn everything_keeps_what_unread_drops() -> TestResult<()> {
         "the wider tab says WHEN it was read"
     );
     cleanup(&pool, s, "waiting_everything").await
+}
+
+/// A note about the WHOLE SCENARIO, stamped `at`. No question, by design.
+async fn scenario_note(
+    pool: &sqlx::PgPool,
+    scenario_id: Uuid,
+    author_id: &str,
+    at: DateTime<Utc>,
+) -> TestResult<Uuid> {
+    let row: (Uuid,) = sqlx::query_as(
+        "INSERT INTO practice_notes (scenario_id, question_id, author, author_id, text, created_at) \
+         VALUES ($1, NULL, $2, $2, 'about this whole deck', $3) RETURNING id",
+    )
+    .bind(scenario_id)
+    .bind(author_id)
+    .bind(at)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0)
+}
+
+/// Has this person seen that note?
+async fn note_is_seen(pool: &sqlx::PgPool, user_id: &str, note_id: Uuid) -> TestResult<bool> {
+    let row: (i64,) = sqlx::query_as(
+        "SELECT count(*) FROM practice_item_seen WHERE user_id = $1 AND note_id = $2",
+    )
+    .bind(user_id)
+    .bind(note_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.0 > 0)
+}
+
+/// (M) THE DECK SWEEP CLEARS THE ONE ITEM NO ROW CAN NAME — and stops at the
+/// moment the page was served.
+///
+/// A note with `question_id IS NULL` is about the whole deck: it appears on no
+/// question row, opening a question never clears it, and its For You row opens
+/// the deck rather than a question. Before this, nothing in the product could
+/// ever mark it read (ruled 2026-09-22: the deck sweep does).
+///
+/// The CUTOFF is the half that matters. `served_at` is the server's own stamp
+/// from the payload the page was drawn from, so a note written AFTER the page
+/// was served is not swept — the same promise the ids keep for every other
+/// kind, kept here by a moment because there is no id to send.
+#[tokio::test]
+#[ignore = "needs a live pipeline database — point PIPELINE_DATABASE_URL at a scratch copy"]
+async fn the_deck_sweep_clears_scenario_notes_up_to_the_moment_it_was_served() -> TestResult<()> {
+    let pool = pipeline_pool().await?;
+    let s = scenario(&pool, "waiting_scenario_notes").await?;
+    let served_at = Utc::now();
+
+    let early = scenario_note(&pool, s, WITNESS, served_at - Duration::hours(1)).await?;
+    let late = scenario_note(&pool, s, WITNESS, served_at + Duration::hours(1)).await?;
+    // A note ON A QUESTION, at the same early moment: this sweep must not touch
+    // it. Its own row on the page names it, and the ids are what clear it.
+    let q = question(&pool, s, "chuck", 1).await?;
+    let on_question = note(&pool, s, q, Some(WITNESS), served_at - Duration::hours(1)).await?;
+
+    let written = mark_scenario_notes_seen(&pool, REVIEWER, s, served_at).await?;
+    assert_eq!(written, 1, "the early scenario note, and only it");
+    assert!(note_is_seen(&pool, REVIEWER, early).await?, "swept");
+    assert!(
+        !note_is_seen(&pool, REVIEWER, late).await?,
+        "written after the page was served — it is still waiting"
+    );
+    assert!(
+        !note_is_seen(&pool, REVIEWER, on_question).await?,
+        "a note on a QUESTION is named by a row and swept by its id, not by this"
+    );
+
+    // Idempotent: a second press writes nothing and says so.
+    assert_eq!(
+        mark_scenario_notes_seen(&pool, REVIEWER, s, served_at).await?,
+        0,
+        "a second press keeps the first reading"
+    );
+
+    // And a deck nobody wrote a scenario note on sweeps nothing, which is a
+    // number rather than an error.
+    let quiet = scenario(&pool, "waiting_scenario_notes_quiet").await?;
+    assert_eq!(
+        mark_scenario_notes_seen(&pool, REVIEWER, quiet, served_at).await?,
+        0
+    );
+    cleanup(&pool, quiet, "waiting_scenario_notes_quiet").await?;
+    cleanup(&pool, s, "waiting_scenario_notes").await
 }

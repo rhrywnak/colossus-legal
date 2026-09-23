@@ -21,7 +21,7 @@ import { warRoomSummaryView } from "./warRoomSummaryView";
 import type { TrialPrepDashboard, WarRoomWording } from "../pages/trialPrepData";
 
 const WarRoomSummaryCard: React.FC<{
-  dashboard: Pick<TrialPrepDashboard, "metrics" | "scenarios">;
+  dashboard: Pick<TrialPrepDashboard, "metrics" | "scenarios" | "may_review">;
   wording: WarRoomWording;
 }> = ({ dashboard, wording }) => {
   const view = warRoomSummaryView(dashboard, wording);

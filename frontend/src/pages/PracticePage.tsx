@@ -257,6 +257,7 @@ const PracticePage: React.FC = () => {
         reviewHref={practiceReviewPath(slug, scenarioId)}
         wording={deck.wording}
         view={view}
+        servedAt={deck.served_at}
         editor={editor}
         attachOptions={deck.attach_options}
         tacticCards={deck.tactic_cards}

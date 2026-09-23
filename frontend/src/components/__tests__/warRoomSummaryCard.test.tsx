@@ -10,7 +10,7 @@ import { s1, s11, warRoomWording } from "./warRoomFixtures";
 
 const html = renderToStaticMarkup(
   <WarRoomSummaryCard
-    dashboard={{ metrics: { scenarios: 11, ready: 11, drafted_or_review: 0 }, scenarios: [s1(), s11()] }}
+    dashboard={{ may_review: true, metrics: { scenarios: 11, ready: 11, drafted_or_review: 0 }, scenarios: [s1(), s11()] }}
     wording={warRoomWording}
   />,
 );
@@ -25,7 +25,11 @@ describe("WarRoomSummaryCard markup", () => {
 
   it("puts an owner chip on every cell — stored names, never usernames", () => {
     const chips = [...html.matchAll(/data-chip="true">([^<]+)</g)].map((m) => m[1]);
-    expect(chips).toEqual(["Marie", "Chuck", "Roman"]);
+    // The middle chip says YOU, not the bench's name: the review tile is drawn
+    // only for the person whose backlog it counts (ruled 2026-09-22), so a
+    // reviewer's name on it would be somebody else's name on the reader's own
+    // number. All three are stored rows either way.
+    expect(chips).toEqual(["Marie", "YOU", "Roman"]);
     expect(html).not.toContain("cpenzien");
   });
 

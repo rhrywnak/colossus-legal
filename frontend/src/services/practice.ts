@@ -107,6 +107,17 @@ export type PracticeQuestion = {
   /** Notes on the question or its CURRENT answer, oldest first, struck included
    *  (CC_TASK_REVIEW_LOOP_v1). Checked by eye against `PracticeQuestionDto.notes`. */
   notes: PracticeNote[];
+  /** The CURRENT answer's id, absent when nobody has answered. What "Done
+   *  reviewing" names when it sweeps this row (CC_TASK_FOR_YOU_v1 L2). */
+  answer_id?: string;
+  /**
+   * `Chuck left a note` — what is waiting on this question FOR THE PERSON
+   * READING, already composed (CC_TASK_FOR_YOU_v1 L3, mockup board 4).
+   *
+   * Absent when nothing on it is unread by them. Two people reading the same
+   * deck see two different sets of marks, because read-state is per person.
+   */
+  waiting?: string;
 };
 
 /** One note, as every panel renders it. */
@@ -120,6 +131,13 @@ export type PracticeNote = {
   when: string;
   /** `struck Tue 19 Aug`, or `null` while it stands. Its presence strikes it. */
   struck: string | null;
+  /**
+   * The note this one answers, or absent (CC_TASK_FOR_YOU_v1 L3).
+   *
+   * The one id on this type that is not a handle for a write: it is what pairs
+   * a reply with the line it answers, so the panel can draw the two together.
+   */
+  answers_note_id?: string;
 };
 
 /** What changed since her last sitting, composed. */
@@ -169,12 +187,22 @@ export type OpenSession = {
  * username (CLAUDE.md rule 12).
  */
 export type DeckReview = {
-  /** Answers awaiting the reviewers on this deck — the same for every viewer. */
+  /**
+   * What THIS reader has not yet reviewed on this deck.
+   *
+   * Per person since CC_TASK_FOR_YOU_v1 L2, and `0` for anybody who may not
+   * review (ruled 2026-09-23) — the server does not even run the query for
+   * them, because the number counts a duty that is not theirs.
+   */
   awaiting: number;
-  /** True only for a listed reviewer: the Done reviewing button renders on this. */
+  /**
+   * Whether this reader may review: a listed reviewer or an administrator,
+   * decided on the server (`may_review`).
+   *
+   * It carries TWO decisions, and the second is why the bar is not drawn
+   * without it: the Done reviewing button, and the bar itself.
+   */
   can_mark_reviewed: boolean;
-  /** `{reviewer}` in the bar's sentence — the whole bench, joined server-side. */
-  reviewer_display_name: string;
   /**
    * The day the oldest waiting item arrived, ALREADY FORMATTED — absent when
    * nothing is waiting (CC_TASK_REVIEW_PAGE_v1).
@@ -203,6 +231,10 @@ export type PracticeDeck = {
    * must be able to tell how stale the sheet in his hand is.
    */
   deck_as_of: string | null;
+  /** When the SERVER produced this payload. Handed straight back by "Done
+   *  reviewing" so the sweep can clear the deck's scenario-wide notes without
+   *  trusting a browser's clock (CC_TASK_FOR_YOU_v1 L2). */
+  served_at: string;
   /** What the "I'd point to…" picker offers, composed and de-duplicated. */
   receipts: string[];
   /** `null` withdraws the blue resume box entirely. */

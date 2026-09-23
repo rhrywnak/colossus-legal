@@ -242,21 +242,53 @@ pub(super) fn migration_columns(table: &str) -> Vec<String> {
             }
         }
 
-        for line in sql.lines() {
-            let prefix = format!("ALTER TABLE {table} ADD COLUMN ");
-            let Some(rest) = line.trim().strip_prefix(&prefix) else {
-                continue;
-            };
-            let rest = rest.strip_prefix("IF NOT EXISTS ").unwrap_or(rest);
-            if let Some(name) = rest.split_whitespace().next() {
-                columns.push(name.to_string());
-            }
-        }
+        push_altered_columns(&sql, table, &mut columns);
     }
 
     columns.sort();
     columns.dedup();
     columns
+}
+
+/// Every column an `ALTER TABLE <table> … ADD COLUMN …` in this file adds.
+///
+/// ## ⚑ Why this is not one line of `strip_prefix` any more
+///
+/// It was, and it read ONE LINE at a time: a statement written
+///
+/// ```sql
+/// ALTER TABLE practice_notes
+///     ADD COLUMN IF NOT EXISTS answers_note_id UUID
+///     REFERENCES practice_notes(id) ON DELETE CASCADE;
+/// ```
+///
+/// was invisible to it, because no single line begins with the whole prefix.
+/// That does not fail quietly: the column is then "declared by no migration",
+/// and the guard accuses the CODE of the parser's blindness — the same way
+/// round the `CREATE TABLE IF NOT EXISTS` note above describes. Found on
+/// 2026-09-22, when the first statement to read `answers_note_id` (added by a
+/// migration in exactly the shape above) was reported as naming a column that
+/// does not exist.
+///
+/// So the unit is the STATEMENT, from `ALTER TABLE <table>` to its semicolon,
+/// and every `ADD COLUMN` inside it counts — which also covers the several-
+/// clauses-in-one-statement form this directory does not use yet.
+fn push_altered_columns(sql: &str, table: &str, columns: &mut Vec<String>) {
+    let mut from = 0;
+    while let Some(at) = find_table(&sql[from..], "ALTER TABLE ", table) {
+        let start = from + at;
+        // No semicolon means a truncated file; reading to the end is the
+        // generous reading, and a column named twice is deduped by the caller.
+        let end = sql[start..].find(';').map_or(sql.len(), |o| start + o);
+        for clause in sql[start..end].split("ADD COLUMN ").skip(1) {
+            let clause = clause.trim_start();
+            let clause = clause.strip_prefix("IF NOT EXISTS ").unwrap_or(clause);
+            if let Some(name) = clause.split_whitespace().next() {
+                columns.push(name.trim_end_matches(',').to_string());
+            }
+        }
+        from = end;
+    }
 }
 
 /// Byte offset where `<keyword><table>` BEGINS — the caller reads forward from

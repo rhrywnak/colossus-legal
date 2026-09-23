@@ -87,11 +87,26 @@ const PrepBody: React.FC<{ view: WarRoomCardView }> = ({ view }) => (
         </div>
       </>
     )}
-    {view.badges.map((badge) => (
-      <span key={badge.kind} style={warRoomBadgeStyle(badge.kind)} data-badge={badge.kind}>
-        {badge.text}
-      </span>
-    ))}
+    {view.badges.map((badge) =>
+      // An OWED count opens the list behind it; a state pill has nothing to
+      // open. A real anchor rather than an onClick span, so the keyboard and
+      // "open in new tab" work without this file knowing about either.
+      "href" in badge ? (
+        <Link
+          key={badge.kind}
+          to={badge.href}
+          style={warRoomBadgeStyle(badge.kind)}
+          data-badge={badge.kind}
+          data-badge-links
+        >
+          {badge.text}
+        </Link>
+      ) : (
+        <span key={badge.kind} style={warRoomBadgeStyle(badge.kind)} data-badge={badge.kind}>
+          {badge.text}
+        </span>
+      ),
+    )}
   </>
 );
 
@@ -101,10 +116,13 @@ const WarRoomCard: React.FC<{
   wording: WarRoomWording;
   /** Whether a timeline subset carries this scenario — the page's one read. */
   hasTimeline: boolean;
+  /** May the reader review? From the dashboard payload's `may_review`; decides
+   *  whether this card draws a review pill at all (ruled 2026-09-22). */
+  mayReview: boolean;
   /** Opens the page's delete confirmation for THIS scenario. */
   onRequestDelete: (scenario: ScenarioSummary) => void;
-}> = ({ scenario, slug, wording, hasTimeline, onRequestDelete }) => {
-  const view = warRoomCardView(scenario, wording, hasTimeline);
+}> = ({ scenario, slug, wording, hasTimeline, mayReview, onRequestDelete }) => {
+  const view = warRoomCardView(scenario, wording, hasTimeline, slug, mayReview);
 
   return (
     <article style={warRoomCardStyle} data-pane-count={3} data-war-room-card>

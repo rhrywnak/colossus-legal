@@ -122,12 +122,28 @@ pub async fn get_trial_prep_dashboard(
         .map_err(internal("assemble trial-prep dashboard"))?;
 
     // CC_TASK_WAR_ROOM_v1: each card's status, read for every scenario at once.
-    attach_progress(&state, &mut dashboard).await?;
+    // WHOSE review queue the cards report. Empty for an unidentified caller,
+    // which reads as "has seen nothing" — see `read_progress`.
+    let viewer = user
+        .as_ref()
+        .map(|u| crate::services::practice_notes::attribution(u).0)
+        .unwrap_or_default();
+    // Whether the review tile and pills are drawn at all (ruled 2026-09-22).
+    // The ONE place that answers it, asked once, here — never on a screen.
+    dashboard.may_review = crate::services::review_permission::may_review(
+        &viewer,
+        user.as_ref().is_some_and(|u| u.is_admin()),
+        crate::services::war_room_progress::review_queue_reviewer(&settings),
+    );
+    attach_progress(&state, &mut dashboard, &viewer).await?;
 
     // Ruling Q1, condition 2: the whole handler is timed, so the cost of the
     // status card is a number in the log rather than a guess.
     tracing::info!(
         %slug,
+        // The cards' review counts are this person's since L2 — see
+        // `read_progress`. Empty for an unidentified caller.
+        %viewer,
         scenarios = dashboard.scenarios.len(),
         elapsed_ms = started.elapsed().as_millis() as u64,
         "served the trial-prep dashboard"
@@ -146,9 +162,10 @@ pub async fn get_trial_prep_dashboard(
 async fn attach_progress(
     state: &AppState,
     dashboard: &mut TrialPrepDashboard,
+    viewer: &str,
 ) -> Result<(), TrialPrepEndpointError> {
     let ids = card_ids(dashboard)?;
-    let progress = read_progress(state, &ids).await.map_err(|e| {
+    let progress = read_progress(state, &ids, viewer).await.map_err(|e| {
         tracing::error!(error = ?e, "the war room's status reads failed");
         TrialPrepEndpointError::Internal
     })?;
@@ -316,6 +333,7 @@ mod tests {
                 drafted_or_review: 0,
             },
             alerts: Vec::new(),
+            may_review: true,
             scenarios: ids.iter().map(|id| card(id)).collect(),
             create_wording: ScenarioCreateWordingDto {
                 target_label: word(),

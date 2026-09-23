@@ -27,7 +27,17 @@ export type ForYouDay = "today" | "yesterday" | "earlier";
 
 /** One row. Checked BY EYE against `ForYouRowDto`. */
 export type ForYouRow = {
+  /**
+   * `answer`, `note`, `change` — or `deck` for a row that stands for a whole
+   * deck (CC_TASK_FOR_YOU_v1 L3), which opens its review page instead of a
+   * question.
+   */
   kind: string;
+  /**
+   * The item this row stands for. On a DECK row it is the newest of the items
+   * behind it — what put that deck where it is in the list — so every row has
+   * a stable identity whether or not it is grouped.
+   */
   item_id: string;
   scenario_id: string;
   /** Absent for a note about a whole scenario, which opens the deck instead. */
@@ -101,10 +111,16 @@ async function orThrow<T>(response: Response, what: string): Promise<T> {
  * as "nothing waiting" — a confident, false screen. Both are contract
  * mismatches and both say so here, once.
  */
-export async function fetchForYou(slug: string): Promise<ForYouPage> {
+export async function fetchForYou(slug: string, deck?: string): Promise<ForYouPage> {
   const what = "The For you list could not be loaded";
+  // `?deck=` narrows the list to one scenario — where the war room's owed
+  // counts point (CC_TASK_FOR_YOU_v1 L2). Absent means the whole case.
+  // STRUCTURAL: the same parameter name `routePaths::forYouPath` composes and
+  // the backend's `ForYouQuery::deck` reads. See that builder for why a
+  // disagreement here fails silently rather than loudly.
+  const filter = deck === undefined ? "" : `?deck=${encodeURIComponent(deck)}`;
   const response = await authFetch(
-    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/for-you`,
+    `${API_BASE_URL}/api/cases/${encodeURIComponent(slug)}/for-you${filter}`,
     { timeoutMs: PRACTICE_TIMEOUT_MS },
   );
   const body = await orThrow<Partial<ForYouPage>>(response, what);

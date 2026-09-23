@@ -95,8 +95,11 @@ fn the_parse_sees_the_repositorys_statements() {
          column list in the codebase, and the one whose absence from this cover \
          let a `draft_by` \
          no migration created ship in Part A — the review cursor's upsert, \
-         which entered the cover with the defect sweep, and the seen sweep's two \
-         (CC_TASK_FOR_YOU_v1: the page's sweep and the question's read-clear)"
+         and the seen record's three (CC_TASK_FOR_YOU_v1: the page's sweep, the \
+         question's read-clear and the deck's scenario notes). The review \
+         cursor's upsert is NOT among them any more — L2 deleted it with the \
+         watermark, which is why one write left as one arrived and the total \
+         did not move"
     );
     assert!(
         updates().len() >= 12,
@@ -229,23 +232,25 @@ fn select_form_inserts() -> usize {
     inserts().iter().filter(|(_, _, v)| v.is_empty()).count()
 }
 
-/// Exactly THREE INSERTs in the covered files are SELECT-form.
+/// Exactly FOUR INSERTs in the covered files are SELECT-form.
 ///
 /// `practice_hidden_queue::record_hidden_marks`, which writes one `hidden` row
 /// per queued-but-hidden question from a join rather than from bind parameters;
 /// `item_seen::mark_seen`, which writes one seen row per id in three bound
 /// arrays and must stay ONE statement, because a sweep interrupted between two
 /// statements would leave a page half-read with nothing saying so; and
-/// `item_seen::mark_question_seen`, which clears a whole question the same way.
+/// `item_seen::mark_question_seen`, which clears a whole question the same way;
+/// and `item_seen::mark_scenario_notes_seen`, which clears the notes about a
+/// whole deck that no question row can name (CC_TASK_FOR_YOU_v1 L2).
 ///
 /// They are the only statements the arity test skips, and this count is what
 /// stops that skip from becoming a habit.
 #[test]
-fn exactly_three_inserts_are_select_form() {
+fn exactly_four_inserts_are_select_form() {
     assert_eq!(
         select_form_inserts(),
-        3,
-        "expected only record_hidden_marks, mark_seen and mark_question_seen to be \
+        4,
+        "expected only record_hidden_marks and the three item_seen writes to be \
          SELECT-form; a new one must be added here deliberately, because each is a \
          statement the arity check cannot see"
     );

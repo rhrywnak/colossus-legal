@@ -12,6 +12,13 @@
 
 use uuid::Uuid;
 
+use crate::domain::settings::Settings;
+use crate::repositories::pipeline_repository::waiting_items::{
+    waiting_items, WaitingItemRow, WaitingQuery, WaitingScope, WaitingSide,
+};
+use crate::services::for_you::{query_side, side_for};
+use crate::services::war_room_progress::{practice_witness, review_queue_reviewer};
+
 use crate::{
     dto::practice::PracticeDeckPayload,
     error::AppError,
@@ -26,6 +33,69 @@ use crate::{
 };
 
 use super::practice::repo_error;
+
+/// What this deck holds UNREAD for the person asking (CC_TASK_FOR_YOU_v1 L3).
+///
+/// ## Domain note: the SAME predicate as the For you page
+///
+/// Not a second query about a similar question: `waiting_items`, narrowed to
+/// one scenario, on the side `may_review` puts this reader on. So a mark on a
+/// question's row and a row on the For you list are two readings of one fact,
+/// and the deck cannot say something waits that the list does not show.
+///
+/// A reader who is neither a reviewer nor the witness has no side, so no query
+/// runs and every row is unmarked — the same silence the list gives them.
+///
+/// # Errors
+/// 500 (logged, naming the read) when the statement fails.
+pub(super) async fn deck_waiting(
+    state: &AppState,
+    scenario_id: Uuid,
+    user_id: &str,
+    is_admin: bool,
+) -> Result<Vec<WaitingItemRow>, AppError> {
+    let settings = state.settings.current();
+    let reviewers = review_queue_reviewer(&settings);
+    let Some(side) = deck_side(&settings, user_id, is_admin) else {
+        return Ok(Vec::new());
+    };
+    waiting_items(
+        &state.pipeline_pool,
+        &WaitingQuery {
+            scenario_ids: &[scenario_id],
+            viewer: user_id,
+            reviewers,
+            side,
+            scope: WaitingScope::Unseen,
+        },
+        // No LIMIT: a mark missing from one row because a cap cut the list is
+        // the silent failure this whole task exists to remove.
+        None,
+    )
+    .await
+    .map_err(|e| {
+        repo_error(
+            "waiting_items",
+            format!("deck {scenario_id} for {user_id}: {e}"),
+        )
+    })
+}
+
+/// Which side's unread list this deck should be read on, or `None` for nobody.
+///
+/// Split out of [`deck_waiting`] so the decision can be tested without an
+/// `AppState`: the branch that matters is the SHORT-CIRCUIT — a person who is
+/// neither a reviewer nor the witness must cost no query at all, and a
+/// regression there is a statement per deck row per page load for somebody
+/// whose marks would all be empty anyway.
+pub(super) fn deck_side(settings: &Settings, user_id: &str, is_admin: bool) -> Option<WaitingSide> {
+    query_side(side_for(
+        user_id,
+        is_admin,
+        review_queue_reviewer(settings),
+        practice_witness(settings),
+    ))
+}
 
 /// The scenario row behind a deck, or a 404 naming it.
 ///
@@ -63,6 +133,15 @@ pub(super) fn log_served(
         changes_since_last,
         awaiting_review = payload.review.awaiting,
         can_mark_reviewed = payload.review.can_mark_reviewed,
+        // How many rows went out wearing a board-4 mark (CC_TASK_FOR_YOU_v1 L3).
+        // Counted here so an operator can hold the number against the screen —
+        // and so a `deck_waiting` that quietly returned nothing is visible as a
+        // zero rather than as a deck that happens to look calm.
+        waiting_marks = payload
+            .questions
+            .iter()
+            .filter(|q| q.waiting.is_some())
+            .count(),
         "served the practice deck"
     );
 }
@@ -125,6 +204,10 @@ pub(super) struct DeckRead {
     pub(super) open_total: i64,
     /// Every note on the scenario — each row shows its own (CC_TASK_REVIEW_LOOP_v1).
     pub(super) notes: Vec<crate::repositories::pipeline_repository::practice_notes::NoteRecord>,
+    /// What is UNREAD on this deck for the person asking, on their own side —
+    /// the board-4 mark's source (CC_TASK_FOR_YOU_v1 L3). Empty for somebody
+    /// who is neither a reviewer nor the witness: no side, so nothing waits.
+    pub(super) waiting: Vec<WaitingItemRow>,
     /// The review bar: the reviewer's backlog, and whether THIS user may clear it.
     pub(super) review: crate::dto::practice_review::DeckReviewDto,
 }
@@ -170,7 +253,57 @@ pub(super) async fn read_deck_sources(
         notes: list_notes(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("list_notes", format!("scenario {scenario_id}: {e}")))?,
+        waiting: deck_waiting(state, scenario_id, user_id, is_admin).await?,
         review: super::practice_review_cursor::deck_review(state, scenario_id, user_id, is_admin)
             .await?,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::repositories::pipeline_repository::waiting_items::WaitingSide;
+
+    /// The three readers of one deck, and the one that costs no query.
+    ///
+    /// `Settings::for_test()` carries the seeded bench (`cpenzien`) and witness
+    /// (`docmarie`), so these assert against the values the migration ships.
+    #[test]
+    fn a_deck_is_read_on_the_side_its_reader_belongs_to() {
+        let settings = Settings::for_test();
+        assert_eq!(
+            deck_side(&settings, "cpenzien", false),
+            Some(WaitingSide::Reviewers),
+            "a listed reviewer reads the reviewers' side"
+        );
+        assert_eq!(
+            deck_side(&settings, "docmarie", false),
+            Some(WaitingSide::Witness),
+            "the witness reads her own"
+        );
+    }
+
+    /// (M) An UNLISTED ADMINISTRATOR still reads the reviewers' side.
+    ///
+    /// The same rule the page itself obeys (`may_review` is permission, the
+    /// stored list is display). If this asked the list instead, Roman would see
+    /// no marks on any deck.
+    #[test]
+    fn an_unlisted_administrator_reads_the_reviewers_side() {
+        assert_eq!(
+            deck_side(&Settings::for_test(), "roman", true),
+            Some(WaitingSide::Reviewers)
+        );
+    }
+
+    /// (M) Somebody who is neither costs NO query — the short-circuit.
+    ///
+    /// `None` here is what makes `deck_waiting` return an empty list without
+    /// touching the database. A regression to `Some(...)` would be one extra
+    /// statement per deck load, to compute marks that are all empty by
+    /// construction: the audience clauses exclude a stranger from both sides.
+    #[test]
+    fn a_stranger_costs_no_query() {
+        assert_eq!(deck_side(&Settings::for_test(), "nobody", false), None);
+    }
 }

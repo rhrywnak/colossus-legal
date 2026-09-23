@@ -38,6 +38,14 @@ pub struct PracticeNoteDto {
     /// also what tells the screen to strike the text through: one field, so a
     /// note cannot render struck without saying when.
     pub struck: Option<String>,
+    /// The note this one answers (CC_TASK_FOR_YOU_v1 L3), or `None`.
+    ///
+    /// Carried as an ID and not as a composed line, uniquely on this DTO: the
+    /// panel draws the pair as a PAIR — his line, her reply indented under it —
+    /// which is a layout decision and not a sentence. The words of both halves
+    /// are already on the wire in their own rows.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub answers_note_id: Option<Uuid>,
 }
 
 /// What changed since her last sitting, composed.
@@ -279,18 +287,25 @@ pub struct NoteTextRequest {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct DeckReviewDto {
-    /// Answers awaiting the reviewers on this deck — the same for every viewer.
+    /// What THIS reader has not yet reviewed on this deck.
+    ///
+    /// Per person since CC_TASK_FOR_YOU_v1 L2 — read-state is per person, so
+    /// there is no shared number left to serve — and always `0` for a reader
+    /// who may not review: the query does not run for them at all (ruled
+    /// 2026-09-23). It was "the same for every viewer" until L2, and that
+    /// sentence outlived the fact by a day.
     /// The bar is not drawn at `0`.
     pub awaiting: u32,
-    /// True only when the signed-in user is ON the reviewer bench.
-    pub can_mark_reviewed: bool,
-    /// The reviewers' names as the bar prints them (`{reviewer}`), joined by the
-    /// stored joiner when there is more than one (CC_TASK_REVIEW_PAGE_v1).
+    /// Whether this reader may review — a listed reviewer OR an administrator,
+    /// decided by `services::review_permission::may_review`.
     ///
-    /// The field keeps its singular name because it is what `{reviewer}` prints,
-    /// and that is one line whether it names one person or three. Renaming it
-    /// would be a wire change for a fact the wire does not carry.
-    pub reviewer_display_name: String,
+    /// ## It carries TWO decisions, and the second arrived on 2026-09-23
+    ///
+    /// Whether the Done reviewing button renders, and whether the BAR is drawn
+    /// at all. `false` means the server ran no query and served no count, and
+    /// the browser draws nothing — a reader who may not review is not shown a
+    /// number about a duty that is not theirs.
+    pub can_mark_reviewed: bool,
     /// The day the OLDEST waiting item arrived, already formatted — or `None`
     /// when the read returned no date (CC_TASK_REVIEW_PAGE_v1, ruling STOP-A).
     ///
@@ -307,13 +322,59 @@ pub struct DeckReviewDto {
     pub oldest: Option<String>,
 }
 
+/// One item a sweep was handed: what kind it is, and which row.
+///
+/// ## Rust Learning: `#[serde(rename_all = "snake_case")]` on a data-carrying enum
+///
+/// Serialized as `{"kind": "answer", "id": "…"}` — an internally tagged enum
+/// would be tidier still, but this shape matches what the For You page already
+/// receives for a row (`ForYouRowDto.kind` + `item_id`), so the browser sends
+/// back exactly the pair it was given rather than translating between two
+/// spellings of one idea.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "kind", content = "id")]
+pub enum SweptItem {
+    Answer(Uuid),
+    Note(Uuid),
+    Change(Uuid),
+}
+
+/// "Done reviewing": the items the page SHOWED, and when it was served.
+///
+/// ## Domain note: the ids, not a moment (ruled 2026-09-22)
+///
+/// "Done reviewing marks exactly the items that page showed — never an item
+/// that arrived after the page loaded." A watermark cannot promise that:
+/// `now()` covers everything, including the note that arrived while the page
+/// was being read. So the press sends what it rendered.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ReviewSweepRequest {
+    /// Every item the page had on screen. May be empty — a page showing
+    /// nothing sweeps nothing, which is a number and not an error.
+    pub items: Vec<SweptItem>,
+    /// The `served_at` of the payload this page was drawn from.
+    ///
+    /// ## Why a moment is here AS WELL as the ids
+    ///
+    /// For the one item the page cannot name: a note about a WHOLE SCENARIO
+    /// (`question_id IS NULL`) has no question to open and appears on no row,
+    /// so nothing else in the product can ever clear it. The deck sweep does
+    /// (ruled 2026-09-22), bounded by this moment so the promise above still
+    /// holds — and it is the SERVER's own clock, handed out with the payload
+    /// and handed back here, so no browser's clock enters into it.
+    pub served_at: chrono::DateTime<chrono::Utc>,
+}
+
 /// What "Done reviewing" recorded.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct ReviewCursorResponse {
     pub scenario_id: Uuid,
-    /// The database's own clock at the moment the mark moved.
-    pub looked_at: chrono::DateTime<chrono::Utc>,
+    /// How many seen rows this press actually WROTE. Zero when everything on
+    /// the page had already been read — a legitimate state, reported as a
+    /// number rather than swallowed.
+    pub marked: u32,
 }
 
 /// Place one question at an arbitrary position in its side (nav cleanup Part 2).

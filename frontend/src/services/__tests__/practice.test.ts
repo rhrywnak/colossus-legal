@@ -51,6 +51,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
     points: [{ position: 1, text: "I asked in writing.", exhibit: "my certified letter" }],
     last_session_line: "No session on this one yet.",
   deck_as_of: "2026-08-20T03:05:02Z",
+    served_at: "2026-09-22T21:31:00Z",
     receipts: ["your certified letter, 16 Nov 2009"],
     open_session: null,
     attach_options: [],
@@ -58,7 +59,7 @@ function deck(questions: PracticeDeck["questions"] = []): PracticeDeck {
       { card: 1, name: "false premise" },
       { card: 2, name: "compound" },
     ],
-    review: { awaiting: 0, can_mark_reviewed: false, reviewer_display_name: "Chuck" },
+    review: { awaiting: 0, can_mark_reviewed: false },
     wording: { start_label: "Start", empty_deck: "no practice deck yet — seed it" },
   };
 }
@@ -125,7 +126,7 @@ describe("fetchPracticeDeck", () => {
     const { review: _dropped, ...withoutReview } = deck();
     okFetch(withoutReview);
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
-    okFetch({ ...deck(), review: { awaiting: 1, reviewer_display_name: "Chuck" } });
+    okFetch({ ...deck(), review: { awaiting: 1 } });
     await expect(fetchPracticeDeck(SLUG, SCENARIO)).rejects.toThrow(/contract mismatch/);
   });
 });

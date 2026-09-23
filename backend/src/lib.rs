@@ -55,3 +55,18 @@ mod template_invariants;
 /// crate's sources for this case's names and this product's vocabulary.
 #[cfg(test)]
 mod chat_engine_invariants;
+
+/// The local boot's scratch-database refusal, asserted by running it.
+///
+/// Declared at the crate root for the same reason as [`sql_invariants`]: it
+/// polices a repository artifact — `scripts/assert-scratch-db.sh` — rather than
+/// anything inside one module. See that file's header for the incident.
+#[cfg(test)]
+mod local_stack_guard;
+
+/// The migrations DEV has already applied, pinned by checksum.
+///
+/// Declared at the crate root beside the other repository-wide guards. See the
+/// module header for the 2026-09-22 incident and the ruling it produced.
+#[cfg(test)]
+mod frozen_migrations;

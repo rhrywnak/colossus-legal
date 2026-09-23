@@ -64,21 +64,13 @@ impl RowVoice<'_> {
     /// name anywhere, and showing their login is better than showing nothing,
     /// because the row still says who to ask about it.
     pub fn display_name(&self, login: Option<&str>) -> String {
-        let Some(login) = login else {
-            return self.wording.unknown_author.clone();
-        };
-        if let Some(at) = self.reviewer_logins.iter().position(|l| l == login) {
-            // Index-aligned by a boot check that refuses two lists of different
-            // lengths — `get` rather than `[at]` anyway, because a panic on a
-            // settings edit is the one failure this page must not have.
-            if let Some(name) = self.reviewer_names.get(at) {
-                return name.clone();
-            }
-        }
-        if login == self.witness_login {
-            return self.wording.witness_name.clone();
-        }
-        login.to_string()
+        display_name_of(
+            login,
+            self.reviewer_logins,
+            self.reviewer_names,
+            self.witness_login,
+            self.wording,
+        )
     }
 
     /// Which day heading this moment belongs under, in the case's timezone.
@@ -129,6 +121,16 @@ impl RowVoice<'_> {
     /// are being reported rather than spoken.
     fn body(&self, row: &WaitingItemRow) -> String {
         let text = row.body.as_deref().unwrap_or_default();
+        // A REPLY is a note, and reads as one everywhere except here: a list row
+        // has ONE line, and "Yes, that's right" without what it answers says
+        // nothing at all. So the pair is quoted together (L3). The question page
+        // draws the same exchange in two lines, where there is room for it.
+        if let Some(parent) = row.reply_to.as_deref() {
+            return render(
+                &self.wording.body_reply_template,
+                &[("parent", parent), ("text", text)],
+            );
+        }
         // STRUCTURAL: `answer`, `note` and `change` are the schema's own
         // vocabulary — the three legs of the `items` CTE in `waiting_items`
         // emit exactly these, and renaming one is a code change and a data
@@ -187,6 +189,71 @@ impl RowVoice<'_> {
         }
     }
 
+    /// A whole DECK as one row: what it holds, and how long it has held it.
+    ///
+    /// ## Domain note: why a deck row exists at all (ruling 2)
+    ///
+    /// Seventeen rows from one deck is not seventeen things to decide; it is one
+    /// deck to sit down with, and seventeen rows of it push every OTHER deck's
+    /// one row off the screen. Above the stored threshold the page names the
+    /// deck and sends the reader to its review page, where the answers are read
+    /// together and cleared together.
+    ///
+    /// `newest` is the item that put this deck where it is in the list — the row
+    /// carries its id and its moment, so the list stays in one order and React
+    /// keeps a stable key. `count` is every unread item on the deck and `oldest`
+    /// the first of them, which is the fact that says how long it has waited.
+    pub fn deck_row(
+        &self,
+        newest: &WaitingItemRow,
+        count: usize,
+        oldest: DateTime<Utc>,
+    ) -> ForYouRowDto {
+        let w = self.wording;
+        let template = if count == 1 {
+            &w.deck_body_one
+        } else {
+            &w.deck_body_template
+        };
+        let day = self.day_of(newest.at);
+        ForYouRowDto {
+            // STRUCTURAL: `deck` is this page's fourth wire kind, beside the
+            // three schema values a row can otherwise carry. It is what tells
+            // the browser to open the deck's REVIEW page instead of a question,
+            // and `deckSweep.ts`'s union is deliberately NOT widened with it —
+            // a deck row names no single item to sweep.
+            kind: "deck".to_string(),
+            item_id: newest.item_id,
+            scenario_id: newest.scenario_id,
+            // A deck row opens the deck, never a question — several of its
+            // items are usually on different ones.
+            question_id: None,
+            deck_line: render(
+                &w.deck_line_no_question_template,
+                &[
+                    (
+                        "code",
+                        &newest.code_ordinal.map(scenario_code).unwrap_or_default(),
+                    ),
+                    ("deck", &newest.scenario_name),
+                ],
+            ),
+            body: render(template, &[("count", &count.to_string())]),
+            byline: render(
+                &w.deck_byline_template,
+                &[("when", &local_date(oldest, self.timezone))],
+            ),
+            when: match day {
+                ForYouDay::Today => local_clock(newest.at, self.timezone),
+                _ => local_stamp(newest.at, self.timezone),
+            },
+            day,
+            // Built from unread items only, so never read. The row clears when
+            // the reader presses Done reviewing on the deck it opens.
+            read: false,
+        }
+    }
+
     /// One waiting item as the page shows it.
     pub fn compose(&self, row: &WaitingItemRow) -> ForYouRowDto {
         let day = self.day_of(row.at);
@@ -209,6 +276,47 @@ impl RowVoice<'_> {
             read: row.seen_at.is_some(),
         }
     }
+}
+
+/// What a screen calls the person behind a login — the rule, without a page.
+///
+/// ## Why this is a free function and not only a method
+///
+/// The deck's board-4 mark (L3) needs the same answer and has no [`RowVoice`]:
+/// it is composed while a PRACTICE payload is built, not while the For you list
+/// is. Two resolvers would be two places for "Marie" to come from, and the day
+/// they disagreed the same person would be named two ways on two screens.
+///
+/// ## Domain note: a login is never printed if a name exists
+///
+/// `cpenzien` is a database identifier. The reviewers' display names are an
+/// index-aligned settings row; the witness's and the unattributed case are
+/// stored strings of the For you block. The login itself is the LAST resort — a
+/// person who is neither a listed reviewer nor the witness has no stored name
+/// anywhere, and showing their login is better than showing nothing, because
+/// the row still says who to ask about it.
+pub fn display_name_of(
+    login: Option<&str>,
+    reviewer_logins: &[String],
+    reviewer_names: &[String],
+    witness_login: &str,
+    wording: &ForYouWording,
+) -> String {
+    let Some(login) = login else {
+        return wording.unknown_author.clone();
+    };
+    if let Some(at) = reviewer_logins.iter().position(|l| l == login) {
+        // Index-aligned by a boot check that refuses two lists of different
+        // lengths — `get` rather than `[at]` anyway, because a panic on a
+        // settings edit is the one failure these pages must not have.
+        if let Some(name) = reviewer_names.get(at) {
+            return name.clone();
+        }
+    }
+    if login == witness_login {
+        return wording.witness_name.clone();
+    }
+    login.to_string()
 }
 
 #[cfg(test)]

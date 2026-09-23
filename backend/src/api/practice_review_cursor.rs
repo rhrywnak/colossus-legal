@@ -36,15 +36,13 @@ use uuid::Uuid;
 use crate::{
     auth::AuthUser,
     dto::practice_review::DeckReviewDto,
-    dto::practice_review::ReviewCursorResponse,
+    dto::practice_review::{ReviewCursorResponse, ReviewSweepRequest, SweptItem},
     error::AppError,
-    repositories::pipeline_repository::review_cursor::{
-        awaiting_review, mark_reviewed, AwaitingReviewRow,
-    },
+    repositories::pipeline_repository::item_seen::{mark_scenario_notes_seen, mark_seen, ItemRef},
+    repositories::pipeline_repository::review_cursor::{awaiting_review, AwaitingReviewRow},
     services::{
-        practice_notes::attribution,
-        review_permission::may_review,
-        war_room_progress::{review_queue_reviewer, reviewer_display_line},
+        practice_notes::attribution, review_permission::may_review,
+        war_room_progress::review_queue_reviewer,
     },
     state::AppState,
 };
@@ -52,15 +50,23 @@ use crate::{
 use super::practice::repo_error;
 use super::scenario_facts::{ensure_scenario_in_case, parse_scenario_id};
 
-/// Move the signed-in user's review mark on this deck to now.
+/// Record that this reviewer has READ the items the page showed.
 ///
 /// ## Domain note: the press must be permitted, because it is now READ
 ///
-/// The cursor is keyed by `username` — the id `attribution` stamps on every
-/// practice write — and the queue takes the LATEST mark on the scenario from
-/// ANY row (R1). So one permitted press clears the queue for everyone, and a
-/// press this route should not have accepted would clear it for everyone too.
-/// Hence the 403: the button being hidden is a courtesy, this is the fence.
+/// The seen rows are keyed by `username` — the id `attribution` stamps on every
+/// practice write — and they decide what the war room's pill, the deck's bar
+/// and the For You page show THIS person. The 403 stays for the reason it
+/// arrived: a client calling an address it was not offered must not be able to
+/// write read-state at all.
+///
+/// ## What changed under it (CC_TASK_FOR_YOU_v1 L2)
+///
+/// It used to move one timestamp for the whole deck, shared across the bench.
+/// It now writes one row per item, for the presser alone. Two consequences,
+/// both intended: an item that arrived while the page was being read is NOT
+/// swept (it is not in `items`), and another reviewer's queue is untouched —
+/// their inbox is their own.
 ///
 /// # Errors
 /// 400 for an unparseable scenario id; **403 when the caller may not review**;
@@ -69,6 +75,7 @@ pub async fn put_review_cursor(
     user: AuthUser,
     State(state): State<AppState>,
     Path((slug, scenario_id)): Path<(String, String)>,
+    Json(body): Json<ReviewSweepRequest>,
 ) -> Result<Json<ReviewCursorResponse>, AppError> {
     let scenario_id = parse_scenario_id(&scenario_id)?;
     ensure_scenario_in_case(&state, scenario_id, &slug).await?;
@@ -95,20 +102,57 @@ pub async fn put_review_cursor(
         });
     }
 
-    let looked_at = mark_reviewed(&state.pipeline_pool, &user_id, scenario_id)
+    let items: Vec<ItemRef> = body.items.iter().map(swept).collect();
+    let shown = mark_seen(&state.pipeline_pool, &user_id, &items)
         .await
         .map_err(|e| {
             repo_error(
-                "mark_reviewed",
+                "mark_seen",
                 format!("{slug} scenario {scenario_id} user {user_id}: {e}"),
             )
         })?;
+    // The one item no row can name — see `ReviewSweepRequest::served_at`.
+    let scenario_notes =
+        mark_scenario_notes_seen(&state.pipeline_pool, &user_id, scenario_id, body.served_at)
+            .await
+            .map_err(|e| {
+                repo_error(
+                    "mark_scenario_notes_seen",
+                    format!("{slug} scenario {scenario_id} user {user_id}: {e}"),
+                )
+            })?;
 
-    tracing::info!(%slug, %scenario_id, user = %user_id, %looked_at, "practice: deck marked reviewed");
+    let marked = u32::try_from(shown + scenario_notes).map_err(|_| {
+        repo_error(
+            "mark_seen",
+            format!("{slug} scenario {scenario_id} user {user_id}: the written count does not fit a u32"),
+        )
+    })?;
+    tracing::info!(
+        %slug, %scenario_id, user = %user_id,
+        shown_items = items.len(), written = marked,
+        "practice: a deck's shown items were marked read"
+    );
     Ok(Json(ReviewCursorResponse {
         scenario_id,
-        looked_at,
+        marked,
     }))
+}
+
+/// One wire item as the repository's own reference.
+///
+/// ## Rust Learning: two enums for one idea, and why they are not shared
+///
+/// `SweptItem` is the WIRE shape (it derives serde); `ItemRef` is the
+/// repository's (it does not). The same split every DTO in this build makes:
+/// a change to how a value is carried cannot silently change how it is stored,
+/// and the compiler makes this three-line function the only place the two meet.
+fn swept(item: &SweptItem) -> ItemRef {
+    match item {
+        SweptItem::Answer(id) => ItemRef::Answer(*id),
+        SweptItem::Note(id) => ItemRef::Note(*id),
+        SweptItem::Change(id) => ItemRef::Change(*id),
+    }
 }
 
 /// The deck's review bar: the reviewer's backlog on this scenario, and whether
@@ -125,12 +169,27 @@ pub(super) async fn deck_review(
 ) -> Result<DeckReviewDto, AppError> {
     let settings = state.settings.current();
     let reviewers = review_queue_reviewer(&settings);
-    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], reviewers)
+    // ⚑ A viewer who may not review is served NO COUNT AT ALL (ruled
+    // 2026-09-23), and the read does not run.
+    //
+    // The number is what THIS reader has not read on the REVIEWERS' side. For
+    // the witness that is not a duty she has and not a number she can act on —
+    // and until this shipped she read it under a sentence naming Chuck. The
+    // words moved with it (migration 20260923071048); this is the other half,
+    // and it is the half that makes the sentence true: correcting only the
+    // words would have left her reading "2 questions awaiting your review"
+    // about answers she wrote herself.
+    if !can_mark_reviewed(user_id, is_admin, reviewers) {
+        return Ok(no_review_bar());
+    }
+    // The bar's number is THIS reader's, like every other reading of the queue
+    // since L2 — see `review_cursor`'s header for why it stopped being global.
+    let rows = awaiting_review(&state.pipeline_pool, &[scenario_id], user_id, reviewers)
         .await
         .map_err(|e| {
             repo_error(
                 "awaiting_review",
-                format!("scenario {scenario_id} reviewers {reviewers:?}: {e}"),
+                format!("scenario {scenario_id} viewer {user_id} reviewers {reviewers:?}: {e}"),
             )
         })?;
     let row = rows.iter().find(|r| r.scenario_id == scenario_id);
@@ -142,8 +201,10 @@ pub(super) async fn deck_review(
     })?;
     Ok(DeckReviewDto {
         awaiting,
+        // Reached only when the guard above let this reader through, so it is
+        // `true` here by construction — spelled out rather than hard-coded, so
+        // that the field and the guard cannot drift apart.
         can_mark_reviewed: can_mark_reviewed(user_id, is_admin, reviewers),
-        reviewer_display_name: reviewer_display_line(&settings),
         // Formatted HERE, in the case's own timezone, like every other date on
         // this surface — the browser holds no date format and fills only the
         // stored clause's `{date}`. `None` when the read returned no date, which
@@ -155,6 +216,22 @@ pub(super) async fn deck_review(
             )
         }),
     })
+}
+
+/// The bar a viewer who may not review is served: nothing, said plainly.
+///
+/// A zero rather than an absent block, for the reason every count on this wire
+/// is a number: the browser decides not to DRAW a bar, and a missing field
+/// would be indistinguishable from a payload that forgot to carry one. The
+/// frontend also refuses to draw it on `can_mark_reviewed` alone, so a future
+/// non-zero here could not leak a bar onto her screen.
+fn no_review_bar() -> DeckReviewDto {
+    DeckReviewDto {
+        awaiting: 0,
+        can_mark_reviewed: false,
+        // No oldest, because nothing is waiting for this reader to review.
+        oldest: None,
+    }
 }
 
 /// Whether this signed-in user may press Done reviewing.
@@ -311,13 +388,77 @@ mod tests {
         let refused = body
             .find("AppError::Forbidden")
             .expect("an impermissible press is a 403");
-        let wrote = body.find("mark_reviewed(").expect("the press is written");
+        // `mark_seen` since L2 — the press writes per-item rows now, and this
+        // test is about ORDER, so it follows the name of whatever writes.
+        let wrote = body.find("mark_seen(").expect("the press is written");
         assert!(asked < wrote, "permission is asked before the write");
         assert!(refused < wrote, "and the refusal returns before the write");
         assert!(
             body.contains("user.is_admin()"),
             "the admin door is the caller's groups, not a list"
         );
+    }
+
+    /// (M) The READ asks permission before it queries, and returns the empty bar.
+    ///
+    /// The same source scan, and the same reason, as the test above: the helper
+    /// needs an `AppState` and a live pool, so what can be proved without one is
+    /// the ORDER of what it does. Three things must hold, and the third is the
+    /// one the 2026-09-23 ruling turns on — a reader who may not review must
+    /// cost no query, because the number that query returns is about a duty
+    /// that is not theirs and used to be shown to them under somebody else's
+    /// name.
+    #[test]
+    fn the_read_asks_permission_before_it_queries() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("src/api/practice_review_cursor.rs"),
+        )
+        .expect("this module is on disk");
+        let from = source
+            .find("pub(super) async fn deck_review(")
+            .expect("the helper is declared");
+        let rest = &source[from..];
+        let to = rest[1..]
+            .find("\n/// ")
+            .map(|i| i + 1)
+            .unwrap_or(rest.len());
+        // Comments stripped, for the reason the sibling gives: the doc comment
+        // above this helper TALKS about the guard, and a scan that read prose
+        // would pass on a helper that had lost it.
+        let body: String = rest[..to]
+            .lines()
+            .map(|line| match line.find("//") {
+                Some(at) => &line[..at],
+                None => line,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let asked = body
+            .find("can_mark_reviewed(")
+            .expect("permission is consulted");
+        let empty = body
+            .find("no_review_bar()")
+            .expect("a reader who may not review is served the empty bar");
+        let queried = body
+            .find("awaiting_review(")
+            .expect("the count is read for everybody else");
+        assert!(asked < queried, "permission is asked before the query");
+        assert!(empty < queried, "and the empty bar returns before it");
+    }
+
+    /// The empty bar is empty in every field a screen could read.
+    ///
+    /// A `0` with `can_mark_reviewed` still true would draw a bar for a beat on
+    /// the next render, and an `oldest` left behind would date a queue that is
+    /// not being shown at all.
+    #[test]
+    fn the_empty_bar_carries_nothing_a_screen_could_draw() {
+        let bar = no_review_bar();
+        assert_eq!(bar.awaiting, 0);
+        assert!(!bar.can_mark_reviewed);
+        assert_eq!(bar.oldest, None);
     }
 
     /// The bench as a slice of owned names — the shape the settings row reads as.

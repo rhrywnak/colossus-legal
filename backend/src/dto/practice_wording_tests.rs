@@ -31,6 +31,31 @@ fn mirror() -> PracticeWordingDto {
     )
 }
 
+/// Declared rows whose sentence is composed on the SERVER and therefore has no
+/// wire field of its own.
+///
+/// ## Why these four are the exception, and how the exception stays honest
+///
+/// The board-4 mark on a deck's question row (CC_TASK_FOR_YOU_v1 L3) is chosen
+/// from four stored templates per row, by what is unread on that question FOR
+/// THE READER — a fact the browser does not have. So the finished sentence
+/// rides `PracticeQuestionDto.waiting` and these keys never cross the wire at
+/// all. Mirroring them anyway would put four strings the browser can never use
+/// into every deck payload.
+///
+/// The guard does not go blind: `practice_wording_reach_tests` fails if any
+/// frontend file ever asks for one of these by name, because it would then have
+/// no field — which is the same failure, caught from the other side. And the
+/// test below asserts that each of them really is ABSENT from the mirror, so a
+/// key parked on this list and then quietly added would fail too.
+// STRUCTURAL: stored key names, matched exactly. Not configuration.
+const COMPOSED_SERVER_SIDE: &[&str] = &[
+    "practice_row_waiting_note_template",
+    "practice_row_waiting_answer_template",
+    "practice_row_waiting_change",
+    "practice_row_waiting_more_template",
+];
+
 /// The mirror carries every declared key from BOTH blocks — so a field added
 /// to either and forgotten here fails at `cargo test` rather than as an
 /// `undefined` in the middle of Marie's session.
@@ -38,7 +63,7 @@ fn mirror() -> PracticeWordingDto {
 fn the_mirror_carries_every_declared_key_from_both_blocks() {
     let value = serde_json::to_value(mirror()).expect("the mirror serializes");
     assert_eq!(
-        value.as_object().expect("an object body").len(),
+        value.as_object().expect("an object body").len() + COMPOSED_SERVER_SIDE.len(),
         PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_REPORT_WORDING_KEYS.len()
@@ -50,6 +75,31 @@ fn the_mirror_carries_every_declared_key_from_both_blocks() {
             + PRACTICE_LIST_WORDING_KEYS.len()
             + PRACTICE_REVIEW_WORDING_KEYS.len()
     );
+}
+
+/// The four server-composed keys are declared, and really are off the wire.
+///
+/// Both halves matter. Declared-but-absent is the fact the count above leans
+/// on; a key that stopped being declared would make that subtraction wrong in
+/// the direction nothing else checks.
+#[test]
+fn the_server_composed_keys_are_declared_and_not_served() {
+    let value = serde_json::to_value(mirror()).expect("the mirror serializes");
+    let served = value.as_object().expect("an object body");
+    for key in COMPOSED_SERVER_SIDE {
+        assert!(
+            PRACTICE_ROW_WORDING_KEYS.contains(key),
+            "{key} is excluded from the mirror count but declared by no block"
+        );
+        let wire = key
+            .strip_prefix("practice_")
+            .expect("every row key carries the block prefix");
+        assert!(
+            !served.contains_key(wire),
+            "{key} is on the wire as `{wire}` — it is composed on the server \
+             (`PracticeQuestionDto.waiting`) and the count above subtracts it"
+        );
+    }
 }
 
 /// Every wire name is a stored key without its `practice_` prefix, and comes

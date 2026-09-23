@@ -76,6 +76,23 @@ describe("fetchForYou", () => {
     expect(url).toContain(`/api/cases/${SLUG}/for-you`);
   });
 
+  it("appends ?deck= when the war room's count sent the reader to ONE deck", async () => {
+    // The other half of the contract `routePaths::forYouPath` composes: the
+    // page reads the parameter out of its own address and hands it here, and
+    // the backend reads it as `ForYouQuery::deck`. A disagreement anywhere in
+    // that chain fails SILENTLY — the server sees no filter and answers with
+    // the whole case — so the encoding is asserted rather than assumed.
+    const mock = okFetch(page());
+    await fetchForYou(SLUG, "s/1");
+    expect(String(mock.mock.calls[0][0])).toContain("/for-you?deck=s%2F1");
+  });
+
+  it("appends NO query when the whole case was asked for", async () => {
+    const mock = okFetch(page());
+    await fetchForYou(SLUG);
+    expect(String(mock.mock.calls[0][0])).not.toContain("?");
+  });
+
   it("resolves normally on an EMPTY list — that is a screen, not a failure", async () => {
     // A client that treated "nothing waiting" as an error would put a red
     // failure notice in front of the person who is up to date.

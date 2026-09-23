@@ -18,7 +18,7 @@ import React from "react";
 import { Link } from "react-router-dom";
 
 import type { ForYouRow as Row } from "../../services/forYou";
-import { practicePath, practiceQuestionPath } from "../../utils/routePaths";
+import { practicePath, practiceQuestionPath, practiceReviewPath } from "../../utils/routePaths";
 import * as s from "./forYouStyles";
 
 type Props = {
@@ -33,8 +33,18 @@ type Props = {
  * is what tells the question page to mark the question read (ruling Q4). A note
  * about a whole scenario has no question to open, so it opens the deck; it does
  * not clear, and L2's sweep is what will clear it.
+ *
+ * A DECK row opens the deck's REVIEW page (L3): it stands for several answers
+ * on several questions, which is precisely the page built to read them together
+ * and clear them together with Done reviewing.
  */
 export function rowHref(row: Row, slug: string): string {
+  // STRUCTURAL: `deck` is the wire kind the server gives a grouped row —
+  // `RowVoice::deck_row` in `backend/src/services/for_you_rows.rs`. Renaming it
+  // on either side changes the format, and this branch must change with it.
+  if (row.kind === "deck") {
+    return practiceReviewPath(slug, row.scenario_id);
+  }
   return row.question_id === undefined
     ? practicePath(slug, row.scenario_id)
     : practiceQuestionPath(slug, row.scenario_id, row.question_id, "for-you");

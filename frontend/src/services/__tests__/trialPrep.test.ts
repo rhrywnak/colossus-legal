@@ -22,6 +22,7 @@ const SLUG = "awad_v_catholic_family_service";
 // A minimal-but-valid payload: the two load-bearing fields the client validates
 // (`metrics` present, `scenarios` an array) plus the one live card.
 const validResponse: TrialPrepDashboard = {
+  may_review: true,
   metrics: {
     scenarios: 5,
     ready: 1,

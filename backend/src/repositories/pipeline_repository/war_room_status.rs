@@ -28,6 +28,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use super::waiting_items::{waiting_counts, WaitingQuery, WaitingScope, WaitingSide};
 use super::PipelineRepoError;
 
 // STRUCTURAL: the `practice_questions.side` CHECK vocabulary
@@ -142,104 +143,69 @@ pub struct ChangedCountRow {
     pub changed: i64,
 }
 
-/// The amber pill's number, for every scenario asked for (CC_GO_WAR_ROOM_v3).
+/// The amber pill's number, for every scenario asked for — now DERIVED from the
+/// per-item seen record (CC_TASK_FOR_YOU_v1 L2).
 ///
-/// ## Domain note: per question, and no sittings
+/// ## What it used to be, and what replaced it
 ///
-/// A visible question counts when EITHER
-/// - it has an answer and its newest change is later than that answer — she
-///   answered words that have since changed; or
-/// - it has no answer and its newest change is later than the newest answer
-///   anywhere in the scenario — it arrived or moved after she last worked here.
+/// A question counted when its newest change or unstruck note was later than
+/// the witness's own last answer — her answering was the read mark, and nothing
+/// was stored. That could say a deck held something new and never WHICH
+/// question, and it could not be cleared by reading: only by answering again.
 ///
-/// "Its newest change" includes NOTES (CC_TASK_REVIEW_LOOP_v1 §3): an UNSTRUCK
-/// note on the question, or on its CURRENT answer, is a change she has not read.
-/// `GREATEST(chg.at, nt.at)` is the newer of the two — Postgres's `GREATEST`
-/// ignores NULLs, so a question with only a note, or only a change, still has a
-/// signal. A note on a superseded attempt never counts (GO v1 ruling 6), and a
-/// struck note never counts — withdrawing it withdraws the work it asked for.
+/// It is now the same predicate the For You page reads, asked per deck about
+/// HER: the items on the witness's side (a listed reviewer's note, a reworded
+/// question) that she has not seen. One query behind the tile, the page and the
+/// deck bar, so a count can never send her to a list that shows her nothing.
 ///
-/// ## SQL note: `LEFT JOIN LATERAL`
+/// ## Domain note: the OWNER, not the viewer
 ///
-/// An ordinary join's subquery cannot see the other tables in the FROM list.
-/// `LATERAL` lets it — so the note subquery can read THIS row's `q.id` and
-/// `cur.answer_id`, and "a note on the current answer" is expressible at all.
-/// `LEFT … ON true` keeps a question with no notes (its `MAX` is NULL).
+/// `witness` is the `practice_witness_username` row, and it is both whose side
+/// is counted and whose seen record clears it. Whoever is LOOKING at the war
+/// room does not enter into it — the tile reports her backlog to anybody,
+/// which is the ruling of 2026-09-17 carried forward unchanged.
 ///
-/// ## Domain note: her OWN notes do not badge her (ruled 2026-09-20)
+/// `reviewers` is the stored `practice_reviewer_usernames` list. It decides
+/// which notes are a REVIEWER's and therefore hers to read (ruling R2); it
+/// never decides who may see this number.
 ///
-/// `witness` is the `practice_witness_username` settings row, and a note that
-/// login wrote never reaches this count. Until v2.1.15 it did: Marie wrote
-/// Chuck a note on 19 September and her own tile came back reading "1 new or
-/// changed for Marie", because this LATERAL had no author leg at all.
+/// ## What changed for a reader, stated plainly
 ///
-/// It filters by the count's OWNER, never by the signed-in viewer. The number
-/// is one global fact by ruling (2026-09-17) and this build has no
-/// is-the-reader-the-witness concept, so a viewer filter would give three
-/// people three different truths about one deck. A message she wrote to
-/// somebody else is not work waiting on her, whoever is looking at the tile.
+/// Her own notes still never badge her — an item never waits for its own
+/// author. A question SHE reworded no longer badges her either, which it used
+/// to: the ruling of 2026-09-22 (Q3) excludes an item's author on every kind,
+/// and "Marie changed this — waiting for Marie" was never a sentence worth
+/// printing. And a change that touched something other than the question's
+/// TEXT — Chuck's `stronger` or `tactic` notes on it — no longer counts at all.
 ///
-/// The NULL case is named for the reason `review_cursor` names it: notes from
-/// before 2026-08-19 carry `author_id = NULL`, `NULL <> 'docmarie'` is NULL,
-/// and a NULL here drops the note from a `WHERE` — so an unattributed note
-/// would silently stop counting. NULL means "not the witness", not "skip it".
-///
-/// Question EDITS are deliberately untouched. `chg` reads
-/// `practice_deck_changes` with no author leg, so a question SHE moved or
-/// reworded still badges her — the badge asks her to re-read a question whose
-/// words have changed, and it is no less true when she changed them.
-///
-/// Chuck's queue is a different query in a different module
-/// (`review_cursor::awaiting_review`), and it is untouched: her notes must keep
-/// counting as work awaiting his review, which is the loop this closes the
-/// other half of.
-///
-/// And nothing counts in a scenario with no answer at all (`latest IS NULL`): a
-/// deck she has never opened is not "changed", however many `added` rows its
-/// seeding wrote. `practice_sessions` is joined only to learn which scenario an
-/// answer belongs to, exactly as `current_answers` does — never for `ended_at`,
-/// because nothing in her one-page flow ever ends a sitting.
-///
-/// It resets itself one question at a time by the act she already performs:
-/// answering.
 pub async fn changed_counts(
     pool: &PgPool,
     scenario_ids: &[Uuid],
     witness: &str,
+    reviewers: &[String],
 ) -> Result<Vec<ChangedCountRow>, PipelineRepoError> {
-    let sql = format!(
-        "WITH {CURRENT_ANSWERS_CTE}, \
-         latest AS ( \
-            SELECT s.scenario_id, MAX(a.answered_at) AS at \
-            FROM practice_answers a JOIN practice_sessions s ON s.id = a.session_id \
-            WHERE s.scenario_id = ANY($1) GROUP BY s.scenario_id), \
-         chg AS ( \
-            SELECT question_id, MAX(changed_at) AS at FROM practice_deck_changes \
-            WHERE scenario_id = ANY($1) GROUP BY question_id) \
-         SELECT ids.scenario_id, \
-                COUNT(q.id) FILTER (WHERE latest.at IS NOT NULL \
-                    AND GREATEST(chg.at, nt.at) IS NOT NULL AND ( \
-                    (cur.answered_at IS NOT NULL AND GREATEST(chg.at, nt.at) > cur.answered_at) OR \
-                    (cur.answered_at IS NULL AND GREATEST(chg.at, nt.at) > latest.at))) AS changed \
-         FROM unnest($1::uuid[]) AS ids(scenario_id) \
-         LEFT JOIN latest ON latest.scenario_id = ids.scenario_id \
-         LEFT JOIN practice_questions q \
-                ON q.scenario_id = ids.scenario_id AND q.hidden_at IS NULL \
-         LEFT JOIN cur ON cur.question_id = q.id \
-         LEFT JOIN chg ON chg.question_id = q.id \
-         LEFT JOIN LATERAL ( \
-            SELECT MAX(n.created_at) AS at FROM practice_notes n \
-            WHERE n.question_id = q.id AND n.struck_at IS NULL \
-              AND (n.author_id IS NULL OR n.author_id <> $2) \
-              AND (n.answer_id IS NULL OR n.answer_id = cur.answer_id)) nt ON true \
-         GROUP BY ids.scenario_id"
-    );
-    sqlx::query_as::<_, ChangedCountRow>(&sql)
-        .bind(scenario_ids)
-        .bind(witness)
-        .fetch_all(pool)
-        .await
-        .map_err(PipelineRepoError::from)
+    let rows = waiting_counts(
+        pool,
+        &WaitingQuery {
+            scenario_ids,
+            // The count's OWNER is also the person it is counted FOR: this
+            // number is "new or changed for Marie", and the seen record that
+            // clears it is hers. Whoever is LOOKING at the war room does not
+            // enter into it — the tile reports her backlog to anybody.
+            viewer: witness,
+            reviewers,
+            side: WaitingSide::Witness,
+            scope: WaitingScope::Unseen,
+        },
+    )
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|row| ChangedCountRow {
+            scenario_id: row.scenario_id,
+            changed: row.waiting,
+        })
+        .collect())
 }
 
 // `pub(crate)`: the review-loop proofs (`review_cursor`, and the notes file

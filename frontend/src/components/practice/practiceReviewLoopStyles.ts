@@ -45,6 +45,39 @@ export const reviewCount: CSSProperties = {
   fontSize: 14,
 };
 
+/**
+ * The board-4 mark on a question's row: "Chuck left a note".
+ *
+ * The amber of owed work, small and inline, sitting where the answered-on line
+ * sits — so a reader running down the deck sees it in the same column as every
+ * other fact about the row. A chip and not a sentence: it is a flag, and the
+ * thing it flags is the question it is under (FOR_YOU_MOCKUP_v1 board 4).
+ */
+export const waitingMark: CSSProperties = {
+  display: "inline-block",
+  marginTop: 4,
+  padding: "1px 8px",
+  borderRadius: 999,
+  background: "var(--practice-review-amber-bg)",
+  border: "1px solid var(--practice-review-amber-border)",
+  color: "var(--burden-warning-text)",
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+/**
+ * A reply, drawn under the note it answers.
+ *
+ * Indented and rail-less: the pair is ONE exchange, and a second full frame
+ * beside the first reads as two unrelated notes — which is exactly the thing
+ * the reply column exists to stop.
+ */
+export const replyFrame: CSSProperties = {
+  marginLeft: 20,
+  paddingLeft: 12,
+  borderLeft: "2px solid var(--practice-review-amber-border)",
+};
+
 /** The failure sentence under the bar. */
 export const reviewError: CSSProperties = { color: "var(--practice-red)", fontSize: 14, width: "100%" };
 

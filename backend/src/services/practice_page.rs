@@ -32,8 +32,10 @@ use crate::repositories::pipeline_repository::practice_flow::{
     CurrentAnswerRecord, OpenSessionRecord,
 };
 use crate::repositories::pipeline_repository::practice_notes::NoteRecord;
+use crate::repositories::pipeline_repository::waiting_items::WaitingItemRow;
 use crate::services::practice_note_view::row_notes;
 use crate::services::practice_status::open_session_detail;
+use crate::services::practice_waiting_tag::waiting_tag;
 
 /// The tactic's NAME for a card number, or `None` when the question carries none.
 ///
@@ -130,7 +132,7 @@ pub fn question_dto_for(
     settings: &Settings,
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
-    question_dto(settings, &[], &[], record)
+    question_dto(settings, &[], &[], &[], record)
 }
 
 /// One talking point with its receipt, for a caller outside this module.
@@ -253,6 +255,7 @@ fn question_dto(
     settings: &Settings,
     current: &[CurrentAnswerRecord],
     notes: &[NoteRecord],
+    waiting: &[WaitingItemRow],
     record: PracticeQuestionRecord,
 ) -> PracticeQuestionDto {
     // Composed here for the reason this module's header gives: the client holds
@@ -265,7 +268,13 @@ fn question_dto(
     // that stands now (CC_TASK_REVIEW_LOOP_v1 §4).
     let notes = row_notes(settings, notes, record.id, standing.map(|a| a.answer_id));
     PracticeQuestionDto {
+        // The board-4 mark: what is unread on this question for the person
+        // reading the deck (L3). `None` when nothing is, and absent on the wire.
+        waiting: waiting_tag(settings, waiting, record.id),
         notes,
+        // The row's own answer id, so a page that renders this row can name it
+        // when the reviewer presses Done — `ReviewSweepRequest`.
+        answer_id: standing.map(|a| a.answer_id),
         tactic: tactic_tag(settings, &record),
         // The NUMBER, untouched — what the editor's dropdown selects and sends
         // back. `tactic_tag` above is the same fact composed for a READER, braid
@@ -438,6 +447,9 @@ pub struct DeckSources<'a> {
     pub attach_options: Vec<crate::dto::practice_review::PracticeAttachOptionDto>,
     /// Every note on this scenario, oldest first — filtered per row.
     pub notes: &'a [NoteRecord],
+    /// What is UNREAD on this deck for the person asking, newest first — one
+    /// read for the payload, filtered per row into the board-4 mark (L3).
+    pub waiting: &'a [WaitingItemRow],
     /// The review bar, decided by the handler (`practice_review_cursor::deck_review`).
     pub review: crate::dto::practice_review::DeckReviewDto,
 }
@@ -460,6 +472,7 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
         open,
         attach_options,
         notes,
+        waiting,
         review,
     } = sources;
 
@@ -471,12 +484,16 @@ pub fn deck_payload(settings: &Settings, sources: DeckSources<'_>) -> PracticeDe
     PracticeDeckPayload {
         review,
         deck_as_of,
+        // The SERVER's clock, handed out so the sweep can hand it back — see
+        // the field's own doc. Taken here, at assembly, rather than at the
+        // route: this is the moment the contents below were true.
+        served_at: chrono::Utc::now(),
         scenario_id,
         code,
         title,
         questions: deck
             .into_iter()
-            .map(|record| question_dto(settings, current, notes, record))
+            .map(|record| question_dto(settings, current, notes, waiting, record))
             .collect(),
         points: point_dtos(points, receipts),
         last_session_line: last_session_line(
