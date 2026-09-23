@@ -52,6 +52,7 @@ import {
   askPath,
   caseHealthPath,
   documentsPath,
+  forYouPath,
   homePath,
   peoplePath,
   proofMatrixPath,
@@ -128,6 +129,13 @@ export const NAV_ITEMS: NavBarItem[] = [
       },
     ],
   },
+  // "For you" is TOP-LEVEL and deliberately so: it is the one entry that
+  // carries a count, and a badge two clicks inside a dropdown is a badge nobody
+  // sees. The label is here rather than in the wording store under ruling Q5 —
+  // it names a place in the app, like every other label in this table, and the
+  // bar must not be blank until a fetch lands. Every string ON the page itself
+  // is a settings row.
+  { label: "For you", path: forYouPath(DEFAULT_CASE_SLUG) },
   { label: "Documents", path: documentsPath() },
   { label: "Chat", path: askPath() },
 ];
@@ -151,6 +159,28 @@ export const ADMIN_ITEMS: NavLeafItem[] = [
   { label: "Logs", path: adminLogsPath(), detail: "Chats · Audit" },
   { label: "Settings", path: adminSettingsPath(), detail: "the settings & wording store" },
 ];
+
+/**
+ * What the bar shows in place of the For you count when the count could not be
+ * read, and what a screen reader says for it.
+ *
+ * ## Why these two strings are HERE and not in the wording store
+ *
+ * The same argument the header of this file makes for the labels, and one more
+ * that is specific to them: the count arrives on its own small request, and
+ * when that request fails NOTHING has arrived — including any sentence the
+ * store might have held to describe the failure. A stored row for this case
+ * would be a row that is unreachable exactly when it is needed. So it is
+ * chrome, like "Admin", and lives with the chrome.
+ */
+// STRUCTURAL: these two must be available at exactly the moment the wording
+// store is not — they describe the failure of the request that would have
+// carried a stored sentence. A settings row for this case is a row that is
+// unreachable when it is needed.
+export const FOR_YOU_COUNT_UNAVAILABLE_MARK = "!";
+// STRUCTURAL: same reason as the mark above.
+export const FOR_YOU_COUNT_UNAVAILABLE_LABEL =
+  "For you: the count could not be read — open the page to see the list";
 
 /**
  * Is this bar item the one the current route belongs to?

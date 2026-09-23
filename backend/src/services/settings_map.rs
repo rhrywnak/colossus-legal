@@ -45,8 +45,8 @@ use crate::domain::{
     wording_accusation::ACCUSATION_WORDING_KEYS, wording_authoring::AUTHORING_WORDING_KEYS,
     wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS,
     wording_chronology_keys::CHRONOLOGY_WORDING_KEYS, wording_fact_card::FACT_CARD_WORDING_KEYS,
-    wording_matrix::MATRIX_WORDING_KEYS, wording_model_params::MODEL_PARAMS_WORDING_KEYS,
-    wording_practice::PRACTICE_WORDING_KEYS,
+    wording_for_you::FOR_YOU_WORDING_KEYS, wording_matrix::MATRIX_WORDING_KEYS,
+    wording_model_params::MODEL_PARAMS_WORDING_KEYS, wording_practice::PRACTICE_WORDING_KEYS,
     wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS,
     wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS,
     wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS,
@@ -161,6 +161,11 @@ pub const AREAS: &[Area] = &[
                 id: "practice_list",
                 label: "Answer lists",
                 keys: PRACTICE_LIST_WORDING_KEYS,
+            },
+            Block {
+                id: "for_you",
+                label: "For you — one person's list, across every deck",
+                keys: FOR_YOU_WORDING_KEYS,
             },
             Block {
                 id: "practice_review",

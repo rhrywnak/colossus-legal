@@ -346,6 +346,8 @@ pub struct Settings {
     /// for why the seam falls between what she answers into and what answers her
     /// back.
     pub practice_report_wording: PracticeReportWording,
+    /// The twenty-five strings the "For you" page speaks (CC_TASK_FOR_YOU_v1).
+    pub for_you_wording: crate::domain::wording_for_you::ForYouWording,
     /// What the one-sentence read is told, by which model, and what it may say
     /// back. Nested for the reason the wording blocks are — see
     /// `domain::practice_params`.

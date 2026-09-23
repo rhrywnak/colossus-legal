@@ -133,10 +133,14 @@ pub(super) struct DeckRead {
 ///
 /// # Errors
 /// 500 (logged, with the operation named) for any read that fails.
+/// `is_admin` rides with `user_id` because the review bar asks BOTH: the button
+/// is offered to a listed reviewer or to an administrator
+/// (`services::review_permission`), and only the route has the caller's groups.
 pub(super) async fn read_deck_sources(
     state: &AppState,
     scenario_id: Uuid,
     user_id: &str,
+    is_admin: bool,
     timezone: &str,
 ) -> Result<DeckRead, AppError> {
     let deck = list_deck(&state.pipeline_pool, scenario_id)
@@ -166,6 +170,7 @@ pub(super) async fn read_deck_sources(
         notes: list_notes(&state.pipeline_pool, scenario_id)
             .await
             .map_err(|e| repo_error("list_notes", format!("scenario {scenario_id}: {e}")))?,
-        review: super::practice_review_cursor::deck_review(state, scenario_id, user_id).await?,
+        review: super::practice_review_cursor::deck_review(state, scenario_id, user_id, is_admin)
+            .await?,
     })
 }

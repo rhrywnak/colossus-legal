@@ -212,6 +212,7 @@ pub struct PracticeWordingDto {
     pub row_note_strike_label: String,
     pub row_note_struck_template: String,
     pub row_note_failed: String,
+    pub row_read_failed: String,
     // Discuss with AI (CC_TASK_QUESTION_CHAT_v1): stored key minus `practice_`.
     pub discuss_button_label: String,
     pub discuss_title_template: String,

@@ -23,6 +23,8 @@ pub mod evidence_links;
 pub mod fact_card;
 /// The wire mirror of the fact card's words (FACT_CARD_v2).
 pub mod fact_card_wording;
+pub mod for_you;
+pub mod for_you_wording;
 pub mod graph;
 pub mod harm;
 pub mod hearing;

@@ -152,6 +152,10 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // table, and a fixture missing these twelve rows would let a snapshot
         // build that the real store could not.
         .chain(crate::domain::wording_practice_row::PracticeRowWording::for_test_values())
+        // FOR_YOU L1: its own top-level block and its own flat rows. A fixture
+        // missing these twenty-five would let a snapshot build that the real
+        // store could not — the boot loader reads every one of them by name.
+        .chain(crate::domain::wording_for_you::ForYouWording::for_test_values())
         .chain(crate::domain::wording_practice_discuss::PracticeDiscussWording::for_test_values())
         .chain(crate::domain::wording_question_chat::QuestionChatWording::for_test_values())
         // CC_TASK_CHAT_ENGINE_v1: the chat's text parameters — one flat table.
@@ -976,7 +980,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
     );
     assert_eq!(
         PRACTICE_ROW_WORDING_KEYS.len(),
-        32,
+        33,
         "PRACTICE v1, the Chuck review (14): the words about ONE question — the \
          way into it alone, its status on the row, the redirect tag and its \
          drawer line, and what she would point to. Plus the one-page work's \
@@ -1044,6 +1048,15 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          failure line, the only thing a system-failed read shows her"
     );
     assert_eq!(
+        crate::domain::wording_for_you::FOR_YOU_WORDING_KEYS.len(),
+        25,
+        "FOR_YOU L1: the title, the two subtitles, the sentence for somebody who \
+         is neither side, the two tabs, the three \
+         day headings, the two deck lines, the two body templates, the byline \
+         and its six clauses, the three empty-state lines, and the two names no \
+         other settings row carries"
+    );
+    assert_eq!(
         FACT_CARD_WORDING_KEYS.len(),
         23,
         "FACT_CARD_v2: the five row labels, what an empty row says, the draft \
@@ -1072,6 +1085,8 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_WORDING_KEYS.len()
             + PRACTICE_FLOW_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
+            // FOR_YOU L1: twenty-five, the twenty-fourth list.
+            + crate::domain::wording_for_you::FOR_YOU_WORDING_KEYS.len()
             + PRACTICE_DISCUSS_WORDING_KEYS.len()
             + crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len()
             + crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len()
@@ -1082,7 +1097,7 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_REVIEW_WORDING_KEYS.len()
             + CHRONOLOGY_WORDING_KEYS.len()
             + FACT_CARD_WORDING_KEYS.len(),
-        "the seed and the twenty-three required lists must describe the same store"
+        "the seed and the twenty-four required lists must describe the same store"
     );
 }
 

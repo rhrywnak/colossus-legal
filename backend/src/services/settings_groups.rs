@@ -92,10 +92,14 @@ pub struct CoupledGroup {
 // copy of any of it.
 pub const COUPLED_GROUPS: &[CoupledGroup] = &[CoupledGroup {
     id: "reviewer_bench",
-    label: "Who may press “Done reviewing”",
+    label: "Reviewers shown on the war room",
     note: "Each reviewer is a sign-in name and the name screens print for them. \
            They are stored as two lists read in step, so they are edited together \
-           — adding one without the other is what used to be impossible.",
+           — adding one without the other is what used to be impossible. \
+           These names are DISPLAY: they are who the war room and the deck bar \
+           name, and whose own answers and notes do not wait for review. An \
+           administrator may press “Done reviewing” whether or not they are \
+           listed here.",
     entry_noun: "reviewer",
     columns: &[
         CoupledColumn {

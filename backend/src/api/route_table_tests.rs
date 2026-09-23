@@ -205,7 +205,12 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// streamed send) and `…/threads/:username/read`. `…/earlier` has no write verb
 /// by design: the old dock's thread is read-only (ADDENDUM_1).
 // Tests are allowed literal expected values: this one IS the invariant.
-const EXPECTED_ROUTE_LINES: usize = 322;
+// CC_TASK_FOR_YOU_v1 L1 adds FIVE lines for three routes: the two `GET`s each
+// bring the `HEAD` axum pairs with them, and the `POST` brings one line.
+// Measured on this branch's base (`fix/review-permission-v1`), which does NOT
+// carry the env-banner branch: whoever merges second re-runs `cargo test --lib`
+// and adjusts this one integer.
+const EXPECTED_ROUTE_LINES: usize = 327;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {
@@ -224,9 +229,9 @@ fn the_route_table_is_exactly_what_this_commit_declares() {
 fn the_walk_can_actually_see_the_router_it_claims_to_read() {
     // ⚑ THE VACUITY GUARD. Every assertion here is satisfiable by finding
     // nothing, so an axum upgrade that changed the Debug shape would leave a
-    // green test walking an empty table. These five lines are declared in five
-    // different route groups, with five different methods between them; a parse
-    // that lost any of them has stopped working and says so.
+    // green test walking an empty table. The lines below are declared across
+    // several route groups, with every method between them; a parse that lost
+    // any of them has stopped working and says so.
     let table = route_table();
     for sentinel in [
         "GET /me",
@@ -241,6 +246,14 @@ fn the_walk_can_actually_see_the_router_it_claims_to_read() {
         "POST /timeline/subsets",
         "PUT /timeline/subsets/:id/events",
         "DELETE /cases/:slug/scenarios/:scenario_id/subsets/:subset_id",
+        // CC_TASK_FOR_YOU_v1's group, one sentinel per path family, for the
+        // reason T1.3's three give: a refactor that dropped the whole
+        // `for_you::routes()` merge would leave the COUNT assertion above the
+        // only thing complaining, and a count says "something moved" where
+        // these say WHICH.
+        "GET /cases/:slug/for-you",
+        "GET /cases/:slug/for-you/summary",
+        "POST /practice/questions/:question_id/seen",
     ] {
         assert!(
             table.iter().any(|line| line == sentinel),

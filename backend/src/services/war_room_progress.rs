@@ -30,15 +30,21 @@ use crate::repositories::pipeline_repository::war_room_status::{
 use crate::services::scenario_card_assembly::count_proposed;
 use crate::services::scenario_human_links::link_counts;
 
-/// Whose Done reviewing marks the review queue is counted against.
+/// The reviewers SHOWN on the war room — the display list the queue also reads.
 ///
-/// ## Domain note: ONE place names the reviewer BENCH
+/// ## Domain note: ONE place names the shown bench
 ///
 /// The `practice_reviewer_usernames` settings row — never a literal and never
 /// the signed-in user (CC_TASK_SIMPLE_COUNTS_v1; a list since
 /// CC_TASK_REVIEW_PAGE_v1). Both readers of the queue — the War Room's cards and
-/// the deck's review bar — call this, so adding an attorney reaches both from
-/// one Settings edit.
+/// the deck's review bar — call this, so editing the list reaches both from one
+/// Settings edit.
+///
+/// ## ⚑ This is NOT who may press Done reviewing (ruled 2026-09-22)
+///
+/// Permission is `services::review_permission::may_review` — listed OR admin.
+/// What this list decides is whose names are PRINTED, and whose work does not
+/// wait for review (`review_cursor::awaiting_review`'s exclusion legs).
 ///
 /// ## Rust Learning: returning `&[String]`, not `&Vec<String>`
 ///

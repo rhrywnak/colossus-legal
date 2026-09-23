@@ -148,9 +148,21 @@ pub struct PracticeReadParams {
     ///
     /// This was one login until CC_TASK_REVIEW_PAGE_v1. Chuck reviews Marie's
     /// answers; before trial, so does Roman, and there was no way to say so
-    /// without handing the whole queue from one man to the other. Membership,
-    /// not equality, now decides who may press Done reviewing — and the mark
-    /// they move is ONE shared mark, so the count clears for everyone.
+    /// without handing the whole queue from one man to the other.
+    ///
+    /// ## ⚑ DISPLAY, not permission (ruled 2026-09-22)
+    ///
+    /// It does NOT decide who may press Done reviewing — that is
+    /// `services::review_permission::may_review`, which also admits anyone in
+    /// the admin group. Roman took himself off this list to keep his name off
+    /// the war room and lost the button with it, which is the defect
+    /// CC_TASK_REVIEW_PERMISSION_v1 fixed.
+    ///
+    /// What it still decides: whose names the dashboard and the deck bar print,
+    /// and whose answers and notes do not count as work waiting for review
+    /// (`review_cursor::awaiting_review`'s exclusion legs — SQL cannot read
+    /// Authentik groups, so an unlisted administrator's own work waits until a
+    /// Done is pressed).
     pub reviewer_usernames: Vec<String>,
     /// The reviewers' names as screens print them, in the SAME ORDER as
     /// [`Self::reviewer_usernames`] — see [`KEY_PRACTICE_REVIEWER_DISPLAY_NAMES`].

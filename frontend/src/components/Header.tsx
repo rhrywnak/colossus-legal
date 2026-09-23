@@ -1,9 +1,22 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { DEFAULT_CASE_SLUG } from "../services/caseHeader";
+import { forYouPath } from "../utils/routePaths";
 import { logout } from "../services/auth";
+import ForYouBadge from "./forYou/ForYouBadge";
 import { ADMIN_ITEMS, isActivePath as isActive, NAV_ITEMS } from "./navItems";
 import NavDropdown from "./NavDropdown";
+
+/**
+ * Which bar entry carries the count.
+ *
+ * Read off the TABLE's own builder rather than written out here: the entry's
+ * address is `navItems`' to decide, and comparing against a second copy of it
+ * would be the half-signed contract `routePaths` exists to end. A bar with no
+ * such entry simply never matches, and no badge is drawn.
+ */
+const forYouEntryPath = forYouPath(DEFAULT_CASE_SLUG);
 
 const AUTHENTIK_SETTINGS_URL = "https://auth.cogmai.com/if/user/#/settings";
 
@@ -199,6 +212,9 @@ const Header: React.FC = () => {
               }}
             >
               {item.label}
+              {/* The count rides the menu entry it belongs to, so it is on
+                  every page without needing a place of its own. */}
+              {item.path === forYouEntryPath && <ForYouBadge />}
             </Link>
           ),
         )}

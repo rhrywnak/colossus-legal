@@ -50,6 +50,9 @@ const SEED_MIGRATIONS: &[&str] = &[
     "pipeline_migrations/20260920161341_practice_witness_row_and_done_confirm_wording.sql",
     // PRACTICE_FIXES_v2.2.1: the answer box says it is saved.
     "pipeline_migrations/20260922072151_practice_fixes_v2_2_1.sql",
+    // FOR_YOU L1: the one line the question page shows when the read-clear the
+    // list asked for did not land.
+    "pipeline_migrations/20260922165053_for_you_page_wording.sql",
 ];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
@@ -115,6 +118,10 @@ const TEST_SEED: &[(&str, &str)] = &[
     (KEY_NOTE_STRIKE_LABEL, "Strike"),
     (KEY_NOTE_STRUCK_TEMPLATE, "struck {when}"),
     (KEY_NOTE_FAILED, "The note could not be saved \u{2014} nothing was written."),
+    (
+        KEY_ROW_READ_FAILED,
+        "This question could not be marked as read \u{2014} it is still on your For you list.",
+    ),
 ];
 
 impl PracticeRowWording {

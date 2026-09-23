@@ -413,6 +413,7 @@ pub fn build_settings(rows: &HashMap<String, AppSettingRecord>) -> Result<Settin
         war_room_wording: words.war_room,
         practice_wording: words.practice,
         practice_report_wording: words.practice_report,
+        for_you_wording: words.for_you,
         practice_read: crate::services::settings_practice::build_practice_read_params(rows)?,
         question_chat: crate::services::settings_chat::build_question_chat_params(rows)?,
         evidence_tier_map,

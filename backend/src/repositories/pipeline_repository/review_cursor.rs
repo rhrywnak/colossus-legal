@@ -94,24 +94,34 @@ pub struct AwaitingReviewRow {
 ///
 /// ## Domain note: one queue, the same for every viewer
 ///
-/// `reviewers` is the `practice_reviewer_usernames` settings row — never the
-/// signed-in user. Anyone may read an answer or press Done reviewing, but only
-/// a LISTED reviewer's cursor row is read here, so nobody else's press moves
-/// this number. Until v2.1.10 this counted against the VIEWER, which gave three
-/// people three different truths about one deck.
+/// Never the signed-in user. Until v2.1.10 this counted against the VIEWER,
+/// which gave three people three different truths about one deck.
 ///
-/// ## Domain note: ONE SHARED CURSOR over the bench (ruled 2026-09-19)
+/// ## Domain note: ONE SHARED CURSOR over EVERY PRESS (ruled 2026-09-22, R1)
 ///
-/// The `mark` CTE takes `MAX(looked_at)` across every listed reviewer rather
-/// than one person's row. That is what "any listed reviewer's press clears the
-/// count for everyone" means in SQL — and it is a RULING, not a refactor: with
-/// one row per reviewer read independently there would be as many queues as
-/// there are reviewers, which is the state v2.1.10 was written to end.
+/// The `mark` CTE takes `MAX(looked_at)` across every cursor row on the
+/// scenario — it no longer filters by the shown list. "Any permitted press
+/// clears the count for everyone" is the rule, and WHO IS PERMITTED is decided
+/// once, at the route (`services::review_permission::may_review`, enforced by
+/// `api::practice_review_cursor::put_review_cursor` with a 403). Every row in
+/// this table was therefore written by somebody allowed to write it.
 ///
-/// The exclusion legs moved with it, for the same ruling. An answer or a note
-/// written by ANY listed reviewer no longer waits: left as one name, the second
-/// reviewer's own note would have counted as work waiting for the second
-/// reviewer, which is precisely the bug the exclusion exists to prevent.
+/// It had to change: permission became "listed OR administrator" when Roman took
+/// himself off the war room's display list to stop it naming him and lost the
+/// button with it. An admin's press wrote a row this CTE did not read, so the
+/// queue never cleared and his review was silently ignored — the exact failure
+/// the task forbade.
+///
+/// ## Domain note: the EXCLUSION legs still read the shown list (R2)
+///
+/// `$1` below is still the `practice_reviewer_usernames` row, and it still
+/// decides whose work does not wait. SQL cannot see Authentik groups, so an
+/// unlisted administrator's own answer or note DOES wait until a Done is
+/// pressed — including by himself, which he may always do. Ruled 2026-09-22:
+/// simple and never stale, over a query that tries to guess at group membership.
+/// An answer or a note written by any LISTED reviewer no longer waits (2026-09-19):
+/// left as one name, the second reviewer's own note counted as work waiting for
+/// the second reviewer.
 ///
 /// ## Domain note: `IS DISTINCT FROM`, not `<>`
 ///
@@ -157,7 +167,7 @@ pub async fn awaiting_review(
          mark AS ( \
             SELECT scenario_id, MAX(looked_at) AS looked_at \
             FROM practice_review_cursor \
-            WHERE user_id = ANY($2) AND scenario_id = ANY($1) \
+            WHERE scenario_id = ANY($1) \
             GROUP BY scenario_id) \
          SELECT ids.scenario_id, \
                 COUNT(q.id) FILTER (WHERE {waiting}) AS awaiting, \

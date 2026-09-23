@@ -184,15 +184,21 @@ async fn j1_add_a_second_reviewer() -> TestResult<()> {
     );
 
     let bench_now = &settings.practice_read.reviewer_usernames;
+    // `false` for is_admin throughout: this journey is about the SHOWN list, so
+    // every caller is judged on listing alone. The admin door has its own tests
+    // (`services::review_permission`), and it would make this one vacuous.
     assert!(
-        can_mark_reviewed("roman", bench_now),
+        can_mark_reviewed("roman", false, bench_now),
         "the whole point: Roman can now press Done reviewing"
     );
     assert!(
-        can_mark_reviewed("cpenzien", bench_now),
+        can_mark_reviewed("cpenzien", false, bench_now),
         "and Chuck still can"
     );
-    assert!(!can_mark_reviewed("docmarie", bench_now));
+    assert!(!can_mark_reviewed("docmarie", false, bench_now));
+    // …and an administrator may review whether or not the list names them
+    // (CC_TASK_REVIEW_PERMISSION_v1).
+    assert!(can_mark_reviewed("docmarie", true, bench_now));
 
     let line = reviewer_display_line(&settings);
     assert!(
@@ -246,6 +252,7 @@ async fn j2_remove_a_reviewer() -> TestResult<()> {
     );
     assert!(!can_mark_reviewed(
         "cpenzien",
+        false,
         &settings.practice_read.reviewer_usernames
     ));
     assert_eq!(reviewer_display_line(&settings), "Roman");
