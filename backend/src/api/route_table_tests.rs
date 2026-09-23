@@ -204,13 +204,20 @@ fn leading_number(rest: &str) -> Option<u64> {
 /// and `…/earlier` — and two `POST`s, `…/threads/:username/messages` (the
 /// streamed send) and `…/threads/:username/read`. `…/earlier` has no write verb
 /// by design: the old dock's thread is read-only (ADDENDUM_1).
+///
+/// 324 since ENV_BANNER_v1, which added ONE route — `GET /env-banner`, the test
+/// system bar's four sentences — and therefore TWO lines: axum registers a
+/// `HEAD` beside every `GET`.
 // Tests are allowed literal expected values: this one IS the invariant.
-// CC_TASK_FOR_YOU_v1 L1 adds FIVE lines for three routes: the two `GET`s each
-// bring the `HEAD` axum pairs with them, and the `POST` brings one line.
-// Measured on this branch's base (`fix/review-permission-v1`), which does NOT
-// carry the env-banner branch: whoever merges second re-runs `cargo test --lib`
-// and adjusts this one integer.
-const EXPECTED_ROUTE_LINES: usize = 327;
+// The v2.3.0 merge: 322 on the shared base, plus BOTH branches' routes.
+//
+// CC_TASK_FOR_YOU_v1 L1 adds five lines for three routes — the two `GET`s each
+// bring the `HEAD` axum pairs with them, and the `POST` brings one line (322 →
+// 327 on that branch). CC_TASK_ENV_BANNER_v1 adds two for its one `GET` (322 →
+// 324 on its own). Both landed, so the number is 329, and it is MEASURED here
+// rather than added up: the two branches each predicted their own arithmetic
+// and only running the walk settles it.
+const EXPECTED_ROUTE_LINES: usize = 329;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {

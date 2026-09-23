@@ -44,8 +44,9 @@ use crate::domain::{
     practice_params::PRACTICE_PARAM_KEYS, wording::WORDING_KEYS,
     wording_accusation::ACCUSATION_WORDING_KEYS, wording_authoring::AUTHORING_WORDING_KEYS,
     wording_card_grammar::CARD_GRAMMAR_WORDING_KEYS,
-    wording_chronology_keys::CHRONOLOGY_WORDING_KEYS, wording_fact_card::FACT_CARD_WORDING_KEYS,
-    wording_for_you::FOR_YOU_WORDING_KEYS, wording_matrix::MATRIX_WORDING_KEYS,
+    wording_chronology_keys::CHRONOLOGY_WORDING_KEYS, wording_env_banner::ENV_BANNER_WORDING_KEYS,
+    wording_fact_card::FACT_CARD_WORDING_KEYS, wording_for_you::FOR_YOU_WORDING_KEYS,
+    wording_matrix::MATRIX_WORDING_KEYS,
     wording_model_params::MODEL_PARAMS_WORDING_KEYS, wording_practice::PRACTICE_WORDING_KEYS,
     wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS,
     wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS,
@@ -278,6 +279,17 @@ pub const AREAS: &[Area] = &[
             id: "matrix",
             label: "The coverage matrix",
             keys: MATRIX_WORDING_KEYS,
+        }],
+    },
+    Area {
+        id: "warnings",
+        label: "Warnings",
+        blocks: &[Block {
+            id: "env_banner",
+            // The rows only; WHETHER the bar shows is the browser's own runtime
+            // config, and no Settings edit can turn it off (CC_TASK_ENV_BANNER_v1).
+            label: "The test-system bar — its words, and where it links",
+            keys: ENV_BANNER_WORDING_KEYS,
         }],
     },
     Area {

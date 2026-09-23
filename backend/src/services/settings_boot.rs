@@ -94,6 +94,7 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_list_wording = PRACTICE_LIST_WORDING_KEYS.len(),
         practice_review_wording = PRACTICE_REVIEW_WORDING_KEYS.len(),
         practice_report_wording = PRACTICE_REPORT_WORDING_KEYS.len(),
+        env_banner_wording = crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len(),
         "configuration store read"
     );
 

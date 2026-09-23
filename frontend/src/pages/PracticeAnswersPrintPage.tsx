@@ -24,6 +24,8 @@ import { useParams } from "react-router-dom";
 import PrintAnswers from "../components/practice/PrintAnswers";
 import { planAnswers } from "../components/practice/printAnswerPlan";
 import * as p from "../components/practice/printStyles";
+import PrintWarningFrame from "../components/PrintWarningFrame";
+import { usePrintWarningLine } from "../components/usePrintWarningLine";
 import { fetchPracticeDeck, wordingOf, type PracticeDeck } from "../services/practice";
 import { fetchPracticeAnswers, type PracticeAnswer } from "../services/practiceAnswers";
 import { practicePath } from "../utils/routePaths";
@@ -38,6 +40,9 @@ const BACK_WITHOUT_WORDING = "◂ Back to the deck";
 
 const PracticeAnswersPrintPage: React.FC = () => {
   const { slug = "", scenarioId = "" } = useParams();
+  // The printed warning's words (CC_TASK_ENV_BANNER_v1). Nothing is fetched
+  // on the real system, where the frame renders no wrapper at all.
+  const printWarning = usePrintWarningLine();
   const [deck, setDeck] = React.useState<PracticeDeck | null>(null);
   const [answers, setAnswers] = React.useState<PracticeAnswer[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -120,12 +125,14 @@ const PracticeAnswersPrintPage: React.FC = () => {
         </a>
       </div>
       <style>{p.PRINT_CSS}</style>
-      <PrintAnswers
-        plan={plan}
-        deckAsOf={asSheetDate(deck.deck_as_of)}
-        printedAt={printedAt}
-        wording={deck.wording}
-      />
+      <PrintWarningFrame line={printWarning}>
+        <PrintAnswers
+          plan={plan}
+          deckAsOf={asSheetDate(deck.deck_as_of)}
+          printedAt={printedAt}
+          wording={deck.wording}
+        />
+      </PrintWarningFrame>
     </div>
   );
 };

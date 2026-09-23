@@ -1,5 +1,6 @@
 import React from "react";
 import { Navigate, Route, Routes, useLocation, useParams } from "react-router-dom";
+import EnvBanner from "./components/EnvBanner";
 import Header from "./components/Header";
 import { DEFAULT_CASE_SLUG } from "./services/caseHeader";
 import { proofMatrixPath, proofReviewTabPath } from "./utils/routePaths";
@@ -148,6 +149,10 @@ const App: React.FC = () => {
 const AppShell: React.FC = () => {
   return (
     <div style={{ fontFamily: "'Inter', sans-serif", backgroundColor: "var(--bg-canvas)", minHeight: "100vh" }}>
+      {/* Above the menu, on every page, and NOTHING at all on the real system —
+          see `EnvBanner`. It is first so that a warning about which machine this
+          is cannot be scrolled past or navigated away from. */}
+      <EnvBanner />
       <Header />
       <main style={{ maxWidth: "1080px", margin: "0 auto", padding: "0 2rem" }}>
         <Routes>

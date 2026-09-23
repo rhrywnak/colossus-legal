@@ -16,6 +16,7 @@ pub mod contradiction;
 pub mod decision;
 pub mod decomposition;
 pub mod document;
+pub mod env_banner;
 pub mod evidence;
 pub mod evidence_chain;
 pub mod evidence_links;

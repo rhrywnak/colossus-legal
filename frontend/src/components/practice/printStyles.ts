@@ -248,6 +248,9 @@ export const absent: CSSProperties = {
  * put "page 2 of 3" on both halves of one sheet.
  */
 export const PRINT_CSS = `
+/* The printed warning exists in the DOM on the test machine and is shown
+   ONLY on paper — see PrintWarningFrame. */
+[data-print-warning] { display: none; }
 @media print {
   [data-app-chrome] { display: none !important; }
   [data-print-chrome] { display: none !important; }
@@ -261,6 +264,25 @@ export const PRINT_CSS = `
   }
   [data-print-sheet]:last-child { page-break-after: auto; }
   [data-print-row] { break-inside: avoid; page-break-inside: avoid; }
+
+  /* CC_TASK_ENV_BANNER_v1, board 6: the test-system warning at the top of EVERY
+     printed page. A table header is the one construct print engines repeat at a
+     page break — a fixed element prints once, on page 1 — so the frame becomes a
+     table in print and only in print. On the real system PrintWarningFrame
+     renders no wrapper at all, and none of these rules can match. */
+  [data-print-frame] { width: 100% !important; border-collapse: collapse !important; }
+  [data-print-frame-head] { display: table-header-group !important; }
+  [data-print-frame-body] { display: table-row-group !important; }
+  [data-print-warning] {
+    display: block !important;
+    padding: 0 0 6px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    color: var(--warn-bg);
+    border-bottom: 2px solid var(--warn-bg);
+    margin: 0 0 10px;
+  }
   @page { margin: 14mm; }
 }
 `;

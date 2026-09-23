@@ -70,6 +70,7 @@ pub mod wording_chronology;
 // declared the subsets words — see that module's header.
 pub mod wording_chronology_keys;
 /// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2 §2, §3).
+pub mod wording_env_banner;
 pub mod wording_fact_card;
 pub mod wording_for_you;
 pub mod wording_matrix;

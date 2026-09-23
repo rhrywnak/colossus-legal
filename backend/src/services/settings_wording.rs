@@ -77,6 +77,8 @@ pub(crate) struct AllWording {
     pub(crate) practice_report: PracticeReportWording,
     /// The words the "For you" page speaks (CC_TASK_FOR_YOU_v1 L1).
     pub(crate) for_you: ForYouWording,
+    /// The words the test-system bar speaks (CC_TASK_ENV_BANNER_v1).
+    pub(crate) env_banner: crate::domain::wording_env_banner::EnvBannerWording,
 }
 
 /// Every stored-string block, read by one rule.
@@ -115,6 +117,9 @@ pub(crate) fn build_all_wording(
     let practice = build_practice_wording(|key| text_of(require(rows, key)?))?;
     let practice_report = build_practice_report_wording(|key| text_of(require(rows, key)?))?;
     let for_you = build_for_you_wording(|key| text_of(require(rows, key)?))?;
+    let env_banner = crate::domain::wording_env_banner::build_env_banner_wording(|key| {
+        text_of(require(rows, key)?)
+    })?;
 
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
@@ -136,5 +141,6 @@ pub(crate) fn build_all_wording(
         war_room,
         practice,
         practice_report,
+        env_banner,
     })
 }

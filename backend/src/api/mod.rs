@@ -1,4 +1,4 @@
-use axum::{extract::State, http::StatusCode, Router};
+use axum::{extract::State, http::StatusCode, routing::get, Router};
 
 use crate::state::AppState;
 
@@ -31,6 +31,7 @@ pub mod decomposition;
 pub mod documents;
 pub mod element_detail;
 pub mod embed;
+pub mod env_banner;
 pub mod evidence;
 pub mod evidence_chain;
 pub mod evidence_links;
@@ -144,6 +145,9 @@ pub fn router() -> Router<AppState> {
         // The question chat (CC_TASK_CHAT_ENGINE_v1).
         .merge(chat_discussion_routes::routes())
         .merge(settings::routes())
+        // The test-system bar's words (CC_TASK_ENV_BANNER_v1). A GET of four
+        // sentences, read by the shell at first paint.
+        .route("/env-banner", get(env_banner::get_env_banner))
         .merge(timeline::routes())
         .merge(routes::subset::routes())
         .merge(routes::claim::routes())
