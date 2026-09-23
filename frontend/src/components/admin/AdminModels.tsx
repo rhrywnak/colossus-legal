@@ -107,6 +107,8 @@ interface ModelForm {
   temperature_mode: string;
   /** The explicit temperature, as typed. Only sent when the mode sends one. */
   default_temperature: string;
+  /** Ticked = the Discuss chat may be pointed at this model. */
+  grounded: boolean;
 }
 
 const emptyForm: ModelForm = {
@@ -121,6 +123,9 @@ const emptyForm: ModelForm = {
   notes: "",
   temperature_mode: "",
   default_temperature: "",
+  // UNTICKED on a new model, matching the column's own DEFAULT false: a model
+  // nobody has vouched for must not arrive already trusted to quote the record.
+  grounded: false,
 };
 
 function modelToForm(m: LlmModel): ModelForm {
@@ -136,11 +141,17 @@ function modelToForm(m: LlmModel): ModelForm {
     notes: m.notes ?? "",
     temperature_mode: m.temperature_mode ?? "",
     default_temperature: m.default_temperature != null ? String(m.default_temperature) : "",
+    grounded: m.grounded,
   };
 }
 
-/** Parse a form's optional numeric/string fields into a CreateModelInput. */
-function formToCreateInput(f: ModelForm): CreateModelInput {
+/** Parse a form's optional numeric/string fields into a CreateModelInput.
+ *
+ * Exported for its test, for the same reason `formToUpdateInput` below is: the
+ * NEW-model path is the only one that can create a row already trusted to quote
+ * the record, and Rule 30 leaves a decision made inside a React tree with
+ * nothing able to assert it. */
+export function formToCreateInput(f: ModelForm): CreateModelInput {
   const parseOptInt = (s: string): number | undefined =>
     s.trim() === "" ? undefined : Number(s);
   const parseOptFloat = (s: string): number | undefined =>
@@ -157,6 +168,7 @@ function formToCreateInput(f: ModelForm): CreateModelInput {
     cost_per_input_token: parseOptFloat(f.cost_per_input_token),
     cost_per_output_token: parseOptFloat(f.cost_per_output_token),
     notes: optStr(f.notes),
+    grounded: f.grounded,
   };
 }
 
@@ -195,6 +207,13 @@ export function formToUpdateInput(f: ModelForm): UpdateModelInput {
     ...(f.temperature_mode === TEMPERATURE_MODE_ZERO_OK && f.default_temperature.trim() !== ""
       ? { default_temperature: Number(f.default_temperature) }
       : {}),
+    // ALWAYS sent, in both states — the opposite of the two rules above, and
+    // deliberately so. The backend's UPDATE is a COALESCE, so omitting this when
+    // the box is clear would mean "leave it alone": the save would succeed and
+    // the tick would spring back. Recording a temperature capability is a gap
+    // being closed; granting a model permission to quote the record is a
+    // permission, and a permission that cannot be withdrawn is not one.
+    grounded: f.grounded,
   };
 }
 
@@ -423,6 +442,25 @@ const AdminModels: React.FC = () => {
                 onChange={(e) => updateForm({ cost_per_output_token: e.target.value })}
               />
             </div>
+            {/* ── May the discussion be pointed at this model? (v2.2.3) ────
+                `llm_models.grounded`. The words are compiled in rather than
+                stored, because unlike the temperature control below they do not
+                describe the CASE — they describe an API capability, and the
+                backend refuses the box for any provider but Anthropic with the
+                same reasoning in the same words. */}
+            <div>
+              <label
+                style={{ ...labelStyle, display: "flex", alignItems: "center", gap: "8px" }}
+              >
+                <input
+                  type="checkbox"
+                  checked={currentForm.grounded}
+                  onChange={(e) => updateForm({ grounded: e.target.checked })}
+                />
+                Can quote the record (Anthropic, with citations)
+              </label>
+              <div style={helpStyle}>The Discuss chat only offers models with this ticked.</div>
+            </div>
             {/* ── What this model does with `temperature` (ruling R5) ──────
                 The control that did not exist on 2026-08-09, when
                 `claude-opus-5` was added with no capability recorded and 104
@@ -507,6 +545,7 @@ const AdminModels: React.FC = () => {
                     <th style={th}>ID</th>
                     <th style={th}>Display Name</th>
                     <th style={{ ...th, width: "100px" }}>Provider</th>
+                    <th style={{ ...th, width: "110px" }}>Quotes checked</th>
                     <th style={{ ...th, width: "80px" }}>Active</th>
                     <th style={{ ...th, width: "180px" }}>Actions</th>
                   </tr>
@@ -519,6 +558,22 @@ const AdminModels: React.FC = () => {
                       </td>
                       <td style={td}>{m.display_name}</td>
                       <td style={td}>{m.provider}</td>
+                      {/* Read-only here: granting it is an edit, not a toggle —
+                          the Active column next door flips in place because
+                          deactivating is reversible in one click and grounding
+                          carries a provider rule the list cannot enforce. */}
+                      <td style={{ ...td, textAlign: "center" }}>
+                        <span
+                          aria-label={m.grounded ? "Quotes checked" : "Quotes not checked"}
+                          title={
+                            m.grounded
+                              ? "The Discuss chat can be pointed at this model."
+                              : "The Discuss chat will not accept this model."
+                          }
+                        >
+                          {m.grounded ? "\u2713" : "\u2014"}
+                        </span>
+                      </td>
                       <td style={td}>
                         <input
                           type="checkbox"

@@ -4,6 +4,7 @@
 //! file stays well under the 300-line module-size rule:
 //!
 //! - [`models`] — DB-backed CRUD for the `llm_models` table (Section 3.4.1)
+//! - [`models_grounding`] — the rule deciding which models the discussion may use
 //! - [`profiles`] — YAML file CRUD for processing profiles (Section 3.4.2)
 //! - [`templates`] — `.md` file CRUD for prompt templates (Section 3.4.3)
 //! - [`schemas`] — `.yaml` file CRUD for extraction schemas (Section 3.4.4)
@@ -16,6 +17,8 @@
 //! DOC_PROCESSING_CONFIG_DESIGN_v2.md Sections 3.4.1 through 3.4.4.
 
 pub mod models;
+/// The `grounded` invariant, split out of [`models`] by subject and by size.
+pub mod models_grounding;
 pub mod preview;
 pub mod profiles;
 pub mod schemas;

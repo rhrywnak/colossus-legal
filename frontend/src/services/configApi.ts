@@ -41,6 +41,11 @@ export interface LlmModel {
   /** The exact temperature sent when the mode is `zero-ok`. `null` means the
    *  resolver's own determinism anchor is used instead. */
   default_temperature: number | null;
+  /** Can this model quote the record? `true` = the Anthropic Messages API with
+   *  Citations, so the discussion can check every quotation against the stored
+   *  document before showing it. The Discuss chat offers only these rows, and
+   *  Settings refuses to be pointed at anything else. */
+  grounded: boolean;
 }
 
 /** The stored words the temperature control speaks (backend
@@ -78,6 +83,8 @@ export interface CreateModelInput {
   cost_per_input_token?: number;
   cost_per_output_token?: number;
   notes?: string;
+  /** Omitted means the column's cautious default of `false`. */
+  grounded?: boolean;
 }
 
 export interface UpdateModelInput {
@@ -98,6 +105,13 @@ export interface UpdateModelInput {
   temperature_mode?: string;
   /** Omitted leaves the column untouched, same as every sibling. */
   default_temperature?: number;
+  /** Sent in BOTH states, unlike `temperature_mode` above.
+   *
+   *  The backend's UPDATE is a COALESCE, so an omitted field means "leave it
+   *  alone" — which for a checkbox would make un-ticking save successfully and
+   *  change nothing. This is a permission an operator grants and must be able to
+   *  withdraw, so `false` travels explicitly. */
+  grounded?: boolean;
 }
 
 // ── Types: Profiles ────────────────────────────────────────────

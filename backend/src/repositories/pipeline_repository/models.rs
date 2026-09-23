@@ -35,6 +35,17 @@ pub struct InsertModelInput {
     pub cost_per_input_token: Option<f64>,
     pub cost_per_output_token: Option<f64>,
     pub notes: Option<String>,
+
+    /// Can this model quote the record — the Anthropic Messages API with
+    /// Citations (`llm_models.grounded`)?
+    ///
+    /// `None` means the caller said nothing, and the column's own
+    /// `DEFAULT false` decides. That is the cautious default migration
+    /// `20260921140958` chose and this write path does not override it: a model
+    /// nobody has vouched for must not silently become one the discussion will
+    /// offer. The API boundary refuses `Some(true)` for a non-Anthropic
+    /// provider before it ever reaches here.
+    pub grounded: Option<bool>,
 }
 
 /// Input payload for updating an existing `llm_models` row.
@@ -71,6 +82,21 @@ pub struct UpdateModelInput {
     /// The explicit temperature to send when the mode is `zero-ok`. Same
     /// leave-untouched semantics as every sibling.
     pub default_temperature: Option<f64>,
+
+    /// Whether this model may be offered to the discussion chat.
+    ///
+    /// ## Why this one really is two-way, unlike `temperature_mode` above
+    ///
+    /// Every field here is `COALESCE($n, column)`, so `None` means "leave it".
+    /// For the temperature mode that is the whole design: the form can record a
+    /// capability and cannot un-record one. `grounded` is the opposite — it is a
+    /// PERMISSION an operator grants and must be able to withdraw, and the
+    /// screen that grants it is a checkbox with two real states. So the caller
+    /// sends `Some(false)` to un-tick, never `None`; `COALESCE(false, grounded)`
+    /// is `false`, and the un-tick lands. A caller that omitted the field
+    /// instead would see the save succeed and the box spring back — which is
+    /// exactly the silent no-op Standing Rule 1 exists to prevent.
+    pub grounded: Option<bool>,
 }
 
 /// A row from the `llm_models` registry.
@@ -273,11 +299,14 @@ pub async fn insert_model(
     input: &InsertModelInput,
 ) -> Result<LlmModelRecord, sqlx::Error> {
     let sql = format!(
+        // `grounded` is COALESCEd against the column DEFAULT rather than bound
+        // raw, so an input that says nothing gets the schema's `false` instead
+        // of a NULL the NOT NULL column would reject.
         "INSERT INTO llm_models \
            (id, display_name, provider, api_endpoint, \
             max_context_tokens, max_output_tokens, \
-            cost_per_input_token, cost_per_output_token, notes) \
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+            cost_per_input_token, cost_per_output_token, notes, grounded) \
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, false)) \
          RETURNING {SELECT_COLUMNS}"
     );
     sqlx::query_as::<_, LlmModelRecord>(&sql)
@@ -290,6 +319,7 @@ pub async fn insert_model(
         .bind(input.cost_per_input_token)
         .bind(input.cost_per_output_token)
         .bind(&input.notes)
+        .bind(input.grounded)
         .fetch_one(db)
         .await
 }
@@ -316,7 +346,8 @@ pub async fn update_model(
            is_active = COALESCE($9, is_active), \
            notes = COALESCE($10, notes), \
            temperature_mode = COALESCE($11, temperature_mode), \
-           default_temperature = COALESCE($12::numeric, default_temperature) \
+           default_temperature = COALESCE($12::numeric, default_temperature), \
+           grounded = COALESCE($13, grounded) \
          WHERE id = $1 \
          RETURNING {SELECT_COLUMNS}"
     );
@@ -336,6 +367,7 @@ pub async fn update_model(
         // cast, exactly as the cost columns are: there is no `rust_decimal`
         // feature on sqlx here, so a bare `f64` bind cannot address the column.
         .bind(input.default_temperature.map(|t| format!("{t:.2}")))
+        .bind(input.grounded)
         .fetch_optional(db)
         .await
 }
