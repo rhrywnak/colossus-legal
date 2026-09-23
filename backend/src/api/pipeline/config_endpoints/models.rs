@@ -17,6 +17,7 @@ use crate::repositories::pipeline_repository::models::{
 };
 use crate::state::AppState;
 
+use super::models_grounding::{refuse_invalid_grounding, validate_grounded};
 use super::shared::profiles_referencing;
 
 /// Providers the admin API accepts for a model's `provider` column.
@@ -49,6 +50,7 @@ pub struct ModelsResponse {
 /// separate HTTP-layer DTO so the API contract can evolve independently
 /// of the repository layer.
 #[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct CreateModelInput {
     pub id: String,
     pub display_name: String,
@@ -65,6 +67,79 @@ pub struct CreateModelInput {
     pub cost_per_output_token: Option<f64>,
     #[serde(default)]
     pub notes: Option<String>,
+    /// Ticked = this model may be offered to the discussion chat. Absent means
+    /// the column's cautious `DEFAULT false`, which is what a New Model form
+    /// that says nothing should get.
+    #[serde(default)]
+    pub grounded: Option<bool>,
+}
+
+/// Body of PUT /models/:id — patch a model's fields.
+///
+/// # Why this exists rather than deserializing the repository's `UpdateModelInput`
+///
+/// The handler used to take the repository struct straight off the wire. That
+/// made `deny_unknown_fields` — an HTTP-boundary rule about what a CLIENT may
+/// send — a property of a type the repository also uses internally, and it left
+/// the API contract unable to move without moving the storage layer with it.
+/// `CreateModelInput` already keeps them apart; this makes the pair consistent.
+///
+/// Every field is optional and an omitted one leaves the column alone
+/// (`COALESCE` in the repository) — except `grounded`, which the form sends
+/// explicitly in both states; see `UpdateModelInput::grounded`.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UpdateModelRequest {
+    #[serde(default)]
+    pub display_name: Option<String>,
+    #[serde(default)]
+    pub provider: Option<String>,
+    #[serde(default)]
+    pub api_endpoint: Option<String>,
+    #[serde(default)]
+    pub max_context_tokens: Option<i32>,
+    #[serde(default)]
+    pub max_output_tokens: Option<i32>,
+    #[serde(default)]
+    pub cost_per_input_token: Option<f64>,
+    #[serde(default)]
+    pub cost_per_output_token: Option<f64>,
+    #[serde(default)]
+    pub is_active: Option<bool>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(default)]
+    pub temperature_mode: Option<String>,
+    #[serde(default)]
+    pub default_temperature: Option<f64>,
+    #[serde(default)]
+    pub grounded: Option<bool>,
+}
+
+/// ## Rust Learning: `From` as the boundary between two shapes of the same thing
+///
+/// The HTTP DTO and the repository input carry identical data today. Writing the
+/// conversion out by hand — rather than making one an alias of the other — is
+/// what lets either change without the other noticing, and `From` is the pair
+/// Rust expects for that: implementing it also gives `.into()` at the call site
+/// for free.
+impl From<UpdateModelRequest> for UpdateModelInput {
+    fn from(r: UpdateModelRequest) -> Self {
+        Self {
+            display_name: r.display_name,
+            provider: r.provider,
+            api_endpoint: r.api_endpoint,
+            max_context_tokens: r.max_context_tokens,
+            max_output_tokens: r.max_output_tokens,
+            cost_per_input_token: r.cost_per_input_token,
+            cost_per_output_token: r.cost_per_output_token,
+            is_active: r.is_active,
+            notes: r.notes,
+            temperature_mode: r.temperature_mode,
+            default_temperature: r.default_temperature,
+            grounded: r.grounded,
+        }
+    }
 }
 
 /// Reject a temperature-mode token the resolver would not recognise.
@@ -144,6 +219,9 @@ pub async fn create_model(
         });
     }
 
+    // On create the effective provider IS the body's: there is no stored row yet.
+    validate_grounded(input.grounded, &input.provider)?;
+
     let repo_input = InsertModelInput {
         id: id.to_string(),
         display_name: input.display_name,
@@ -154,6 +232,7 @@ pub async fn create_model(
         cost_per_input_token: input.cost_per_input_token,
         cost_per_output_token: input.cost_per_output_token,
         notes: input.notes,
+        grounded: input.grounded,
     };
 
     match models::insert_model(&state.pipeline_pool, &repo_input).await {
@@ -170,7 +249,7 @@ pub async fn update_model(
     user: AuthUser,
     State(state): State<AppState>,
     AxumPath(model_id): AxumPath<String>,
-    Json(input): Json<UpdateModelInput>,
+    Json(input): Json<UpdateModelRequest>,
 ) -> Result<Json<LlmModelRecord>, AppError> {
     require_admin(&user)?;
 
@@ -187,7 +266,9 @@ pub async fn update_model(
     }
 
     validate_temperature_mode(input.temperature_mode.as_deref())?;
+    refuse_invalid_grounding(&state, &model_id, &input).await?;
 
+    let input: UpdateModelInput = input.into();
     let updated = models::update_model(&state.pipeline_pool, &model_id, &input)
         .await
         .map_err(|e| AppError::Internal {

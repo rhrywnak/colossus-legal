@@ -23,6 +23,7 @@ const base = {
   notes: "",
   temperature_mode: "",
   default_temperature: "",
+  grounded: true,
 };
 
 describe("a model's temperature capability is recorded, never guessed", () => {
