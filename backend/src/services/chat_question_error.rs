@@ -28,14 +28,21 @@ pub enum ChatRunError {
         path: String,
         detail: String,
     },
+    /// `provenance` is `"measured"` when the provider counted the package and
+    /// `"estimated"` when it could not be asked — so a refusal says whether the
+    /// number that caused it was a fact or arithmetic (Standing Rule 1).
     #[error(
-        "the package is about {estimate} tokens and leaves less than the configured \
-         headroom inside {model}'s {limit}-token context — refused before any call"
+        "the package is {provenance} at {estimate} tokens and leaves less than the \
+         configured headroom inside {model}'s {limit}-token context — refused \
+         before any call. Ask an administrator to lower the chat's context \
+         headroom, choose a model with a larger context, or take documents out of \
+         the case record"
     )]
     ContextTooLarge {
         estimate: usize,
         limit: usize,
         model: String,
+        provenance: &'static str,
     },
     #[error("{operation} failed for question {question_id}: {source}")]
     Store {
@@ -147,7 +154,8 @@ mod tests {
             status(ChatRunError::ContextTooLarge {
                 estimate: 1,
                 limit: 1,
-                model: "m".into()
+                model: "m".into(),
+                provenance: "measured"
             }),
             422
         );
@@ -171,5 +179,41 @@ mod tests {
             }),
             500
         );
+    }
+
+    /// The refusal says which KIND of number caused it — a provider measurement
+    /// or character arithmetic — and what the reader can do about it. A typo in
+    /// the format string would otherwise pass every other test here.
+    #[test]
+    fn a_too_large_package_names_its_provenance_and_a_remedy() {
+        let measured = ChatRunError::ContextTooLarge {
+            estimate: 450_000,
+            limit: 200_000,
+            model: "claude-sonnet-5".into(),
+            provenance: "measured",
+        }
+        .to_string();
+        assert!(
+            measured.starts_with("the package is measured at 450000 tokens"),
+            "{measured}"
+        );
+        assert!(
+            measured.contains("claude-sonnet-5's 200000-token context"),
+            "{measured}"
+        );
+        assert!(measured.contains("Ask an administrator"), "{measured}");
+
+        let estimated = ChatRunError::ContextTooLarge {
+            estimate: 450_000,
+            limit: 200_000,
+            model: "claude-sonnet-5".into(),
+            provenance: "estimated",
+        }
+        .to_string();
+        assert!(
+            estimated.starts_with("the package is estimated at 450000 tokens"),
+            "{estimated}"
+        );
+        assert_ne!(measured, estimated, "provenance must reach the message");
     }
 }

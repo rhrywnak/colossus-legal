@@ -42,15 +42,12 @@ fn a_card_ends_its_segment_and_prose_after_it_starts_a_new_one() {
 
 #[test]
 fn cards_come_from_the_stored_document_with_its_page() {
-    let docs = package_documents(
-        &[CorpusDocument {
-            id: "doc-l".into(),
-            title: "LETTER".into(),
-            document_date: chrono::NaiveDate::from_ymd_opt(2009, 11, 5),
-            pages: vec![(1, "Page one.".into()), (2, "Page two.".into())],
-        }],
-        None,
-    );
+    let docs = package_documents(&[CorpusDocument {
+        id: "doc-l".into(),
+        title: "LETTER".into(),
+        document_date: chrono::NaiveDate::from_ymd_opt(2009, 11, 5),
+        pages: vec![(1, "Page one.".into()), (2, "Page two.".into())],
+    }]);
     let verified = vec![(
         3,
         colossus_chat::VerifiedCitation {

@@ -197,6 +197,44 @@ pub fn build_body(req: &ChatRequest) -> Result<Value, RequestError> {
     Ok(body)
 }
 
+/// Body keys the `count_tokens` endpoint does not accept.
+///
+/// STRUCTURAL: protocol vocabulary. `count_tokens` answers "how many input tokens
+/// is this?", so the keys describing what to GENERATE are rejected, not ignored.
+const COUNT_STRIPPED: [&str; 4] = [
+    "stream",
+    "max_tokens",
+    "output_config",
+    "context_management",
+];
+
+/// The same body, shaped for `POST /v1/messages/count_tokens`.
+///
+/// # Why: derived from `build_body`, never rebuilt alongside it
+///
+/// The whole point of counting is to learn the size of the body that will
+/// actually be sent. A second builder would drift from the first the moment
+/// either changed, and the count would then be a confident measurement of
+/// something nobody sends. So this calls [`build_body`] and removes the four keys
+/// the endpoint rejects — a body that cannot silently disagree with the real one.
+///
+/// The `cache_control` markers are deliberately left in place: the endpoint
+/// accepts them and they do not change the count, so keeping them keeps the two
+/// bodies one edit apart instead of two.
+///
+/// # Errors
+/// See [`RequestError`] — the same ones [`build_body`] raises.
+pub fn build_count_body(req: &ChatRequest) -> Result<Value, RequestError> {
+    let mut body = build_body(req)?;
+    // `build_body` always returns a JSON object; this is the borrow, not a guess.
+    if let Some(map) = body.as_object_mut() {
+        for key in COUNT_STRIPPED {
+            map.remove(key);
+        }
+    }
+    Ok(body)
+}
+
 fn system_blocks(parts: &[String], cache: &Value) -> Value {
     let last = parts.len().saturating_sub(1);
     Value::Array(

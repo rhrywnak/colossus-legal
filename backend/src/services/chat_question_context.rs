@@ -1,15 +1,27 @@
 //! What the question chat is told about the question — the text block after the
 //! documents. Pure: it renders a [`QuestionContext`] the gather step collected.
 //!
-//! Sections, in order: the question · the attack it answers · her talking points ·
-//! the sworn pair · her answers and their reads · the team's standing notes · the
-//! other threads on this question · the earlier shared discussion (ADDENDUM_1).
-//! Every section says so plainly when it is empty — an empty section and a
-//! missing section must not look alike to the model (Standing Rule 1).
+//! Sections, in order: the question · the document it rests on · the attack it
+//! answers · her talking points · the sworn pair · her answers and their reads ·
+//! the team's standing notes · the other threads on this question · the earlier
+//! shared discussion (ADDENDUM_1). Every section says so plainly when it is
+//! empty — an empty section and a missing section must not look alike to the
+//! model (Standing Rule 1).
+//!
+//! ## Why the primary document is NAMED here and not positioned in the corpus
+//!
+//! Until v2.2.2 the question's source document was sorted to the front of the
+//! document blocks. Those blocks are the prompt cache's prefix, so reordering them
+//! per question destroyed the cache and cost 62% of the feature's spend
+//! (CC_TASK_CHAT_COST_AUDIT_v1). This block sits AFTER the last cache breakpoint,
+//! so a sentence here is free — and a model reads a name better than a position:
+//! a document in slot one is not self-describing, a title and a date are.
+
+use chrono::NaiveDate;
 
 use crate::repositories::pipeline_repository::practice_discussions::DiscussionTurnRecord;
 use crate::repositories::pipeline_repository::practice_notes::{AttemptRecord, NoteRecord};
-use crate::services::chat_question_text::translate_keys;
+use crate::services::chat_question_text::{document_date_label, translate_keys};
 use crate::services::practice_clock::local_stamp;
 use crate::services::practice_discuss::FAILED_ANALYSIS;
 
@@ -31,6 +43,11 @@ pub struct QuestionContext {
     /// Who asks: the defense lawyer or her own lawyer, in words.
     pub asker: String,
     pub tactic_name: Option<String>,
+    /// The title of the document this question was built from. `None` = the graph
+    /// could not resolve one; the block says so rather than staying silent.
+    pub primary_title: Option<String>,
+    /// That document's date, when the record holds one.
+    pub primary_date: Option<NaiveDate>,
     pub attack: Option<String>,
     pub watch_for: Option<String>,
     /// `(number, text, receipt)`.
@@ -51,10 +68,41 @@ pub struct QuestionContext {
 /// the prompt file is where the model's instructions live; these only label data.
 const NONE_RECORDED: &str = "(none recorded)";
 
+/// Names the document a question was built from, filled with title and date.
+///
+/// STRUCTURAL: prose for the MODEL, the same class as `NONE_RECORDED` above — not
+/// a witness-facing sentence, so not a wording-store row (ruled 2026-09-23, Q5).
+/// The wording is the task's, verbatim.
+const RESTS_ON: &str = "This question rests mainly on {title}, {date}.";
+
+/// The same sentence for a document the case record holds no date for.
+///
+/// STRUCTURAL, as above. It exists because the dated sentence cannot be reused
+/// with an empty slot: "rests mainly on X, ." would read as a formatting fault,
+/// and substituting a placeholder date would state something the record does not
+/// say. An undated document says so, in the same words its own document block
+/// uses (`chat_question_text::UNDATED`), only mid-sentence.
+const RESTS_ON_UNDATED: &str = "This question rests mainly on {title}, date not recorded.";
+
+/// What the block says when the graph could not resolve the primary document.
+///
+/// STRUCTURAL, as above. It is a DIFFERENT sentence rather than an omission: a
+/// question with no resolvable source and a question whose source lookup failed
+/// must not read to the model as a question that simply has no source
+/// (Standing Rule 1). `gather` logs the graph failure separately.
+const RESTS_ON_UNKNOWN: &str =
+    "The document this question was built from is not recorded. Every document in \
+     the case record is above; do not guess which one it came from.";
+
 /// Render the context block.
 pub fn render_context(c: &QuestionContext) -> String {
     let mut out = String::new();
     section(&mut out, "THE QUESTION", &question_lines(c));
+    section(
+        &mut out,
+        "THE DOCUMENT THIS QUESTION RESTS ON",
+        &rests_on(c),
+    );
     section(
         &mut out,
         "THE ATTACK THIS SCENARIO ANSWERS",
@@ -99,6 +147,26 @@ fn section(out: &mut String, heading: &str, body: &str) {
         body
     });
     out.push_str("\n\n");
+}
+
+/// The primary-document line: the title and date of the document the question was
+/// built from, or the explicit "not recorded" sentence.
+///
+/// ## Rust Learning: `Option::as_deref` and matching a pair
+///
+/// `primary_title` is an `Option<String>`; `as_deref()` borrows it as
+/// `Option<&str>` so the match arms compare and format without cloning. Matching
+/// the `(title, date)` pair rather than nesting two `if let`s is what makes the
+/// third state — a title with no date — impossible to forget; the compiler
+/// refuses the match until every combination is answered.
+fn rests_on(c: &QuestionContext) -> String {
+    match c.primary_title.as_deref() {
+        None => RESTS_ON_UNKNOWN.to_string(),
+        Some(title) => match document_date_label(c.primary_date) {
+            Some(date) => RESTS_ON.replace("{title}", title).replace("{date}", &date),
+            None => RESTS_ON_UNDATED.replace("{title}", title),
+        },
+    }
 }
 
 fn question_lines(c: &QuestionContext) -> String {

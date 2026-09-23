@@ -23,6 +23,7 @@ use colossus_legal_backend::repositories::pipeline_repository::models;
 // that decides whether the process starts must be reachable by `cargo test`
 // without a binary, and `main.rs` is 145 lines over Rule 17 before this task.
 use colossus_legal_backend::services::chat_default;
+use colossus_legal_backend::services::chat_prefix_size::PrefixSizeCache;
 
 /// Per-chat-model `max_tokens` passed to `AnthropicProvider::new`. The
 /// Chat endpoint always wraps the provider in `RigSynthesizer::new(_, 4096)`
@@ -375,6 +376,7 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         // The question chat's own backend (CC_TASK_CHAT_ENGINE_v1) — `None`, with
         // a logged reason, when there is no API key.
         chat_engine,
+        chat_prefix_size: Arc::new(PrefixSizeCache::new()),
     };
     // BOOT PRECONDITIONS for the question chat — see `chat_model_check::assert_chat_ready`.
     colossus_legal_backend::services::chat_model_check::assert_chat_ready(&state).await;

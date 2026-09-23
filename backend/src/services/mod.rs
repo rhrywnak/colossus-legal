@@ -8,6 +8,7 @@ pub mod chat_default;
 // one. Test-only, so it costs a release binary nothing.
 pub mod chat_engine_setup;
 pub mod chat_model_check;
+pub mod chat_prefix_size;
 pub mod chat_question_context;
 pub mod chat_question_error;
 pub mod chat_question_gather;

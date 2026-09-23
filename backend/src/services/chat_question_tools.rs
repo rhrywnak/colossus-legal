@@ -169,15 +169,12 @@ mod tests {
     use crate::services::chat_question_text::package_documents;
 
     fn docs() -> Arc<Vec<PackagedDocument>> {
-        Arc::new(package_documents(
-            &[CorpusDocument {
-                id: "doc-1".into(),
-                title: "THE LETTER".into(),
-                document_date: chrono::NaiveDate::from_ymd_opt(2009, 11, 5),
-                pages: vec![(1, "First page.".into()), (2, "Second page.".into())],
-            }],
-            None,
-        ))
+        Arc::new(package_documents(&[CorpusDocument {
+            id: "doc-1".into(),
+            title: "THE LETTER".into(),
+            document_date: chrono::NaiveDate::from_ymd_opt(2009, 11, 5),
+            pages: vec![(1, "First page.".into()), (2, "Second page.".into())],
+        }]))
     }
 
     #[tokio::test]

@@ -184,6 +184,21 @@ pub struct AppState {
     /// every chat turn, built at boot. `None` when there is no `ANTHROPIC_API_KEY`
     /// — every chat request then answers a named 503 instead of failing in flight.
     pub chat_engine: Option<Arc<dyn colossus_chat::ChatBackend>>,
+
+    /// The chat package's measured size, remembered across requests
+    /// (CC_TASK_CHAT_COST_FIX_v1 item 3). Filled lazily by the first chat turn,
+    /// not at boot, so a provider outage delays one chat rather than the whole
+    /// backend (ruled 2026-09-23, Q3).
+    ///
+    /// ## Rust Learning: `Arc` because `AppState` is CLONED per request
+    ///
+    /// A bare `PrefixSizeCache` would be copied into every clone, so a count
+    /// taken on one request could never be seen by the next — the memo would
+    /// never hit and every turn would pay a round trip. `Arc` makes the clone a
+    /// refcount bump and gives every request a handle to the SAME cache. The
+    /// interior `RwLock` is what then permits a write through the shared
+    /// reference; see the module's own note.
+    pub chat_prefix_size: Arc<crate::services::chat_prefix_size::PrefixSizeCache>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

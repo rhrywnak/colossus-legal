@@ -122,7 +122,17 @@ pub async fn gather(
     let corpus = load_corpus(&state.pipeline_pool)
         .await
         .map_err(store("load_corpus", question_id))?;
-    let primary = primary_document(state, &q).await;
+    // The primary document no longer changes the PACKAGE — it only names a line in
+    // the per-question block (v2.2.2; see `package_documents`'s `// Why:`). An
+    // id the corpus does not hold resolves to `None` and the block says so.
+    // Only the title and the date are taken, not the document: cloning a corpus
+    // entry would clone every page of its text for a one-line sentence.
+    let primary = primary_document(state, &q).await.and_then(|id| {
+        corpus
+            .iter()
+            .find(|d| d.id == id)
+            .map(|d| (d.title.clone(), d.document_date))
+    });
     let read = &settings.practice_read;
     let chat = &settings.question_chat;
     let context = QuestionContext {
@@ -131,6 +141,8 @@ pub async fn gather(
         kind: q.kind.clone(),
         asker: asker_for(&q.kind, chat),
         tactic_name: tactic_name(q.tactic, &read.tactic_names),
+        primary_title: primary.as_ref().map(|(title, _)| title.clone()),
+        primary_date: primary.as_ref().and_then(|(_, date)| *date),
         attack: rows.scenario.theme_statement.clone(),
         watch_for: q.watch_for.clone(),
         points: rows.points,
@@ -144,7 +156,7 @@ pub async fn gather(
         viewer_name: display_name(&settings, viewer),
         case_timezone: read.case_timezone.clone(),
     };
-    let documents = package_documents(&corpus, primary.as_deref());
+    let documents = package_documents(&corpus);
     Ok(Gathered {
         question: q,
         context,
