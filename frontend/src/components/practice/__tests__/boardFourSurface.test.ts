@@ -43,6 +43,20 @@ describe("the board-4 mark on a deck row", () => {
     expect(row).toContain("question.waiting !== undefined");
   });
 
+  it("tints the row itself when something waits", () => {
+    // CC_TASK_FOR_YOU_POLISH_v1 (GO ruling 1). The board draws BOTH: a mark on
+    // the right, and a tinted ground under the whole row. The mark alone is
+    // four words at the end of a long row; the tint is what makes the row
+    // findable from the top of a seventeen-question list without reading any
+    // of it. A refactor that dropped the tint and kept the mark would pass
+    // every other assertion in this file — which is why this one names the
+    // style, and names the condition it hangs off.
+    expect(row).toContain("question.waiting !== undefined ? r.waitingRow");
+    const styles = withoutComments(read("practiceReviewLoopStyles.ts"));
+    expect(styles).toContain("export const waitingRow");
+    expect(styles).toContain("var(--practice-waiting-row-bg)");
+  });
+
   it("composes no sentence of its own", () => {
     // Which of four stored templates a row wears is decided on the server, by
     // what is unread FOR THIS READER. A component that assembled the sentence

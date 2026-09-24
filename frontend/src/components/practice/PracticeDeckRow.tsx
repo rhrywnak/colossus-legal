@@ -138,6 +138,12 @@ const PracticeDeckRow: React.FC<Props> = ({
         // column of their own rather than overlaying anything.
         gridTemplateColumns: editor.editing ? "56px 1fr auto" : "1fr auto",
         ...(last ? d.questionRowLast : {}),
+        // Board 4: the row a note is waiting on is tinted, so it is findable
+        // from the top of a seventeen-question deck without reading any of it.
+        // Before the drag rules below, never after: a lifted row's own ground
+        // is what says it is in hand, and a tint that survived the lift would
+        // take that away from the one row being moved.
+        ...(question.waiting !== undefined ? r.waitingRow : {}),
         transform: CSS.Transform.toString(transform),
         transition,
         // The lifted row. It rides ABOVE its neighbours and casts a shadow, so
@@ -227,18 +233,6 @@ const PracticeDeckRow: React.FC<Props> = ({
           <div style={e.status}>{question.answered_on}</div>
         )}
 
-        {/* The board-4 mark: what is unread on this question FOR THIS READER,
-            composed by the server (CC_TASK_FOR_YOU_v1 L3). Absent — not blank —
-            when nothing waits, and gone the moment she opens the question,
-            because opening it is what marks it read. */}
-        {question.waiting !== undefined && (
-          <div>
-            <span style={r.waitingMark} data-practice-waiting>
-              {question.waiting}
-            </span>
-          </div>
-        )}
-
         {/* Notes on this question or its current answer (REVIEW_LOOP_v1 §4). */}
         <PracticeNoteList notes={question.notes} wording={wording} />
 
@@ -254,6 +248,20 @@ const PracticeDeckRow: React.FC<Props> = ({
       </div>
 
       <div style={d.rowControls}>
+        {/* The board-4 mark: what is unread on this question FOR THIS READER,
+            composed by the server (CC_TASK_FOR_YOU_v1 L3). Absent — not blank —
+            when nothing waits, and gone the moment she opens the question,
+            because opening it is what marks it read.
+
+            In the CONTROLS column, per board 4 and ruling §12.1: it is the
+            row's status, and the status column is where a reader running down
+            the deck is already looking. It is not a control, so it sits before
+            the buttons rather than among them. */}
+        {question.waiting !== undefined && (
+          <span style={r.waitingMark} data-practice-waiting>
+            {question.waiting}
+          </span>
+        )}
         {editor.editing && (
           <button
             type="button"

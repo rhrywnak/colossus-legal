@@ -359,25 +359,30 @@ mod reviewer_tests {
 
     /// Two reviewers print both names, and the SPACES come from here.
     ///
-    /// The joiner row is stored as a bare `·` because the store trims every
-    /// value. A `join` using it directly would render `Chuck·Roman`, which is
+    /// The joiner row is stored as a bare `and` because the store trims every
+    /// value. A `join` using it directly would render `ChuckandRoman`, which is
     /// the defect this asserts against.
     #[test]
     fn two_reviewers_print_both_names_around_the_stored_joiner() {
         let mut settings = crate::domain::settings::Settings::for_test();
         settings.practice_read.reviewer_display_names =
             vec!["Chuck".to_string(), "Roman".to_string()];
-        assert_eq!(reviewer_display_line(&settings), "Chuck \u{b7} Roman");
+        assert_eq!(reviewer_display_line(&settings), "Chuck and Roman");
     }
 
     /// The joiner is the STORED row, not a literal: change it and the line
     /// follows, which is what makes the separator a Settings edit.
+    ///
+    /// The override is deliberately the dot this row used to hold, so the test
+    /// still proves the line READS the store rather than agreeing with the
+    /// fixture by accident — which is exactly what it would do if it overrode
+    /// the row with the value the fixture already carries.
     #[test]
     fn the_joiner_comes_from_the_store() {
         let mut settings = crate::domain::settings::Settings::for_test();
         settings.practice_read.reviewer_display_names =
             vec!["Chuck".to_string(), "Roman".to_string()];
-        settings.practice_wording.review.name_joiner = "and".to_string();
-        assert_eq!(reviewer_display_line(&settings), "Chuck and Roman");
+        settings.practice_wording.review.name_joiner = "\u{b7}".to_string();
+        assert_eq!(reviewer_display_line(&settings), "Chuck \u{b7} Roman");
     }
 }

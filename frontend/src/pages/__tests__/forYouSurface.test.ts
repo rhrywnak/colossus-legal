@@ -96,6 +96,21 @@ describe("the For you page", () => {
   it("withholds the last-item line when there has never been one", () => {
     expect(page()).toContain("page.empty_last !== undefined");
   });
+
+  it("withholds the tabs when BOTH lists are empty, and only then", () => {
+    // Ruling GO-2.2 (board 2): two controls that both lead to the same empty
+    // page are two things to try before believing the sentence under them.
+    // "Both" is the whole of it — an empty Unread tab beside a full Everything
+    // tab must keep its tabs, or the other list becomes unreachable.
+    const source = page();
+    expect(source).toContain(
+      "page.unread.length === 0 && page.everything.length === 0",
+    );
+    expect(source).toContain("{!nothingAtAll && (");
+    // The empty MESSAGE is not conditional on the same fact: an empty Unread
+    // tab with a full Everything tab still shows it.
+    expect(source).toContain("groups.length === 0 ? (");
+  });
 });
 
 describe("a For you row", () => {
@@ -123,6 +138,43 @@ describe("a For you row", () => {
     for (const field of ["row.deck_line", "row.body", "row.byline", "row.when"]) {
       expect(source).toContain(field);
     }
+  });
+
+  it("draws the unread mark, and draws the read one hollow rather than absent", () => {
+    // FOR_YOU_MOCKUP_v1 board 1. The dot is the third reading of "unread",
+    // beside the tint and the edge, and it is the one that survives a reader
+    // who cannot separate the two blues. The READ row keeps the circle, empty,
+    // so the text of every row starts on the same vertical rule.
+    const source = row();
+    expect(source).toContain("s.dotRead");
+    expect(source).toContain("s.dot");
+    expect(source).toContain('aria-hidden="true"');
+  });
+
+  it("draws an unread row differently from a read one", () => {
+    // The shipped page had this the wrong way round — the READ row carried the
+    // tint. Two states that draw the same, or that draw each other's ground,
+    // are one state as far as a reader is concerned.
+    const source = row();
+    expect(source).toContain("row.read ? s.rowRead : s.rowUnread");
+    const styles = withoutComments(readFileSync(join(FOR_YOU, "forYouStyles.ts"), "utf8"));
+    expect(styles).toContain("export const rowUnread");
+    expect(styles).toContain("export const rowRead");
+    // The unread row carries BOTH the board's ground and its edge.
+    const unread = styles.slice(styles.indexOf("export const rowUnread"));
+    expect(unread.slice(0, 220)).toContain("background: SOFT");
+    expect(unread.slice(0, 220)).toContain("borderColor: NEW_BORDER");
+  });
+
+  it("puts the time in its own column, and drops it under the text on a phone", () => {
+    // Board 5 (ruling §12.5): the CSS reading. A media query is one of the two
+    // things a React style object cannot carry, so it is a real `<style>`
+    // element — and it is useless unless the page renders it.
+    const styles = readFileSync(join(FOR_YOU, "forYouStyles.ts"), "utf8");
+    expect(styles).toContain("@media (max-width: 430px)");
+    expect(styles).toContain("[data-for-you-when]");
+    expect(row()).toContain("data-for-you-when");
+    expect(read(PAGES, "ForYouPage.tsx")).toContain("s.PHONE_CSS");
   });
 });
 

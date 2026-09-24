@@ -135,6 +135,20 @@
      :root-level need, so it gets a :root-level token. */
   --accent-on-fill: #ffffff;
 
+  /* --for-you-badge-bg: the count beside "For you" in the MENU BAR.
+
+     From FOR_YOU_MOCKUP_v1_2026-09-22's `.pill` (`--dot: #b3421b`), and a :root
+     token rather than a surface one for a reason worth stating: the badge is
+     drawn by `Header.tsx`, which sits OUTSIDE every `[data-surface]` subtree.
+     A colour scoped to the For you page would resolve to nothing in the bar —
+     which is exactly the defect this task is repairing on the page itself.
+
+     It is deliberately not --accent-primary. The accent is "here is something
+     you may press"; this is "here is work waiting for you", which the ratified
+     board draws as a warm rust so it reads as a count and not as a link. It is
+     the only place in the chrome that uses it. */
+  --for-you-badge-bg: #b3421b;
+
   /* --accent-bg-soft: pale accent fill for pill backgrounds and focus rings.
      The quiet companion to --accent-primary's saturated foreground. */
   --accent-bg-soft: #e0f2fe;
@@ -657,6 +671,20 @@
   --practice-tactic-text: #3b4652;
   --practice-tactic-border: #d6dbe1;
 
+  /* FOR_YOU_MOCKUP_v1 board 4 — the question a note is waiting on.
+
+     The board tints the whole row with its `--soft` and writes the mark in its
+     `--dot`, and both arrive here by value, as the practice block's rule says:
+     a mockup's colours are its own. `--practice-waiting-row-bg` happens to hold
+     the same hex as `--practice-choice-selected-bg`; they are two names because
+     they are two facts, and the day either board is re-drawn only one moves.
+
+     The rust is the same one the menu pill uses (`--for-you-badge-bg`), and
+     deliberately NOT the review amber beside it: amber is the reviewer's owed
+     work, this is one unread thing on one question. */
+  --practice-waiting-row-bg: #eef4fd;
+  --practice-waiting-ink: #b3421b;
+
   /* The watch-for box's border, against its gold fill. */
   --practice-gold-border: #f0e2a8;
 
@@ -773,4 +801,68 @@
   --chat-preview-ink: #6e6a5e;
   --chat-avatar-2: #6b7d8f;
   --chat-avatar-3: #a08c5a;
+}
+
+/* =============================================================================
+ * FOR_YOU_MOCKUP_v1 — "what is waiting for me?" (2026-09-22, ratified)
+ * =============================================================================
+ *
+ * The For you page's own palette, scoped to `[data-surface="for-you"]`.
+ *
+ * ## Why this block exists at all — the defect it repairs
+ *
+ * The page shipped reading `var(--practice-…)` for every colour it draws, while
+ * declaring `data-surface="for-you"`. Those tokens are defined on
+ * `[data-surface="practice"]` and are inherited, so on this page they resolved
+ * to NOTHING: an undefined custom property with no fallback makes the whole
+ * declaration invalid at computed-value time, `border-style` falls back to its
+ * initial `none`, and the background falls back to transparent. Measured in a
+ * browser on 2026-09-23, the same `<div>` under the two surfaces:
+ *
+ *   data-surface="for-you"   border 0px none rgb(0,0,0)       bg rgba(0,0,0,0)
+ *   data-surface="practice"  border 1px solid rgb(223,228,234) bg rgb(255,255,255)
+ *
+ * That is the whole of "rows are bare text lines, not cards". The cards were
+ * written; the missing palette deleted them, silently, with nothing failing.
+ * `forYouTokens.test.ts` is the fence that stops it happening again.
+ *
+ * ## Why the MOCKUP's values and not the practice ones
+ *
+ * Same ruling the practice block records above: a mockup's colours are its own,
+ * and mapping them onto another surface's palette is a redesign performed
+ * silently during a transcription. The two palettes are close but not equal —
+ * the board's blue is #1b5fbe against practice's #1f5fbf, its rule is #c9d1da
+ * against #dfe4ea — and it has one colour the practice surface has no name for
+ * at all: the rust of an unread mark.
+ *
+ * The mockup's own `:root` therefore arrives here VERBATIM, by its own names.
+ * ============================================================================= */
+[data-surface="for-you"] {
+  /* The mockup's eight custom properties, by its own names. */
+  --fy-ink: #16202c;
+  --fy-muted: #5b6b7d;
+  --fy-line: #c9d1da;
+  --fy-pale: #f4f7fb;
+  --fy-blue: #1b5fbe;
+  --fy-dot: #b3421b;
+  --fy-ok: #1e7a3c;
+  --fy-soft: #eef4fd;
+
+  /* The values the mockup wrote inline rather than as properties. Named here
+     for the reason the eight above are: one place, one edit. */
+
+  /* `.win` — the sheet the list is printed on, and so the ground of a row that
+     has already been read. */
+  --fy-paper: #ffffff;
+
+  /* `.row.new` — the border of an unread row. A tint on its own is a very quiet
+     signal on a bright screen; the board pairs it with an edge, and the edge is
+     what survives a phone held at arm's length in a corridor. */
+  --fy-row-new-border: #b8cdf0;
+
+  /* `.tab.on` — the filled tab. The board fills it with the INK, not with the
+     blue: the tabs are a choice between two lists, not a call to action, and a
+     blue fill would compete with the unread rows underneath them. */
+  --fy-tab-on-bg: #16202c;
+  --fy-tab-on-ink: #ffffff;
 }
