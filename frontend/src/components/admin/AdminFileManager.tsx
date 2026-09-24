@@ -113,6 +113,12 @@ export interface AdminFileManagerProps<T> {
   columns: FileManagerColumn<T>[];
   /** Pull the filename off a list-view row for click-through + actions. */
   getFilename: (row: T) => string;
+  /**
+   * When set, the tab only shows and reads: no New, no Edit, no Delete, and
+   * this line says why (the Prompts tab, ruling Q3 of
+   * CC_TASK_MODEL_JOBS_PANEL_v1). The server refuses those writes too.
+   */
+  readOnlyNote?: string;
 }
 
 // ── Component ───────────────────────────────────────────────────
@@ -134,6 +140,7 @@ export default function AdminFileManager<T>(props: AdminFileManagerProps<T>) {
     deleteItem,
     columns,
     getFilename,
+    readOnlyNote,
   } = props;
 
   const [rows, setRows] = useState<T[] | null>(null);
@@ -279,9 +286,13 @@ export default function AdminFileManager<T>(props: AdminFileManagerProps<T>) {
             <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>
               {rows?.length ?? 0} {resourceLabel.toLowerCase()}{(rows?.length ?? 0) === 1 ? "" : "s"}
             </div>
-            <button style={btnPrimary} onClick={startCreate} disabled={busy}>
-              New {resourceLabel}
-            </button>
+            {readOnlyNote !== undefined ? (
+              <div style={{ fontSize: "0.82rem", color: "var(--text-muted)" }}>{readOnlyNote}</div>
+            ) : (
+              <button style={btnPrimary} onClick={startCreate} disabled={busy}>
+                New {resourceLabel}
+              </button>
+            )}
           </div>
           {rows && rows.length > 0 ? (
             <div style={tableContainer}>
@@ -293,7 +304,7 @@ export default function AdminFileManager<T>(props: AdminFileManagerProps<T>) {
                         {c.header}
                       </th>
                     ))}
-                    <th style={{ ...th, width: "140px" }}>Actions</th>
+                    {readOnlyNote === undefined && <th style={{ ...th, width: "140px" }}>Actions</th>}
                   </tr>
                 </thead>
                 <tbody>
@@ -308,18 +319,20 @@ export default function AdminFileManager<T>(props: AdminFileManagerProps<T>) {
                           {c.render(row)}
                         </td>
                       ))}
-                      <td style={td}>
-                        <button
-                          style={btnSecondary}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            removeRow(row);
-                          }}
-                          disabled={busy}
-                        >
-                          Delete
-                        </button>
-                      </td>
+                      {readOnlyNote === undefined && (
+                        <td style={td}>
+                          <button
+                            style={btnSecondary}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              removeRow(row);
+                            }}
+                            disabled={busy}
+                          >
+                            Delete
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -338,7 +351,7 @@ export default function AdminFileManager<T>(props: AdminFileManagerProps<T>) {
               {getFilename(mode.row)}
             </div>
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              {mode.kind === "view" && (
+              {mode.kind === "view" && readOnlyNote === undefined && (
                 <button style={btnPrimary} onClick={startEdit} disabled={busy}>
                   Edit
                 </button>

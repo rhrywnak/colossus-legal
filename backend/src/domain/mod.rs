@@ -68,15 +68,18 @@ pub mod wording_card_grammar;
 pub mod wording_chronology;
 // The stored KEYS the block above reads. Split out for Rule 17 when T1.2
 // declared the subsets words — see that module's header.
-pub mod wording_chronology_keys;
 /// The words a WITNESS reads on a scenario fact card (FACT_CARD_v2 §2, §3).
+pub mod wording_admin;
+pub mod wording_ai_job_rows;
+pub mod wording_ai_jobs;
+pub mod wording_chronology_keys;
 pub mod wording_env_banner;
 pub mod wording_fact_card;
 pub mod wording_for_you;
+pub mod wording_last_run;
 pub mod wording_matrix;
 pub mod wording_model_params;
 pub mod wording_practice;
-pub mod wording_practice_discuss;
 pub mod wording_practice_editor;
 pub mod wording_practice_flow;
 pub mod wording_practice_list;

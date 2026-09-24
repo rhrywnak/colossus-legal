@@ -2,6 +2,7 @@
 //!
 //! Design: DOC_PROCESSING_CONFIG_DESIGN_v2.md Section 3.4.1.
 
+use crate::services::ai_jobs_usage::{model_refusal, usage};
 use axum::{
     extract::{Path as AxumPath, State},
     Json,
@@ -42,6 +43,11 @@ pub struct ModelsResponse {
     /// ships unlabelled. They arrive with the rows they describe, so there is no
     /// state in which one is present and the other is not.
     pub temperature_wording: ModelParamsWordingDto,
+    /// The "Used for" column: model id → the jobs using it, in panel words
+    /// (CC_TASK_MODEL_JOBS_PANEL_v1). A model no job uses is absent.
+    pub used_for: std::collections::BTreeMap<String, String>,
+    /// The column's heading, from the wording store.
+    pub used_for_label: String,
 }
 
 /// Body of POST /models — create a new model.
@@ -184,9 +190,19 @@ pub async fn list_models(
             message: format!("Failed to list models: {e}"),
         })?;
 
+    let used = usage(&state).await.map_err(|e| AppError::Internal {
+        message: format!("Failed to read which jobs use each model: {e}"),
+    })?;
+    let used_for = rows
+        .iter()
+        .filter_map(|m| used.model(&m.id).map(|jobs| (m.id.clone(), jobs)))
+        .collect();
+    let settings = state.settings.current();
     Ok(Json(ModelsResponse {
         models: rows,
-        temperature_wording: (&state.settings.current().model_params_wording).into(),
+        temperature_wording: (&settings.model_params_wording).into(),
+        used_for,
+        used_for_label: settings.admin_wording.ai_jobs.used_for_label.clone(),
     }))
 }
 
@@ -291,6 +307,7 @@ pub async fn delete_model(
     AxumPath(model_id): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_admin(&user)?;
+    refuse_if_a_job_uses(&state, &model_id).await?;
 
     let referencing = profiles_referencing(state.registry.profile_dir(), &model_id)
         .await
@@ -332,6 +349,15 @@ pub async fn toggle_model(
     AxumPath(model_id): AxumPath<String>,
 ) -> Result<Json<LlmModelRecord>, AppError> {
     require_admin(&user)?;
+    // Only switching OFF is guarded: switching a model on takes nothing away.
+    let current = models::get_model_by_id(&state.pipeline_pool, &model_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to read model '{model_id}': {e}"),
+        })?;
+    if current.as_ref().is_some_and(|m| m.is_active) {
+        refuse_if_a_job_uses(&state, &model_id).await?;
+    }
 
     let updated = models::toggle_model_active(&state.pipeline_pool, &model_id)
         .await
@@ -342,6 +368,32 @@ pub async fn toggle_model(
     updated.map(Json).ok_or_else(|| AppError::NotFound {
         message: format!("Model '{model_id}' not found"),
     })
+}
+
+/// Refuse (409) switching off or deleting a model an AI job uses, naming the job
+/// (CC_TASK_MODEL_JOBS_PANEL_v1): a job left without its model stops, and the
+/// Chat default or the Discuss chat's model would refuse the next boot.
+async fn refuse_if_a_job_uses(state: &AppState, model_id: &str) -> Result<(), AppError> {
+    let used = usage(state).await.map_err(|e| AppError::Internal {
+        message: format!("Failed to read which jobs use '{model_id}': {e}"),
+    })?;
+    let name = models::get_model_by_id(&state.pipeline_pool, model_id)
+        .await
+        .map_err(|e| AppError::Internal {
+            message: format!("Failed to read model '{model_id}': {e}"),
+        })?
+        .map_or_else(|| model_id.to_string(), |m| m.display_name);
+    let settings = state.settings.current();
+    match model_refusal(&settings.admin_wording.ai_jobs, &used, model_id, &name) {
+        None => Ok(()),
+        Some(message) => {
+            tracing::warn!(model = model_id, %message, "models: change refused, a job uses it");
+            Err(AppError::Conflict {
+                message,
+                details: serde_json::json!({ "reason": "model_in_use" }),
+            })
+        }
+    }
 }
 
 /// Map an `sqlx::Error` from `insert_model` into the correct HTTP error.

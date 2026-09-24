@@ -314,23 +314,6 @@ export interface ErrorsResponse {
   needs_attention: number;
 }
 
-export interface ReviewerWorkload {
-  username: string;
-  display_name: string | null;
-  assigned_documents: number;
-  reviewed_documents: number;
-  pending_documents: number;
-  total_items: number;
-  approved_items: number;
-  pending_items: number;
-  rejected_items: number;
-}
-
-export interface WorkloadResponse {
-  reviewers: ReviewerWorkload[];
-  unassigned_documents: number;
-}
-
 // ── API Functions ──────────────────────────────────
 
 export interface DocumentListResponse {
@@ -390,12 +373,6 @@ export async function fetchModels(): Promise<ModelInfo[]> {
 export async function fetchErrors(): Promise<ErrorsResponse> {
   const res = await authFetch(`${PIPELINE_BASE}/documents/errors`);
   if (!res.ok) throw new Error(`Failed to fetch errors: ${res.status}`);
-  return res.json();
-}
-
-export async function fetchWorkload(): Promise<WorkloadResponse> {
-  const res = await authFetch(`${PIPELINE_BASE}/reviewers/workload`);
-  if (!res.ok) throw new Error(`Failed to fetch workload: ${res.status}`);
   return res.json();
 }
 

@@ -97,7 +97,18 @@ export const SettingRow: React.FC<{
         <Marked text={setting.key} query={query} />
       </div>
 
-      {coupledInto ? (
+      {setting.owned_elsewhere !== null ? (
+        <div style={editRowStyle}>
+          <input
+            value={setting.value}
+            readOnly
+            aria-label={`${setting.key} (changed on Admin → Overview)`}
+            style={{ ...valueFieldStyle(false), opacity: 0.75 }}
+            data-owned-elsewhere
+          />
+          <span style={footStyle}>{setting.owned_elsewhere}</span>
+        </div>
+      ) : coupledInto ? (
         <div style={editRowStyle}>
           <input
             value={setting.value}

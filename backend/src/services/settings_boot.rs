@@ -25,7 +25,6 @@ use crate::domain::wording_chronology::CHRONOLOGY_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
-use crate::domain::wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
@@ -85,7 +84,6 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_wording = PRACTICE_WORDING_KEYS.len(),
         practice_flow_wording = PRACTICE_FLOW_WORDING_KEYS.len(),
         practice_row_wording = PRACTICE_ROW_WORDING_KEYS.len(),
-        practice_discuss_wording = PRACTICE_DISCUSS_WORDING_KEYS.len(),
         question_chat_wording =
             crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
         question_chat_params = crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len(),
@@ -95,6 +93,9 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         practice_review_wording = PRACTICE_REVIEW_WORDING_KEYS.len(),
         practice_report_wording = PRACTICE_REPORT_WORDING_KEYS.len(),
         env_banner_wording = crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len(),
+        ai_jobs_wording = crate::domain::wording_ai_jobs::AI_JOBS_WORDING_KEYS.len(),
+        ai_job_rows_wording = crate::domain::wording_ai_job_rows::AI_JOB_ROWS_WORDING_KEYS.len(),
+        last_run_wording = crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS.len(),
         "configuration store read"
     );
 
@@ -131,7 +132,6 @@ pub async fn load_at_boot(pool: &PgPool) -> Result<Settings, SettingsError> {
                 practice_strings = PRACTICE_WORDING_KEYS.len(),
                 practice_flow_strings = PRACTICE_FLOW_WORDING_KEYS.len(),
                 practice_row_strings = PRACTICE_ROW_WORDING_KEYS.len(),
-                practice_discuss_strings = PRACTICE_DISCUSS_WORDING_KEYS.len(),
                 question_chat_strings =
                     crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
                 question_chat_parameters =

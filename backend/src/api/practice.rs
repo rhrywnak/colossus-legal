@@ -131,12 +131,6 @@ fn review_loop_routes() -> Router<AppState> {
             "/cases/:slug/scenarios/:scenario_id/practice/review-cursor",
             put(super::practice_review_cursor::put_review_cursor),
         )
-        // Discuss with AI (CC_TASK_QUESTION_CHAT_v1): one address, two verbs.
-        .route(
-            "/practice/questions/:question_id/discussion",
-            get(super::practice_discussion_routes::get_discussion)
-                .post(super::practice_discussion_routes::post_discussion),
-        )
 }
 
 /// Part B's seven routes, declared together.

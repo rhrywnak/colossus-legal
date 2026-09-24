@@ -123,9 +123,8 @@ fn model_default_spec(record: &LlmModelRecord) -> Result<LlmParamsSpec, LlmConfi
 /// Resolve the scan's model id, load its active row, resolve+constrain its
 /// parameters, and build the provider.
 ///
-/// Model-id precedence: the per-run request override, else `THEME_SCAN_MODEL`
-/// (`config.theme_scan_model`), else the chat default (`state.default_chat_model`
-/// — the library-side source of the same value `main.rs` uses).
+/// Model-id precedence: the per-run request override, else the picker's own
+/// default rule (`api::chat_models::scan_default_model`).
 ///
 /// Every failure is a typed [`ThemeScanError`] the route maps to an HTTP status
 /// (Standing Rule 1): an unknown/inactive model, a corrupt-row parameter fault,
@@ -134,10 +133,22 @@ pub(crate) async fn resolve_scan_provider(
     state: &AppState,
     requested_model_id: Option<&str>,
 ) -> Result<ResolvedScanProvider, ThemeScanError> {
-    let model_id = requested_model_id
-        .map(str::to_string)
-        .or_else(|| state.config.theme_scan_model.clone())
-        .unwrap_or_else(|| state.default_chat_model.clone());
+    // Without a model in the request, the run starts on the model the scan
+    // screen's picker opens on — one rule for both (`scan_default_model`:
+    // THEME_SCAN_MODEL, else the `theme_scan_default_model` row, else the Chat
+    // default). Before CC_TASK_MODEL_JOBS_PANEL_v1 this fallback skipped the
+    // settings row, so a model saved on Admin → Overview did not reach it.
+    let settings = state.settings.current();
+    let model_id = requested_model_id.map_or_else(
+        || {
+            crate::api::chat_models::scan_default_model(
+                state.config.theme_scan_model.as_deref(),
+                &settings.theme_scan_default_model,
+                &settings.chat_default_model,
+            )
+        },
+        str::to_string,
+    );
 
     let record = get_active_model_by_id(&state.pipeline_pool, &model_id)
         .await

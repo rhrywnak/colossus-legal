@@ -22,7 +22,7 @@ use crate::state::AppState;
 pub struct ChatModelEntry {
     pub model_id: String,
     pub display_name: String,
-    /// True when this row's id equals `AppState::default_chat_model`.
+    /// True when this row's id equals the `chat_default_model` settings row.
     pub is_default: bool,
     /// `local` | `billed` — who pays for a call (task 1.7B, migration
     /// `20260802134438`). Carried as the raw token so a client can branch on the
@@ -175,7 +175,7 @@ pub async fn list_chat_models(
     // ordering is the SCAN control's rule (a scan is 148 metered calls; one chat
     // turn is one), and quietly reordering the chat picker would be this task
     // editing a surface it was not asked about.
-    let default_model = state.default_chat_model.clone();
+    let default_model = state.settings.current().chat_default_model.clone();
     // No measured rates on the CHAT catalogue: a per-candidate rate is a property
     // of a scan, and this endpoint serves a surface that runs none. The empty map
     // leaves every entry's `measured_seconds_per_candidate` at `None`, which
@@ -245,7 +245,7 @@ pub async fn list_scan_models(
     let configured_default = scan_default_model(
         state.config.theme_scan_model.as_deref(),
         &state.settings.current().theme_scan_default_model,
-        &state.default_chat_model,
+        &state.settings.current().chat_default_model,
     );
     tracing::info!(
         default_source = scan_default_source(
@@ -324,7 +324,11 @@ async fn measured_rates(state: &AppState) -> Result<HashMap<String, f64>, ApiErr
 /// `local_first` are: it is the rule, and a rule nobody has exercised is a rule
 /// nobody can trust. A slip in the emptiness guard here would silently restore the
 /// list-order default with every other test still green.
-fn scan_default_model(env_var: Option<&str>, from_settings: &str, chat_default: &str) -> String {
+pub(crate) fn scan_default_model(
+    env_var: Option<&str>,
+    from_settings: &str,
+    chat_default: &str,
+) -> String {
     if let Some(configured) = env_var {
         return configured.to_string();
     }

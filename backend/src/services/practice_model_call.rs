@@ -25,15 +25,13 @@ use crate::domain::llm_params::{
 };
 use crate::llm_retry::call_with_rate_limit_retry_params;
 use crate::pipeline::providers::provider_for_model;
-use crate::repositories::pipeline_repository::models::{get_active_model_by_id, LlmModelRecord};
+use crate::repositories::pipeline_repository::models::get_active_model_by_id;
 use crate::state::AppState;
 
 /// A resolved model, ready to call.
 pub(crate) struct ResolvedModel {
     pub(crate) provider: Arc<dyn LlmProvider>,
     pub(crate) params: ResolvedLlmParams,
-    /// The catalogue row — its `display_name` is what a screen prints.
-    pub(crate) record: LlmModelRecord,
 }
 
 /// Resolve `model_id` into a provider and parameters, or say why not.
@@ -80,11 +78,7 @@ pub(crate) async fn resolve_model(
         provider_for_model(&state.extraction_engine, &record, effort)
             .map_err(|detail| format!("could not build a provider for {model_id}: {detail}"))?,
     );
-    Ok(ResolvedModel {
-        provider,
-        params,
-        record,
-    })
+    Ok(ResolvedModel { provider, params })
 }
 
 /// One call, with the deployment's rate-limit retry policy.

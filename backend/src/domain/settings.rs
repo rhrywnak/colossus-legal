@@ -352,6 +352,10 @@ pub struct Settings {
     /// page by `api::env_banner`; the browser decides WHETHER to show them from
     /// its own runtime config, never from this snapshot.
     pub env_banner_wording: crate::domain::wording_env_banner::EnvBannerWording,
+    /// The Admin pages' own words — the jobs panel and Data → Last document run
+    /// (CC_TASK_MODEL_JOBS_PANEL_v1). One nested field, for the Rule 17 reason
+    /// `domain::wording_admin` gives.
+    pub admin_wording: crate::domain::wording_admin::AdminWording,
     /// What the one-sentence read is told, by which model, and what it may say
     /// back. Nested for the reason the wording blocks are — see
     /// `domain::practice_params`.

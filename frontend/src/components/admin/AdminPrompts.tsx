@@ -3,7 +3,7 @@
  *
  * Thin wrapper over [`AdminFileManager`]; all behavior lives there.
  */
-import React from "react";
+import React, { useState } from "react";
 import AdminFileManager, { FileManagerColumn } from "./AdminFileManager";
 import {
   createTemplate,
@@ -32,18 +32,37 @@ const columns: FileManagerColumn<TemplateInfo>[] = [
   },
 ];
 
-const AdminPrompts: React.FC = () => (
-  <AdminFileManager<TemplateInfo>
-    resourceLabel="Template"
-    extension=".md"
-    fetchList={() => listTemplates().then((r) => r.templates)}
-    fetchItem={getTemplate}
-    createItem={createTemplate}
-    updateItem={updateTemplate}
-    deleteItem={deleteTemplate}
-    columns={columns}
-    getFilename={(r) => r.filename}
-  />
-);
+/**
+ * Read-only (ruling Q3): the instructions folder cannot be written by the app,
+ * and new versions arrive with a release. The "Used for" column names the AI
+ * jobs using each file; its heading and the tab's note come from the server
+ * with the list, so neither is ever drawn blank.
+ */
+const AdminPrompts: React.FC = () => {
+  const [meta, setMeta] = useState<{ note: string; usedFor: string } | null>(null);
+  const withUsedFor: FileManagerColumn<TemplateInfo>[] = [
+    ...columns,
+    { header: meta?.usedFor ?? "", render: (r) => r.used_for ?? "\u2014", style: { width: "22%" } },
+  ];
+  return (
+    <AdminFileManager<TemplateInfo>
+      resourceLabel="Template"
+      extension=".md"
+      fetchList={() =>
+        listTemplates().then((r) => {
+          setMeta({ note: r.read_only_note, usedFor: r.used_for_label });
+          return r.templates;
+        })
+      }
+      fetchItem={getTemplate}
+      createItem={createTemplate}
+      updateItem={updateTemplate}
+      deleteItem={deleteTemplate}
+      columns={withUsedFor}
+      getFilename={(r) => r.filename}
+      readOnlyNote={meta?.note ?? ""}
+    />
+  );
+};
 
 export default AdminPrompts;

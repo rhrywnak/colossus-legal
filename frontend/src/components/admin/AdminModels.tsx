@@ -233,6 +233,8 @@ const AdminModels: React.FC = () => {
   const [opError, setOpError] = useState<string | null>(null);
   const [opSuccess, setOpSuccess] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // "Used for" (CC_TASK_MODEL_JOBS_PANEL_v1): which AI jobs run on each model.
+  const [usedFor, setUsedFor] = useState<{ label: string; byModel: Record<string, string> } | null>(null);
 
   const reload = () => {
     setLoading(true);
@@ -240,6 +242,7 @@ const AdminModels: React.FC = () => {
       .then((r) => {
         setModels(r.models);
         setTempWording(r.temperature_wording);
+        setUsedFor({ label: r.used_for_label, byModel: r.used_for });
         setListError(null);
       })
       .catch((e) =>
@@ -547,6 +550,7 @@ const AdminModels: React.FC = () => {
                     <th style={{ ...th, width: "100px" }}>Provider</th>
                     <th style={{ ...th, width: "110px" }}>Quotes checked</th>
                     <th style={{ ...th, width: "80px" }}>Active</th>
+                    <th style={th}>{usedFor?.label}</th>
                     <th style={{ ...th, width: "180px" }}>Actions</th>
                   </tr>
                 </thead>
@@ -582,6 +586,7 @@ const AdminModels: React.FC = () => {
                           disabled={busy}
                         />
                       </td>
+                      <td style={td}>{usedFor?.byModel[m.id] ?? "\u2014"}</td>
                       <td style={td}>
                         <button
                           style={{ ...btnSecondary, marginRight: "0.35rem" }}

@@ -23,7 +23,15 @@ use crate::repositories::pipeline_repository::practice_discussions::DiscussionTu
 use crate::repositories::pipeline_repository::practice_notes::{AttemptRecord, NoteRecord};
 use crate::services::chat_question_text::{document_date_label, translate_keys};
 use crate::services::practice_clock::local_stamp;
-use crate::services::practice_discuss::FAILED_ANALYSIS;
+
+/// What stands in for the analysis when the analysis FAILED — said as such,
+/// never Marie's failure sentence passed along as though it were an analysis.
+///
+/// Moved here from `practice_discuss` when the dock that also used it was retired
+/// (CC_TASK_MODEL_JOBS_PANEL_v1, ruling Q1).
+// STRUCTURAL: model-wire vocabulary — the model-facing label for a failed
+// analysis; rephrasing it is a coordinated prompt change.
+pub const FAILED_ANALYSIS: &str = "no answer analysis (it failed)";
 
 /// One other person's thread, as the model reads it.
 #[derive(Debug, Clone, PartialEq)]

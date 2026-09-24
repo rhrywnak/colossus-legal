@@ -14,9 +14,7 @@ use std::collections::HashMap;
 
 use crate::domain::llm_effort::parse_stored_effort;
 use crate::domain::practice_params::{
-    PracticeReadParams, KEY_PRACTICE_CASE_TIMEZONE, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
-    KEY_PRACTICE_DISCUSS_EFFORT, KEY_PRACTICE_DISCUSS_MAX_TOKENS, KEY_PRACTICE_DISCUSS_MAX_TURNS,
-    KEY_PRACTICE_DISCUSS_PROMPT_FILE, KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD,
+    PracticeReadParams, KEY_PRACTICE_CASE_TIMEZONE, KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD,
     KEY_PRACTICE_READ_EFFORT, KEY_PRACTICE_READ_FINE_TOKEN, KEY_PRACTICE_READ_MAX_POINTERS,
     KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
     KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
@@ -63,10 +61,6 @@ pub(crate) fn build_practice_read_params(
         reviewer_usernames: bench.logins,
         reviewer_display_names: bench.names,
         witness_username: text_of(require(rows, KEY_PRACTICE_WITNESS_USERNAME)?)?,
-        discuss_default_model: text_of(require(rows, KEY_PRACTICE_DISCUSS_DEFAULT_MODEL)?)?,
-        discuss_max_turns: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TURNS)?)?,
-        discuss_prompt_file: text_of(require(rows, KEY_PRACTICE_DISCUSS_PROMPT_FILE)?)?,
-        discuss_max_tokens: token_count_of(require(rows, KEY_PRACTICE_DISCUSS_MAX_TOKENS)?)?,
         // `token_count_of` checks the declared kind and the row's own
         // min/max — the migration seeds 1..=100, so a Settings edit to 0
         // is refused at the store rather than collapsing the page here.
@@ -75,7 +69,6 @@ pub(crate) fn build_practice_read_params(
             KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD,
         )?)?,
         effort: effort_of(rows, KEY_PRACTICE_READ_EFFORT)?,
-        discuss_effort: effort_of(rows, KEY_PRACTICE_DISCUSS_EFFORT)?,
     })
 }
 

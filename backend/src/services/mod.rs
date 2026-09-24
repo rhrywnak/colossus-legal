@@ -1,7 +1,14 @@
 //! Service layer modules for business logic.
 
+pub mod ai_jobs;
+pub mod ai_jobs_compose;
+pub mod ai_jobs_meta;
+pub mod ai_jobs_options;
+pub mod ai_jobs_usage;
+pub mod ai_jobs_write;
 pub mod audit_checks;
 pub mod chat_default;
+pub mod last_run;
 
 // The amended grep of CC_TASK_CHAT_DEFAULT_MODEL_v1, as a test (ruled
 // 2026-09-19): no Anthropic model id may be compiled into a surface that serves
@@ -12,6 +19,7 @@ pub mod chat_keepwarm_button;
 pub mod chat_keepwarm_rates;
 pub mod chat_model_check;
 pub mod chat_prefix_size;
+pub mod chat_providers_live;
 pub mod chat_question_context;
 pub mod chat_question_error;
 pub mod chat_question_gather;
@@ -73,9 +81,6 @@ mod no_stale_model_literal_tests;
 pub mod practice_answer_version;
 pub mod practice_changes;
 pub mod practice_clock;
-pub mod practice_discuss;
-pub mod practice_discuss_load;
-pub mod practice_discuss_run;
 pub mod practice_editor_options;
 pub mod practice_model_call;
 pub mod practice_note_view;
@@ -146,6 +151,7 @@ pub mod settings_row_readers;
 // place every rule `parse_verbatim_list` applies SILENTLY is applied loudly.
 pub mod settings_groups;
 pub mod settings_map;
+pub mod settings_map_admin;
 pub mod settings_pair;
 pub mod settings_store;
 pub mod settings_template_file;
