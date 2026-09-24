@@ -40,6 +40,8 @@ pub use accumulate::{AssistantMessage, ChatStreamError};
 pub use backend::{AnthropicBackend, ChatBackend, ChatTransportError, EngineConfig};
 pub use citation::{RejectedCitation, VerifiedCitation};
 pub use engine::{run_turn, ChatError, ChatEvent, ChatOutcome};
-pub use request::{CacheTtl, ChatDocument, ChatRequest, Message, RequestError, Role, ToolSpec};
+pub use request::{
+    build_prewarm_body, CacheTtl, ChatDocument, ChatRequest, Message, RequestError, Role, ToolSpec,
+};
 pub use tools::ChatTool;
 pub use usage::Usage;

@@ -38,6 +38,10 @@ impl ChatBackend for Scripted {
     async fn count_tokens(&self, _body: &Value) -> Result<u64, ChatTransportError> {
         unreachable!("the tool loop never counts; the caller's size guard does")
     }
+
+    async fn prewarm(&self, _body: &Value) -> Result<crate::usage::Usage, ChatTransportError> {
+        unreachable!("the tool loop never pre-warms")
+    }
 }
 
 struct Echo;

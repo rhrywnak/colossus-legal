@@ -10,6 +10,7 @@ pub mod admin_documents;
 pub mod admin_evidence;
 pub mod admin_evidence_helpers;
 pub mod admin_flag;
+pub mod admin_keepwarm;
 pub mod admin_page_ground;
 pub mod admin_qa;
 pub mod admin_reindex;

@@ -30,6 +30,9 @@ use serde_json::{json, Map, Value};
 /// STRUCTURAL: the Messages API allows at most four `cache_control` breakpoints.
 const MAX_BREAKPOINTS: usize = 4;
 
+/// STRUCTURAL: the content-block type of a document (wire protocol).
+const BLOCK_DOCUMENT: &str = "document";
+
 /// How long a cache entry lives. The API offers exactly these two.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CacheTtl {
@@ -154,6 +157,9 @@ pub enum RequestError {
     /// A document with no text cannot be cited from.
     #[error("document `{0}` has no text — a document the model cannot quote must not be sent")]
     EmptyDocument(String),
+    /// A pre-warm with no documents would warm nothing the next turn could read.
+    #[error("there are no documents to keep loaded — a pre-warm needs the document package")]
+    NothingToWarm,
 }
 
 /// Build the JSON body for one streamed Messages call.
@@ -235,6 +241,65 @@ pub fn build_count_body(req: &ChatRequest) -> Result<Value, RequestError> {
     Ok(body)
 }
 
+/// The body for a cache PRE-WARM: the same prefix a real turn sends, asking for
+/// no reply at all.
+///
+/// ## Why: derived from `build_body`, like [`build_count_body`]
+///
+/// A pre-warm is worth something only if its bytes are the bytes the next real
+/// turn will send — tools, system prompt, documents, and the thinking and effort
+/// settings, which the provider renders into the prompt. So this calls
+/// [`build_body`] and then takes away, never adds:
+///
+/// - `messages` is cut to its first message, and that message to its
+///   documents. The per-question context and the conversation sit AFTER the
+///   document breakpoint, so dropping them changes nothing the cache is keyed on,
+///   and leaves no tail to write. Two breakpoints remain: the system prompt and
+///   the last document.
+/// - `max_tokens` becomes `0`, the provider's documented pre-warm: it runs the
+///   prefill, answers `content: []`, and bills no output.
+/// - `stream` is removed, because the provider refuses `max_tokens: 0` with
+///   streaming. Streaming is how bytes travel, not part of the cached prompt.
+///
+/// `thinking`, `output_config` and `context_management` are kept exactly as a
+/// real turn sends them. Measured on 2026-09-24 (CC_TASK_CACHE_KEEPWARM_v1
+/// Stage P): this body, with `thinking: adaptive`, read 368,832 cached tokens
+/// and wrote none.
+///
+/// The request's `history` is ignored: the body keeps no conversation.
+///
+/// # Errors
+/// [`RequestError::NothingToWarm`] with no documents, or whatever
+/// [`build_body`] raises.
+pub fn build_prewarm_body(req: &ChatRequest) -> Result<Value, RequestError> {
+    if req.documents.is_empty() {
+        return Err(RequestError::NothingToWarm);
+    }
+    // `build_body` insists on a conversation ending with a user message. An
+    // EMPTY one satisfies it and places no breakpoint (there is no block to put
+    // one on), and it is cut away below with everything else after messages[0].
+    let mut shaped = req.clone();
+    shaped.history = vec![Message {
+        role: Role::User,
+        content: Vec::new(),
+    }];
+    let mut body = build_body(&shaped)?;
+    // `build_body` always returns a JSON object; this is the borrow, not a guess.
+    if let Some(map) = body.as_object_mut() {
+        map.insert("max_tokens".into(), json!(0));
+        map.remove("stream");
+        if let Some(Value::Array(messages)) = map.get_mut("messages") {
+            messages.truncate(1);
+            if let Some(Value::Array(content)) =
+                messages.first_mut().and_then(|m| m.get_mut("content"))
+            {
+                content.retain(|b| b.get("type").and_then(Value::as_str) == Some(BLOCK_DOCUMENT));
+            }
+        }
+    }
+    Ok(body)
+}
+
 fn system_blocks(parts: &[String], cache: &Value) -> Value {
     let last = parts.len().saturating_sub(1);
     Value::Array(
@@ -259,7 +324,7 @@ fn messages(req: &ChatRequest, cache: &Value) -> Result<Value, RequestError> {
             return Err(RequestError::EmptyDocument(doc.title.clone()));
         }
         let mut b = json!({
-            "type": "document",
+            "type": BLOCK_DOCUMENT,
             "source": {"type": "text", "media_type": "text/plain", "data": doc.text},
             "title": doc.title,
             "citations": {"enabled": true},

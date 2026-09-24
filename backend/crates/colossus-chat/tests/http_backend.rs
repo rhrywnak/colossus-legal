@@ -137,3 +137,35 @@ async fn a_400_carries_its_body() {
         other => panic!("expected Status, got {other:?}"),
     }
 }
+
+/// A pre-warm is a non-streamed POST to the same endpoint, carrying the same
+/// headers, whose JSON reply is read into `Usage`.
+#[tokio::test]
+async fn a_prewarm_round_trip_returns_its_usage() {
+    let reply = r#"{"id":"m","content":[],"stop_reason":"max_tokens","usage":{"input_tokens":4,"cache_read_input_tokens":368832,"cache_creation_input_tokens":0,"output_tokens":0}}"#;
+    let (url, seen) = serve_once("200 OK", reply, "application/json").await;
+    let backend = AnthropicBackend::new(config(url)).unwrap();
+    let body = json!({"model":"m","max_tokens":0,"messages":[]});
+    let usage = backend.prewarm(&body).await.unwrap();
+    assert_eq!(usage.cache_read_input_tokens, Some(368_832));
+    assert_eq!(usage.cache_creation_input_tokens, Some(0));
+    let raw = seen.lock().unwrap().to_ascii_lowercase();
+    assert!(raw.starts_with("post /v1/messages "));
+    assert!(raw.contains("anthropic-beta: compact-2026-01-12"));
+    assert!(!raw.contains("accept: text/event-stream"));
+    assert!(raw.contains("\"max_tokens\":0"));
+}
+
+/// A refused pre-warm keeps the provider's sentence for the log.
+#[tokio::test]
+async fn a_refused_prewarm_carries_its_body() {
+    let (url, _) = serve_once("400 Bad Request", r#"{"error":"nope"}"#, "application/json").await;
+    let backend = AnthropicBackend::new(config(url)).unwrap();
+    match backend.prewarm(&json!({})).await.unwrap_err() {
+        TransportError::Status { status, body } => {
+            assert_eq!(status, 400);
+            assert!(body.contains("nope"));
+        }
+        other => panic!("expected Status, got {other:?}"),
+    }
+}

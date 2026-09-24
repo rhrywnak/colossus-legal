@@ -220,7 +220,11 @@ fn leading_number(rest: &str) -> Option<u64> {
 //
 // CC_TASK_FOR_YOU_v1 L3 adds ONE line for one route: `POST
 // /practice/notes/:note_id/reply`. A `POST` brings no `HEAD` pair, so 329 → 330.
-const EXPECTED_ROUTE_LINES: usize = 330;
+//
+// CC_TASK_KEEPWARM_BUTTON_v1 adds the Admin "Chat case file" box's two routes:
+// `GET /admin/chat-case-file` (two lines, with its `HEAD` pair) and `POST
+// /admin/chat-case-file/keep-loaded` (one), so 330 → 333.
+const EXPECTED_ROUTE_LINES: usize = 333;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {
@@ -264,6 +268,9 @@ fn the_walk_can_actually_see_the_router_it_claims_to_read() {
         "GET /cases/:slug/for-you",
         "GET /cases/:slug/for-you/summary",
         "POST /practice/questions/:question_id/seen",
+        // CC_TASK_KEEPWARM_BUTTON_v1's two, named for the same reason.
+        "GET /admin/chat-case-file",
+        "POST /admin/chat-case-file/keep-loaded",
     ] {
         assert!(
             table.iter().any(|line| line == sentinel),

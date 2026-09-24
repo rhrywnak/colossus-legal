@@ -186,3 +186,85 @@ fn the_count_body_refuses_the_same_requests_build_body_refuses() {
         Err(RequestError::NotUserLast("an assistant message"))
     );
 }
+
+/// A request with a tool and compaction on, so the pre-warm tests can see that
+/// every prefix-shaping key survives the derivation.
+fn full_req() -> ChatRequest {
+    ChatRequest {
+        tools: vec![ToolSpec {
+            name: "list_documents".into(),
+            description: "List them.".into(),
+            input_schema: json!({"type": "object"}),
+        }],
+        compaction_trigger_tokens: Some(700_000),
+        ..req()
+    }
+}
+
+/// The pre-warm is only worth sending if the provider sees the SAME prefix a
+/// real turn sends: tools, system, model, the documents, and the thinking /
+/// effort / compaction settings rendered into the prompt.
+#[test]
+fn the_prewarm_body_shares_every_prefix_byte_with_the_real_body() {
+    let real = build_body(&full_req()).unwrap();
+    let warm = build_prewarm_body(&full_req()).unwrap();
+    for key in [
+        "model",
+        "tools",
+        "system",
+        "thinking",
+        "output_config",
+        "context_management",
+    ] {
+        assert_eq!(warm[key], real[key], "`{key}` differs");
+    }
+    // messages[0] is exactly the real turn's documents, breakpoint included.
+    let real_docs = &real["messages"][0]["content"].as_array().unwrap()[..2];
+    assert_eq!(
+        warm["messages"][0]["content"].as_array().unwrap(),
+        real_docs
+    );
+    assert_eq!(warm["messages"][0]["role"], "user");
+}
+
+/// `max_tokens: 0` is the documented pre-warm, and the provider refuses it
+/// together with `stream`.
+#[test]
+fn the_prewarm_body_asks_for_nothing_and_does_not_stream() {
+    let warm = build_prewarm_body(&full_req()).unwrap();
+    assert_eq!(warm["max_tokens"], 0);
+    assert!(warm.get("stream").is_none());
+}
+
+/// Nothing after the document breakpoint is sent: no per-question context, no
+/// conversation — so there is no tail for the pre-warm to WRITE.
+#[test]
+fn the_prewarm_body_keeps_only_the_documents() {
+    let warm = build_prewarm_body(&full_req()).unwrap();
+    let messages = warm["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 1);
+    let content = messages[0]["content"].as_array().unwrap();
+    assert_eq!(content.len(), 2);
+    assert!(content.iter().all(|b| b["type"] == "document"));
+}
+
+/// Two breakpoints: the system prompt and the last document. The conversation's
+/// breakpoint is gone with the conversation.
+#[test]
+fn the_prewarm_body_places_exactly_two_breakpoints() {
+    let warm = build_prewarm_body(&full_req()).unwrap();
+    assert_eq!(count_breakpoints(&warm), 2);
+    assert!(warm["system"][1].get("cache_control").is_some());
+    assert!(warm["messages"][0]["content"][1]
+        .get("cache_control")
+        .is_some());
+}
+
+/// With no documents there is nothing the next turn could read back, so the
+/// pre-warm refuses by name rather than paying for a system-prompt-only write.
+#[test]
+fn a_prewarm_with_no_documents_is_refused() {
+    let mut r = full_req();
+    r.documents.clear();
+    assert_eq!(build_prewarm_body(&r), Err(RequestError::NothingToWarm));
+}

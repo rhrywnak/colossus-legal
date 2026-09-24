@@ -6,7 +6,10 @@ pub mod chat_default;
 // The amended grep of CC_TASK_CHAT_DEFAULT_MODEL_v1, as a test (ruled
 // 2026-09-19): no Anthropic model id may be compiled into a surface that serves
 // one. Test-only, so it costs a release binary nothing.
+pub mod chat_case_prefix;
 pub mod chat_engine_setup;
+pub mod chat_keepwarm_button;
+pub mod chat_keepwarm_rates;
 pub mod chat_model_check;
 pub mod chat_prefix_size;
 pub mod chat_question_context;

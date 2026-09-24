@@ -53,6 +53,7 @@
 pub mod app_settings;
 pub mod authored_entities;
 pub mod chat_discussions;
+pub mod chat_last_turn;
 pub mod chronology;
 pub mod chronology_links;
 pub mod chronology_note_write;

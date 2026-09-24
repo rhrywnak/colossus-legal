@@ -23,6 +23,7 @@ use crate::repositories::pipeline_repository::chat_discussions::{
 };
 use crate::repositories::pipeline_repository::models::{get_model_by_id, LlmModelRecord};
 use crate::repositories::pipeline_repository::PipelineRepoError;
+use crate::services::chat_case_prefix::{build_request, read_template};
 use crate::services::chat_model_check::unusable_reason;
 use crate::services::chat_prefix_size::{package_size, PackageSize, PrefixParts};
 use crate::services::chat_question_context::{render_attempts, render_context};
@@ -257,32 +258,6 @@ fn check_size(
     Ok(())
 }
 
-/// The engine request, every value from configuration.
-fn build_request(
-    chat: &QuestionChatParams,
-    prompt: String,
-    narrative: String,
-    context: String,
-    documents: &[PackagedDocument],
-    history: Vec<Message>,
-) -> ChatRequest {
-    ChatRequest {
-        model: chat.model.clone(),
-        max_tokens: chat.max_tokens,
-        system: vec![prompt, narrative],
-        documents: documents.iter().map(|d| d.block.clone()).collect(),
-        context,
-        history,
-        tools: Vec::new(),
-        effort: chat.effort.map(|e| e.as_wire().to_string()),
-        // Opus 5 thinks adaptively by default; sending it explicitly keeps the
-        // behavior the same on a model whose default differs.
-        adaptive_thinking: true,
-        compaction_trigger_tokens: chat.compaction_trigger_tokens.map(u64::from),
-        cache_ttl: chat.cache_ttl,
-    }
-}
-
 /// The stored thread as the model must see it again: every message verbatim,
 /// EXCEPT failed assistant turns (a failure marker has no content to replay).
 async fn replay_history(
@@ -305,28 +280,6 @@ async fn replay_history(
             content: m.content.as_array().cloned().unwrap_or_default(),
         })
         .collect())
-}
-
-/// Read a template-directory file, distinguishing absent from empty.
-async fn read_template(
-    state: &AppState,
-    what: &'static str,
-    file: &str,
-) -> Result<String, ChatRunError> {
-    let path = std::path::Path::new(state.registry.template_dir()).join(file.trim());
-    match tokio::fs::read_to_string(&path).await {
-        Ok(text) if text.trim().is_empty() => Err(ChatRunError::FileUnreadable {
-            what,
-            path: path.display().to_string(),
-            detail: "the file is EMPTY".into(),
-        }),
-        Ok(text) => Ok(text),
-        Err(e) => Err(ChatRunError::FileUnreadable {
-            what,
-            path: path.display().to_string(),
-            detail: e.to_string(),
-        }),
-    }
 }
 
 #[cfg(test)]
