@@ -866,3 +866,42 @@
   --fy-tab-on-bg: #16202c;
   --fy-tab-on-ink: #ffffff;
 }
+
+/* =============================================================================
+ * Admin → Overview jobs panel and Admin → Data "Last document run"
+ * (CC_TASK_MODEL_JOBS_PANEL_v1, mockup MODEL_JOBS_OVERVIEW_MOCKUP_v3_2026-09-24).
+ *
+ * Scoped to the two surfaces, by the mockup's own property names, for the reason
+ * the For-you block above gives: one place to edit, and nothing else in the app
+ * changes colour because this page did.
+ * ============================================================================= */
+[data-surface="admin-jobs"] {
+  --aj-ink: #16202c;
+  --aj-muted: #5b6b7d;
+  --aj-line: #c9d1da;
+  --aj-pale: #f4f7fb;
+  --aj-blue: #1b5fbe;
+  --aj-soft: #eef4fd;
+  --aj-paper: #ffffff;
+
+  /* `.warn` — board 4's worst-state line. */
+  --aj-warn-ink: #b3421b;
+  --aj-warn-bg: #fff6ec;
+  --aj-warn-border: #f1d2b8;
+
+  /* `.job3` row rule, `.menu .foot` rule and table row rule. */
+  --aj-rule: #e8ecf0;
+
+  /* `.fixed` — a control that is not a choice ("—", "Built in…", "Fixed by…"). */
+  --aj-fixed-bg: #f3f5f8;
+
+  /* `.btn.off` — Save before anything changed. */
+  --aj-btn-off: #c9d4e3;
+
+  /* `.sel.open` focus ring. */
+  --aj-ring: #d6e4fa;
+
+  /* `.ok` — board 3's confirmation after Save. */
+  --aj-ok: #1e7a3c;
+  --aj-okbg: #dcf7e6;
+}

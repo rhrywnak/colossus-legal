@@ -41,6 +41,7 @@ pub(crate) mod ingest_dedupe;
 pub(crate) mod ingest_helpers;
 pub(crate) mod ingest_resolver;
 mod items;
+mod last_run;
 mod metrics;
 pub(crate) mod ocr;
 pub mod party_alias;
@@ -186,6 +187,7 @@ pub fn router() -> Router<AppState> {
         .route("/items/:id/history", get(review::item_history_handler))
         .route("/items/:id", put(review::edit_handler))
         .route("/metrics", get(metrics::metrics_handler))
+        .route("/last-run", get(last_run::last_run_handler))
         .route(
             "/models",
             get(config_endpoints::list_models).post(config_endpoints::create_model),

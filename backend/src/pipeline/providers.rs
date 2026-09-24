@@ -221,13 +221,9 @@ mod wiring_tests {
         );
 
         // Each family's call site, naming the field its settings row fills.
-        for (file, field) in [
-            ("services/practice_read_setup.rs", "read.effort"),
-            (
-                "services/practice_discuss_run.rs",
-                "settings.practice_read.discuss_effort",
-            ),
-        ] {
+        // The dock's call site went with the dock (CC_TASK_MODEL_JOBS_PANEL_v1,
+        // ruling Q1); the read is the one family left on this path.
+        for (file, field) in [("services/practice_read_setup.rs", "read.effort")] {
             let source = read(file);
             assert!(
                 source.contains(field),

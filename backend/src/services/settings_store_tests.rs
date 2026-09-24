@@ -22,10 +22,10 @@ use crate::services::settings_write::validate_candidate;
 // code describe the same store.
 use crate::domain::llm_effort::Effort;
 use crate::domain::practice_params::{
-    KEY_PRACTICE_DISCUSS_EFFORT, KEY_PRACTICE_READ_EFFORT, KEY_PRACTICE_READ_MAX_POINTERS,
-    KEY_PRACTICE_READ_MAX_TOKENS, KEY_PRACTICE_READ_MAX_WORDS,
-    KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE, KEY_PRACTICE_READ_MAX_WORDS_CALL,
-    KEY_PRACTICE_READ_MAX_WORDS_POINTER, KEY_PRACTICE_READ_MAX_WORDS_WHY, PRACTICE_PARAM_KEYS,
+    KEY_PRACTICE_READ_EFFORT, KEY_PRACTICE_READ_MAX_POINTERS, KEY_PRACTICE_READ_MAX_TOKENS,
+    KEY_PRACTICE_READ_MAX_WORDS, KEY_PRACTICE_READ_MAX_WORDS_AFTER_FINE,
+    KEY_PRACTICE_READ_MAX_WORDS_CALL, KEY_PRACTICE_READ_MAX_WORDS_POINTER,
+    KEY_PRACTICE_READ_MAX_WORDS_WHY, PRACTICE_PARAM_KEYS,
 };
 use crate::domain::wording::WORDING_KEYS;
 use crate::domain::wording_accusation::ACCUSATION_WORDING_KEYS;
@@ -36,7 +36,6 @@ use crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS;
 use crate::domain::wording_matrix::MATRIX_WORDING_KEYS;
 use crate::domain::wording_model_params::MODEL_PARAMS_WORDING_KEYS;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
-use crate::domain::wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
@@ -156,7 +155,6 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // missing these twenty-five would let a snapshot build that the real
         // store could not — the boot loader reads every one of them by name.
         .chain(crate::domain::wording_for_you::ForYouWording::for_test_values())
-        .chain(crate::domain::wording_practice_discuss::PracticeDiscussWording::for_test_values())
         .chain(crate::domain::wording_question_chat::QuestionChatWording::for_test_values())
         // CC_TASK_CHAT_ENGINE_v1: the chat's text parameters — one flat table.
         .chain(crate::domain::chat_params::QuestionChatParams::for_test_values())
@@ -169,6 +167,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         // loader requires them, so a fixture without them would let a snapshot
         // build that the real store could not.
         .chain(crate::domain::wording_env_banner::EnvBannerWording::for_test_values())
+        // CC_TASK_MODEL_JOBS_PANEL_v1: the Admin pages' three blocks, required at
+        // boot like every sibling above.
+        .chain(crate::domain::wording_ai_jobs::AiJobsWording::for_test_values())
+        .chain(crate::domain::wording_ai_job_rows::AiJobRowsWording::for_test_values())
+        .chain(crate::domain::wording_last_run::LastRunWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
         // REVIEW_PAGE (2026-09-19): the Review answers page's nine. Nested on
@@ -247,20 +250,11 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             // do not badge her. Not on the bench above and never compared to it:
             // her notes still count as work awaiting a reviewer.
             ("practice_witness_username", "docmarie".to_string()),
-            // QUESTION_CHAT: the dock's starting model and its prompt file.
-            (
-                "practice_discuss_default_model",
-                "claude-opus-5".to_string(),
-            ),
-            (
-                "practice_discuss_prompt_file",
-                "practice_discuss_prompt_v1.md".to_string(),
-            ),
-            // READ_V4_BUDGET: the two thinking dials. Text rows that are not
+            // READ_V4_BUDGET: the read's thinking dial (the dock's went with the
+            // dock, CC_TASK_MODEL_JOBS_PANEL_v1 M3). Text rows that are not
             // wording — a wire vocabulary the API reads, not a sentence anyone
             // sees. `absent` is this build's word for sending no key at all.
             ("practice_read_effort", "low".to_string()),
-            ("practice_discuss_effort", "low".to_string()),
             // The OK word, coupled to the prompt file. Text, and not wording:
             // nobody reads it on a screen — the model writes it and the parser
             // recognises it.
@@ -476,22 +470,6 @@ fn numeric_rows() -> HashMap<String, AppSettingRecord> {
             ValueKind::Count,
             Some(64.0),
             Some(8192.0),
-        ),
-        // QUESTION_CHAT: the per-question model-reply cap (GO ruling 5) and one
-        // discussion reply's output cap.
-        row(
-            "practice_discuss_max_turns",
-            "40",
-            ValueKind::Count,
-            Some(1.0),
-            Some(500.0),
-        ),
-        row(
-            "practice_discuss_max_tokens",
-            "4096",
-            ValueKind::Count,
-            Some(64.0),
-            Some(32000.0),
         ),
         // FOR_YOU L3: how many unread items collapse a deck into one row. The
         // bounds are the migration's — 1 because 0 would group every deck that
@@ -820,7 +798,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
         // FOR_YOU L3 added one: `practice_for_you_deck_threshold`, how many
         // unread items collapse a deck into a single row on the For you page.
         // A PRACTICE parameter (21 → 22), so `REQUIRED_KEYS` is unchanged.
-        53,
+        //
+        // CC_TASK_MODEL_JOBS_PANEL_v1 (ruling Q1) retired the dock and its five
+        // PRACTICE parameters — default model, turn cap, prompt file, token cap
+        // and thinking dial — by migration M3 (22 → 17), so 53 → 48.
+        48,
         "seven numbers, 2.10's short-list cap, 2.11 B2's timeline threshold, \
          2.11 C's row-expand cap, 2.15's three scan parameters (the prompt \
          filename and the two pre-filter dials), the one-card grammar's two fold \
@@ -977,14 +959,6 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
          the resume line, the top bar, and the sheet's flag list and two clauses"
     );
     assert_eq!(
-        PRACTICE_DISCUSS_WORDING_KEYS.len(),
-        20,
-        "QUESTION_CHAT: the Discuss-with-AI dock — button, title and two \
-         subtitles, two context lines, input, send, close, picker, footer and \
-         two cost words and the per-reply cost line, empty, sending, two failures, \
-         and the cap pair"
-    );
-    assert_eq!(
         crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len(),
         43,
         "CHAT_ENGINE (+ v2.2.1's side-panel close label): the discussion panel — the Discuss button and its hint, the \
@@ -1111,7 +1085,6 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_ROW_WORDING_KEYS.len()
             // FOR_YOU L1: twenty-five, the twenty-fourth list.
             + crate::domain::wording_for_you::FOR_YOU_WORDING_KEYS.len()
-            + PRACTICE_DISCUSS_WORDING_KEYS.len()
             + crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len()
             + crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
@@ -1121,8 +1094,11 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + PRACTICE_REVIEW_WORDING_KEYS.len()
             + CHRONOLOGY_WORDING_KEYS.len()
             + FACT_CARD_WORDING_KEYS.len()
-            + crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len(),
-        "the seed and the twenty-five required lists must describe the same store"
+            + crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len()
+            + crate::domain::wording_ai_jobs::AI_JOBS_WORDING_KEYS.len()
+            + crate::domain::wording_ai_job_rows::AI_JOB_ROWS_WORDING_KEYS.len()
+            + crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS.len(),
+        "the seed and the twenty-eight required lists must describe the same store"
     );
 }
 
@@ -1494,12 +1470,10 @@ fn an_unreadable_value_refuses_rather_than_falling_back_to_the_default() {
 /// the Settings page so the dial can be returned to the default without a deploy
 /// — and kept DISTINCT from `high`, because "send no key" is a real third state.
 #[test]
-fn the_read_and_the_dock_each_take_their_effort_from_their_own_row() {
+fn the_read_takes_its_effort_from_its_own_row() {
     let settings = build_settings(&seeded()).expect("the seed is valid");
     assert_eq!(settings.practice_read.effort, Some(Effort::Low));
-    assert_eq!(settings.practice_read.discuss_effort, Some(Effort::Low));
 
-    // One row moves, the other does not: two dials, not one wearing two names.
     let mut rows = seeded();
     rows.insert(
         KEY_PRACTICE_READ_EFFORT.to_string(),
@@ -1511,22 +1485,11 @@ fn the_read_and_the_dock_each_take_their_effort_from_their_own_row() {
             None,
         ),
     );
-    rows.insert(
-        KEY_PRACTICE_DISCUSS_EFFORT.to_string(),
-        row(
-            KEY_PRACTICE_DISCUSS_EFFORT,
-            "medium",
-            ValueKind::Text,
-            None,
-            None,
-        ),
-    );
-    let settings = build_settings(&rows).expect("both words are documented levels");
+    let settings = build_settings(&rows).expect("`absent` is a documented level");
     assert_eq!(
         settings.practice_read.effort, None,
         "`absent` means send no effort key at all — not `high`"
     );
-    assert_eq!(settings.practice_read.discuss_effort, Some(Effort::Medium));
 }
 
 /// A word outside the vocabulary refuses the snapshot, naming the row.

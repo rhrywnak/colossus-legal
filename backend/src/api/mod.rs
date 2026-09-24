@@ -2,6 +2,7 @@ use axum::{extract::State, http::StatusCode, routing::get, Router};
 
 use crate::state::AppState;
 
+pub mod admin_ai_jobs;
 pub mod admin_audit_health;
 pub mod admin_document_evidence;
 pub mod admin_document_evidence_queries;
@@ -48,7 +49,6 @@ pub mod practice;
 pub mod practice_answer_read;
 pub mod practice_answers;
 pub mod practice_deck_read;
-pub mod practice_discussion_routes;
 pub mod practice_editor;
 pub mod practice_editor_add;
 pub mod practice_editor_add_fences;
@@ -88,6 +88,7 @@ pub mod scenarios;
 pub mod schema;
 pub mod search;
 pub mod settings;
+pub mod settings_panel_owned;
 // The coupled-group write route — split from `settings` for Rule 17.
 pub mod settings_group;
 pub mod timeline;

@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from "react";
+import { useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import AdminIndex from "../components/admin/AdminIndex";
 import ChatCaseFileBox from "./ChatCaseFileBox";
 import AdminChats from "../components/admin/AdminChats";
 import AdminAudit from "../components/admin/AdminAudit";
-import AdminMetrics from "../components/admin/AdminMetrics";
+import AdminLastRun from "../components/admin/AdminLastRun";
 import AdminModels from "../components/admin/AdminModels";
+import ModelJobsPanel from "../components/admin/ModelJobsPanel";
 import AdminProfiles from "../components/admin/AdminProfiles";
 import AdminPrompts from "../components/admin/AdminPrompts";
 import AdminSchemas from "../components/admin/AdminSchemas";
@@ -95,6 +97,7 @@ const statusDotStyle = (ok: boolean): React.CSSProperties => ({
 const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
   const { user, loading } = useAuth();
   const spec = ADMIN_GROUPS[group];
+  const location = useLocation();
   const [activePanel, setActivePanel] = useState<AdminPanel | null>(defaultPanel(group));
   const [status, setStatus] = useState<AdminStatusResponse | null>(null);
   const [statusError, setStatusError] = useState<string | null>(null);
@@ -102,9 +105,14 @@ const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
   // Moving between groups is a route change, and React re-uses this component
   // across it — so without this the sub-tab from the group just left would
   // survive into the new one and render a panel that group does not list.
+  //
+  // A link from the Overview jobs panel may name the tab to open ("Prompt
+  // Management → Models") in the navigation state; it is honoured only when the
+  // group actually lists that panel, so a stale or foreign value falls back to
+  // the group's default rather than rendering a panel the group does not have.
   useEffect(() => {
-    setActivePanel(defaultPanel(group));
-  }, [group]);
+    setActivePanel(panelFromState(location.state, group) ?? defaultPanel(group));
+  }, [group, location.state]);
 
   // Fetch backend status on mount (only if admin).
   //
@@ -194,7 +202,8 @@ const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
       )}
 
       {/* Panels — every one of the nine unchanged inside, re-homed only. */}
-      {activePanel === "metrics" && <AdminMetrics />}
+      {activePanel === "jobs" && <ModelJobsPanel />}
+      {activePanel === "lastRun" && <AdminLastRun />}
       {activePanel === "indexing" && <AdminIndex />}
       {activePanel === "chats" && <AdminChats />}
       {activePanel === "audit" && <AdminAudit />}
@@ -206,5 +215,12 @@ const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
     </div>
   );
 };
+
+/** The tab a navigation asked for, when this group has it; otherwise `null`. */
+function panelFromState(state: unknown, group: AdminGroup): AdminPanel | null {
+  if (typeof state !== "object" || state === null || !("panel" in state)) return null;
+  const wanted = (state as { panel: unknown }).panel;
+  return ADMIN_GROUPS[group].panels.find((p) => p.id === wanted)?.id ?? null;
+}
 
 export default Admin;

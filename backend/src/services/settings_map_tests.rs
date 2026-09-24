@@ -160,8 +160,19 @@ fn a_claimed_key_lands_in_its_own_block() {
 #[test]
 fn every_key_list_on_disk_is_bundled_here() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let map_source = std::fs::read_to_string(root.join("src/services/settings_map.rs"))
-        .expect("settings_map.rs must be readable — this test scans it");
+    // The map is declared across `settings_map.rs` and the areas split out of it
+    // under Rule 17 (`settings_map_admin.rs`); a list bundled in either counts.
+    let map_source = [
+        "src/services/settings_map.rs",
+        "src/services/settings_map_admin.rs",
+    ]
+    .iter()
+    .map(|file| {
+        std::fs::read_to_string(root.join(file))
+            .unwrap_or_else(|e| panic!("{file} must be readable — this test scans it: {e}"))
+    })
+    .collect::<Vec<_>>()
+    .join("\n");
 
     let mut found = Vec::new();
     for dir in SCANNED_DIRS {

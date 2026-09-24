@@ -207,7 +207,13 @@ pub async fn activity(state: &AppState) -> Result<ActivityDto, KeepLoadedError> 
 /// What reloading the case file would cost, from the provider's own count of it
 /// (free, and remembered by [`crate::services::chat_prefix_size`]). An estimate
 /// that is only arithmetic is not shown as dollars (Law 10: measured only).
-async fn reload_estimate(state: &AppState) -> Result<Option<f64>, KeepLoadedError> {
+///
+/// Shared with the Overview jobs panel (`services::ai_jobs`), whose Discuss chat
+/// and case story rows state the same price the box does.
+///
+/// # Errors
+/// [`KeepLoadedError::CaseFile`] when the case file cannot be assembled.
+pub(crate) async fn reload_estimate(state: &AppState) -> Result<Option<f64>, KeepLoadedError> {
     let Some(backend) = state.chat_engine.clone() else {
         return Ok(None);
     };

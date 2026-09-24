@@ -65,6 +65,12 @@ export type SettingDto = {
    * page renders the group's editor in its place.
    */
   group_id: string | null;
+  /**
+   * Set when Admin → Overview's jobs panel owns this row
+   * (CC_TASK_MODEL_JOBS_PANEL_v1): the row is read-only here and this is the
+   * sentence saying where to change it. The server refuses a save as well.
+   */
+  owned_elsewhere: string | null;
 };
 
 /** One column of a coupled group — a single stored row holding one list. */

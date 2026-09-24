@@ -79,6 +79,8 @@ pub(crate) struct AllWording {
     pub(crate) for_you: ForYouWording,
     /// The words the test-system bar speaks (CC_TASK_ENV_BANNER_v1).
     pub(crate) env_banner: crate::domain::wording_env_banner::EnvBannerWording,
+    /// The Admin pages' words (CC_TASK_MODEL_JOBS_PANEL_v1).
+    pub(crate) admin: crate::domain::wording_admin::AdminWording,
 }
 
 /// Every stored-string block, read by one rule.
@@ -121,6 +123,9 @@ pub(crate) fn build_all_wording(
         text_of(require(rows, key)?)
     })?;
 
+    let admin =
+        crate::domain::wording_admin::build_admin_wording(&|key| text_of(require(rows, key)?))?;
+
     rehearsal.always_lines()?;
     rehearsal.section_states()?;
 
@@ -142,5 +147,6 @@ pub(crate) fn build_all_wording(
         practice,
         practice_report,
         env_banner,
+        admin,
     })
 }

@@ -50,6 +50,7 @@
 //! - `models.rs`, `report_queries.rs`, `review.rs`, `steps.rs`,
 //!   `users.rs` — other table-scoped repository modules.
 
+pub mod ai_job_settings;
 pub mod app_settings;
 pub mod authored_entities;
 pub mod chat_discussions;
@@ -80,6 +81,7 @@ pub mod extraction_items_pass1;
 pub mod extraction_relationships;
 pub mod extraction_runs;
 pub mod item_seen;
+pub mod last_run;
 pub mod models;
 pub mod practice;
 pub mod practice_answers;

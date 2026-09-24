@@ -4,7 +4,6 @@ use axum::{routing::get, Json, Router};
 use clap::{Parser, Subcommand};
 use hyper::http::{HeaderValue, Method};
 use serde::Serialize;
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -13,24 +12,14 @@ use tokio::sync::Semaphore;
 use tower_http::cors::CorsLayer;
 use tracing_subscriber::EnvFilter;
 
-use colossus_extract::providers::AnthropicProvider;
 use colossus_extract::LlmProvider;
 
-// The model catalogue. Read twice at startup: once to build the chat provider
-// map, once to verify the stored Chat default against the row it names.
-use colossus_legal_backend::repositories::pipeline_repository::models;
-// The rule the refusal below is built on. In the LIBRARY, not here: a predicate
-// that decides whether the process starts must be reachable by `cargo test`
-// without a binary, and `main.rs` is 145 lines over Rule 17 before this task.
-use colossus_legal_backend::services::chat_default;
+// The Chat page's per-request provider resolver (CC_TASK_MODEL_JOBS_PANEL_v1,
+// B4). In the LIBRARY, not here: the rule that decides whether the process
+// starts must be reachable by `cargo test` without a binary.
 use colossus_legal_backend::services::chat_keepwarm_button::LastPing;
 use colossus_legal_backend::services::chat_prefix_size::PrefixSizeCache;
-
-/// Per-chat-model `max_tokens` passed to `AnthropicProvider::new`. The
-/// Chat endpoint always wraps the provider in `RigSynthesizer::new(_, 4096)`
-/// at request time, so this default is only used if some future caller
-/// invokes the provider directly.
-const CHAT_MAX_TOKENS: u32 = 4096;
+use colossus_legal_backend::services::chat_providers_live::ChatProviders;
 
 use colossus_legal_backend::{
     api, cli,
@@ -295,12 +284,13 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // `AnthropicProvider` with `temperature = None` (natural variation —
     // distinct from pipeline extraction which pins to Some(0.0) for
     // determinism). Empty when ANTHROPIC_API_KEY is unset.
-    let chat_providers = build_chat_providers(&config, &pipeline_pool).await;
+    let chat_providers = Arc::new(ChatProviders::new(config.anthropic_api_key.clone()));
 
     // The Chat default is a STORED ROW now, and this is where it stops being a
     // hope. See `verify_chat_default` for why a fault here refuses the boot.
     let default_chat_model = settings.current().chat_default_model.clone();
-    assert_chat_default_is_live(&default_chat_model, &chat_providers, &pipeline_pool).await;
+    let default_chat_provider =
+        assert_chat_default_is_live(&default_chat_model, &chat_providers, &pipeline_pool).await;
 
     // Build the RAG pipeline from config (if API key is available).
     //
@@ -315,7 +305,6 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
     // temperature semantics. Falls back to `llm_provider_from_env()` when the
     // map is EMPTY — the no-API-key case, which `assert_chat_default_is_live`
     // deliberately lets through — so admin paths still work.
-    let default_chat_provider = chat_providers.get(&default_chat_model).cloned();
     let rag_pipeline = build_rag_pipeline(&config, &graph, &prompts, default_chat_provider).await;
 
     // Audit log repository — records every admin action for accountability.
@@ -361,7 +350,6 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         embedding_provider,
         schema_metadata,
         chat_providers,
-        default_chat_model,
         registry,
         theme_scan_semaphore,
         // The stop-handle map starts EMPTY, and that is correct rather than a gap:
@@ -660,17 +648,6 @@ async fn build_rag_pipeline(
 // Chat provider map
 // ---------------------------------------------------------------------------
 
-/// Build one `AnthropicProvider` per active `llm_models` row with
-/// `provider = "anthropic"`, keyed by the model id.
-///
-/// Temperature is `None` on every entry — chat responses should have
-/// natural variation. Pipeline extraction uses `Some(0.0)` via its own
-/// `pipeline::providers::provider_for_model` helper.
-///
-/// Returns an empty map if `ANTHROPIC_API_KEY` is unset or if the DB
-/// query fails. Both are non-fatal: the `/ask` handler will surface a
-/// missing default model as 400, and `/chat/models` still serves the
-/// catalog from the DB directly.
 /// Refuse to start if the stored Chat default is not a model this process can
 /// answer with (CC_TASK_CHAT_DEFAULT_MODEL_v1).
 ///
@@ -683,9 +660,9 @@ async fn build_rag_pipeline(
 /// do the one thing the page asks of it should not come up pretending it can
 /// (Rule 15: fail loudly and early).
 ///
-/// ## Why an EMPTY provider map is let through
+/// ## Why a missing API key is let through
 ///
-/// An empty map means `ANTHROPIC_API_KEY` is unset. Chat is already and
+/// No key means `ANTHROPIC_API_KEY` is unset. Chat is already and
 /// honestly degraded there — `/ask` returns 503 before it ever resolves a model
 /// — and refusing to boot would take every non-chat surface down for a key that
 /// is deliberately absent in some deployments. WARN, and carry on.
@@ -698,116 +675,37 @@ async fn build_rag_pipeline(
 /// noise. This is startup-once code, so there is nothing to unwind.
 async fn assert_chat_default_is_live(
     configured: &str,
-    chat_providers: &HashMap<String, Arc<dyn LlmProvider>>,
+    chat_providers: &ChatProviders,
     pipeline_pool: &sqlx::PgPool,
-) {
-    if chat_providers.is_empty() {
+) -> Option<Arc<dyn LlmProvider>> {
+    if !chat_providers.configured() {
         tracing::warn!(
             chat_default_model = configured,
-            "No Anthropic chat providers built (ANTHROPIC_API_KEY unset?) — \
-             /ask will answer 503 until a key is configured. The stored Chat \
-             default is NOT verified in this state."
+            "No ANTHROPIC_API_KEY — /ask will answer 503 until a key is configured. \
+             The stored Chat default is NOT verified in this state."
         );
-        return;
+        return None;
     }
-
-    // Whatever its state — an inactive row must come back so the fault can say
-    // "deactivated" rather than "no such model".
-    let row = match models::get_model_by_id(pipeline_pool, configured).await {
-        Ok(row) => row,
+    // The same per-request resolver `/ask` uses (CC_TASK_MODEL_JOBS_PANEL_v1,
+    // B4): the row must exist, be active and Anthropic, and its provider build.
+    match chat_providers.for_model(pipeline_pool, configured).await {
+        Ok(provider) => {
+            tracing::info!(
+                chat_default_model = configured,
+                "Chat default verified against llm_models"
+            );
+            Some(provider)
+        }
         Err(e) => {
-            // The remedy differs from every other branch below: nothing is
-            // wrong with the ROW here, the catalogue itself could not be read.
-            // Without saying so, an operator reads "refusing to start" beside a
-            // model id and goes looking at the model.
             tracing::error!(
+                chat_default_model = configured,
                 error = %e,
-                chat_default_model = configured,
-                pool = "pipeline_pool",
-                "Could not read llm_models to verify the Chat default — refusing \
-                 to start. Nothing is wrong with the row: check connectivity to \
-                 the pipeline database, and that its migrations have applied."
-            );
-            std::process::exit(1);
-        }
-    };
-
-    match chat_default::verify_chat_default(row.as_ref(), chat_providers.contains_key(configured)) {
-        Ok(()) => tracing::info!(
-            chat_default_model = configured,
-            "Chat default verified against llm_models"
-        ),
-        Err(fault) => {
-            tracing::error!(
-                chat_default_model = configured,
-                remedy = fault.remedy(),
-                fault = ?fault,
-                available = ?chat_providers.keys().collect::<Vec<_>>(),
                 "The stored Chat default cannot be served — refusing to start. \
-                 Edit the chat_default_model settings row, or fix the model it names."
+                 Edit the chat_default_model settings row (Admin → Overview), or fix the model it names."
             );
             std::process::exit(1);
         }
     }
-}
-
-async fn build_chat_providers(
-    config: &AppConfig,
-    pipeline_pool: &sqlx::PgPool,
-) -> HashMap<String, Arc<dyn LlmProvider>> {
-    // `models` is imported at module scope now — the Chat-default verification
-    // above reads the same catalogue.
-    let mut map: HashMap<String, Arc<dyn LlmProvider>> = HashMap::new();
-
-    let api_key = match &config.anthropic_api_key {
-        Some(k) => k.clone(),
-        None => {
-            tracing::info!("ANTHROPIC_API_KEY not set; chat provider map will be empty");
-            return map;
-        }
-    };
-
-    let models = match models::list_active_models(pipeline_pool).await {
-        Ok(m) => m,
-        Err(e) => {
-            tracing::error!(error = %e, "Failed to load active llm_models for chat provider map");
-            return map;
-        }
-    };
-
-    for model in &models {
-        if model.provider != "anthropic" {
-            // Non-Anthropic chat backends (vLLM, future others) are out of
-            // scope for this map; chat dispatch only supports Anthropic
-            // today. Extraction continues to route vLLM through its own
-            // provider_for_model.
-            continue;
-        }
-        match AnthropicProvider::new(
-            api_key.clone(),
-            model.id.clone(),
-            CHAT_MAX_TOKENS,
-            None, // natural variation for chat
-            None, // request_timeout_secs: provider default (600s)
-        ) {
-            Ok(provider) => {
-                map.insert(model.id.clone(), Arc::new(provider) as Arc<dyn LlmProvider>);
-            }
-            Err(e) => {
-                tracing::error!(
-                    model = %model.id, error = %e,
-                    "Failed to construct AnthropicProvider for chat — skipping"
-                );
-            }
-        }
-    }
-
-    tracing::info!(
-        count = map.len(),
-        models = ?map.keys().collect::<Vec<_>>(),
-        "Chat provider map built"
-    );
-    map
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use crate::services::settings_handle::SettingsHandle;
 
-use colossus_extract::{EmbeddingProvider, LlmProvider};
+use colossus_extract::EmbeddingProvider;
 use neo4rs::Graph;
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -84,32 +84,14 @@ pub struct AppState {
     /// and frontend via GET /api/schema.
     pub schema_metadata: SchemaMetadata,
 
-    /// Per-model LLM providers for the Chat endpoint, built once at startup
-    /// from the active rows in `llm_models`. Temperature is `None` on every
-    /// entry so chat responses have natural variation (distinct from the
-    /// pipeline extraction providers, which pin temperature to 0.0 for
-    /// deterministic output). Empty when `ANTHROPIC_API_KEY` is unset —
-    /// callers must treat a missing key as 503 just like `rag_pipeline`.
-    pub chat_providers: HashMap<String, Arc<dyn LlmProvider>>,
-
-    /// Model id the Chat endpoint uses when the request omits `model`.
+    /// The Chat page's model providers, resolved per request against
+    /// `llm_models` and built on first use (CC_TASK_MODEL_JOBS_PANEL_v1, B4).
     ///
-    /// The `chat_default_model` settings row, VERIFIED at startup against
-    /// `llm_models` (CC_TASK_CHAT_DEFAULT_MODEL_v1). It was a compiled-in
-    /// constant until 2026-09-19, and the day the model it named was
-    /// deactivated in the Admin list, every `/ask` without a `model` field
-    /// answered 400 — so `main::assert_chat_default_is_live` now refuses the
-    /// boot rather than letting a request discover it.
-    ///
-    /// ## What that guarantees, and what it does not
-    ///
-    /// On a running server this id IS in `chat_providers` — with ONE deliberate
-    /// exception: an empty map (no `ANTHROPIC_API_KEY`), which the boot check
-    /// lets through because `/ask` already answers 503 there, before it resolves
-    /// a model at all. So the `/ask` handler keeps its 400 for an id it cannot
-    /// find; it is now unreachable for the DEFAULT and reachable only for a
-    /// model a request named itself.
-    pub default_chat_model: String,
+    /// Replaces the boot-time map and the boot-time copy of `chat_default_model`:
+    /// a model added on Admin → Models, or a default saved on Admin → Overview,
+    /// now takes effect on the next request with no restart. The default itself
+    /// is read from `settings.current().chat_default_model` at each call.
+    pub chat_providers: Arc<crate::services::chat_providers_live::ChatProviders>,
 
     /// Pipeline configuration registry — the authoritative directory
     /// layout and document-type → profile mapping. Loaded once at

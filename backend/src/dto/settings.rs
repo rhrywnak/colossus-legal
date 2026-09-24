@@ -66,6 +66,10 @@ pub struct SettingDto {
     /// group's editor in its place and a single-row save is refused by the
     /// backend (`SettingsError::Coupled`). `None` is the ordinary case.
     pub group_id: Option<String>,
+    /// Set when Admin → Overview's jobs panel owns this row
+    /// (CC_TASK_MODEL_JOBS_PANEL_v1): the page shows it read-only with this
+    /// sentence saying where to change it, and a single-row save is refused.
+    pub owned_elsewhere: Option<String>,
 }
 
 /// One column of a coupled group — a single stored row holding one list.

@@ -47,9 +47,7 @@ use crate::domain::{
     wording_chronology_keys::CHRONOLOGY_WORDING_KEYS, wording_env_banner::ENV_BANNER_WORDING_KEYS,
     wording_fact_card::FACT_CARD_WORDING_KEYS, wording_for_you::FOR_YOU_WORDING_KEYS,
     wording_matrix::MATRIX_WORDING_KEYS, wording_model_params::MODEL_PARAMS_WORDING_KEYS,
-    wording_practice::PRACTICE_WORDING_KEYS,
-    wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS,
-    wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS,
+    wording_practice::PRACTICE_WORDING_KEYS, wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS,
     wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS,
     wording_practice_list::PRACTICE_LIST_WORDING_KEYS,
     wording_practice_print::PRACTICE_PRINT_WORDING_KEYS,
@@ -147,11 +145,6 @@ pub const AREAS: &[Area] = &[
                 id: "question_chat",
                 label: "Discussion panel — the words beside a question",
                 keys: crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS,
-            },
-            Block {
-                id: "practice_discuss",
-                label: "Discuss with AI (the earlier dock)",
-                keys: PRACTICE_DISCUSS_WORDING_KEYS,
             },
             Block {
                 id: "practice_print",
@@ -281,6 +274,7 @@ pub const AREAS: &[Area] = &[
             keys: MATRIX_WORDING_KEYS,
         }],
     },
+    super::settings_map_admin::ADMIN_AREA,
     Area {
         id: "warnings",
         label: "Warnings",

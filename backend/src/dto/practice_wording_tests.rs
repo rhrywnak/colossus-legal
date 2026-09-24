@@ -14,7 +14,6 @@
 use super::*;
 use crate::domain::wording_practice::PracticeWording;
 use crate::domain::wording_practice::PRACTICE_WORDING_KEYS;
-use crate::domain::wording_practice_discuss::PRACTICE_DISCUSS_WORDING_KEYS;
 use crate::domain::wording_practice_editor::PRACTICE_EDITOR_WORDING_KEYS;
 use crate::domain::wording_practice_flow::PRACTICE_FLOW_WORDING_KEYS;
 use crate::domain::wording_practice_list::PRACTICE_LIST_WORDING_KEYS;
@@ -69,7 +68,6 @@ fn the_mirror_carries_every_declared_key_from_both_blocks() {
             + PRACTICE_REPORT_WORDING_KEYS.len()
             + PRACTICE_PRINT_WORDING_KEYS.len()
             + PRACTICE_ROW_WORDING_KEYS.len()
-            + PRACTICE_DISCUSS_WORDING_KEYS.len()
             + crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS.len()
             + PRACTICE_EDITOR_WORDING_KEYS.len()
             + PRACTICE_LIST_WORDING_KEYS.len()
@@ -115,7 +113,6 @@ fn every_wire_key_is_a_stored_key_without_its_prefix() {
                 || PRACTICE_REPORT_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_PRINT_WORDING_KEYS.contains(&stored.as_str())
                 || PRACTICE_ROW_WORDING_KEYS.contains(&stored.as_str())
-                || PRACTICE_DISCUSS_WORDING_KEYS.contains(&stored.as_str())
                 || crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS
                     .contains(&stored.as_str())
                 || PRACTICE_EDITOR_WORDING_KEYS.contains(&stored.as_str())

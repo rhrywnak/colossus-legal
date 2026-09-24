@@ -42,6 +42,7 @@ function setting(over: Partial<SettingDto> & { key: string }): SettingDto {
     block_id: "practice_report",
     changed_from_default: null,
     group_id: null,
+    owned_elsewhere: null,
     ...over,
   };
 }

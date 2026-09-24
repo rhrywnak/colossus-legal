@@ -2,12 +2,13 @@
 //! status, and the nested pipeline admin router.
 
 use axum::{
-    routing::{get, post},
+    routing::{get, post, put},
     Router,
 };
 
 use crate::api::{
-    admin_audit_health, admin_evidence, admin_keepwarm, admin_qa, admin_status, pipeline,
+    admin_ai_jobs, admin_audit_health, admin_evidence, admin_keepwarm, admin_qa, admin_status,
+    pipeline,
 };
 use crate::state::AppState;
 
@@ -29,6 +30,12 @@ pub(crate) fn routes() -> Router<AppState> {
         .route(
             "/admin/chat-case-file/keep-loaded",
             post(admin_keepwarm::post_keep_loaded),
+        )
+        .route("/admin/ai-jobs", get(admin_ai_jobs::get_ai_jobs))
+        .route("/admin/ai-jobs/:job", put(admin_ai_jobs::put_ai_job))
+        .route(
+            "/admin/ai-jobs/:job/switch-back",
+            post(admin_ai_jobs::post_switch_back),
         )
         .nest("/admin/pipeline", pipeline::router())
 }

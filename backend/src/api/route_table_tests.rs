@@ -224,7 +224,14 @@ fn leading_number(rest: &str) -> Option<u64> {
 // CC_TASK_KEEPWARM_BUTTON_v1 adds the Admin "Chat case file" box's two routes:
 // `GET /admin/chat-case-file` (two lines, with its `HEAD` pair) and `POST
 // /admin/chat-case-file/keep-loaded` (one), so 330 → 333.
-const EXPECTED_ROUTE_LINES: usize = 333;
+//
+// CC_TASK_MODEL_JOBS_PANEL_v1 Stage A adds two `GET`s, each with its `HEAD`
+// pair: `/admin/ai-jobs` and `/admin/pipeline/last-run`, so 333 → 337. Stage B
+// adds two with no `HEAD` pair — `PUT /admin/ai-jobs/:job` (Save) and `POST
+// /admin/ai-jobs/:job/switch-back` — and REMOVES the dock's three (`GET`, its
+// `HEAD` and `POST` on `/practice/questions/:question_id/discussion`, ruling Q1),
+// so 337 + 2 − 3 = 336, measured.
+const EXPECTED_ROUTE_LINES: usize = 336;
 
 #[test]
 fn the_route_table_is_exactly_what_this_commit_declares() {
@@ -271,6 +278,11 @@ fn the_walk_can_actually_see_the_router_it_claims_to_read() {
         // CC_TASK_KEEPWARM_BUTTON_v1's two, named for the same reason.
         "GET /admin/chat-case-file",
         "POST /admin/chat-case-file/keep-loaded",
+        // CC_TASK_MODEL_JOBS_PANEL_v1 Stage A's two.
+        "GET /admin/ai-jobs",
+        "GET /admin/pipeline/last-run",
+        "PUT /admin/ai-jobs/:job",
+        "POST /admin/ai-jobs/:job/switch-back",
     ] {
         assert!(
             table.iter().any(|line| line == sentinel),

@@ -10,6 +10,7 @@
 //! The handler calls `pipeline.ask(question)` and maps `RagResult` → `AskResponse`,
 //! including retrieval details (chunks, strategy) for frontend transparency.
 
+use crate::services::chat_providers_live::ChatProviderError;
 use std::sync::Arc;
 
 use axum::{extract::State, http::StatusCode, Json};
@@ -32,7 +33,7 @@ pub struct AskRequest {
     pub parent_qa_id: Option<String>,
     /// Model id to use for synthesis. `None` (absent key) selects the
     /// server's configured default chat model. Must match an entry in
-    /// `AppState::chat_providers`; unknown ids return 400.
+    /// `llm_models`; a model that is missing, switched off or not Anthropic is 400.
     #[serde(default)]
     pub model: Option<String>,
 }
@@ -218,18 +219,28 @@ pub async fn ask_the_case(
         )
     })?;
 
-    // Resolve the per-request synthesizer from the chat provider map.
-    // Absent `model` field uses the server default. Unknown ids are 400.
-    let model_id = req.model.as_deref().unwrap_or(&state.default_chat_model);
-    let provider = state.chat_providers.get(model_id).ok_or_else(|| {
-        error_response(
-            StatusCode::BAD_REQUEST,
-            &format!(
-                "Model '{model_id}' not available. GET /api/chat/models for available models."
-            ),
-        )
-    })?;
-    let synthesizer = colossus_rag::RigSynthesizer::new(Arc::clone(provider), 4096);
+    // Resolve the per-request synthesizer. The default is read from the live
+    // settings snapshot and the model is checked against `llm_models` on EVERY
+    // call (CC_TASK_MODEL_JOBS_PANEL_v1, B4), so a model saved on Admin →
+    // Overview or added on Admin → Models answers with no restart.
+    let default_model = state.settings.current().chat_default_model.clone();
+    let model_id = req.model.as_deref().unwrap_or(&default_model);
+    let provider = state
+        .chat_providers
+        .for_model(&state.pipeline_pool, model_id)
+        .await
+        .map_err(|e| {
+            tracing::error!(model = model_id, error = %e, "ask: no provider for the model");
+            let status = match &e {
+                ChatProviderError::NotUsable { .. } => StatusCode::BAD_REQUEST,
+                ChatProviderError::NoKey => StatusCode::SERVICE_UNAVAILABLE,
+                ChatProviderError::Lookup { .. } | ChatProviderError::Build { .. } => {
+                    StatusCode::INTERNAL_SERVER_ERROR
+                }
+            };
+            error_response(status, &e.to_string())
+        })?;
+    let synthesizer = colossus_rag::RigSynthesizer::new(Arc::clone(&provider), 4096);
 
     // Run the full pipeline: route → search → expand → assemble → synthesize.
     // ask_with_synthesizer delegates stage 5 to the caller-supplied

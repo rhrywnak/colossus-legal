@@ -202,22 +202,10 @@ pub struct PracticeReadParams {
     /// naming individually, because each one is a separate errand.
     pub for_you_deck_threshold: u32,
 
-    // ── Discuss with AI (CC_TASK_QUESTION_CHAT_v1) ────────────────────────────
-    /// The model the dock starts on — [`KEY_PRACTICE_DISCUSS_DEFAULT_MODEL`].
-    pub discuss_default_model: String,
-    /// The most model replies one question's thread may hold — the spend guard.
-    pub discuss_max_turns: u32,
-    /// The dock's system prompt file, in the template directory.
-    pub discuss_prompt_file: String,
-    /// The output cap of one discussion reply.
-    pub discuss_max_tokens: u32,
-
     // ── The thinking dials (CC_TASK_READ_V4_BUDGET_FIX_v1) ────────────────────
     /// How much the model may think before one answer read — `None` sends no
     /// `effort` key at all. See [`KEY_PRACTICE_READ_EFFORT`].
     pub effort: Option<Effort>,
-    /// The same dial for the discussion dock.
-    pub discuss_effort: Option<Effort>,
 }
 
 // KEYS: the stable identifiers, named here and listed in
@@ -319,20 +307,10 @@ pub const KEY_PRACTICE_WITNESS_USERNAME: &str = "practice_witness_username";
 /// deploy; `domain::llm_effort::parse_stored_effort` is the ONE reader.
 pub const KEY_PRACTICE_READ_EFFORT: &str = "practice_read_effort";
 
-/// The same dial for the Discuss with AI dock — same exposure, same remedy.
-pub const KEY_PRACTICE_DISCUSS_EFFORT: &str = "practice_discuss_effort";
-
-/// The model the "Discuss with AI" dock starts on (CC_TASK_QUESTION_CHAT_v1). A
-/// setting, never a literal: the button says "Discuss with AI" and the chip prints
-/// whatever this names (ruled amendments 1 and 2).
-pub const KEY_PRACTICE_DISCUSS_DEFAULT_MODEL: &str = "practice_discuss_default_model";
-/// The per-question cap on MODEL replies, across everyone — the runaway-spend
-/// guard, the dock's analogue of the read's `MAX_ATTEMPTS` (GO ruling 5: 40).
-pub const KEY_PRACTICE_DISCUSS_MAX_TURNS: &str = "practice_discuss_max_turns";
-/// The dock's system prompt, beside the read's in the template directory.
-pub const KEY_PRACTICE_DISCUSS_PROMPT_FILE: &str = "practice_discuss_prompt_file";
-/// The output cap of one discussion reply.
-pub const KEY_PRACTICE_DISCUSS_MAX_TOKENS: &str = "practice_discuss_max_tokens";
+// The "Discuss with AI" dock's five parameters (practice_discuss_default_model,
+// _max_turns, _prompt_file, _max_tokens, _effort) were retired with the dock by
+// migration M3 of CC_TASK_MODEL_JOBS_PANEL_v1 (ruling Q1, 2026-09-24): no screen
+// had reached the dock since the chat engine replaced it.
 
 /// The deck-grouping threshold — see [`PracticeReadParams::for_you_deck_threshold`].
 ///
@@ -347,13 +325,8 @@ pub const PRACTICE_PARAM_KEYS: &[&str] = &[
     KEY_PRACTICE_REVIEWER_USERNAMES,
     KEY_PRACTICE_REVIEWER_DISPLAY_NAMES,
     KEY_PRACTICE_WITNESS_USERNAME,
-    KEY_PRACTICE_DISCUSS_DEFAULT_MODEL,
-    KEY_PRACTICE_DISCUSS_MAX_TURNS,
-    KEY_PRACTICE_DISCUSS_PROMPT_FILE,
-    KEY_PRACTICE_DISCUSS_MAX_TOKENS,
     KEY_PRACTICE_FOR_YOU_DECK_THRESHOLD,
     KEY_PRACTICE_READ_EFFORT,
-    KEY_PRACTICE_DISCUSS_EFFORT,
     KEY_PRACTICE_READ_PROMPT_FILE,
     KEY_PRACTICE_READ_MODEL,
     KEY_PRACTICE_READ_MAX_TOKENS,
@@ -402,15 +375,10 @@ impl PracticeReadParams {
             // live fixtures answer as — so a proof that her own note stops
             // badging her is reading the value this build actually ships.
             witness_username: "docmarie".to_string(),
-            discuss_default_model: "claude-opus-5".to_string(),
-            discuss_max_turns: 40,
-            discuss_prompt_file: "practice_discuss_prompt_v1.md".to_string(),
-            discuss_max_tokens: 4096,
             // The value the migration seeds. Five is the ruled default; a
             // test that needs the other side of the line sets its own.
             for_you_deck_threshold: 5,
             effort: Some(Effort::Low),
-            discuss_effort: Some(Effort::Low),
         }
     }
 }

@@ -71,6 +71,10 @@ export const TEMPERATURE_MODE_OMIT = "omit";
 export interface ModelsResponse {
   models: LlmModel[];
   temperature_wording: ModelParamsWording;
+  /** Model id → the AI jobs using it, in panel words (CC_TASK_MODEL_JOBS_PANEL_v1). */
+  used_for: Record<string, string>;
+  /** The "Used for" column's heading. */
+  used_for_label: string;
 }
 
 export interface CreateModelInput {
@@ -185,6 +189,15 @@ export interface TemplateInfo {
   filename: string;
   preview: string;
   size_bytes: number;
+  /** The AI jobs using this file, in panel words; null when none does. */
+  used_for: string | null;
+}
+
+/** `TemplatesResponse`: the files, the read-only note and the column heading. */
+export interface TemplatesResponse {
+  templates: TemplateInfo[];
+  read_only_note: string;
+  used_for_label: string;
 }
 
 export interface SchemaInfo {
@@ -316,10 +329,26 @@ async function throwFromResponse(res: Response, op: string): Promise<never> {
   } catch {
     // body read failed — fall through to status-based message
   }
-  const message = body && body.length > 0
-    ? body
-    : `${op} failed: ${res.status}`;
-  throw new Error(message);
+  throw new Error(messageFrom(body) ?? `${op} failed: ${res.status}`);
+}
+
+/**
+ * The sentence to show for an error body: the backend's `message` when the body
+ * is its JSON error shape (a refusal such as "Claude Opus 5.5 is used by …"
+ * reads as written), the raw text otherwise, `null` for an empty body.
+ */
+export function messageFrom(body: string): string | null {
+  if (body.length === 0) return null;
+  try {
+    const parsed: unknown = JSON.parse(body);
+    if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
+      const message = String((parsed as { message: unknown }).message);
+      if (message.length > 0) return message;
+    }
+  } catch {
+    // Not JSON — the raw text is the message, which is what this returns below.
+  }
+  return body;
 }
 
 /** Discard a response body; used by void-returning endpoints. */
@@ -434,7 +463,7 @@ export async function deactivateProfile(name: string): Promise<void> {
 
 // ── Templates ──────────────────────────────────────────────────
 
-export async function listTemplates(): Promise<{ templates: TemplateInfo[] }> {
+export async function listTemplates(): Promise<TemplatesResponse> {
   const res = await authFetch(`${CONFIG_BASE}/templates`);
   if (!res.ok) await throwFromResponse(res, "listTemplates");
   return res.json();

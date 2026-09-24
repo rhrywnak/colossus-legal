@@ -15,13 +15,9 @@ use crate::auth::{require_admin, AuthUser};
 use crate::error::AppError;
 use crate::state::AppState;
 
-use super::shared::{
-    profiles_referencing, require_extension, validate_filename, CreateFileInput,
-    FileContentResponse, UpdateFileInput,
-};
+use crate::services::ai_jobs_usage::{file_refusal, usage};
 
-/// Required extension for template files.
-const TEMPLATE_EXT: &str = ".md";
+use super::shared::{validate_filename, CreateFileInput, FileContentResponse, UpdateFileInput};
 
 /// Max bytes of template content returned as a list-view preview.
 const PREVIEW_CHAR_LIMIT: usize = 500;
@@ -29,6 +25,11 @@ const PREVIEW_CHAR_LIMIT: usize = 500;
 #[derive(Debug, Serialize)]
 pub struct TemplatesResponse {
     pub templates: Vec<TemplateInfo>,
+    /// "New versions of these files arrive with a release." — the tab is
+    /// read-only (ruling Q3), and says so.
+    pub read_only_note: String,
+    /// The "Used for" column's heading.
+    pub used_for_label: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -36,6 +37,8 @@ pub struct TemplateInfo {
     pub filename: String,
     pub preview: String,
     pub size_bytes: u64,
+    /// The AI jobs using this file, in panel words; `None` when none does.
+    pub used_for: Option<String>,
 }
 
 /// GET /api/admin/pipeline/templates — list available prompt templates.
@@ -48,6 +51,9 @@ pub async fn list_templates(
     State(state): State<AppState>,
 ) -> Result<Json<TemplatesResponse>, AppError> {
     require_admin(&user)?;
+    let used = usage(&state).await.map_err(|e| AppError::Internal {
+        message: format!("Failed to read which jobs use each template: {e}"),
+    })?;
 
     let template_dir = state.registry.template_dir();
     let mut templates = Vec::new();
@@ -72,6 +78,7 @@ pub async fn list_templates(
         let content = tokio::fs::read_to_string(&path).await.unwrap_or_default();
         let preview: String = content.chars().take(PREVIEW_CHAR_LIMIT).collect();
         templates.push(TemplateInfo {
+            used_for: used.file(&filename),
             filename,
             preview,
             size_bytes: metadata.len(),
@@ -79,7 +86,13 @@ pub async fn list_templates(
     }
 
     templates.sort_by(|a, b| a.filename.cmp(&b.filename));
-    Ok(Json(TemplatesResponse { templates }))
+    let settings = state.settings.current();
+    let w = &settings.admin_wording.ai_jobs;
+    Ok(Json(TemplatesResponse {
+        templates,
+        read_only_note: w.files_note.clone(),
+        used_for_label: w.used_for_label.clone(),
+    }))
 }
 
 /// GET /api/admin/pipeline/templates/:filename — read a single template.
@@ -112,116 +125,64 @@ pub async fn get_template(
     }))
 }
 
-/// POST /api/admin/pipeline/templates — create a new template file.
+/// POST /api/admin/pipeline/templates — REFUSED (ruling Q3, 2026-09-24).
 ///
-/// Filename must pass [`validate_filename`] and end in [`TEMPLATE_EXT`].
-/// Returns `409 Conflict` if the file already exists.
+/// ## Domain note: why every write here is refused
+///
+/// The instructions folder is read-only to the backend on DEV and PROD (root
+/// owns it; the backend runs as `appuser`), so a write here could only ever fail
+/// half-way. New versions of these files arrive with a release — through the
+/// repo and `scripts/push-templates.sh` — which is also the only way a fresh
+/// install gets them. A file an AI job uses is named in the refusal, with the
+/// job, so nobody goes looking for why.
 pub async fn create_template(
     user: AuthUser,
     State(state): State<AppState>,
     Json(input): Json<CreateFileInput>,
 ) -> Result<Json<FileContentResponse>, AppError> {
     require_admin(&user)?;
-    validate_filename(&input.filename)?;
-    require_extension(&input.filename, TEMPLATE_EXT)?;
-
-    let path = state.registry.template_path(&input.filename);
-    if tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Err(AppError::Conflict {
-            message: format!("Template '{}' already exists", input.filename),
-            details: serde_json::json!({"filename": input.filename}),
-        });
-    }
-
-    tokio::fs::write(&path, &input.content)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to write template '{}': {e}", input.filename),
-        })?;
-
-    let size_bytes = input.content.len() as u64;
-    Ok(Json(FileContentResponse {
-        filename: input.filename,
-        content: input.content,
-        size_bytes,
-    }))
+    Err(refusal(&state, &input.filename).await)
 }
 
-/// PUT /api/admin/pipeline/templates/:filename — overwrite an existing template.
-///
-/// `404 Not Found` if the file doesn't exist.
+/// PUT /api/admin/pipeline/templates/:filename — REFUSED; see [`create_template`].
 pub async fn update_template(
     user: AuthUser,
     State(state): State<AppState>,
     AxumPath(filename): AxumPath<String>,
-    Json(input): Json<UpdateFileInput>,
+    Json(_input): Json<UpdateFileInput>,
 ) -> Result<Json<FileContentResponse>, AppError> {
     require_admin(&user)?;
-    validate_filename(&filename)?;
-
-    let path = state.registry.template_path(&filename);
-    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Err(AppError::NotFound {
-            message: format!("Template '{filename}' not found"),
-        });
-    }
-
-    tokio::fs::write(&path, &input.content)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to write template '{filename}': {e}"),
-        })?;
-
-    let size_bytes = input.content.len() as u64;
-    Ok(Json(FileContentResponse {
-        filename,
-        content: input.content,
-        size_bytes,
-    }))
+    Err(refusal(&state, &filename).await)
 }
 
-/// DELETE /api/admin/pipeline/templates/:filename — delete a template.
-///
-/// Refuses the delete (`409 Conflict`) if any profile YAML references
-/// this filename (as `template_file` or `system_prompt_file`). The check
-/// is a substring scan of profile content — see
-/// [`shared::profiles_referencing`](super::shared::profiles_referencing).
+/// DELETE /api/admin/pipeline/templates/:filename — REFUSED; see [`create_template`].
 pub async fn delete_template(
     user: AuthUser,
     State(state): State<AppState>,
     AxumPath(filename): AxumPath<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     require_admin(&user)?;
-    validate_filename(&filename)?;
+    Err(refusal(&state, &filename).await)
+}
 
-    let path = state.registry.template_path(&filename);
-    if !tokio::fs::try_exists(&path).await.unwrap_or(false) {
-        return Err(AppError::NotFound {
-            message: format!("Template '{filename}' not found"),
-        });
+/// The 409 for any write: it names the jobs when one uses the file, and says the
+/// folder is read-only otherwise. Logged, so a refused click is visible later.
+async fn refusal(state: &AppState, filename: &str) -> AppError {
+    match usage(state).await {
+        Ok(used) => {
+            let settings = state.settings.current();
+            let message = file_refusal(&settings.admin_wording.ai_jobs, &used, filename);
+            tracing::warn!(file = filename, %message, "templates: write refused (read-only folder)");
+            AppError::Conflict {
+                message,
+                details: serde_json::json!({ "reason": "templates_read_only" }),
+            }
+        }
+        Err(e) => {
+            tracing::error!(file = filename, error = %e, "templates: could not read which jobs use the file");
+            AppError::Internal {
+                message: format!("Failed to read which jobs use '{filename}': {e}"),
+            }
+        }
     }
-
-    let referencing = profiles_referencing(state.registry.profile_dir(), &filename)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to scan profile directory: {e}"),
-        })?;
-
-    if !referencing.is_empty() {
-        return Err(AppError::Conflict {
-            message: format!(
-                "Template '{filename}' is referenced by {} profile(s)",
-                referencing.len()
-            ),
-            details: serde_json::json!({"referenced_by": referencing}),
-        });
-    }
-
-    tokio::fs::remove_file(&path)
-        .await
-        .map_err(|e| AppError::Internal {
-            message: format!("Failed to delete template '{filename}': {e}"),
-        })?;
-
-    Ok(Json(serde_json::json!({"deleted": filename})))
 }

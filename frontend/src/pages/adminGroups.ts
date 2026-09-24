@@ -22,7 +22,8 @@ export type AdminGroup = "overview" | "prompts" | "data" | "logs" | "settings";
 
 /** Every panel that exists. One id per existing admin component. */
 export type AdminPanel =
-  | "metrics"
+  | "jobs"
+  | "lastRun"
   | "indexing"
   | "chats"
   | "audit"
@@ -58,7 +59,10 @@ export interface AdminGroupSpec {
 export const ADMIN_GROUPS: Record<AdminGroup, AdminGroupSpec> = {
   overview: {
     heading: "Admin",
-    panels: [{ id: "metrics", label: "Metrics" }],
+    // CC_TASK_MODEL_JOBS_PANEL_v1 (option B): Overview is the control page —
+    // the jobs panel under the Chat case file box. The document numbers moved
+    // to Data. One panel, so no tab bar is drawn.
+    panels: [{ id: "jobs", label: "AI jobs" }],
     stores: true,
   },
   prompts: {
@@ -74,7 +78,12 @@ export const ADMIN_GROUPS: Record<AdminGroup, AdminGroupSpec> = {
   },
   data: {
     heading: "Data",
-    panels: [{ id: "indexing", label: "Indexing" }],
+    // "Last document run" first (board 5): the Overview numbers, fixed, beside
+    // the stores and the indexing they describe.
+    panels: [
+      { id: "lastRun", label: "Last document run" },
+      { id: "indexing", label: "Indexing" },
+    ],
     stores: true,
   },
   logs: {

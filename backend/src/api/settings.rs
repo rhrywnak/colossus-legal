@@ -21,6 +21,7 @@
 //!
 //! `app_settings` lives in `colossus_legal_v2`: `&state.pipeline_pool`.
 
+use super::settings_panel_owned::{panel_keys, pointer, refuse_if_panel_owned};
 use std::collections::HashMap;
 
 use axum::{
@@ -145,6 +146,7 @@ fn to_dto(record: &AppSettingRecord) -> SettingDto {
         block_id: placed.block_id.to_string(),
         changed_from_default: changed_from_default(record),
         group_id: group_of(&record.key).map(|group| group.id.to_string()),
+        owned_elsewhere: None,
     }
 }
 
@@ -295,8 +297,16 @@ pub async fn get_settings(
         undeclared = stray.len(),
         "served the settings page"
     );
+    let owned = panel_keys(&state).await?;
+    let pointer = pointer(&state);
     Ok(Json(SettingsPageDto {
-        settings: records.iter().map(to_dto).collect(),
+        settings: records
+            .iter()
+            .map(|r| SettingDto {
+                owned_elsewhere: owned.contains(&r.key).then(|| pointer.clone()),
+                ..to_dto(r)
+            })
+            .collect(),
         areas,
         groups: coupled_groups(&records),
     }))
@@ -319,6 +329,7 @@ pub async fn put_setting(
     Json(payload): Json<SetSettingRequest>,
 ) -> Result<Json<SettingChangedDto>, AppError> {
     require_admin(&user)?;
+    refuse_if_panel_owned(&state, &key).await?;
 
     // The template directory travels with the change so a row that names a FILE
     // (`theme_scan_prompt_file`) can be refused here, while the human is still
