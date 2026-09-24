@@ -26,15 +26,33 @@ import {
 } from "../navItems";
 import { badgeLabel } from "./forYouView";
 
+/**
+ * The board's `.pill`, to its own measurements (FOR_YOU_MOCKUP_v1 boards 1-2).
+ *
+ * ## Why the rust and not the app's accent
+ *
+ * The accent says "this is pressable". This says "there is work waiting for
+ * you", and the ratified board draws it warm so it reads as a count rather than
+ * as a second link beside the one it sits on. `--for-you-badge-bg` is a :root
+ * token and not a surface one for the reason its comment in `tokens.css`
+ * gives: the header sits OUTSIDE every `[data-surface]` subtree, so a scoped
+ * colour would resolve to nothing here — which is the exact defect this task
+ * repaired on the page itself.
+ *
+ * STRUCTURAL: the four numbers are the board's own measurements, transcribed —
+ * not settings. A badge's corner radius is not something an operator tunes on
+ * the Settings page, and the reusability checkpoint does not apply to a
+ * transcription of one approved drawing. The same marker, for the same reason,
+ * heads `forYouStyles.ts`.
+ */
 const badgeStyle: React.CSSProperties = {
-  marginLeft: "0.35rem",
-  padding: "0.05rem 0.34rem",
-  borderRadius: "999px",
-  fontSize: "0.7rem",
+  marginLeft: 6,
+  padding: "1px 8px",
+  borderRadius: 11,
+  fontSize: 12,
   fontWeight: 700,
-  lineHeight: 1.6,
-  color: "var(--bg-surface)",
-  backgroundColor: "var(--accent-primary)",
+  color: "var(--accent-on-fill)",
+  backgroundColor: "var(--for-you-badge-bg)",
 };
 
 /**

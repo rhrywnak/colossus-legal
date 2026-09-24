@@ -47,6 +47,52 @@ import {
 /** Which tab is showing. The unread one is where a person starts. */
 type Tab = "unread" | "everything";
 
+/**
+ * The two pill tabs (FOR_YOU_MOCKUP_v1 boards 1-2).
+ *
+ * Its own component for two reasons. It keeps the page's own function inside
+ * Rule 18's fifty lines now that the row has a third state to draw, and it puts
+ * the whole of "which list am I looking at" in one place — the labels arrive
+ * composed with their counts in them, so this decides nothing but which of the
+ * two is filled.
+ *
+ * ## Rust Learning: this is the TypeScript cousin of a props struct
+ *
+ * Four values that always travel together, passed as one object — the same move
+ * `WaitingQuery<'a>` makes in `waiting_items.rs`, and for the same reason: two
+ * bare strings in a row invite a call site to swap them, and neither compiler
+ * would catch it. Here the field names make the swap unwriteable.
+ */
+const TabRow: React.FC<{
+  tab: Tab;
+  onPick: (next: Tab) => void;
+  unreadLabel: string;
+  everythingLabel: string;
+}> = ({ tab, onPick, unreadLabel, everythingLabel }) => (
+  <div style={s.tabs} role="tablist">
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === "unread"}
+      style={tab === "unread" ? s.tabActive : s.tab}
+      onClick={() => onPick("unread")}
+      data-for-you-tab="unread"
+    >
+      {unreadLabel}
+    </button>
+    <button
+      type="button"
+      role="tab"
+      aria-selected={tab === "everything"}
+      style={tab === "everything" ? s.tabActive : s.tab}
+      onClick={() => onPick("everything")}
+      data-for-you-tab="everything"
+    >
+      {everythingLabel}
+    </button>
+  </div>
+);
+
 const ForYouPage: React.FC = () => {
   const { slug = DEFAULT_CASE_SLUG } = useParams();
   // ONE deck, when the war room's count sent the reader here. The rows carry
@@ -112,45 +158,43 @@ const ForYouPage: React.FC = () => {
   };
   const rows = tab === "unread" ? page.unread : page.everything;
   const groups = groupByDay(rows);
+  // Nothing on EITHER list — not "nothing on the tab I happen to be on". The
+  // distinction is the whole of ruling GO-2.2: an empty Unread tab beside a
+  // full Everything tab still needs its tabs, because the other list is where
+  // the reader is going next.
+  const nothingAtAll = page.unread.length === 0 && page.everything.length === 0;
 
   return (
     <div style={{ background: "var(--bg-canvas)" }} data-surface="for-you">
+      {/* The two rules a React style object cannot carry: the 390px fold and
+          the row's hover. Scoped by the same `data-surface` attribute the
+          palette is — the `LINK_CSS` precedent on the practice pages. */}
+      <style>{s.PHONE_CSS}</style>
       <div style={s.page} data-for-you-page>
         <h1 style={s.title}>{w("title")}</h1>
         <p style={s.subtitle}>{page.subtitle}</p>
 
         {page.side === "none" ? (
           <div style={s.empty}>
-            <div style={s.emptyTitle}>{w("not_your_list")}</div>
+            <b style={s.emptyTitle}>{w("not_your_list")}</b>
           </div>
         ) : (
           <>
-            <div style={s.tabs} role="tablist">
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "unread"}
-                style={tab === "unread" ? s.tabActive : s.tab}
-                onClick={() => setTab("unread")}
-                data-for-you-tab="unread"
-              >
-                {page.tab_unread_label}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                aria-selected={tab === "everything"}
-                style={tab === "everything" ? s.tabActive : s.tab}
-                onClick={() => setTab("everything")}
-                data-for-you-tab="everything"
-              >
-                {page.tab_everything_label}
-              </button>
-            </div>
+            {/* Ruling GO-2.2: no tabs at all when there is nothing on EITHER
+                list. Two controls that both lead to the same empty page are two
+                things to try before believing the sentence underneath them. */}
+            {!nothingAtAll && (
+              <TabRow
+                tab={tab}
+                onPick={setTab}
+                unreadLabel={page.tab_unread_label}
+                everythingLabel={page.tab_everything_label}
+              />
+            )}
 
             {groups.length === 0 ? (
               <div style={s.empty} data-for-you-empty>
-                <div style={s.emptyTitle}>{w("empty_title")}</div>
+                <b style={s.emptyTitle}>{w("empty_title")}</b>
                 <div style={s.emptyLine}>{page.empty_hint}</div>
                 {/* Withheld entirely when this side has never had an item: a
                     line reading "Last one: ." says the page half-failed. */}

@@ -6,6 +6,16 @@
 // decides exactly two things: where the row goes when it is clicked, and
 // whether it is drawn as already read.
 //
+// ## The dot is not decoration
+//
+// The board draws the unread state THREE times over — a red dot in its own
+// column, a soft blue ground, and a blue edge — and all three are here on
+// purpose. A tint alone is very quiet on a bright screen; an edge alone is easy
+// to miss beside a second row; and a reader who cannot separate the two blues
+// still has a filled circle against a hollow one. The read row keeps the hollow
+// circle rather than dropping it, so the text of every row starts on the same
+// vertical rule.
+//
 // ## The WHOLE row is the link
 //
 // The mockup's rows have no separate control, and that is right: a row is one
@@ -53,16 +63,23 @@ export function rowHref(row: Row, slug: string): string {
 const ForYouRow: React.FC<Props> = ({ row, slug }) => (
   <Link
     to={rowHref(row, slug)}
-    style={row.read ? s.rowRead : s.row}
+    style={row.read ? s.rowRead : s.rowUnread}
     data-for-you-row={row.kind}
     data-read={row.read ? "yes" : "no"}
   >
-    <div style={s.deckLine}>{row.deck_line}</div>
-    <div style={s.body}>{row.body}</div>
-    <div style={s.foot}>
-      <span style={s.byline}>{row.byline}</span>
-      <span style={s.when}>{row.when}</span>
-    </div>
+    {/* Presentational: the three lines beside it say everything this says, so a
+        screen reader that announced it would announce the row twice. */}
+    <span style={row.read ? s.dotRead : s.dot} aria-hidden="true" />
+    <span style={s.main}>
+      <span style={{ ...s.deckLine, display: "block" }} data-for-you-deck-line>
+        {row.deck_line}
+      </span>
+      <div style={s.body}>{row.body}</div>
+      <div style={s.byline}>{row.byline}</div>
+    </span>
+    <span style={s.when} data-for-you-when>
+      {row.when}
+    </span>
   </Link>
 );
 

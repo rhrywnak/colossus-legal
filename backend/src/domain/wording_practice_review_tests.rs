@@ -13,12 +13,27 @@
 // looks like the other one.
 
 use super::*;
-use crate::domain::wording::tests::seeded_value_in;
+use crate::domain::wording::tests::{corrected_value_in, seeded_value_in};
 use std::collections::HashMap;
 
 /// The migration that seeds every row this module reads.
 const SEED_MIGRATIONS: &[&str] =
     &["pipeline_migrations/20260919100133_review_page_reviewer_list_and_wording.sql"];
+
+/// Migrations that CORRECT a value the seed above already wrote.
+///
+/// ## Why this list exists (the 2026-08-23 lesson, arriving here on 09-23)
+///
+/// A test that reads the SEED alone pins the fixture to the value a row was
+/// born with. The day a later migration UPDATEs that row, the store holds one
+/// string, the fixture holds another, and the test goes green — the exact drift
+/// this file exists to catch, reported as a pass. Four sibling blocks learned
+/// that in August; this one had never had a correction until now.
+///
+/// `corrected_value_in` uses `rfind`, so a key corrected TWICE ends up pinned
+/// to the LAST correction, which is what the store actually holds.
+const CORRECTION_MIGRATIONS: &[&str] =
+    &["pipeline_migrations/20260923213950_witness_starting_line_and_name_joiner.sql"];
 
 /// The seeded values, for TESTS ONLY — kept beside the test that pins them to
 /// the migration file, so a fixture and its proof cannot drift apart.
@@ -46,7 +61,10 @@ const TEST_SEED: &[(&str, &str)] = &[
         KEY_REVIEW_EMPTY_DECK,
         "This scenario has no questions yet, so there is nothing to review.",
     ),
-    (KEY_REVIEW_NAME_JOINER, "\u{b7}"),
+    // "and", not the dot it shipped as: migration 20260923213950 moved the
+    // stored row, and a fixture that stayed behind would make every test in
+    // this tree assert a sentence the app no longer prints.
+    (KEY_REVIEW_NAME_JOINER, "and"),
 ];
 
 impl PracticeReviewWording {
@@ -87,11 +105,14 @@ fn read_all(files: &[&str]) -> Vec<String> {
 #[test]
 fn every_declared_key_is_seeded_with_the_value_this_build_expects() {
     let sources = read_all(SEED_MIGRATIONS);
+    let corrections = read_all(CORRECTION_MIGRATIONS).join("\n");
 
     for key in PRACTICE_REVIEW_WORDING_KEYS {
-        let seeded = sources
-            .iter()
-            .find_map(|sql| seeded_value_in(sql, key))
+        // Corrections FIRST: a value UPDATEd after its INSERT is the one the
+        // store actually holds, and searching the seed first pins the
+        // superseded string while looking perfectly green.
+        let seeded = corrected_value_in(&corrections, key)
+            .or_else(|| sources.iter().find_map(|sql| seeded_value_in(sql, key)))
             .unwrap_or_else(|| {
                 panic!(
                     "{key} is declared to the boot loader but seeded by no migration \

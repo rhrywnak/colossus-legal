@@ -48,21 +48,36 @@ export const reviewCount: CSSProperties = {
 /**
  * The board-4 mark on a question's row: "Chuck left a note".
  *
- * The amber of owed work, small and inline, sitting where the answered-on line
- * sits — so a reader running down the deck sees it in the same column as every
- * other fact about the row. A chip and not a sentence: it is a flag, and the
- * thing it flags is the question it is under (FOR_YOU_MOCKUP_v1 board 4).
+ * ## Drawn to the board, not to the amber family (CC_TASK_FOR_YOU_POLISH_v1)
+ *
+ * It shipped as an amber chip under the question text. FOR_YOU_MOCKUP_v1 board
+ * 4 draws it as bold rust WORDS in the row's right-hand column, over a tinted
+ * row — and the difference matters twice over. The column is where a reader
+ * running down a deck of seventeen questions is already looking for the row's
+ * status, and the colour separates one unread thing on one question from the
+ * review bar's amber, which means a reviewer owes work on the whole deck. Two
+ * ambers a row apart would read as one fact.
+ *
+ * A tag and not a chip: the row is already tinted, and a bordered pill on a
+ * tinted row is the same fact drawn three times.
  */
 export const waitingMark: CSSProperties = {
-  display: "inline-block",
-  marginTop: 4,
-  padding: "1px 8px",
-  borderRadius: 999,
-  background: "var(--practice-review-amber-bg)",
-  border: "1px solid var(--practice-review-amber-border)",
-  color: "var(--burden-warning-text)",
+  color: "var(--practice-waiting-ink)",
   fontSize: 12,
   fontWeight: 700,
+  whiteSpace: "nowrap",
+};
+
+/**
+ * The row the mark sits on — board 4's `background: var(--soft)`.
+ *
+ * The mark alone is four words at the end of a long row; the tint is what makes
+ * the row findable from the top of a deck without reading any of it. It is the
+ * same argument the unread row on the For you page makes, and it is the same
+ * pairing: a mark for what, a ground for where.
+ */
+export const waitingRow: CSSProperties = {
+  background: "var(--practice-waiting-row-bg)",
 };
 
 /**
