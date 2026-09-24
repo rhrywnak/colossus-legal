@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import AdminIndex from "../components/admin/AdminIndex";
+import ChatCaseFileBox from "./ChatCaseFileBox";
 import AdminChats from "../components/admin/AdminChats";
 import AdminAudit from "../components/admin/AdminAudit";
 import AdminMetrics from "../components/admin/AdminMetrics";
@@ -169,6 +170,10 @@ const Admin: React.FC<{ group: AdminGroup }> = ({ group }) => {
           <span><span style={statusDotStyle(status.postgres_connected)} />PostgreSQL</span>
         </div>
       )}
+
+      {/* Keep the chat's case file loaded — Overview only
+          (CC_TASK_KEEPWARM_BUTTON_v1). */}
+      {group === "overview" && <ChatCaseFileBox />}
 
       {/* Sub-tabs. A group with ONE panel draws no bar: a single tab is a
           control that cannot do anything, and rendering it would be the page

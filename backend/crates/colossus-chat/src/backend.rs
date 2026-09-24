@@ -16,6 +16,7 @@ use serde_json::Value;
 
 use crate::accumulate::{AssistantMessage, ChatAccumulator, ChatStreamError};
 use crate::transport::{self, ResponseChunks, TransportError};
+use crate::usage::Usage;
 
 /// The transport error at this crate's stream-error type.
 pub type ChatTransportError = TransportError<ChatStreamError>;
@@ -83,6 +84,18 @@ pub trait ChatBackend: Send + Sync {
     /// # Errors
     /// Any transport failure, or a response without a readable count.
     async fn count_tokens(&self, body: &Value) -> Result<u64, ChatTransportError>;
+
+    /// Send a cache pre-warm and return what it read and wrote.
+    ///
+    /// `body` comes from [`crate::request::build_prewarm_body`]: the prefix a
+    /// real turn sends, with `max_tokens: 0` and no stream. The provider fills
+    /// or refreshes the cache and generates nothing. The caller decides what the
+    /// usage means (a read kept the cache loaded; a write reloaded it).
+    ///
+    /// # Errors
+    /// Any transport failure, a refusal carrying the provider's text, or a
+    /// response with no readable usage.
+    async fn prewarm(&self, body: &Value) -> Result<Usage, ChatTransportError>;
 }
 
 /// The Anthropic Messages API over HTTP/1.1 with SSE.
@@ -285,7 +298,14 @@ impl ChatBackend for AnthropicBackend {
     async fn count_tokens(&self, body: &Value) -> Result<u64, ChatTransportError> {
         self.count(body).await
     }
+
+    async fn prewarm(&self, body: &Value) -> Result<Usage, ChatTransportError> {
+        self.prewarm_post(body).await
+    }
 }
+
+#[path = "backend_prewarm.rs"]
+mod prewarm;
 
 #[cfg(test)]
 mod tests {

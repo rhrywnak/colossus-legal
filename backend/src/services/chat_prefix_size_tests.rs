@@ -79,6 +79,10 @@ impl colossus_chat::ChatBackend for Counter {
             }),
         }
     }
+
+    async fn prewarm(&self, _body: &Value) -> Result<colossus_chat::Usage, ChatTransportError> {
+        unreachable!("the size guard never pre-warms")
+    }
 }
 
 fn corpus(pages: &[&str]) -> Vec<CorpusDocument> {

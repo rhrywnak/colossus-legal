@@ -50,6 +50,18 @@ use std::path::{Path, PathBuf};
 // widening the exemption.
 const EXEMPT_DIRS: &[&str] = &["pipeline"];
 
+/// Single files whose model literal is ruled, each with its ruling.
+///
+/// * `services/chat_keepwarm_rates.rs` — CC_TASK_KEEPWARM_BUTTON_v1, Law 10,
+///   ruled 2026-09-24: the published Opus 5.5 prices sit in named constants
+///   until the registry carries cache prices, and "any other model: the cost is
+///   not known". Naming the one priced model is what makes every OTHER model
+///   answer "not known" instead of borrowing its prices. It chooses no model and
+///   serves none. DEBT(CC_TASK_COST_PAGE_v1): delete this line when the prices
+///   move into `llm_models`.
+// STRUCTURAL: repo-internal paths and the boundary of a ruling.
+const EXEMPT_FILES: &[&str] = &["services/chat_keepwarm_rates.rs"];
+
 /// The roots this rule covers.
 // STRUCTURAL: repo-internal source paths, exactly as `SURFACE_DIRS` in
 // `dto::practice_wording_reach_tests`.
@@ -115,7 +127,9 @@ fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
         }
         let is_source = name.ends_with(".rs") || name.ends_with(".ts") || name.ends_with(".tsx");
         let is_test = name.ends_with("_tests.rs") || name.contains(".test.");
-        if is_source && !is_test {
+        let unix = path.to_string_lossy().replace('\\', "/");
+        let is_exempt = EXEMPT_FILES.iter().any(|f| unix.ends_with(f));
+        if is_source && !is_test && !is_exempt {
             out.push(path);
         }
     }
