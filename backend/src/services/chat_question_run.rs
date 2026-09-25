@@ -12,14 +12,14 @@
 
 use std::sync::Arc;
 
-use colossus_chat::{ChatBackend, ChatRequest, ChatTool, Message, Role};
+use colossus_chat::{ChatBackend, ChatRequest, ChatTool};
 use serde_json::json;
 use uuid::Uuid;
 
 use crate::domain::chat_params::QuestionChatParams;
 use crate::repositories::pipeline_repository::chat_discussions::{
-    append_message, assistant_reply_count, get_or_create_discussion, list_messages,
-    DiscussionRecord, NewMessage, ANCHOR_QUESTION,
+    append_message, assistant_reply_count, get_or_create_discussion, DiscussionRecord, NewMessage,
+    ANCHOR_QUESTION,
 };
 use crate::repositories::pipeline_repository::models::{get_model_by_id, LlmModelRecord};
 use crate::repositories::pipeline_repository::PipelineRepoError;
@@ -31,6 +31,7 @@ use crate::services::chat_question_error::{store, ChatRunError};
 use crate::services::chat_question_gather::{display_name, gather};
 use crate::services::chat_question_text::PackagedDocument;
 use crate::services::chat_question_tools::tools;
+use crate::services::chat_replay::replay_history;
 use crate::state::AppState;
 
 /// Everything the streaming task needs, owned — it outlives the request.
@@ -109,7 +110,7 @@ pub async fn prepare_turn(
     check_size(size, model_row.as_ref(), chat)?;
 
     let user_seq = store_user_message(state, question_id, discussion.id, text).await?;
-    let history = replay_history(state, question_id, discussion.id).await?;
+    let history = replay_history(&state.pipeline_pool, question_id, discussion.id).await?;
     let answers = render_attempts(&gathered.context);
     let documents = Arc::new(gathered.documents);
     Ok(PreparedTurn {
@@ -256,30 +257,6 @@ fn check_size(
         });
     }
     Ok(())
-}
-
-/// The stored thread as the model must see it again: every message verbatim,
-/// EXCEPT failed assistant turns (a failure marker has no content to replay).
-async fn replay_history(
-    state: &AppState,
-    question_id: Uuid,
-    discussion_id: Uuid,
-) -> Result<Vec<Message>, ChatRunError> {
-    let rows = list_messages(&state.pipeline_pool, discussion_id)
-        .await
-        .map_err(store("list_messages", question_id))?;
-    Ok(rows
-        .into_iter()
-        .filter(|m| m.failure.is_none())
-        .map(|m| Message {
-            role: if m.role == "assistant" {
-                Role::Assistant
-            } else {
-                Role::User
-            },
-            content: m.content.as_array().cloned().unwrap_or_default(),
-        })
-        .collect())
 }
 
 #[cfg(test)]
