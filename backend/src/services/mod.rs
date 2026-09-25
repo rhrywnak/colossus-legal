@@ -32,6 +32,7 @@ pub mod chat_question_text;
 pub mod chat_question_threads;
 pub mod chat_question_tools;
 pub mod chat_question_view;
+pub mod chat_replay;
 pub mod chronology_guard;
 pub mod chronology_read;
 pub mod chronology_subset_guard;
