@@ -76,7 +76,9 @@ fn every_key_with_required_placeholders_is_a_real_key() {
                 // version on separate branches, so each branch called its own the
                 // eighth; the integration is where they are counted together.
                 || crate::domain::wording_matrix::MATRIX_WORDING_KEYS.contains(key)
-                || crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS.contains(key),
+                || crate::domain::wording_fact_card::FACT_CARD_WORDING_KEYS.contains(key)
+                // CC_TASK_CACHE_KEEPWARM_v1: the Chat case file box's line.
+                || crate::domain::wording_case_file::CASE_FILE_WORDING_KEYS.contains(key),
             "{key} has placeholder requirements but is not a stored wording key"
         );
         assert!(!required.is_empty(), "{key} declares an empty requirement");
@@ -102,6 +104,7 @@ fn the_seeded_defaults_satisfy_their_own_placeholder_rules() {
     values.extend(crate::domain::wording_scan::ScanWording::for_test_values());
     values.extend(crate::domain::wording_matrix::MatrixWording::for_test_values());
     values.extend(crate::domain::wording_fact_card::FactCardWording::for_test_values());
+    values.extend(crate::domain::wording_case_file::CaseFileWording::for_test_values());
     for (key, _) in REQUIRED_PLACEHOLDERS {
         let seeded = values.get(key).expect("a seeded value for every key");
         assert!(

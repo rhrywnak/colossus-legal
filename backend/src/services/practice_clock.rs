@@ -144,7 +144,7 @@ fn first_sighting(name: &str) -> bool {
 /// unknown zone makes the READ fail loudly. Two different treatments of the same
 /// bad value, deliberately: a failed comparison is a wrong answer and must stop;
 /// a failed render is a cosmetic degrade and must not.
-fn zone(name: &str) -> Tz {
+pub(crate) fn zone(name: &str) -> Tz {
     name.parse::<Tz>().unwrap_or_else(|_| {
         if first_sighting(name) {
             tracing::warn!(
@@ -162,6 +162,14 @@ pub fn local_clock(at: DateTime<Utc>, timezone: &str) -> String {
     at.with_timezone(&zone(timezone))
         .format(CLOCK_FORMAT)
         .to_string()
+}
+
+/// `6:00 am` — a time of day with no date, in the same clock format.
+///
+/// For a stored wall-clock reading (the keep-warm window's `06:00`), which is
+/// already local and needs no zone.
+pub fn local_clock_of(time: chrono::NaiveTime) -> String {
+    time.format(CLOCK_FORMAT).to_string()
 }
 
 /// `Wed 19 Aug` — the day alone.

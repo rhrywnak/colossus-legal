@@ -4,7 +4,8 @@
 //
 // CC_TASK_MODEL_JOBS_PANEL_v1 (Stage A). Three stored-string blocks speak on the
 // Admin pages: the jobs panel on Overview, each job's name and cost line, and
-// Data → Last document run.
+// Data → Last document run. CC_TASK_CACHE_KEEPWARM_v1 added a fourth: the Chat
+// case file box's automatic line.
 //
 // ## Why one nested struct and not three fields on `Settings`
 //
@@ -14,6 +15,7 @@
 
 use super::wording_ai_job_rows::{build_ai_job_rows_wording, AiJobRowsWording};
 use super::wording_ai_jobs::{build_ai_jobs_wording, AiJobsWording};
+use super::wording_case_file::{build_case_file_wording, CaseFileWording};
 use super::wording_last_run::{build_last_run_wording, LastRunWording};
 
 /// The Admin area's stored words.
@@ -25,9 +27,11 @@ pub struct AdminWording {
     pub job_rows: AiJobRowsWording,
     /// Admin → Data → Last document run.
     pub last_run: LastRunWording,
+    /// Admin → Overview, Chat case file: the automatic line (CC_TASK_CACHE_KEEPWARM_v1).
+    pub case_file: CaseFileWording,
 }
 
-/// Build all three blocks with one reader, or name the first key that is wrong.
+/// Build all four blocks with one reader, or name the first key that is wrong.
 ///
 /// ## Rust Learning: passing the same closure three times
 ///
@@ -44,6 +48,7 @@ pub fn build_admin_wording<E>(
         ai_jobs: build_ai_jobs_wording(read)?,
         job_rows: build_ai_job_rows_wording(read)?,
         last_run: build_last_run_wording(read)?,
+        case_file: build_case_file_wording(read)?,
     })
 }
 
@@ -55,6 +60,7 @@ impl AdminWording {
             ai_jobs: AiJobsWording::for_test(),
             job_rows: AiJobRowsWording::for_test(),
             last_run: LastRunWording::for_test(),
+            case_file: CaseFileWording::for_test(),
         }
     }
 }

@@ -23,6 +23,11 @@ async-trait = "0.1"
 thiserror = "2"
 tracing = "0.1"
 futures = "0.3"
+# The keep-warm rules (`keepwarm`) reason about a local day and a local window,
+# so they need a timezone-aware clock. Both are already in the lockfile at these
+# versions (chrono 0.4.44, chrono-tz 0.8.6), so nothing new compiles.
+chrono = "0.4"
+chrono-tz = "0.8"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full", "test-util"] }

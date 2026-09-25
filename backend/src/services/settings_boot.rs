@@ -96,6 +96,8 @@ pub async fn load_settings(pool: &PgPool) -> Result<Settings, SettingsError> {
         ai_jobs_wording = crate::domain::wording_ai_jobs::AI_JOBS_WORDING_KEYS.len(),
         ai_job_rows_wording = crate::domain::wording_ai_job_rows::AI_JOB_ROWS_WORDING_KEYS.len(),
         last_run_wording = crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS.len(),
+        chat_keepwarm_params = crate::domain::keepwarm_params::CHAT_KEEPWARM_PARAM_KEYS.len(),
+        case_file_wording = crate::domain::wording_case_file::CASE_FILE_WORDING_KEYS.len(),
         "configuration store read"
     );
 

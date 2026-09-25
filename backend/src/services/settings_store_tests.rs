@@ -116,6 +116,13 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
             row(key, value, ValueKind::Count, Some(min), Some(max)),
         );
     }
+    // CC_TASK_CACHE_KEEPWARM_v1: the automatic ping's five rows, three kinds.
+    for (key, kind, value, min, max) in
+        crate::domain::keepwarm_params::KeepwarmParams::for_test_rows()
+    {
+        let kind = ValueKind::try_from(kind).expect("the fixture names a real kind");
+        rows.insert(key.to_string(), row(key, value, kind, min, max));
+    }
     // All eight stored-string blocks, chained (2.10, 2.11 B1/B2, 2.11 C, the
     // 2026-08-07 scenario-authoring block, 2.15's scan block, and the
     // one-card-grammar block): the lists key ONE table, and a fixture holding
@@ -172,6 +179,8 @@ fn seeded() -> HashMap<String, AppSettingRecord> {
         .chain(crate::domain::wording_ai_jobs::AiJobsWording::for_test_values())
         .chain(crate::domain::wording_ai_job_rows::AiJobRowsWording::for_test_values())
         .chain(crate::domain::wording_last_run::LastRunWording::for_test_values())
+        // CC_TASK_CACHE_KEEPWARM_v1: the Chat case file box's automatic line.
+        .chain(crate::domain::wording_case_file::CaseFileWording::for_test_values())
         .chain(crate::domain::wording_practice_print::PracticePrintWording::for_test_values())
         .chain(crate::domain::wording_practice_list::PracticeListWording::for_test_values())
         // REVIEW_PAGE (2026-09-19): the Review answers page's nine. Nested on
@@ -753,6 +762,8 @@ fn any_missing_parameter_refuses_the_whole_snapshot() {
         .iter()
         .chain(PRACTICE_PARAM_KEYS)
         .chain(crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS)
+        .chain(crate::domain::keepwarm_params::CHAT_KEEPWARM_PARAM_KEYS)
+        .chain(crate::domain::wording_case_file::CASE_FILE_WORDING_KEYS)
     {
         let mut rows = seeded();
         rows.remove(*key);
@@ -1097,8 +1108,10 @@ fn the_required_key_list_matches_what_the_snapshot_actually_reads() {
             + crate::domain::wording_env_banner::ENV_BANNER_WORDING_KEYS.len()
             + crate::domain::wording_ai_jobs::AI_JOBS_WORDING_KEYS.len()
             + crate::domain::wording_ai_job_rows::AI_JOB_ROWS_WORDING_KEYS.len()
-            + crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS.len(),
-        "the seed and the twenty-eight required lists must describe the same store"
+            + crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS.len()
+            + crate::domain::keepwarm_params::CHAT_KEEPWARM_PARAM_KEYS.len()
+            + crate::domain::wording_case_file::CASE_FILE_WORDING_KEYS.len(),
+        "the seed and the thirty required lists must describe the same store"
     );
 }
 

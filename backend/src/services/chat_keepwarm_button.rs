@@ -10,9 +10,11 @@
 //! pre-warm, which uses the case file without asking for a reply, so the hour
 //! starts again.
 //!
-//! ## Where "the last button ping" lives: in memory, reset on restart
+//! ## Where "the last ping" lives: in memory, reset on restart
 //!
-//! [`LastPing`] sits in `AppState` and is never stored. After a restart the box
+//! [`LastPing`] sits in `AppState` and is never stored. Since
+//! CC_TASK_CACHE_KEEPWARM_v1 R3 the automatic pinger sets the SAME value (both
+//! go through `chat_keepwarm_ping::send`), so "Loaded until" counts either kind. After a restart the box
 //! falls back to the last chat reply alone, so it can say "Not loaded" while the
 //! provider in fact still holds the case file. The DEV and PROD servers also
 //! share one provider cache, so either one can keep it warm without the other
@@ -23,16 +25,21 @@
 use std::sync::Mutex;
 
 use chrono::{DateTime, Duration, Utc};
-use colossus_chat::{build_prewarm_body, CacheTtl, ChatTransportError, RequestError, Usage};
+use colossus_chat::keepwarm::{decide, Decision, Facts, Idle};
+use colossus_chat::{CacheTtl, ChatTransportError, RequestError, Usage};
 use serde::Serialize;
 
+use crate::domain::settings::Settings;
+use crate::domain::wording_templates::render;
 use crate::repositories::pipeline_repository::chat_last_turn::last_chat_turn;
 use crate::repositories::pipeline_repository::PipelineRepoError;
 use crate::services::chat_case_prefix::{case_file_request, CaseFileError};
-use crate::services::chat_keepwarm_rates::{prewarm_cost, reload_cost};
+use crate::services::chat_keepwarm_ping::{ping, Trigger};
+use crate::services::chat_keepwarm_rates::reload_cost;
+use crate::services::chat_keepwarm_task::rules_of;
 use crate::services::chat_prefix_size::{package_size, PackageSize, PrefixParts};
 use crate::services::chat_question_gather::display_name;
-use crate::services::practice_clock::{local_clock, local_day, local_stamp};
+use crate::services::practice_clock::{local_clock, local_clock_of, local_day, local_stamp};
 use crate::state::AppState;
 
 // STRUCTURAL: the provider's `5m` cache lifetime, in minutes — the meaning of
@@ -144,6 +151,8 @@ pub struct ActivityDto {
     /// When not loaded: what the next question's reload will cost. `None` when
     /// loaded, when the model is unpriced, or when the size was not measured.
     pub reload_cost_dollars: Option<f64>,
+    /// The automatic ping's line: on with its window, paused for the day, or off.
+    pub automatic_line: String,
 }
 
 /// The result of one tap.
@@ -201,7 +210,44 @@ pub async fn activity(state: &AppState) -> Result<ActivityDto, KeepLoadedError> 
         loaded,
         loaded_until: until.filter(|_| loaded).map(|u| when(u, now, timezone)),
         reload_cost_dollars,
+        automatic_line: automatic_line(
+            &settings,
+            &Facts {
+                last_turn: last.as_ref().map(|t| t.at),
+                last_ping: state.keepwarm_last_ping.get(),
+            },
+            &state.keepwarm.ledger(),
+            now,
+        ),
     })
+}
+
+/// The box's automatic line, from the SAME rules the pinger runs — so the page
+/// can never say "on" about a day the pinger has stopped.
+///
+/// Off when switched off; paused whenever the rules have stopped for the rest of
+/// the day (the cap, a reload, an unpriced model, a closed window — the log says
+/// which); otherwise on, with the window's times.
+pub fn automatic_line(
+    settings: &Settings,
+    facts: &Facts,
+    ledger: &colossus_chat::keepwarm::Ledger,
+    now: DateTime<Utc>,
+) -> String {
+    let words = &settings.admin_wording.case_file;
+    let window = &settings.question_chat.keepwarm;
+    match decide(&rules_of(settings), facts, ledger, now) {
+        Decision::Idle(Idle::Disabled) => words.automatic_off.clone(),
+        Decision::Paused(_) => words.automatic_paused.clone(),
+        Decision::Due | Decision::SleepUntil(_) | Decision::Idle(_) => {
+            let start = local_clock_of(window.window_start);
+            let end = local_clock_of(window.window_end);
+            render(
+                &words.automatic_on,
+                &[("start", start.as_str()), ("end", end.as_str())],
+            )
+        }
+    }
 }
 
 /// What reloading the case file would cost, from the provider's own count of it
@@ -244,49 +290,23 @@ pub(crate) async fn reload_estimate(state: &AppState) -> Result<Option<f64>, Kee
     })
 }
 
-/// Send one keep-loaded ping with the chat's current model and settings.
+/// Send one keep-loaded ping now, through the one ping path the automatic
+/// pinger also uses (`chat_keepwarm_ping`), and answer with the refreshed lines.
+///
+/// The button is never refused by the daily cap — a person pressing it has
+/// decided — but its cost counts in the day's spend (PLAN R3 §9(1)).
 ///
 /// # Errors
 /// See [`KeepLoadedError`]. A provider failure is logged at WARN with the
 /// provider's own text before it is returned.
 pub async fn keep_loaded(state: &AppState) -> Result<KeepLoadedDto, KeepLoadedError> {
-    let backend = state
-        .chat_engine
-        .clone()
-        .ok_or(KeepLoadedError::EngineOff)?;
+    let report = ping(state, Trigger::Button).await?;
     let settings = state.settings.current();
-    let chat = &settings.question_chat;
-    let request = case_file_request(state).await?;
-    let body = build_prewarm_body(&request)?;
-    let usage = match backend.prewarm(&body).await {
-        Ok(u) => u,
-        Err(e) => {
-            tracing::warn!(model = %chat.model, outcome = "error", error = %e,
-                "keep loaded: the ping failed");
-            return Err(KeepLoadedError::Provider(e));
-        }
-    };
-    let now = Utc::now();
-    state.keepwarm_last_ping.set(now);
-    let result = outcome(&usage);
-    let cost = prewarm_cost(&chat.model, chat.cache_ttl, &usage);
-    let until = now + ttl_duration(chat.cache_ttl);
-    tracing::info!(
-        model = %chat.model,
-        outcome = ?result,
-        read = ?usage.cache_read_input_tokens,
-        wrote = ?usage.cache_creation_input_tokens,
-        input = ?usage.input_tokens,
-        output = ?usage.output_tokens,
-        dollars = ?cost,
-        loaded_until = %until,
-        "keep loaded: ping sent"
-    );
     let timezone = settings.practice_read.case_timezone.as_str();
     Ok(KeepLoadedDto {
-        outcome: result,
-        loaded_until: when(until, now, timezone),
-        cost_dollars: cost,
+        outcome: report.outcome,
+        loaded_until: when(report.until, report.at, timezone),
+        cost_dollars: report.cost,
         activity: activity(state).await?,
     })
 }

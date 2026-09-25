@@ -181,10 +181,14 @@ pub struct AppState {
     /// interior `RwLock` is what then permits a write through the shared
     /// reference; see the module's own note.
     pub chat_prefix_size: Arc<crate::services::chat_prefix_size::PrefixSizeCache>,
-    /// When the Admin "keep loaded" button last pinged successfully, since boot.
-    /// In memory only and reset on restart (CC_TASK_KEEPWARM_BUTTON_v1); `Arc`
-    /// for the reason `chat_prefix_size` gives above.
+    /// When a keep-loaded ping (the Admin button or the automatic pinger) last
+    /// succeeded, since boot. In memory only and reset on restart
+    /// (CC_TASK_KEEPWARM_BUTTON_v1); `Arc` for the reason `chat_prefix_size`
+    /// gives above.
     pub keepwarm_last_ping: Arc<crate::services::chat_keepwarm_button::LastPing>,
+    /// The automatic pinger's day (spend, a stop, the case file's fingerprint)
+    /// and the signal a finished chat turn sends it (CC_TASK_CACHE_KEEPWARM_v1).
+    pub keepwarm: Arc<crate::services::chat_keepwarm_state::KeepWarm>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

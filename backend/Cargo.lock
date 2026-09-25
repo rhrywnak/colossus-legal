@@ -719,6 +719,8 @@ name = "colossus-chat"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "chrono",
+ "chrono-tz",
  "futures",
  "reqwest 0.13.2",
  "serde",

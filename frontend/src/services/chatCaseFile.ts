@@ -17,6 +17,7 @@ import { authFetch } from "./auth";
  *   pub loaded: bool                        → loaded: boolean
  *   pub loaded_until: Option<String>        → loaded_until: string | null
  *   pub reload_cost_dollars: Option<f64>    → reload_cost_dollars: number | null
+ *   pub automatic_line: String              → automatic_line: string
  */
 export type ChatCaseFileActivity = {
   last_question_at: string | null;
@@ -24,6 +25,12 @@ export type ChatCaseFileActivity = {
   loaded: boolean;
   loaded_until: string | null;
   reload_cost_dollars: number | null;
+  /**
+   * The automatic ping's line, finished by the server from the stored wording:
+   * on with its hours, on but paused until tomorrow, or off
+   * (CC_TASK_CACHE_KEEPWARM_v1). Shown as-is; the box decides nothing.
+   */
+  automatic_line: string;
 };
 
 /** One tap's result (`KeepLoadedDto`): `outcome` is `read` or `wrote`. */

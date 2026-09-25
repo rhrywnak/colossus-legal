@@ -49,6 +49,18 @@ pub fn prewarm_cost(model: &str, ttl: CacheTtl, usage: &Usage) -> Option<f64> {
     )
 }
 
+/// Whether this model's prices are known here. Keep-warm refuses to arm for any
+/// model that is not: a dollar cap cannot be kept with no price to count by.
+pub fn is_priced(model: &str) -> bool {
+    model == PRICED_MODEL
+}
+
+/// What READING a case file of `prefix_tokens` would cost; `None` when unpriced.
+/// The automatic ping's cap projection before any ping has been measured.
+pub fn read_cost(model: &str, prefix_tokens: u64) -> Option<f64> {
+    is_priced(model).then_some(prefix_tokens as f64 * CACHE_READ_USD_PER_TOKEN)
+}
+
 /// What reloading a case file of `prefix_tokens` would cost; `None` when unpriced.
 pub fn reload_cost(model: &str, ttl: CacheTtl, prefix_tokens: u64) -> Option<f64> {
     (model == PRICED_MODEL).then(|| prefix_tokens as f64 * write_rate(ttl))
@@ -100,6 +112,14 @@ mod tests {
         let mut u = usage(368_832, 0);
         u.output_tokens = Some(3);
         assert_eq!(prewarm_cost(PRICED_MODEL, CacheTtl::OneHour, &u), None);
+    }
+
+    #[test]
+    fn a_read_is_the_prefix_at_the_read_price_and_unpriced_is_none() {
+        let c = read_cost(PRICED_MODEL, 368_832).unwrap();
+        assert!((c - 0.073_766_4).abs() < 1e-9, "{c}");
+        assert!(is_priced(PRICED_MODEL));
+        assert_eq!(read_cost("claude-opus-5", 368_832), None);
     }
 
     #[test]

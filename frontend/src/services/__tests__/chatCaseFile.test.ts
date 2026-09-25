@@ -23,6 +23,13 @@ describe("the chat case file calls", () => {
     expect(String(mock.mock.calls[0][0])).toContain("/api/admin/chat-case-file");
   });
 
+  it("passes the server's automatic line through untouched", async () => {
+    const line = "Automatic: on, paused until tomorrow";
+    ok({ loaded: true, automatic_line: line });
+    const activity = await getChatCaseFile();
+    expect(activity.automatic_line).toBe(line);
+  });
+
   it("POSTs the ping to its own route", async () => {
     const mock = ok({ outcome: "read" });
     await expect(keepLoaded()).resolves.toEqual({ outcome: "read" });
