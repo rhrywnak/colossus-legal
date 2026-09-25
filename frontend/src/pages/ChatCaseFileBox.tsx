@@ -1,11 +1,13 @@
 // ChatCaseFileBox.tsx — Admin → Overview: keep the chat's case file loaded.
 //
 // Roman's box (CC_TASK_KEEPWARM_BUTTON_v1): a title, one explanatory line, the
-// last chat question, how long the case file stays loaded, and one button. Both
+// last chat question, how long the case file stays loaded, whether the automatic
+// ping is on (a link to its settings), and one button. Both
 // activity lines load when the box opens and are replaced by the server's fresh
 // ones after every tap. Every failure is shown in the box and logged.
 
 import React, { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
   getChatCaseFile,
   keepLoaded,
@@ -22,6 +24,7 @@ import {
   loadedLine,
   resultLine,
 } from "./chatCaseFileText";
+import { adminSettingsPath } from "../utils/routePaths";
 
 const boxStyle: React.CSSProperties = {
   background: "var(--bg-surface)",
@@ -43,6 +46,12 @@ const lineStyle: React.CSSProperties = {
   fontSize: "0.84rem",
   color: "var(--text-secondary)",
   margin: "0.2rem 0",
+};
+
+/** The automatic line is a link to the settings that govern it. */
+const settingsLinkStyle: React.CSSProperties = {
+  color: "var(--accent-primary)",
+  textDecoration: "underline",
 };
 
 const buttonStyle: React.CSSProperties = {
@@ -115,6 +124,13 @@ const ChatCaseFileBox: React.FC = () => {
         <>
           <p style={lineStyle}>{lastQuestionLine(activity)}</p>
           <p style={lineStyle}>{loadedLine(activity)}</p>
+          {/* CC_TASK_CACHE_KEEPWARM_v1: whether the automatic ping is on, as
+              the server words it; the whole line opens Admin → Settings. */}
+          <p style={lineStyle}>
+            <Link to={adminSettingsPath()} style={settingsLinkStyle}>
+              {activity.automatic_line}
+            </Link>
+          </p>
         </>
       )}
       <button

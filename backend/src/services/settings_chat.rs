@@ -60,6 +60,7 @@ pub(crate) fn build_question_chat_params(
         error_preview_chars: count(KEY_QUESTION_CHAT_ERROR_PREVIEW_CHARS)?,
         ai_display_name: text(KEY_QUESTION_CHAT_AI_DISPLAY_NAME)?,
         chars_per_token: count(KEY_QUESTION_CHAT_CHARS_PER_TOKEN)?,
+        keepwarm: crate::services::settings_keepwarm::build_keepwarm_params(rows)?,
     })
 }
 

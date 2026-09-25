@@ -9,6 +9,7 @@
 use super::settings_map::{Area, Block};
 use crate::domain::wording_ai_job_rows::AI_JOB_ROWS_WORDING_KEYS;
 use crate::domain::wording_ai_jobs::AI_JOBS_WORDING_KEYS;
+use crate::domain::wording_case_file::CASE_FILE_WORDING_KEYS;
 use crate::domain::wording_last_run::LAST_RUN_WORDING_KEYS;
 
 /// The Admin area (CC_TASK_MODEL_JOBS_PANEL_v1).
@@ -30,6 +31,11 @@ pub const ADMIN_AREA: Area = Area {
             id: "last_run",
             label: "Admin → Data: the last document run",
             keys: LAST_RUN_WORDING_KEYS,
+        },
+        Block {
+            id: "case_file",
+            label: "Admin → Overview: the Chat case file box's automatic line",
+            keys: CASE_FILE_WORDING_KEYS,
         },
     ],
 };

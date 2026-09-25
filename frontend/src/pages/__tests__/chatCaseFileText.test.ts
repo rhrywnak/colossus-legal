@@ -17,6 +17,7 @@ const loaded: ChatCaseFileActivity = {
   loaded: true,
   loaded_until: "2:42 pm",
   reload_cost_dollars: null,
+  automatic_line: "Automatic: on, 6:00 am – 11:00 pm",
 };
 
 const notLoaded: ChatCaseFileActivity = {

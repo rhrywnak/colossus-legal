@@ -57,6 +57,9 @@ pub struct QuestionChatParams {
     pub ai_display_name: String,
     /// Characters per token the context-size guard assumes.
     pub chars_per_token: u32,
+    /// The automatic keep-loaded ping's settings (CC_TASK_CACHE_KEEPWARM_v1 R3):
+    /// when the case file is re-sent so the next question reads it.
+    pub keepwarm: crate::domain::keepwarm_params::KeepwarmParams,
 }
 
 // KEYS: the stable identifiers. Renaming one is a migration.
@@ -190,6 +193,7 @@ impl QuestionChatParams {
             error_preview_chars: 500,
             ai_display_name: "The AI".into(),
             chars_per_token: 3,
+            keepwarm: crate::domain::keepwarm_params::KeepwarmParams::for_test(),
         }
     }
 }

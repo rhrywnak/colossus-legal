@@ -37,6 +37,7 @@ pub mod fact_status;
 pub mod fact_tier;
 pub mod gather_filter;
 pub mod human_authored;
+pub mod keepwarm_params;
 pub mod link_cut;
 /// The Messages API `effort` dial and which call families turn it down —
 /// the 2026-08-28 all-reasoning-blocks incident's fix.
@@ -72,6 +73,7 @@ pub mod wording_chronology;
 pub mod wording_admin;
 pub mod wording_ai_job_rows;
 pub mod wording_ai_jobs;
+pub mod wording_case_file;
 pub mod wording_chronology_keys;
 pub mod wording_env_banner;
 pub mod wording_fact_card;

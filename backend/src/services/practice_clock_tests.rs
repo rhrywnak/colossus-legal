@@ -198,3 +198,12 @@ fn an_unknown_zone_gives_the_utc_day() {
         "in UTC that instant is already the 22nd"
     );
 }
+
+/// A stored window time reads in the same clock format as every other time.
+#[test]
+fn a_time_of_day_reads_like_every_other_clock() {
+    let t = |h, m| chrono::NaiveTime::from_hms_opt(h, m, 0).unwrap();
+    assert_eq!(super::local_clock_of(t(6, 0)), "6:00 am");
+    assert_eq!(super::local_clock_of(t(23, 0)), "11:00 pm");
+    assert_eq!(super::local_clock_of(t(12, 5)), "12:05 pm");
+}

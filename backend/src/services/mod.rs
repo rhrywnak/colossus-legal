@@ -16,7 +16,10 @@ pub mod last_run;
 pub mod chat_case_prefix;
 pub mod chat_engine_setup;
 pub mod chat_keepwarm_button;
+pub mod chat_keepwarm_ping;
 pub mod chat_keepwarm_rates;
+pub mod chat_keepwarm_state;
+pub mod chat_keepwarm_task;
 pub mod chat_model_check;
 pub mod chat_prefix_size;
 pub mod chat_providers_live;
@@ -139,6 +142,7 @@ pub mod scenario_subject;
 pub mod settings_boot;
 pub mod settings_chat;
 pub mod settings_handle;
+pub mod settings_keepwarm;
 pub mod settings_practice;
 pub mod settings_row_readers;
 // Which block of the admin Settings page each stored key belongs to — the ONE

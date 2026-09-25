@@ -367,9 +367,13 @@ async fn run_serve(config: AppConfig, graph: neo4rs::Graph, http_client: reqwest
         chat_engine,
         chat_prefix_size: Arc::new(PrefixSizeCache::new()),
         keepwarm_last_ping: Arc::new(LastPing::default()),
+        keepwarm: Arc::default(),
     };
     // BOOT PRECONDITIONS for the question chat — see `chat_model_check::assert_chat_ready`.
     colossus_legal_backend::services::chat_model_check::assert_chat_ready(&state).await;
+    // The automatic keep-loaded pinger (CC_TASK_CACHE_KEEPWARM_v1), after the chat
+    // is known to be ready; it re-arms from the store, so a restart loses nothing.
+    colossus_legal_backend::services::chat_keepwarm_task::start(state.clone());
 
     // Ensure the Qdrant collection exists with the correct dimensions.
     // Running this at startup (before any handler can run) makes the

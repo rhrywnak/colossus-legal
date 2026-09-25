@@ -283,6 +283,12 @@ pub const REQUIRED_PLACEHOLDERS: &[(&str, &[&str])] = &[
     // The field closes on save. Without the reason the reader is left looking at
     // a sentence the database does not hold.
     (fact_card::KEY_SAVE_FAILED_TEMPLATE, &["{detail}"]),
+    // CC_TASK_CACHE_KEEPWARM_v1: "Automatic: on" without its hours cannot tell
+    // Roman whether a quiet evening is outside the window or a failure.
+    (
+        crate::domain::wording_case_file::KEY_CASE_FILE_AUTOMATIC_ON,
+        &["{start}", "{end}"],
+    ),
 ];
 
 /// Which required placeholders a candidate value is missing, for one key.

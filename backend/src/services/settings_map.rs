@@ -142,6 +142,11 @@ pub const AREAS: &[Area] = &[
                 keys: crate::domain::chat_params::QUESTION_CHAT_PARAM_KEYS,
             },
             Block {
+                id: "chat_keepwarm_params",
+                label: "Discussion — keeping the case file loaded automatically",
+                keys: crate::domain::keepwarm_params::CHAT_KEEPWARM_PARAM_KEYS,
+            },
+            Block {
                 id: "question_chat",
                 label: "Discussion panel — the words beside a question",
                 keys: crate::domain::wording_question_chat::QUESTION_CHAT_WORDING_KEYS,

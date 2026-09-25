@@ -77,3 +77,73 @@ fn outcomes_serialize_as_the_page_expects() {
     assert_eq!(serde_json::to_value(Outcome::Read).unwrap(), "read");
     assert_eq!(serde_json::to_value(Outcome::Wrote).unwrap(), "wrote");
 }
+
+/// The automatic line: the rules decide, the rows speak.
+mod automatic_line_tests {
+    use super::*;
+    use crate::services::chat_keepwarm_rates::PRICED_MODEL;
+    use chrono_tz::America::Detroit;
+    use colossus_chat::keepwarm::{Ledger, Pause};
+
+    fn settings() -> Settings {
+        let mut s = Settings::for_test();
+        s.question_chat.model = PRICED_MODEL.to_string();
+        s
+    }
+
+    /// 10:00 am in Detroit on 2026-09-25, as UTC.
+    fn ten_am() -> DateTime<Utc> {
+        Detroit
+            .with_ymd_and_hms(2026, 9, 25, 10, 0, 0)
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn chatted() -> Facts {
+        Facts {
+            last_turn: Some(ten_am() - Duration::minutes(10)),
+            last_ping: None,
+        }
+    }
+
+    #[test]
+    fn on_names_the_window_in_the_clock_format() {
+        let line = automatic_line(&settings(), &chatted(), &Ledger::default(), ten_am());
+        assert_eq!(line, "Automatic: on, 6:00 am – 11:00 pm");
+        // Not armed yet (nobody has chatted) is still "on".
+        let idle = automatic_line(&settings(), &Facts::default(), &Ledger::default(), ten_am());
+        assert_eq!(idle, line);
+    }
+
+    #[test]
+    fn off_when_switched_off() {
+        let mut s = settings();
+        s.question_chat.keepwarm.enabled = false;
+        let line = automatic_line(&s, &chatted(), &Ledger::default(), ten_am());
+        assert_eq!(line, "Automatic: off");
+    }
+
+    #[test]
+    fn paused_for_the_cap_an_unpriced_model_and_a_closed_window() {
+        let paused = "Automatic: on, paused until tomorrow";
+        let capped = Ledger {
+            day: Some(ten_am().with_timezone(&Detroit).date_naive()),
+            paused: Some(Pause::Cap),
+            ..Ledger::default()
+        };
+        assert_eq!(
+            automatic_line(&settings(), &chatted(), &capped, ten_am()),
+            paused
+        );
+        let unpriced = Settings::for_test();
+        assert_eq!(
+            automatic_line(&unpriced, &chatted(), &Ledger::default(), ten_am()),
+            paused
+        );
+        let late = ten_am() + Duration::hours(13) + Duration::minutes(30);
+        assert_eq!(
+            automatic_line(&settings(), &chatted(), &Ledger::default(), late),
+            paused
+        );
+    }
+}

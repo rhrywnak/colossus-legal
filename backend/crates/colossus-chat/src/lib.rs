@@ -24,12 +24,14 @@
 //! - [`tools`] — the tool contract.
 //! - [`backend`] — one streamed call over HTTP, behind a trait.
 //! - [`engine`] — the bounded tool loop that runs one conversational turn.
+//! - [`keepwarm`] — when to re-send a cached prefix so the provider keeps it.
 
 pub mod accumulate;
 pub mod backend;
 mod blocks;
 pub mod citation;
 pub mod engine;
+pub mod keepwarm;
 pub mod request;
 pub mod sse;
 pub mod tools;
